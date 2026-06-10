@@ -17,8 +17,13 @@ ADAPTER_CLASSES = {
 
 
 def build_adapters(configs: dict[str, AdapterConfig], bus: EventBus) -> list[Adapter]:
-    return [
-        adapter_class(name=name, config=config, bus=bus)
-        for name, adapter_class in ADAPTER_CLASSES.items()
-        if (config := configs.get(name)) and config.enabled
-    ]
+    adapters: list[Adapter] = []
+    for instance_name, config in configs.items():
+        if not config.enabled:
+            continue
+
+        kind = config.kind or instance_name
+        adapter_class = ADAPTER_CLASSES[kind]
+        adapters.append(adapter_class(name=instance_name, config=config, bus=bus))
+
+    return adapters

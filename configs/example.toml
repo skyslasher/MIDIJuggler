@@ -7,15 +7,36 @@ enabled = true
 listen_host = "0.0.0.0"
 listen_port = 9000
 
+# Additional OSC/USB-MIDI/RTP-MIDI instances use their own table name and a type.
+# The table name becomes the routing prefix in mappings, for example
+# source = "osc_pedalboard:/pedal/expression".
+[adapters.osc_pedalboard]
+type = "osc"
+enabled = false
+listen_host = "0.0.0.0"
+listen_port = 9001
+
 [adapters.usb_midi]
 enabled = true
 input_port = "MIDIJuggler In"
 output_port = "MIDIJuggler Out"
 
+[adapters.usb_stage]
+type = "usb_midi"
+enabled = false
+input_port = "Stage MIDI In"
+output_port = "Stage MIDI Out"
+
 [adapters.rtp_midi]
 enabled = false
 session_name = "MIDIJuggler"
 port = 5004
+
+[adapters.rtp_remote]
+type = "rtp_midi"
+enabled = false
+session_name = "MIDIJuggler Remote"
+port = 5005
 
 [adapters.gpio]
 enabled = true

@@ -20,6 +20,7 @@ class WebConfig:
 class AdapterConfig:
     enabled: bool = False
     options: dict[str, Any] = field(default_factory=dict)
+    kind: str = ""
 
 
 @dataclass(frozen=True)
@@ -30,6 +31,7 @@ class AppConfig:
 
 
 DEFAULT_ADAPTERS = ("osc", "usb_midi", "rtp_midi", "gpio")
+MULTI_INSTANCE_ADAPTERS = ("osc", "usb_midi", "rtp_midi")
 
 
 def load_config(path: str | Path) -> AppConfig:
@@ -46,11 +48,7 @@ def parse_config(raw: dict[str, Any]) -> AppConfig:
         port=_as_int(web_raw.get("port", 8080), "web.port"),
     )
 
-    adapters_raw = raw.get("adapters", {})
-    adapters = {
-        name: _parse_adapter(name, adapters_raw.get(name, {}))
-        for name in DEFAULT_ADAPTERS
-    }
+    adapters = _parse_adapters(raw.get("adapters", {}))
 
     mappings = [
         _parse_mapping(index, mapping_raw)
@@ -60,13 +58,65 @@ def parse_config(raw: dict[str, Any]) -> AppConfig:
     return AppConfig(web=web, adapters=adapters, mappings=mappings)
 
 
-def _parse_adapter(name: str, raw: Any) -> AdapterConfig:
+def _parse_adapters(raw: Any) -> dict[str, AdapterConfig]:
     if raw is None:
         raw = {}
     if not isinstance(raw, dict):
-        raise ValueError(f"adapters.{name} must be a table")
-    options = {key: value for key, value in raw.items() if key != "enabled"}
-    return AdapterConfig(enabled=bool(raw.get("enabled", False)), options=options)
+        raise ValueError("adapters must be a table")
+
+    adapters = {
+        name: AdapterConfig(enabled=False, options={}, kind=name)
+        for name in DEFAULT_ADAPTERS
+    }
+
+    for instance_name, adapter_raw in raw.items():
+        adapters[instance_name] = _parse_adapter(instance_name, adapter_raw)
+
+    return adapters
+
+
+def _parse_adapter(instance_name: str, raw: Any) -> AdapterConfig:
+    _validate_adapter_instance_name(instance_name)
+    if raw is None:
+        raw = {}
+    if not isinstance(raw, dict):
+        raise ValueError(f"adapters.{instance_name} must be a table")
+
+    kind = str(raw.get("type") or instance_name)
+    if kind not in DEFAULT_ADAPTERS:
+        raise ValueError(
+            f"adapters.{instance_name}.type must be one of: "
+            f"{', '.join(DEFAULT_ADAPTERS)}"
+        )
+    if instance_name in DEFAULT_ADAPTERS and kind != instance_name:
+        raise ValueError(
+            f"adapters.{instance_name}.type must be {instance_name!r} "
+            "for the default adapter table"
+        )
+    if instance_name not in DEFAULT_ADAPTERS and kind not in MULTI_INSTANCE_ADAPTERS:
+        raise ValueError(
+            f"adapters.{instance_name} cannot create additional {kind} instances"
+        )
+
+    options = {
+        key: value
+        for key, value in raw.items()
+        if key not in {"enabled", "type"}
+    }
+    return AdapterConfig(
+        enabled=bool(raw.get("enabled", False)),
+        options=options,
+        kind=kind,
+    )
+
+
+def _validate_adapter_instance_name(instance_name: str) -> None:
+    if not instance_name:
+        raise ValueError("adapter instance names must not be empty")
+    if ":" in instance_name or any(character.isspace() for character in instance_name):
+        raise ValueError(
+            f"adapter instance name {instance_name!r} cannot contain ':' or whitespace"
+        )
 
 
 def _parse_mapping(index: int, raw: Any) -> MappingRule:

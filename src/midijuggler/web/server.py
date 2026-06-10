@@ -114,7 +114,11 @@ class WebInterface:
             "learn_mode": self.learn_mode,
             "mappings": [rule.__dict__ for rule in self.config.mappings],
             "adapters": {
-                name: {"enabled": adapter.enabled, "options": adapter.options}
+                name: {
+                    "type": adapter.kind or name,
+                    "enabled": adapter.enabled,
+                    "options": adapter.options,
+                }
                 for name, adapter in self.config.adapters.items()
             },
         }

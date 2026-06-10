@@ -24,10 +24,45 @@ def test_parse_config_reads_web_adapters_and_mappings() -> None:
     assert config.web.host == "127.0.0.1"
     assert config.web.port == 9090
     assert config.adapters["gpio"].enabled is True
+    assert config.adapters["gpio"].kind == "gpio"
     assert config.adapters["gpio"].options["pins"] == [17]
     assert config.adapters["osc"].enabled is False
     assert config.mappings[0].id == "switch"
     assert config.mappings[0].invert is True
+
+
+def test_parse_config_supports_named_adapter_instances() -> None:
+    config = parse_config(
+        {
+            "adapters": {
+                "osc": {"enabled": True, "listen_port": 9000},
+                "osc_pedalboard": {
+                    "type": "osc",
+                    "enabled": True,
+                    "listen_port": 9001,
+                },
+                "usb_stage": {
+                    "type": "usb_midi",
+                    "enabled": True,
+                    "output_port": "Stage MIDI",
+                },
+                "rtp_remote": {
+                    "type": "rtp_midi",
+                    "enabled": False,
+                    "session_name": "Remote",
+                },
+            }
+        }
+    )
+
+    assert config.adapters["osc"].kind == "osc"
+    assert config.adapters["osc"].options["listen_port"] == 9000
+    assert config.adapters["osc_pedalboard"].kind == "osc"
+    assert config.adapters["osc_pedalboard"].options["listen_port"] == 9001
+    assert config.adapters["usb_stage"].kind == "usb_midi"
+    assert config.adapters["usb_stage"].options["output_port"] == "Stage MIDI"
+    assert config.adapters["rtp_remote"].kind == "rtp_midi"
+    assert config.adapters["rtp_remote"].enabled is False
 
 
 def test_load_config_reads_toml_file(tmp_path: Path) -> None:
@@ -59,3 +94,23 @@ def test_load_config_reads_toml_file(tmp_path: Path) -> None:
 def test_parse_config_rejects_incomplete_mapping() -> None:
     with pytest.raises(ValueError, match="missing required fields"):
         parse_config({"mappings": [{"id": "broken", "source": "gpio:pin17"}]})
+
+
+def test_parse_config_rejects_unknown_adapter_instance_without_type() -> None:
+    with pytest.raises(ValueError, match="type must be one of"):
+        parse_config({"adapters": {"pedalboard": {"enabled": True}}})
+
+
+def test_parse_config_rejects_additional_gpio_instances() -> None:
+    with pytest.raises(ValueError, match="cannot create additional gpio instances"):
+        parse_config({"adapters": {"gpio_extra": {"type": "gpio", "enabled": True}}})
+
+
+def test_parse_config_rejects_mismatched_default_adapter_type() -> None:
+    with pytest.raises(ValueError, match="default adapter table"):
+        parse_config({"adapters": {"osc": {"type": "usb_midi", "enabled": True}}})
+
+
+def test_parse_config_rejects_adapter_names_that_break_mapping_prefixes() -> None:
+    with pytest.raises(ValueError, match="cannot contain"):
+        parse_config({"adapters": {"osc:bad": {"type": "osc", "enabled": True}}})

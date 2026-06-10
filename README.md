@@ -33,6 +33,30 @@ define the lifecycle and routing boundaries that concrete OSC, MIDI and RTP-MIDI
 implementations can fill in later. GPIO footswitch input is implemented via
 polling configured BCM GPIO numbers.
 
+OSC, USB MIDI and RTP-MIDI can have multiple named instances. The adapter table
+name is the routing prefix used in mappings:
+
+```toml
+[adapters.osc]
+enabled = true
+listen_port = 9000
+
+[adapters.osc_pedalboard]
+type = "osc"
+enabled = true
+listen_port = 9001
+
+[adapters.usb_stage]
+type = "usb_midi"
+enabled = true
+output_port = "Stage MIDI Out"
+
+[[mappings]]
+id = "pedalboard-expression"
+source = "osc_pedalboard:/pedal/expression"
+target = "usb_stage:cc:1:11"
+```
+
 GPIO inputs are configured with a pin list. The number of entries controls the
 number of inputs:
 
