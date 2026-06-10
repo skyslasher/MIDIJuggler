@@ -184,6 +184,32 @@ legend {
   padding: 0.45rem 0.55rem;
 }
 
+.midi-devices-wrapper {
+  display: grid;
+  gap: 1rem;
+  grid-column: 1 / -1;
+}
+
+.midi-devices-form {
+  display: grid;
+  gap: 1rem;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+
+.midi-devices-actions {
+  display: grid;
+  gap: 0.5rem;
+  grid-column: 1 / -1;
+}
+
+.midi-device-panel {
+  min-height: 320px;
+}
+
+.midi-device-panel .rtp-discovery-note {
+  margin-bottom: 0.75rem;
+}
+
 .midi-adapter-card {
   background: #101827;
   border: 1px solid #31405e;
@@ -310,6 +336,10 @@ article {
   }
 
   .grid {
+    grid-template-columns: 1fr;
+  }
+
+  .midi-devices-form {
     grid-template-columns: 1fr;
   }
 }

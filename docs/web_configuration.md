@@ -58,20 +58,21 @@ hardware and DietPi documentation.
 
 ## MIDI devices
 
-The **MIDI Devices** card exposes all configured `usb_midi` and `rtp_midi`
-adapter instances. For each instance you can edit:
+The configuration view shows **MIDI** and **RTP-MIDI** in separate cards.
+Each configured `midi` or `rtp_midi` adapter instance appears in the
+matching card. For each instance you can edit:
 
 - enabled flag
-- USB MIDI `input_port` and `output_port`
+- MIDI `input_port` and `output_port`
 - optional `midi_library`
 - RTP-MIDI mode: `host` (announce a local session via mDNS) or `join` (connect
   to a discovered remote session)
 - RTP-MIDI `session_name` and UDP `port` in host mode
 - RTP-MIDI `join_target` in join mode, chosen from discovered remote sessions
 
-Use **Refresh RTP sessions** to reload the current mDNS discovery results before
-selecting a join target. The counter above the adapter cards shows how many
-sessions are visible on the network in total.
+Use **Refresh RTP sessions** in the RTP-MIDI card to reload the current mDNS
+discovery results before selecting a join target. The status line in that card
+shows how many sessions are visible on the network in total.
 
 ### RTP-MIDI mDNS backend
 
@@ -146,7 +147,7 @@ Example POST body:
 {
   "instances": [
     {
-      "name": "usb_midi",
+      "name": "midi",
       "enabled": true,
       "input_port": "MIDIJuggler In",
       "output_port": "MIDIJuggler Out",
@@ -208,8 +209,8 @@ Example POST body:
   "bpm_min": 40.0,
   "bpm_max": 240.0,
   "auto_start": false,
-  "output_targets": ["usb_midi", "rtp_midi"],
-  "midi_input_targets": ["usb_midi"],
+  "output_targets": ["midi", "rtp_midi"],
+  "midi_input_targets": ["midi"],
   "osc_input_targets": ["osc"],
   "send_transport": true,
   "bpm_osc_address": "/midijuggler/clock/bpm",

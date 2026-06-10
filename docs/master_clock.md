@@ -13,8 +13,8 @@ bpm = 120.0
 bpm_min = 40.0
 bpm_max = 240.0
 auto_start = false
-output_targets = ["usb_midi", "rtp_midi"]
-midi_input_targets = ["usb_midi"]
+output_targets = ["midi", "rtp_midi"]
+midi_input_targets = ["midi"]
 osc_input_targets = ["osc"]
 send_transport = true
 
@@ -32,7 +32,7 @@ click_interval = "quarter"
 click_audio_device = ""
 ```
 
-`output_targets` are adapter instance names. Use USB MIDI and/or RTP-MIDI
+`output_targets` are adapter instance names. Use MIDI and/or RTP-MIDI
 instances depending on where MIDI Clock should be sent.
 
 `midi_input_targets` and `osc_input_targets` select which adapter instances may

@@ -51,17 +51,17 @@ def test_service_filters_disabled_master_clock_output_targets() -> None:
             {
                 "master_clock": {
                     "enabled": True,
-                    "output_targets": ["usb_midi", "rtp_midi"],
+                    "output_targets": ["midi", "rtp_midi"],
                 },
                 "adapters": {
-                    "usb_midi": {"enabled": True},
+                    "midi": {"enabled": True},
                     "rtp_midi": {"enabled": False},
                 },
             }
         )
     )
 
-    assert service.master_clock.config.output_targets == ["usb_midi"]
+    assert service.master_clock.config.output_targets == ["midi"]
 
 
 def test_service_filters_master_clock_midi_input_targets() -> None:
@@ -74,14 +74,14 @@ def test_service_filters_master_clock_midi_input_targets() -> None:
                         "midi_input_targets": ["usb_stage"],
                     },
                     "adapters": {
-                        "usb_midi": {"enabled": True},
-                        "usb_stage": {"type": "usb_midi", "enabled": True},
+                        "midi": {"enabled": True},
+                        "usb_stage": {"type": "midi", "enabled": True},
                     },
                 }
             )
         )
         await service._handle_midi_message(
-            MidiMessageEvent(source="usb_midi", direction="input", status=MIDI_START)
+            MidiMessageEvent(source="midi", direction="input", status=MIDI_START)
         )
         await service._handle_midi_message(
             MidiMessageEvent(source="usb_stage", direction="input", status=MIDI_STOP)
@@ -99,12 +99,12 @@ def test_service_accepts_all_enabled_midi_inputs_when_unconfigured() -> None:
             parse_config(
                 {
                     "master_clock": {"enabled": True},
-                    "adapters": {"usb_midi": {"enabled": True}},
+                    "adapters": {"midi": {"enabled": True}},
                 }
             )
         )
         await service._handle_midi_message(
-            MidiMessageEvent(source="usb_midi", direction="input", status=MIDI_START)
+            MidiMessageEvent(source="midi", direction="input", status=MIDI_START)
         )
         return service
 

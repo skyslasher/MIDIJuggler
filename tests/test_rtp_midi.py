@@ -340,8 +340,11 @@ def test_midi_payload_includes_rtp_discovery_fields(monkeypatch) -> None:
 
     assert payload["rtp_midi_available"] is True
     assert payload["discovered_rtp_sessions"][0]["name"] == "Studio"
-    assert payload["instances"][0]["role"] == "join"
-    assert payload["instances"][0]["join_target"] == "mac.local.:5004:Studio"
+    rtp_instance = next(
+        instance for instance in payload["instances"] if instance["name"] == "rtp_midi"
+    )
+    assert rtp_instance["role"] == "join"
+    assert rtp_instance["join_target"] == "mac.local.:5004:Studio"
 
 
 def test_normalized_rtp_midi_options_rejects_join_without_target() -> None:

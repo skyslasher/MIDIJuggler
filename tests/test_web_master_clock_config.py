@@ -16,10 +16,10 @@ def test_master_clock_config_payload_lists_midi_output_targets() -> None:
             "master_clock": {
                 "enabled": True,
                 "bpm": 120.0,
-                "output_targets": ["usb_midi"],
+                "output_targets": ["midi"],
             },
             "adapters": {
-                "usb_midi": {"enabled": True},
+                "midi": {"enabled": True},
                 "rtp_remote": {
                     "type": "rtp_midi",
                     "enabled": False,
@@ -50,7 +50,7 @@ def test_master_clock_config_payload_lists_midi_output_targets() -> None:
         (target["name"], target["type"], target["selected"])
         for target in payload["available_output_targets"]
     ] == [
-        ("usb_midi", "usb_midi", True),
+        ("midi", "midi", True),
         ("rtp_midi", "rtp_midi", False),
         ("rtp_remote", "rtp_midi", False),
     ]
@@ -60,7 +60,7 @@ def test_master_clock_config_payload_lists_midi_output_targets() -> None:
         (target["name"], target["type"], target["selected"])
         for target in payload["available_midi_input_targets"]
     ] == [
-        ("usb_midi", "usb_midi", True),
+        ("midi", "midi", True),
         ("rtp_midi", "rtp_midi", False),
         ("rtp_remote", "rtp_midi", False),
     ]
@@ -80,7 +80,7 @@ def test_apply_master_clock_config_persists_section(tmp_path: Path) -> None:
         enabled = false
         bpm = 120.0
 
-        [adapters.usb_midi]
+        [adapters.midi]
         enabled = true
         """,
         encoding="utf-8",
@@ -102,7 +102,7 @@ def test_apply_master_clock_config_persists_section(tmp_path: Path) -> None:
                 "bpm": 128.0,
                 "bpm_min": 40.0,
                 "bpm_max": 240.0,
-                "output_targets": ["usb_midi"],
+                "output_targets": ["midi"],
                 "click_interval": "eighth",
             }
         )
@@ -113,7 +113,7 @@ def test_apply_master_clock_config_persists_section(tmp_path: Path) -> None:
     assert result["persisted"] is True
     assert result["enabled"] is True
     assert saved.master_clock.bpm == pytest.approx(128.0)
-    assert saved.master_clock.output_targets == ["usb_midi"]
+    assert saved.master_clock.output_targets == ["midi"]
     assert saved.master_clock.click_interval == "eighth"
     assert saved.master_clock.click_command == "aplay"
 
@@ -188,7 +188,7 @@ def test_apply_master_clock_config_keeps_runtime_change_when_persisting_fails(
 
 
 def test_apply_master_clock_config_rejects_unknown_output_target() -> None:
-    config = parse_config({"adapters": {"usb_midi": {"enabled": True}}})
+    config = parse_config({"adapters": {"midi": {"enabled": True}}})
     interface = WebInterface(
         config,
         EventBus(),
@@ -209,7 +209,7 @@ def test_apply_master_clock_config_persists_input_targets(tmp_path: Path) -> Non
         [master_clock]
         enabled = true
 
-        [adapters.usb_midi]
+        [adapters.midi]
         enabled = true
 
         [adapters.osc]
@@ -234,7 +234,7 @@ def test_apply_master_clock_config_persists_input_targets(tmp_path: Path) -> Non
                 "bpm_min": 40.0,
                 "bpm_max": 240.0,
                 "output_targets": [],
-                "midi_input_targets": ["usb_midi"],
+                "midi_input_targets": ["midi"],
                 "osc_input_targets": ["osc"],
             }
         )
@@ -242,9 +242,9 @@ def test_apply_master_clock_config_persists_input_targets(tmp_path: Path) -> Non
 
     saved = load_config(config_file)
 
-    assert result["midi_input_targets"] == ["usb_midi"]
+    assert result["midi_input_targets"] == ["midi"]
     assert result["osc_input_targets"] == ["osc"]
-    assert saved.master_clock.midi_input_targets == ["usb_midi"]
+    assert saved.master_clock.midi_input_targets == ["midi"]
     assert saved.master_clock.osc_input_targets == ["osc"]
 
 
@@ -252,7 +252,7 @@ def test_apply_master_clock_config_rejects_unknown_input_target() -> None:
     config = parse_config(
         {
             "adapters": {
-                "usb_midi": {"enabled": True},
+                "midi": {"enabled": True},
                 "osc": {"enabled": True},
             }
         }
@@ -274,7 +274,7 @@ def test_apply_master_clock_config_rejects_disabled_output_target() -> None:
     config = parse_config(
         {
             "adapters": {
-                "usb_midi": {"enabled": True},
+                "midi": {"enabled": True},
                 "rtp_midi": {"enabled": False},
             }
         }

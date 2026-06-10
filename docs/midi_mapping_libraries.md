@@ -1,7 +1,7 @@
 # MIDI mapping libraries
 
 MIDIJuggler ships MIDI mapping libraries for controller surfaces. The libraries
-are catalogs of logical control IDs and MIDI messages that concrete USB-MIDI
+are catalogs of logical control IDs and MIDI messages that concrete MIDI
 adapter implementations can use for learn mode, routing and feedback.
 
 Available libraries:
@@ -69,7 +69,7 @@ Example monitor-send mapping:
 
 ```toml
 [adapters.xtouch_mini]
-type = "usb_midi"
+type = "midi"
 enabled = true
 input_port = "X-TOUCH MINI"
 output_port = "X-TOUCH MINI"
@@ -134,15 +134,15 @@ F0 00 01 06 02 12 <strip> 00 00 {text} F7
 
 Keep track names to 7 ASCII characters for best fit on the scribble strips.
 The `{text}` placeholder is intentionally left unresolved in the library so the
-USB-MIDI adapter can insert encoded text at send time.
+MIDI adapter can insert encoded text at send time.
 
 ## Example mapping
 
-Use the USB-MIDI adapter instance name as the mapping prefix:
+Use the MIDI adapter instance name as the mapping prefix:
 
 ```toml
 [adapters.faderport]
-type = "usb_midi"
+type = "midi"
 enabled = true
 input_port = "PreSonus FP16 Port 1"
 output_port = "PreSonus FP16 Port 1"
@@ -159,5 +159,5 @@ output_max = 1.0
 ```
 
 Display targets such as `faderport:ch_1_lcd_track_name` are text/SysEx targets.
-They are included in the library now so a future concrete USB-MIDI adapter can
+They are included in the library now so a future concrete MIDI adapter can
 drive the LCD track names directly.

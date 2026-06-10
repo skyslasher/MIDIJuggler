@@ -4,14 +4,14 @@ from midijuggler.adapters.base import Adapter
 from midijuggler.adapters.gpio import GpioAdapter
 from midijuggler.adapters.osc import OscAdapter
 from midijuggler.adapters.rtp_midi import RtpMidiAdapter
-from midijuggler.adapters.usb_midi import UsbMidiAdapter
+from midijuggler.adapters.midi import MidiAdapter
 from midijuggler.config import AdapterConfig
 from midijuggler.eventbus import EventBus
 from midijuggler.rtp_midi.manager import RtpMidiManager
 
 ADAPTER_CLASSES = {
     "osc": OscAdapter,
-    "usb_midi": UsbMidiAdapter,
+    "midi": MidiAdapter,
     "rtp_midi": RtpMidiAdapter,
     "gpio": GpioAdapter,
 }

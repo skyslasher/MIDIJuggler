@@ -1,7 +1,7 @@
 # MIDIJuggler
 
 MIDIJuggler is an asyncio-based Python service skeleton for Raspberry Pi Zero
-and DietPi. It is intended to route and map OSC, USB MIDI, RTP-MIDI and GPIO
+and DietPi. It is intended to route and map OSC, MIDI, RTP-MIDI and GPIO
 footswitch input through a small web interface.
 
 This initial scaffold includes:
@@ -13,7 +13,7 @@ This initial scaffold includes:
 - mapping engine with linear scaling and inversion
 - OSC mapping libraries for Behringer X32 and Behringer Wing
 - MIDI mapping libraries for Behringer X-Touch Mini and PreSonus FaderPort 8/16
-- GPIO footswitch input adapter plus stubs for OSC and USB MIDI
+- GPIO footswitch input adapter plus stubs for OSC and MIDI
 - RTP-MIDI mDNS session hosting and discovery via Avahi on Linux
 - TOML configuration loader and example configuration
 - DietPi setup notes and a systemd service template
@@ -34,7 +34,7 @@ Open <http://127.0.0.1:8080> to view the web interface.
 
 The hardware-facing adapters are intentionally stubs in this baseline, except
 for GPIO footswitch input and RTP-MIDI mDNS session hosting/discovery. They
-define the lifecycle and routing boundaries that concrete OSC and USB MIDI
+define the lifecycle and routing boundaries that concrete OSC and MIDI
 implementations can fill in later. GPIO footswitch input is implemented via
 polling configured BCM GPIO numbers.
 
@@ -42,7 +42,7 @@ On a Raspberry Pi with `avahi-utils`, RTP-MIDI sessions are announced and
 discovered through `avahi-publish-service` and `avahi-browse`. The optional
 `rtp` pip extra (`zeroconf`) is only a fallback backend.
 
-OSC, USB MIDI and RTP-MIDI can have multiple named instances. The adapter table
+OSC, MIDI and RTP-MIDI can have multiple named instances. The adapter table
 name is the routing prefix used in mappings:
 
 ```toml
@@ -56,7 +56,7 @@ enabled = true
 listen_port = 9001
 
 [adapters.usb_stage]
-type = "usb_midi"
+type = "midi"
 enabled = true
 output_port = "Stage MIDI Out"
 

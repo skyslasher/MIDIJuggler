@@ -8,8 +8,8 @@ bpm = 120.0
 bpm_min = 40.0
 bpm_max = 240.0
 auto_start = false
-output_targets = ["usb_midi"]
-midi_input_targets = ["usb_midi"]
+output_targets = ["midi"]
+midi_input_targets = ["midi"]
 osc_input_targets = ["osc"]
 send_transport = true
 
@@ -36,7 +36,7 @@ enabled = true
 listen_host = "0.0.0.0"
 listen_port = 9000
 
-# Additional OSC/USB-MIDI/RTP-MIDI instances use their own table name and a type.
+# Additional OSC/MIDI/RTP-MIDI instances use their own table name and a type.
 # The table name becomes the routing prefix in mappings, for example
 # source = "osc_pedalboard:/pedal/expression".
 [adapters.osc_pedalboard]
@@ -63,26 +63,26 @@ remote_host = "192.168.10.48"
 remote_port = 2223
 osc_library = "behringer_wing"
 
-[adapters.usb_midi]
+[adapters.midi]
 enabled = true
 input_port = "MIDIJuggler In"
 output_port = "MIDIJuggler Out"
 
 [adapters.usb_stage]
-type = "usb_midi"
+type = "midi"
 enabled = false
 input_port = "Stage MIDI In"
 output_port = "Stage MIDI Out"
 
 [adapters.faderport]
-type = "usb_midi"
+type = "midi"
 enabled = false
 input_port = "PreSonus FP16 Port 1"
 output_port = "PreSonus FP16 Port 1"
 midi_library = "presonus_faderport"
 
 [adapters.xtouch_mini]
-type = "usb_midi"
+type = "midi"
 enabled = false
 input_port = "X-TOUCH MINI"
 output_port = "X-TOUCH MINI"
@@ -113,7 +113,7 @@ poll_interval_ms = 5
 [[mappings]]
 id = "gpio-footswitch-to-midi-cc"
 source = "gpio:pin17"
-target = "usb_midi:cc:1:64"
+target = "midi:cc:1:64"
 input_min = 0.0
 input_max = 1.0
 output_min = 0.0

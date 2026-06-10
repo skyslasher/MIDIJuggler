@@ -20,7 +20,7 @@ def test_parse_config_reads_web_adapters_and_mappings() -> None:
             "master_clock": {
                 "enabled": True,
                 "bpm": 118.5,
-                "output_targets": ["usb_midi", "rtp_midi"],
+                "output_targets": ["midi", "rtp_midi"],
                 "click_interval": "eighth",
             },
             "adapters": {"gpio": {"enabled": True, "pins": [17]}},
@@ -28,7 +28,7 @@ def test_parse_config_reads_web_adapters_and_mappings() -> None:
                 {
                     "id": "switch",
                     "source": "gpio:pin17",
-                    "target": "usb_midi:cc:1:64",
+                    "target": "midi:cc:1:64",
                     "invert": True,
                 }
             ],
@@ -39,7 +39,7 @@ def test_parse_config_reads_web_adapters_and_mappings() -> None:
     assert config.web.port == 9090
     assert config.master_clock.enabled is True
     assert config.master_clock.bpm == 118.5
-    assert config.master_clock.output_targets == ["usb_midi", "rtp_midi"]
+    assert config.master_clock.output_targets == ["midi", "rtp_midi"]
     assert config.master_clock.click_interval == "eighth"
     assert config.adapters["gpio"].enabled is True
     assert config.adapters["gpio"].kind == "gpio"
@@ -60,7 +60,7 @@ def test_parse_config_supports_named_adapter_instances() -> None:
                     "listen_port": 9001,
                 },
                 "usb_stage": {
-                    "type": "usb_midi",
+                    "type": "midi",
                     "enabled": True,
                     "output_port": "Stage MIDI",
                 },
@@ -77,7 +77,7 @@ def test_parse_config_supports_named_adapter_instances() -> None:
     assert config.adapters["osc"].options["listen_port"] == 9000
     assert config.adapters["osc_pedalboard"].kind == "osc"
     assert config.adapters["osc_pedalboard"].options["listen_port"] == 9001
-    assert config.adapters["usb_stage"].kind == "usb_midi"
+    assert config.adapters["usb_stage"].kind == "midi"
     assert config.adapters["usb_stage"].options["output_port"] == "Stage MIDI"
     assert config.adapters["rtp_remote"].kind == "rtp_midi"
     assert config.adapters["rtp_remote"].enabled is False
@@ -94,7 +94,7 @@ def test_load_config_reads_toml_file(tmp_path: Path) -> None:
         [[mappings]]
         id = "pedal"
         source = "osc:/pedal"
-        target = "usb_midi:cc:1:11"
+        target = "midi:cc:1:11"
         input_min = 0.0
         input_max = 1.0
         output_min = 0.0
@@ -106,7 +106,7 @@ def test_load_config_reads_toml_file(tmp_path: Path) -> None:
     config = load_config(config_file)
 
     assert config.web.port == 8081
-    assert config.mappings[0].target == "usb_midi:cc:1:11"
+    assert config.mappings[0].target == "midi:cc:1:11"
 
 
 def test_save_gpio_adapter_options_replaces_gpio_section(tmp_path: Path) -> None:
@@ -159,7 +159,7 @@ def test_save_midi_adapter_configs_replaces_adapter_sections(tmp_path: Path) -> 
     config_file = tmp_path / "config.toml"
     config_file.write_text(
         """
-        [adapters.usb_midi]
+        [adapters.midi]
         enabled = true
         input_port = "Old In"
         output_port = "Old Out"
@@ -175,13 +175,13 @@ def test_save_midi_adapter_configs_replaces_adapter_sections(tmp_path: Path) -> 
     save_midi_adapter_configs(
         config_file,
         {
-            "usb_midi": AdapterConfig(
+            "midi": AdapterConfig(
                 enabled=True,
                 options={
                     "input_port": "MIDIJuggler In",
                     "output_port": "MIDIJuggler Out",
                 },
-                kind="usb_midi",
+                kind="midi",
             ),
             "rtp_remote": AdapterConfig(
                 enabled=True,
@@ -194,7 +194,7 @@ def test_save_midi_adapter_configs_replaces_adapter_sections(tmp_path: Path) -> 
     config = load_config(config_file)
     saved_text = config_file.read_text(encoding="utf-8")
 
-    assert config.adapters["usb_midi"].options["input_port"] == "MIDIJuggler In"
+    assert config.adapters["midi"].options["input_port"] == "MIDIJuggler In"
     assert config.adapters["rtp_remote"].enabled is True
     assert config.adapters["rtp_remote"].options["port"] == 5005
     assert "[adapters.rtp_remote]" in saved_text
@@ -205,13 +205,13 @@ def test_parse_config_reads_master_clock_input_targets() -> None:
     config = parse_config(
         {
             "master_clock": {
-                "midi_input_targets": ["usb_midi"],
+                "midi_input_targets": ["midi"],
                 "osc_input_targets": ["osc", "osc_pedalboard"],
             }
         }
     )
 
-    assert config.master_clock.midi_input_targets == ["usb_midi"]
+    assert config.master_clock.midi_input_targets == ["midi"]
     assert config.master_clock.osc_input_targets == ["osc", "osc_pedalboard"]
 
 
@@ -240,8 +240,8 @@ def test_save_master_clock_config_replaces_master_clock_section(tmp_path: Path) 
             bpm=128.5,
             bpm_min=40.0,
             bpm_max=240.0,
-            output_targets=["usb_midi", "rtp_midi"],
-            midi_input_targets=["usb_midi"],
+            output_targets=["midi", "rtp_midi"],
+            midi_input_targets=["midi"],
             osc_input_targets=["osc"],
             click_enabled=True,
             click_interval="half",
@@ -254,10 +254,10 @@ def test_save_master_clock_config_replaces_master_clock_section(tmp_path: Path) 
 
     assert config.master_clock.enabled is True
     assert config.master_clock.bpm == pytest.approx(128.5)
-    assert config.master_clock.output_targets == ["usb_midi", "rtp_midi"]
+    assert config.master_clock.output_targets == ["midi", "rtp_midi"]
     assert config.master_clock.click_interval == "half"
-    assert 'output_targets = ["usb_midi", "rtp_midi"]' in saved_text
-    assert 'midi_input_targets = ["usb_midi"]' in saved_text
+    assert 'output_targets = ["midi", "rtp_midi"]' in saved_text
+    assert 'midi_input_targets = ["midi"]' in saved_text
     assert 'osc_input_targets = ["osc"]' in saved_text
     assert "click_command" not in saved_text
     saved_lines = saved_text.splitlines()
@@ -286,9 +286,46 @@ def test_parse_config_rejects_additional_gpio_instances() -> None:
         parse_config({"adapters": {"gpio_extra": {"type": "gpio", "enabled": True}}})
 
 
+def test_parse_config_migrates_legacy_usb_midi_adapter_tables() -> None:
+    config = parse_config(
+        {
+            "master_clock": {
+                "output_targets": ["usb_midi"],
+                "midi_input_targets": ["usb_midi"],
+            },
+            "adapters": {
+                "usb_midi": {
+                    "enabled": True,
+                    "input_port": "MIDIJuggler In",
+                    "output_port": "MIDIJuggler Out",
+                },
+                "usb_stage": {
+                    "type": "usb_midi",
+                    "enabled": False,
+                },
+            },
+            "mappings": [
+                {
+                    "id": "legacy-target",
+                    "source": "gpio:pin17",
+                    "target": "usb_midi:cc:1:64",
+                }
+            ],
+        }
+    )
+
+    assert config.adapters["midi"].enabled is True
+    assert config.adapters["midi"].kind == "midi"
+    assert "usb_midi" not in config.adapters
+    assert config.adapters["usb_stage"].kind == "midi"
+    assert config.master_clock.output_targets == ["midi"]
+    assert config.master_clock.midi_input_targets == ["midi"]
+    assert config.mappings[0].target == "midi:cc:1:64"
+
+
 def test_parse_config_rejects_mismatched_default_adapter_type() -> None:
     with pytest.raises(ValueError, match="default adapter table"):
-        parse_config({"adapters": {"osc": {"type": "usb_midi", "enabled": True}}})
+        parse_config({"adapters": {"osc": {"type": "midi", "enabled": True}}})
 
 
 def test_parse_config_rejects_adapter_names_that_break_mapping_prefixes() -> None:

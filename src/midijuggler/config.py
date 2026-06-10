@@ -55,8 +55,9 @@ class AppConfig:
     mappings: list[MappingRule] = field(default_factory=list)
 
 
-DEFAULT_ADAPTERS = ("osc", "usb_midi", "rtp_midi", "gpio")
-MULTI_INSTANCE_ADAPTERS = ("osc", "usb_midi", "rtp_midi")
+DEFAULT_ADAPTERS = ("osc", "midi", "rtp_midi", "gpio")
+MULTI_INSTANCE_ADAPTERS = ("osc", "midi", "rtp_midi")
+LEGACY_USB_MIDI_KIND = "usb_midi"
 
 
 def load_config(path: str | Path) -> AppConfig:
@@ -212,7 +213,38 @@ def _toml_string(value: str) -> str:
     return '"' + value.replace("\\", "\\\\").replace('"', '\\"') + '"'
 
 
+def _normalize_legacy_usb_midi(raw: dict[str, Any]) -> None:
+    adapters = raw.get("adapters")
+    if isinstance(adapters, dict):
+        if LEGACY_USB_MIDI_KIND in adapters and "midi" not in adapters:
+            adapters["midi"] = adapters.pop(LEGACY_USB_MIDI_KIND)
+        for adapter_raw in adapters.values():
+            if isinstance(adapter_raw, dict) and adapter_raw.get("type") == LEGACY_USB_MIDI_KIND:
+                adapter_raw["type"] = "midi"
+
+    master_clock = raw.get("master_clock")
+    if isinstance(master_clock, dict):
+        for field in ("output_targets", "midi_input_targets"):
+            targets = master_clock.get(field)
+            if isinstance(targets, list):
+                master_clock[field] = [
+                    "midi" if str(target) == LEGACY_USB_MIDI_KIND else str(target)
+                    for target in targets
+                ]
+
+    mappings = raw.get("mappings")
+    if isinstance(mappings, list):
+        for mapping in mappings:
+            if not isinstance(mapping, dict):
+                continue
+            for field in ("source", "target"):
+                value = mapping.get(field)
+                if isinstance(value, str) and value.startswith(f"{LEGACY_USB_MIDI_KIND}:"):
+                    mapping[field] = "midi" + value[len(LEGACY_USB_MIDI_KIND) :]
+
+
 def parse_config(raw: dict[str, Any]) -> AppConfig:
+    _normalize_legacy_usb_midi(raw)
     web_raw = raw.get("web", {})
     web = WebConfig(
         host=str(web_raw.get("host", "0.0.0.0")),
@@ -315,6 +347,8 @@ def _parse_adapter(instance_name: str, raw: Any) -> AdapterConfig:
         raise ValueError(f"adapters.{instance_name} must be a table")
 
     kind = str(raw.get("type") or instance_name)
+    if kind == LEGACY_USB_MIDI_KIND:
+        kind = "midi"
     if kind not in DEFAULT_ADAPTERS:
         raise ValueError(
             f"adapters.{instance_name}.type must be one of: "

@@ -11,7 +11,7 @@
       <header>
         <div>
           <h1>MIDIJuggler</h1>
-          <p>OSC, USB MIDI, RTP-MIDI and GPIO routing monitor</p>
+          <p>OSC, MIDI, RTP-MIDI and GPIO routing monitor</p>
         </div>
         <div class="header-clock">
           <div class="bpm-card">
@@ -150,15 +150,24 @@
             <p id="master-clock-message" class="message"></p>
           </form>
         </article>
-        <article>
-          <h2>MIDI Devices</h2>
-          <form id="midi-adapters-form">
-            <div id="midi-adapter-instances"></div>
-            <button type="button" id="midi-adapters-refresh">Refresh RTP sessions</button>
-            <button type="submit">Save MIDI devices</button>
-            <p id="midi-adapters-message" class="message"></p>
+        <div class="midi-devices-wrapper">
+          <form id="midi-adapters-form" class="midi-devices-form">
+            <article class="midi-device-panel">
+              <h2>MIDI</h2>
+              <div id="midi-instances"></div>
+            </article>
+            <article class="midi-device-panel">
+              <h2>RTP-MIDI</h2>
+              <p class="hint rtp-discovery-note"></p>
+              <div id="rtp-midi-instances"></div>
+              <button type="button" id="midi-adapters-refresh">Refresh RTP sessions</button>
+            </article>
+            <div class="midi-devices-actions">
+              <button type="submit">Save MIDI devices</button>
+              <p id="midi-adapters-message" class="message"></p>
+            </div>
           </form>
-        </article>
+        </div>
         <article>
           <h2>GPIO Inputs</h2>
           <form id="gpio-form">

@@ -61,7 +61,7 @@ def test_master_clock_outputs_midi_ticks_and_clicks() -> None:
         clock = MasterClock(
             MasterClockConfig(
                 enabled=True,
-                output_targets=["usb_midi"],
+                output_targets=["midi"],
                 click_enabled=True,
                 click_interval="quarter",
             ),
@@ -77,7 +77,7 @@ def test_master_clock_outputs_midi_ticks_and_clicks() -> None:
     midi_events, click_events, click_player = asyncio.run(scenario())
 
     assert [event.status for event in midi_events] == [MIDI_TIMING_CLOCK, MIDI_TIMING_CLOCK]
-    assert all(event.target == "usb_midi" for event in midi_events)
+    assert all(event.target == "midi" for event in midi_events)
     assert click_player.plays == 1
     assert len(click_events) == 1
     assert click_events[0].position_ticks == 0
@@ -117,7 +117,7 @@ def test_master_clock_responds_to_midi_transport_messages() -> None:
         midi_events: list[MidiMessageEvent] = []
         bus.subscribe(MidiMessageEvent, lambda event: midi_events.append(event))
         clock = MasterClock(
-            MasterClockConfig(enabled=True, output_targets=["usb_midi"]),
+            MasterClockConfig(enabled=True, output_targets=["midi"]),
             bus,
         )
 
@@ -198,7 +198,7 @@ def test_master_clock_can_be_reconfigured_at_runtime() -> None:
                 bpm=96.0,
                 bpm_min=40.0,
                 bpm_max=200.0,
-                output_targets=["usb_midi"],
+                output_targets=["midi"],
                 click_enabled=True,
                 click_interval="eighth",
                 click_wav="/tmp/click.wav",
@@ -208,7 +208,7 @@ def test_master_clock_can_be_reconfigured_at_runtime() -> None:
 
     clock = asyncio.run(scenario())
 
-    assert clock.config.output_targets == ["usb_midi"]
+    assert clock.config.output_targets == ["midi"]
     assert clock.bpm == pytest.approx(96.0)
     assert clock.click_interval == "eighth"
     assert clock.config.click_enabled is True

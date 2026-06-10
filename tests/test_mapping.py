@@ -8,7 +8,7 @@ def test_linear_mapping_scales_and_clamps_values() -> None:
     rule = MappingRule(
         id="expression",
         source="gpio:pin17",
-        target="usb_midi:cc:1:11",
+        target="midi:cc:1:11",
         input_min=0.0,
         input_max=1.0,
         output_min=0.0,
@@ -38,8 +38,8 @@ def test_inverted_mapping_reverses_output_position() -> None:
 def test_engine_maps_only_matching_sources() -> None:
     engine = MappingEngine(
         [
-            MappingRule(id="match", source="gpio:pin17", target="usb_midi:cc:1:64"),
-            MappingRule(id="miss", source="gpio:pin27", target="usb_midi:cc:1:65"),
+            MappingRule(id="match", source="gpio:pin17", target="midi:cc:1:64"),
+            MappingRule(id="miss", source="gpio:pin27", target="midi:cc:1:65"),
         ]
     )
 
@@ -55,7 +55,7 @@ def test_mapping_rejects_empty_input_range() -> None:
         MappingRule(
             id="bad",
             source="gpio:pin17",
-            target="usb_midi:cc:1:64",
+            target="midi:cc:1:64",
             input_min=1.0,
             input_max=1.0,
         )

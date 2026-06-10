@@ -27,7 +27,9 @@ const configImportForm = document.querySelector("#config-import-form");
 const configImportFile = document.querySelector("#config-import-file");
 const configImportMessage = document.querySelector("#config-import-message");
 const midiAdaptersForm = document.querySelector("#midi-adapters-form");
-const midiAdapterInstances = document.querySelector("#midi-adapter-instances");
+const midiInstances = document.querySelector("#midi-instances");
+const rtpMidiInstances = document.querySelector("#rtp-midi-instances");
+const rtpDiscoveryNote = document.querySelector(".rtp-discovery-note");
 const midiAdaptersRefresh = document.querySelector("#midi-adapters-refresh");
 const midiAdaptersMessage = document.querySelector("#midi-adapters-message");
 const gpioForm = document.querySelector("#gpio-form");
@@ -200,10 +202,10 @@ function joinSelectEmptyLabel(choices) {
 }
 
 function updateRtpDiscoveryNote(config) {
-  const note = midiAdapterInstances.querySelector(".rtp-discovery-note");
-  if (!note) {
+  if (!rtpDiscoveryNote) {
     return;
   }
+  const note = rtpDiscoveryNote;
   if (config.rtp_midi_available === false) {
     note.textContent =
       "Install avahi-utils on the Pi or the zeroconf package for RTP-MIDI discovery.";
@@ -217,7 +219,7 @@ function updateRtpDiscoveryNote(config) {
 }
 
 function refreshRtpJoinSelects(config) {
-  for (const card of midiAdapterInstances.querySelectorAll(".midi-adapter-card")) {
+  for (const card of rtpMidiInstances.querySelectorAll(".midi-adapter-card")) {
     const roleSelect = card.querySelector('[data-field="role"]');
     const joinSelect = card.querySelector('[data-field="join_target"]');
     if (!roleSelect || !joinSelect || roleSelect.value.trim().toLowerCase() !== "join") {
@@ -249,139 +251,145 @@ function loadMidiAdaptersConfig() {
   });
 }
 
+function createMidiAdapterCard(instance, config) {
+  const card = document.createElement("section");
+  card.className = "midi-adapter-card";
+  card.dataset.instanceName = instance.name;
+
+  const title = document.createElement("h3");
+  title.textContent = instance.name;
+  card.appendChild(title);
+
+  const enabledLabel = document.createElement("label");
+  enabledLabel.className = "inline-field";
+  const enabledInput = document.createElement("input");
+  enabledInput.type = "checkbox";
+  enabledInput.dataset.field = "enabled";
+  enabledInput.checked = Boolean(instance.enabled);
+  enabledLabel.append(enabledInput, document.createTextNode(" Enabled"));
+  card.appendChild(enabledLabel);
+
+  if (instance.type === "midi") {
+    card.appendChild(
+      createSelectField(
+        "Input port",
+        "input_port",
+        instance.available_input_ports || [],
+        "id",
+        "label",
+        instance.input_port || "",
+        "No input port",
+      ),
+    );
+    card.appendChild(
+      createSelectField(
+        "Output port",
+        "output_port",
+        instance.available_output_ports || [],
+        "id",
+        "label",
+        instance.output_port || "",
+        "No output port",
+      ),
+    );
+    const libraryOptions = [
+      { id: "", label: "No library" },
+      ...(config.available_midi_libraries || []),
+    ];
+    card.appendChild(
+      createSelectField(
+        "MIDI library",
+        "midi_library",
+        libraryOptions,
+        "id",
+        "label",
+        instance.midi_library || "",
+        "No library",
+      ),
+    );
+    return card;
+  }
+
+  const roleOptions = [
+    { id: "listen", label: "Host session" },
+    { id: "host", label: "Host session (announce via mDNS)" },
+    { id: "join", label: "Join discovered session" },
+  ];
+  const modeField = createSelectField(
+    "Mode",
+    "role",
+    roleOptions,
+    "id",
+    "label",
+    String(instance.role || "host").toLowerCase(),
+  );
+  card.appendChild(modeField);
+
+  const hostFields = document.createElement("div");
+  hostFields.className = "rtp-host-fields";
+  hostFields.appendChild(
+    createTextField("Session name", "session_name", instance.session_name || ""),
+  );
+  hostFields.appendChild(
+    createNumberField("UDP port", "port", instance.port ?? 5004, 1, 65535, 1),
+  );
+  card.appendChild(hostFields);
+
+  const joinFields = document.createElement("div");
+  joinFields.className = "rtp-join-fields";
+  const joinChoices = joinRtpSessionChoices(config, instance);
+  const joinSelect = createSelectField(
+    "Discovered session",
+    "join_target",
+    joinChoices,
+    "id",
+    "label",
+    instance.join_target || "",
+    joinSelectEmptyLabel(joinChoices),
+  );
+  joinFields.appendChild(joinSelect);
+  card.appendChild(joinFields);
+
+  const roleSelect = modeField.querySelector("select");
+  const updateRtpVisibility = () => {
+    const role = roleSelect.value.trim().toLowerCase();
+    const isJoin = role === "join";
+    const showHostFields = role === "host" || role === "listen";
+    hostFields.hidden = !showHostFields;
+    joinFields.hidden = !isJoin;
+    card.dataset.joinRefreshGeneration = String(
+      Number(card.dataset.joinRefreshGeneration || 0) + 1,
+    );
+    if (!isJoin) {
+      return;
+    }
+    const refreshGeneration = card.dataset.joinRefreshGeneration;
+    fetchMidiAdaptersConfig().then((freshConfig) => {
+      if (card.dataset.joinRefreshGeneration !== refreshGeneration) {
+        return;
+      }
+      midiAdaptersConfig = freshConfig;
+      refreshRtpJoinSelects(freshConfig);
+    });
+  };
+  roleSelect.addEventListener("change", updateRtpVisibility);
+  updateRtpVisibility();
+  return card;
+}
+
 function renderMidiAdaptersConfig(config) {
   midiAdaptersConfig = config;
-  midiAdapterInstances.replaceChildren();
-
-  const discoveryNote = document.createElement("p");
-  discoveryNote.className = "hint rtp-discovery-note";
-  midiAdapterInstances.appendChild(discoveryNote);
+  midiInstances.replaceChildren();
+  rtpMidiInstances.replaceChildren();
   updateRtpDiscoveryNote(config);
 
   for (const instance of config.instances || []) {
-    const card = document.createElement("section");
-    card.className = "midi-adapter-card";
-    card.dataset.instanceName = instance.name;
-
-    const title = document.createElement("h3");
-    title.textContent = `${instance.name} (${instance.type})`;
-    card.appendChild(title);
-
-    const enabledLabel = document.createElement("label");
-    enabledLabel.className = "inline-field";
-    const enabledInput = document.createElement("input");
-    enabledInput.type = "checkbox";
-    enabledInput.dataset.field = "enabled";
-    enabledInput.checked = Boolean(instance.enabled);
-    enabledLabel.append(enabledInput, document.createTextNode(" Enabled"));
-    card.appendChild(enabledLabel);
-
-    if (instance.type === "usb_midi") {
-      card.appendChild(
-        createSelectField(
-          "Input port",
-          "input_port",
-          instance.available_input_ports || [],
-          "id",
-          "label",
-          instance.input_port || "",
-          "No input port",
-        ),
-      );
-      card.appendChild(
-        createSelectField(
-          "Output port",
-          "output_port",
-          instance.available_output_ports || [],
-          "id",
-          "label",
-          instance.output_port || "",
-          "No output port",
-        ),
-      );
-      const libraryOptions = [
-        { id: "", label: "No library" },
-        ...(config.available_midi_libraries || []),
-      ];
-      card.appendChild(
-        createSelectField(
-          "MIDI library",
-          "midi_library",
-          libraryOptions,
-          "id",
-          "label",
-          instance.midi_library || "",
-          "No library",
-        ),
-      );
+    const card = createMidiAdapterCard(instance, config);
+    if (instance.type === "midi") {
+      midiInstances.appendChild(card);
     } else {
-      const roleOptions = [
-        { id: "listen", label: "Host session" },
-        { id: "host", label: "Host session (announce via mDNS)" },
-        { id: "join", label: "Join discovered session" },
-      ];
-      const modeField = createSelectField(
-        "Mode",
-        "role",
-        roleOptions,
-        "id",
-        "label",
-        String(instance.role || "host").toLowerCase(),
-      );
-      card.appendChild(modeField);
-
-      const hostFields = document.createElement("div");
-      hostFields.className = "rtp-host-fields";
-      hostFields.appendChild(
-        createTextField("Session name", "session_name", instance.session_name || ""),
-      );
-      hostFields.appendChild(
-        createNumberField("UDP port", "port", instance.port ?? 5004, 1, 65535, 1),
-      );
-      card.appendChild(hostFields);
-
-      const joinFields = document.createElement("div");
-      joinFields.className = "rtp-join-fields";
-      const joinChoices = joinRtpSessionChoices(config, instance);
-      const joinSelect = createSelectField(
-        "Discovered session",
-        "join_target",
-        joinChoices,
-        "id",
-        "label",
-        instance.join_target || "",
-        joinSelectEmptyLabel(joinChoices),
-      );
-      joinFields.appendChild(joinSelect);
-      card.appendChild(joinFields);
-
-      const roleSelect = modeField.querySelector("select");
-      const updateRtpVisibility = () => {
-        const role = roleSelect.value.trim().toLowerCase();
-        const isJoin = role === "join";
-        const showHostFields = role === "host" || role === "listen";
-        hostFields.hidden = !showHostFields;
-        joinFields.hidden = !isJoin;
-        card.dataset.joinRefreshGeneration = String(
-          Number(card.dataset.joinRefreshGeneration || 0) + 1,
-        );
-        if (!isJoin) {
-          return;
-        }
-        const refreshGeneration = card.dataset.joinRefreshGeneration;
-        fetchMidiAdaptersConfig().then((freshConfig) => {
-          if (card.dataset.joinRefreshGeneration !== refreshGeneration) {
-            return;
-          }
-          midiAdaptersConfig = freshConfig;
-          refreshRtpJoinSelects(freshConfig);
-        });
-      };
-      roleSelect.addEventListener("change", updateRtpVisibility);
-      updateRtpVisibility();
+      rtpMidiInstances.appendChild(card);
     }
-
-    midiAdapterInstances.appendChild(card);
   }
 }
 
@@ -421,7 +429,11 @@ function createSelectField(labelText, fieldName, options, valueKey, labelKey, se
 }
 
 function collectMidiAdapterInstances() {
-  return [...midiAdapterInstances.querySelectorAll(".midi-adapter-card")].map((card) => {
+  const cards = [
+    ...midiInstances.querySelectorAll(".midi-adapter-card"),
+    ...rtpMidiInstances.querySelectorAll(".midi-adapter-card"),
+  ];
+  return cards.map((card) => {
     const payload = { name: card.dataset.instanceName };
     for (const element of card.querySelectorAll("[data-field]")) {
       const field = element.dataset.field;

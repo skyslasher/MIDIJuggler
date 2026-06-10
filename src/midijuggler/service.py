@@ -161,7 +161,7 @@ class MIDIJugglerService:
         }
 
     def _allowed_midi_input_sources(self) -> set[str]:
-        enabled = self._enabled_adapter_names({"usb_midi", "rtp_midi"})
+        enabled = self._enabled_adapter_names({"midi", "rtp_midi"})
         configured = self.config.master_clock.midi_input_targets
         if configured is None:
             return enabled
@@ -184,7 +184,7 @@ class MIDIJugglerService:
         enabled_midi_targets = {
             adapter.name
             for adapter in self.adapters
-            if adapter.config.enabled and adapter.config.kind in {"usb_midi", "rtp_midi"}
+            if adapter.config.enabled and adapter.config.kind in {"midi", "rtp_midi"}
         }
         output_targets = [
             target

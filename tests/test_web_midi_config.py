@@ -26,13 +26,13 @@ def test_midi_adapters_config_payload_lists_instances(monkeypatch) -> None:
     config = parse_config(
         {
             "adapters": {
-                "usb_midi": {
+                "midi": {
                     "enabled": True,
                     "input_port": "MIDIJuggler In",
                     "output_port": "MIDIJuggler Out",
                 },
                 "usb_stage": {
-                    "type": "usb_midi",
+                    "type": "midi",
                     "enabled": False,
                     "input_port": "Stage MIDI In",
                     "output_port": "Stage MIDI Out",
@@ -57,14 +57,20 @@ def test_midi_adapters_config_payload_lists_instances(monkeypatch) -> None:
     payload = interface.midi_adapters_config_payload()
 
     assert [instance["name"] for instance in payload["instances"]] == [
+        "midi",
         "rtp_midi",
-        "usb_midi",
         "usb_stage",
     ]
-    assert payload["instances"][1]["input_port"] == "MIDIJuggler In"
-    assert payload["instances"][0]["role"] == "host"
-    assert payload["instances"][0]["session_name"] == "MIDIJuggler"
-    assert payload["instances"][0]["port"] == 5004
+    midi_instance = next(
+        instance for instance in payload["instances"] if instance["name"] == "midi"
+    )
+    rtp_instance = next(
+        instance for instance in payload["instances"] if instance["name"] == "rtp_midi"
+    )
+    assert midi_instance["input_port"] == "MIDIJuggler In"
+    assert rtp_instance["role"] == "host"
+    assert rtp_instance["session_name"] == "MIDIJuggler"
+    assert rtp_instance["port"] == 5004
     assert payload["available_midi_libraries"]
     assert "rtp_midi_available" in payload
     assert "discovered_rtp_sessions" in payload
@@ -75,7 +81,7 @@ def test_apply_midi_adapters_config_persists_sections(tmp_path: Path, monkeypatc
     config_file = tmp_path / "config.toml"
     config_file.write_text(
         """
-        [adapters.usb_midi]
+        [adapters.midi]
         enabled = true
         input_port = "Old In"
         output_port = "Old Out"
@@ -101,7 +107,7 @@ def test_apply_midi_adapters_config_persists_sections(tmp_path: Path, monkeypatc
             {
                 "instances": [
                     {
-                        "name": "usb_midi",
+                        "name": "midi",
                         "enabled": True,
                         "input_port": "MIDIJuggler In",
                         "output_port": "MIDIJuggler Out",
@@ -122,7 +128,7 @@ def test_apply_midi_adapters_config_persists_sections(tmp_path: Path, monkeypatc
     saved_text = config_file.read_text(encoding="utf-8")
 
     assert result["persisted"] is True
-    assert saved.adapters["usb_midi"].options["input_port"] == "MIDIJuggler In"
+    assert saved.adapters["midi"].options["input_port"] == "MIDIJuggler In"
     assert saved.adapters["rtp_midi"].enabled is True
     assert saved.adapters["rtp_midi"].options["port"] == 5005
     assert 'input_port = "MIDIJuggler In"' in saved_text
@@ -183,7 +189,7 @@ def test_apply_midi_adapters_config_keeps_runtime_change_when_persisting_fails(
     config_file = tmp_path / "config.toml"
     config_file.write_text(
         """
-        [adapters.usb_midi]
+        [adapters.midi]
         enabled = true
         input_port = "Old In"
         output_port = "Old Out"
@@ -209,7 +215,7 @@ def test_apply_midi_adapters_config_keeps_runtime_change_when_persisting_fails(
             {
                 "instances": [
                     {
-                        "name": "usb_midi",
+                        "name": "midi",
                         "enabled": True,
                         "input_port": "New In",
                         "output_port": "New Out",
@@ -221,7 +227,7 @@ def test_apply_midi_adapters_config_keeps_runtime_change_when_persisting_fails(
 
     assert result["persisted"] is False
     assert "Permission denied" in result["persist_error"]
-    assert config.adapters["usb_midi"].options["input_port"] == "New In"
+    assert config.adapters["midi"].options["input_port"] == "New In"
 
 
 def test_join_mode_excludes_locally_hosted_rtp_sessions(monkeypatch) -> None:
@@ -277,7 +283,10 @@ def test_join_mode_excludes_locally_hosted_rtp_sessions(monkeypatch) -> None:
     )
 
     payload = interface.midi_adapters_config_payload()
-    join_choices = payload["instances"][0]["available_rtp_sessions"]
+    rtp_instance = next(
+        instance for instance in payload["instances"] if instance["name"] == "rtp_midi"
+    )
+    join_choices = rtp_instance["available_rtp_sessions"]
 
     assert [choice["id"] for choice in join_choices] == [remote_id]
     assert [session["id"] for session in payload["joinable_rtp_sessions"]] == [remote_id]
@@ -285,7 +294,7 @@ def test_join_mode_excludes_locally_hosted_rtp_sessions(monkeypatch) -> None:
 
 
 def test_apply_midi_adapters_config_rejects_unknown_instance() -> None:
-    config = parse_config({"adapters": {"usb_midi": {"enabled": True}}})
+    config = parse_config({"adapters": {"midi": {"enabled": True}}})
     interface = WebInterface(
         config,
         EventBus(),

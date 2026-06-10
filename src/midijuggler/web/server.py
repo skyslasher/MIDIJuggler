@@ -414,7 +414,7 @@ class WebInterface:
             "instances": [
                 self._midi_instance_payload(name, adapter, port_ids)
                 for name, adapter in sorted(self.config.adapters.items())
-                if (adapter.kind or name) in {"usb_midi", "rtp_midi"}
+                if (adapter.kind or name) in {"midi", "rtp_midi"}
             ],
         }
 
@@ -438,12 +438,12 @@ class WebInterface:
 
             current = self.config.adapters[name]
             kind = current.kind or name
-            if kind not in {"usb_midi", "rtp_midi"}:
+            if kind not in {"midi", "rtp_midi"}:
                 raise ValueError(f"adapter {name} is not a MIDI adapter")
 
             enabled = bool(raw_instance.get("enabled", current.enabled))
-            if kind == "usb_midi":
-                options = self._normalized_usb_midi_options(raw_instance, current.options)
+            if kind == "midi":
+                options = self._normalized_midi_options(raw_instance, current.options)
             else:
                 options = self._normalized_rtp_midi_options(
                     raw_instance,
@@ -500,12 +500,12 @@ class WebInterface:
             "midi_input_targets": config.midi_input_targets,
             "osc_input_targets": config.osc_input_targets,
             "available_output_targets": self._available_adapter_targets(
-                {"usb_midi", "rtp_midi"},
+                {"midi", "rtp_midi"},
                 selected_outputs,
                 require_enabled_for_selection=True,
             ),
             "available_midi_input_targets": self._available_adapter_targets(
-                {"usb_midi", "rtp_midi"},
+                {"midi", "rtp_midi"},
                 selected_midi_inputs,
                 require_enabled_for_selection=False,
             ),
@@ -633,7 +633,7 @@ class WebInterface:
             "enabled": adapter.enabled,
             "runtime_active": False,
         }
-        if kind == "usb_midi":
+        if kind == "midi":
             input_port = str(options.get("input_port", ""))
             output_port = str(options.get("output_port", ""))
             payload.update(
@@ -708,7 +708,7 @@ class WebInterface:
             )
         return choices
 
-    def _normalized_usb_midi_options(
+    def _normalized_midi_options(
         self,
         payload: dict[str, Any],
         current: dict[str, Any],
@@ -815,7 +815,7 @@ class WebInterface:
         available_targets = {
             name
             for name, adapter in self.config.adapters.items()
-            if adapter.enabled and (adapter.kind or name) in {"usb_midi", "rtp_midi"}
+            if adapter.enabled and (adapter.kind or name) in {"midi", "rtp_midi"}
         }
         raw_targets = payload.get("output_targets", current.output_targets)
         if not isinstance(raw_targets, list):
@@ -829,7 +829,7 @@ class WebInterface:
             payload,
             "midi_input_targets",
             current.midi_input_targets,
-            {"usb_midi", "rtp_midi"},
+            {"midi", "rtp_midi"},
         )
         osc_input_targets = self._normalized_input_targets(
             payload,
