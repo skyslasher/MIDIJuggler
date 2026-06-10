@@ -5,6 +5,7 @@ from __future__ import annotations
 import asyncio
 import contextlib
 import logging
+import time
 from typing import Any
 
 from midijuggler.adapters.base import Adapter
@@ -16,9 +17,17 @@ from midijuggler.events import (
     MappedEvent,
     OscMessageEvent,
 )
+from midijuggler.osc.desk_protocol import (
+    DeskProtocol,
+    apply_desk_options,
+    desk_protocol_for_library,
+    sync_query_addresses,
+)
 from midijuggler.osc.protocol import decode_messages, encode_message
 
 LOGGER = logging.getLogger(__name__)
+
+PROXY_CLIENT_TIMEOUT_SECONDS = 60.0
 
 
 class OscAdapter(Adapter):
@@ -26,18 +35,31 @@ class OscAdapter(Adapter):
 
     def __init__(self, name: str, config: AdapterConfig, bus: EventBus) -> None:
         super().__init__(name, config, bus)
-        self._listen_host = str(config.options.get("listen_host", "0.0.0.0")).strip()
-        self._listen_port = int(config.options.get("listen_port", 9000))
-        self._remote_host = str(config.options.get("remote_host", "")).strip()
-        self._remote_port = int(config.options.get("remote_port", 0))
+        self._apply_options(config.options)
         self._transport: asyncio.DatagramTransport | None = None
         self._protocol: _OscDatagramProtocol | None = None
+        self._keepalive_task: asyncio.Task[None] | None = None
+        self._proxy_clients: dict[tuple[str, int], float] = {}
+
+    def _apply_options(self, options: dict[str, Any]) -> None:
+        normalized = apply_desk_options(dict(options))
+        self._listen_host = str(normalized.get("listen_host", "0.0.0.0")).strip()
+        self._listen_port = int(normalized.get("listen_port", 9000))
+        self._remote_host = str(normalized.get("remote_host", "")).strip()
+        self._remote_port = int(normalized.get("remote_port", 0))
+        self._desk_protocol = desk_protocol_for_library(
+            str(normalized.get("osc_library", "")).strip()
+        )
+        self._desk_sync_on_connect = bool(normalized.get("desk_sync_on_connect", False))
+        self._desk_proxy_mode = bool(normalized.get("desk_proxy_mode", False))
+
+    @property
+    def desk_proxy_client_count(self) -> int:
+        self._prune_proxy_clients()
+        return len(self._proxy_clients)
 
     async def start(self) -> None:
-        self._listen_host = str(self.config.options.get("listen_host", "0.0.0.0")).strip()
-        self._listen_port = int(self.config.options.get("listen_port", 9000))
-        self._remote_host = str(self.config.options.get("remote_host", "")).strip()
-        self._remote_port = int(self.config.options.get("remote_port", 0))
+        self._apply_options(self.config.options)
 
         loop = asyncio.get_running_loop()
         bind_port = self._listen_port if self._listen_port > 0 else 0
@@ -53,11 +75,24 @@ class OscAdapter(Adapter):
             detail_parts.append("bound to ephemeral UDP port for output")
         if self._remote_host and self._remote_port > 0:
             detail_parts.append(f"sending to {self._remote_host}:{self._remote_port}")
+        if self._desk_protocol is not None:
+            detail_parts.append(f"desk mode {self._desk_protocol.protocol_id}")
+        if self._desk_proxy_mode:
+            detail_parts.append("proxy mode active")
         detail = "OSC adapter active"
         if detail_parts:
             detail = "OSC adapter " + ", ".join(detail_parts)
 
         self.running = True
+        if self._desk_protocol is not None and self._remote_host and self._remote_port > 0:
+            await self._send_desk_keepalive()
+            if self._desk_sync_on_connect:
+                await self._desk_sync()
+            self._keepalive_task = asyncio.create_task(
+                self._keepalive_loop(),
+                name=f"osc-keepalive-{self.name}",
+            )
+
         await self.bus.publish(
             AdapterStatusEvent(
                 source=self.name,
@@ -70,12 +105,20 @@ class OscAdapter(Adapter):
     async def reload(self, config: AdapterConfig) -> None:
         self.config = config
         if not self.running:
+            self._apply_options(config.options)
             return
         await self.stop()
         await self.start()
 
     async def stop(self) -> None:
         self.running = False
+        if self._keepalive_task is not None:
+            self._keepalive_task.cancel()
+            with contextlib.suppress(asyncio.CancelledError):
+                await self._keepalive_task
+            self._keepalive_task = None
+
+        self._proxy_clients.clear()
         if self._transport is not None:
             self._transport.close()
             self._transport = None
@@ -90,7 +133,24 @@ class OscAdapter(Adapter):
             )
         )
 
-    async def handle_datagram(self, data: bytes) -> None:
+    async def handle_datagram(self, data: bytes, addr: tuple[str, int]) -> None:
+        if self._desk_proxy_mode:
+            await self._handle_proxy_datagram(data, addr)
+            return
+        await self._handle_input_messages(data)
+
+    async def _handle_proxy_datagram(self, data: bytes, addr: tuple[str, int]) -> None:
+        host, _port = addr
+        if self._is_desk_addr(host):
+            await self._handle_input_messages(data)
+            await self._forward_to_proxy_clients(data, exclude=addr)
+            return
+
+        self._register_proxy_client(addr)
+        if self._remote_host and self._remote_port > 0 and self._transport is not None:
+            self._transport.sendto(data, (self._remote_host, self._remote_port))
+
+    async def _handle_input_messages(self, data: bytes) -> None:
         try:
             messages = decode_messages(data)
         except ValueError:
@@ -144,13 +204,75 @@ class OscAdapter(Adapter):
             )
         )
 
+    async def _keepalive_loop(self) -> None:
+        interval = self._desk_protocol.keepalive_interval if self._desk_protocol else 9.0
+        try:
+            while self.running:
+                await asyncio.sleep(interval)
+                if not self.running:
+                    break
+                await self._send_desk_keepalive()
+        except asyncio.CancelledError:
+            raise
+
+    async def _send_desk_keepalive(self) -> None:
+        if self._desk_protocol is None or not self._remote_host or self._remote_port <= 0:
+            return
+        if self._transport is None:
+            return
+        payload = encode_message(self._desk_protocol.keepalive_address, [])
+        self._transport.sendto(payload, (self._remote_host, self._remote_port))
+
+    async def _desk_sync(self) -> None:
+        if self._desk_protocol is None or not self._remote_host or self._remote_port <= 0:
+            return
+        if self._transport is None:
+            return
+
+        library_id = str(self.config.options.get("osc_library", "")).strip()
+        if not library_id:
+            return
+
+        for address in sync_query_addresses(library_id):
+            payload = encode_message(address, [])
+            self._transport.sendto(payload, (self._remote_host, self._remote_port))
+            await asyncio.sleep(0.001)
+
+    async def _forward_to_proxy_clients(
+        self,
+        data: bytes,
+        *,
+        exclude: tuple[str, int] | None = None,
+    ) -> None:
+        if self._transport is None:
+            return
+        self._prune_proxy_clients()
+        for client_addr in self._proxy_clients:
+            if exclude is not None and client_addr == exclude:
+                continue
+            self._transport.sendto(data, client_addr)
+
+    def _register_proxy_client(self, addr: tuple[str, int]) -> None:
+        self._proxy_clients[addr] = time.monotonic()
+
+    def _prune_proxy_clients(self) -> None:
+        cutoff = time.monotonic() - PROXY_CLIENT_TIMEOUT_SECONDS
+        expired = [addr for addr, seen_at in self._proxy_clients.items() if seen_at < cutoff]
+        for addr in expired:
+            self._proxy_clients.pop(addr, None)
+
+    def _is_desk_addr(self, host: str) -> bool:
+        if not self._remote_host:
+            return False
+        return host == self._remote_host
+
 
 class _OscDatagramProtocol(asyncio.DatagramProtocol):
     def __init__(self, adapter: OscAdapter) -> None:
         self._adapter = adapter
 
     def datagram_received(self, data: bytes, addr: tuple[str, int]) -> None:
-        asyncio.create_task(self._adapter.handle_datagram(data))
+        asyncio.create_task(self._adapter.handle_datagram(data, addr))
 
 
 def _target_address(adapter_name: str, target: str) -> str | None:

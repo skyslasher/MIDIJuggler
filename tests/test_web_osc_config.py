@@ -44,6 +44,63 @@ def test_osc_adapters_config_payload_lists_instances() -> None:
     assert x32["remote_port"] == 10023
     assert x32["osc_library"] == "behringer_x32"
     assert payload["available_osc_libraries"]
+    x32 = next(instance for instance in payload["instances"] if instance["name"] == "x32_foh")
+    assert x32["desk_mode"] == "x32"
+    assert x32["osc_port"] == 10023
+
+
+def test_apply_osc_adapters_config_normalizes_desk_ports(tmp_path: Path) -> None:
+    config_file = tmp_path / "config.toml"
+    config_file.write_text(
+        """
+        [adapters.wing_foh]
+        type = "osc"
+        enabled = false
+        listen_host = "0.0.0.0"
+        listen_port = 9101
+        remote_host = "192.168.10.48"
+        remote_port = 2223
+        osc_library = "behringer_wing"
+        desk_proxy_mode = true
+        """,
+        encoding="utf-8",
+    )
+    config = load_config(config_file)
+    interface = WebInterface(
+        config,
+        EventBus(),
+        ClockBpmTracker(),
+        MasterClock(config.master_clock, EventBus()),
+        config_path=config_file,
+    )
+
+    result = asyncio.run(
+        interface.apply_osc_adapters_config(
+            {
+                "instances": [
+                    {
+                        "name": "wing_foh",
+                        "enabled": True,
+                        "listen_host": "0.0.0.0",
+                        "osc_port": 2223,
+                        "remote_host": "192.168.10.48",
+                        "osc_library": "behringer_wing",
+                        "desk_proxy_mode": True,
+                        "desk_sync_on_connect": True,
+                    }
+                ]
+            }
+        )
+    )
+
+    wing = next(instance for instance in result["instances"] if instance["name"] == "wing_foh")
+    saved = load_config(config_file)
+
+    assert wing["listen_port"] == 2223
+    assert wing["remote_port"] == 2223
+    assert wing["desk_proxy_mode"] is True
+    assert wing["desk_sync_on_connect"] is True
+    assert saved.adapters["wing_foh"].options["desk_proxy_mode"] is True
 
 
 def test_apply_osc_adapters_config_persists_sections(tmp_path: Path) -> None:

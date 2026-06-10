@@ -240,6 +240,20 @@ legend {
   opacity: 0.55;
 }
 
+.osc-discover-row {
+  display: flex;
+  gap: 0.5rem;
+  margin-top: 0.35rem;
+}
+
+.osc-discover-row select {
+  flex: 1;
+}
+
+.disabled-field {
+  opacity: 0.55;
+}
+
 .midi-adapter-card .inline-field {
   margin-top: 0;
 }

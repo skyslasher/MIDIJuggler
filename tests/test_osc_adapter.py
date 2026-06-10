@@ -1,5 +1,6 @@
 import asyncio
 import socket
+from typing import Any
 
 import pytest
 
@@ -7,7 +8,7 @@ from midijuggler.adapters.osc import OscAdapter
 from midijuggler.config import AdapterConfig
 from midijuggler.eventbus import EventBus
 from midijuggler.events import ControlEvent, MappedEvent, OscMessageEvent
-from midijuggler.osc.protocol import encode_message
+from midijuggler.osc.protocol import decode_messages, encode_message
 
 
 def _free_udp_port() -> int:
@@ -116,3 +117,78 @@ def test_osc_adapter_sends_mapped_events_to_remote() -> None:
     assert output_event.address == "/ch/01/mix/01/level"
     assert output_event.arguments == (pytest.approx(0.25),)
     assert b"/ch/01/mix/01/level" in data
+
+
+def test_osc_adapter_sends_xremote_keepalive_to_desk() -> None:
+    async def scenario() -> tuple[str, tuple[Any, ...]]:
+        sent: list[tuple[bytes, tuple[str, int]]] = []
+
+        class FakeTransport:
+            def sendto(self, data: bytes, addr: tuple[str, int]) -> None:
+                sent.append((data, addr))
+
+        adapter = OscAdapter(
+            name="x32_foh",
+            config=AdapterConfig(
+                enabled=True,
+                kind="osc",
+                options={
+                    "osc_port": 10023,
+                    "remote_host": "192.168.1.32",
+                    "osc_library": "behringer_x32",
+                },
+            ),
+            bus=EventBus(),
+        )
+        adapter._transport = FakeTransport()  # noqa: SLF001
+        await adapter._send_desk_keepalive()  # noqa: SLF001
+
+        address, arguments = decode_messages(sent[0][0])[0]
+        return address, arguments
+
+    address, arguments = asyncio.run(scenario())
+
+    assert address == "/xremote"
+    assert arguments == ()
+
+
+def test_osc_adapter_proxy_forwards_client_and_desk_messages() -> None:
+    async def scenario() -> tuple[list[tuple[bytes, tuple[str, int]]], int]:
+        sent: list[tuple[bytes, tuple[str, int]]] = []
+
+        class FakeTransport:
+            def sendto(self, data: bytes, addr: tuple[str, int]) -> None:
+                sent.append((data, addr))
+
+        adapter = OscAdapter(
+            name="wing_foh",
+            config=AdapterConfig(
+                enabled=True,
+                kind="osc",
+                options={
+                    "osc_port": 2223,
+                    "remote_host": "192.168.1.48",
+                    "osc_library": "behringer_wing",
+                    "desk_proxy_mode": True,
+                },
+            ),
+            bus=EventBus(),
+        )
+        adapter._transport = FakeTransport()  # noqa: SLF001
+        adapter.running = True
+
+        client_payload = encode_message("/ch/1/fdr", [0.25])
+        await adapter.handle_datagram(client_payload, ("192.168.1.10", 40000))
+
+        desk_payload = encode_message("/ch/1/fdr", [0.5])
+        await adapter.handle_datagram(desk_payload, ("192.168.1.48", 2223))
+
+        return sent, adapter.desk_proxy_client_count
+
+    sent, client_count = asyncio.run(scenario())
+
+    assert client_count == 1
+    assert sent[0][1] == ("192.168.1.48", 2223)
+    assert sent[1][1] == ("192.168.1.10", 40000)
+    assert b"/ch/1/fdr" in sent[0][0]
+    assert b"/ch/1/fdr" in sent[1][0]

@@ -49,19 +49,20 @@ listen_port = 9001
 type = "osc"
 enabled = false
 listen_host = "0.0.0.0"
-listen_port = 9100
+osc_port = 10023
 remote_host = "192.168.10.32"
-remote_port = 10023
 osc_library = "behringer_x32"
+desk_sync_on_connect = false
 
 [adapters.wing_foh]
 type = "osc"
 enabled = false
 listen_host = "0.0.0.0"
-listen_port = 9101
+osc_port = 2223
 remote_host = "192.168.10.48"
-remote_port = 2223
 osc_library = "behringer_wing"
+desk_sync_on_connect = false
+desk_proxy_mode = false
 
 [adapters.midi]
 enabled = true

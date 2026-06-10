@@ -41,6 +41,8 @@ from midijuggler.mapping import MappingEngine
 from midijuggler.midi_library import list_midi_libraries
 from midijuggler.master_clock import MasterClock
 from midijuggler.rtp_midi.manager import RtpMidiManager
+from midijuggler.osc.desk_protocol import apply_desk_options, is_desk_library
+from midijuggler.osc.discovery import discover_desks
 from midijuggler.osc_library import get_osc_library, list_osc_libraries
 from midijuggler.system_info import (
     list_alsa_output_devices,
@@ -99,6 +101,7 @@ class WebInterface:
         app.router.add_get("/api/midi-adapters", self.midi_adapters_config)
         app.router.add_post("/api/midi-adapters", self.set_midi_adapters_config)
         app.router.add_get("/api/osc-adapters", self.osc_adapters_config)
+        app.router.add_get("/api/osc-adapters/discover", self.discover_osc_desks)
         app.router.add_post("/api/osc-adapters", self.set_osc_adapters_config)
         app.router.add_get("/api/master-clock", self.master_clock_config)
         app.router.add_post("/api/master-clock", self.set_master_clock_config)
@@ -487,18 +490,28 @@ class WebInterface:
         ]
 
     def _osc_instance_payload(self, name: str, adapter: AdapterConfig) -> dict[str, Any]:
-        options = adapter.options
+        options = apply_desk_options(dict(adapter.options))
+        osc_library = str(options.get("osc_library", ""))
+        runtime_adapter = self.osc_adapters.get(name)
         return {
             "name": name,
             "type": "osc",
             "enabled": adapter.enabled,
-            "runtime_active": self.osc_adapters.get(name) is not None
-            and self.osc_adapters[name].running,
+            "runtime_active": runtime_adapter is not None and runtime_adapter.running,
             "listen_host": str(options.get("listen_host", "0.0.0.0")),
             "listen_port": int(options.get("listen_port", 9000)),
             "remote_host": str(options.get("remote_host", "")),
             "remote_port": int(options.get("remote_port", 0)),
-            "osc_library": str(options.get("osc_library", "")),
+            "osc_port": int(options.get("osc_port", options.get("listen_port", 9000))),
+            "osc_library": osc_library,
+            "desk_mode": str(options.get("desk_mode", "")),
+            "desk_sync_on_connect": bool(options.get("desk_sync_on_connect", False)),
+            "desk_proxy_mode": bool(options.get("desk_proxy_mode", False)),
+            "proxy_client_count": (
+                runtime_adapter.desk_proxy_client_count
+                if runtime_adapter is not None and runtime_adapter.running
+                else 0
+            ),
         }
 
     def _normalized_osc_options(
@@ -506,26 +519,62 @@ class WebInterface:
         payload: dict[str, Any],
         current: dict[str, Any],
     ) -> dict[str, Any]:
-        listen_port = int(payload.get("listen_port", current.get("listen_port", 9000)))
-        remote_port = int(payload.get("remote_port", current.get("remote_port", 0)))
+        osc_library = str(payload.get("osc_library", current.get("osc_library", ""))).strip()
+        desk_mode = is_desk_library(osc_library)
+
+        if desk_mode:
+            osc_port = int(
+                payload.get(
+                    "osc_port",
+                    payload.get(
+                        "listen_port",
+                        current.get("osc_port", current.get("listen_port", 9000)),
+                    ),
+                )
+            )
+            listen_port = osc_port
+            remote_port = osc_port
+        else:
+            listen_port = int(payload.get("listen_port", current.get("listen_port", 9000)))
+            remote_port = int(payload.get("remote_port", current.get("remote_port", 0)))
+
         if not 0 <= listen_port <= 65535:
             raise ValueError("listen_port must be between 0 and 65535")
         if not 0 <= remote_port <= 65535:
             raise ValueError("remote_port must be between 0 and 65535")
 
-        osc_library = str(payload.get("osc_library", current.get("osc_library", ""))).strip()
-        options = {
+        options: dict[str, Any] = {
             "listen_host": str(payload.get("listen_host", current.get("listen_host", "0.0.0.0"))).strip(),
             "listen_port": listen_port,
             "remote_host": str(payload.get("remote_host", current.get("remote_host", ""))).strip(),
             "remote_port": remote_port,
+            "desk_sync_on_connect": bool(
+                payload.get("desk_sync_on_connect", current.get("desk_sync_on_connect", False))
+            ),
+            "desk_proxy_mode": bool(
+                payload.get("desk_proxy_mode", current.get("desk_proxy_mode", False))
+            ),
         }
+        if desk_mode:
+            options["osc_port"] = listen_port
         if osc_library:
             known_libraries = {library.id for library in list_osc_libraries()}
             if osc_library not in known_libraries:
                 raise ValueError(f"unknown OSC library: {osc_library}")
             options["osc_library"] = osc_library
-        return options
+        return apply_desk_options(options)
+
+    async def discover_osc_desks(self, request: web.Request) -> web.Response:
+        protocol = request.query.get("protocol", "all").strip().lower()
+        if protocol in {"", "all"}:
+            protocols = ["wing", "x32"]
+        elif protocol in {"wing", "x32"}:
+            protocols = [protocol]
+        else:
+            raise web.HTTPBadRequest(text="protocol must be wing, x32, or all")
+
+        devices = await discover_desks(protocols)
+        return web.json_response({"devices": [device.as_dict() for device in devices]})
 
     def gpio_config_payload(self) -> dict[str, Any]:
         options = self._gpio_options()

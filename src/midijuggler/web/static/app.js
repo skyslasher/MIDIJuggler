@@ -28,6 +28,7 @@ const configImportFile = document.querySelector("#config-import-file");
 const configImportMessage = document.querySelector("#config-import-message");
 const oscInstances = document.querySelector("#osc-instances");
 const oscAddButton = document.querySelector("#osc-add");
+const oscDiscoverButton = document.querySelector("#osc-discover");
 const oscMessage = document.querySelector("#osc-message");
 const midiInstances = document.querySelector("#midi-instances");
 const rtpMidiInstances = document.querySelector("#rtp-midi-instances");
@@ -39,6 +40,10 @@ const midiMessage = document.querySelector("#midi-message");
 const rtpMidiMessage = document.querySelector("#rtp-midi-message");
 const DEFAULT_MIDI_ADAPTER_NAMES = new Set(["midi", "rtp_midi"]);
 const DEFAULT_OSC_ADAPTER_NAMES = new Set(["osc"]);
+const DESK_OSC_LIBRARIES = {
+  behringer_x32: { label: "Behringer X32", defaultPort: 10023, proxy: false },
+  behringer_wing: { label: "Behringer Wing", defaultPort: 2223, proxy: true },
+};
 
 const gpioForm = document.querySelector("#gpio-form");
 const gpioPins = document.querySelector("#gpio-pins");
@@ -1004,8 +1009,83 @@ function defaultOscInstanceTemplate() {
     listen_port: 9000,
     remote_host: "",
     remote_port: 0,
+    osc_port: 9000,
     osc_library: "",
+    desk_sync_on_connect: false,
+    desk_proxy_mode: false,
   };
+}
+
+function isDeskOscLibrary(libraryId) {
+  return Boolean(DESK_OSC_LIBRARIES[libraryId]);
+}
+
+function deskOscDefaultPort(libraryId) {
+  return DESK_OSC_LIBRARIES[libraryId]?.defaultPort ?? 9000;
+}
+
+function updateOscCardDeskMode(card) {
+  const libraryId = card.querySelector('[data-field="osc_library"]')?.value || "";
+  const deskMode = isDeskOscLibrary(libraryId);
+  const deskInfo = DESK_OSC_LIBRARIES[libraryId];
+
+  for (const element of card.querySelectorAll("[data-osc-generic]")) {
+    element.hidden = deskMode;
+  }
+  for (const element of card.querySelectorAll("[data-osc-desk]")) {
+    element.hidden = !deskMode;
+  }
+
+  const proxyField = card.querySelector('[data-field="desk_proxy_mode"]');
+  if (proxyField) {
+    const proxySupported = Boolean(deskInfo?.proxy);
+    proxyField.disabled = !proxySupported;
+    proxyField.closest("label")?.classList.toggle("disabled-field", !proxySupported);
+    if (!proxySupported) {
+      proxyField.checked = false;
+    }
+  }
+
+  if (deskMode) {
+    const portField = card.querySelector('[data-field="osc_port"]');
+    if (portField && (!portField.value || portField.dataset.userEdited !== "true")) {
+      portField.value = String(deskOscDefaultPort(libraryId));
+    }
+  }
+
+  const deskHint = card.querySelector(".osc-desk-hint");
+  if (deskHint) {
+    if (!deskMode) {
+      deskHint.textContent = "";
+      deskHint.hidden = true;
+    } else if (deskInfo?.proxy && card.querySelector('[data-field="desk_proxy_mode"]')?.checked) {
+      deskHint.hidden = false;
+      deskHint.textContent =
+        "Proxy mode: MIDIJuggler holds the single Wing subscription and forwards OSC on the desk port to connected clients.";
+    } else {
+      deskHint.hidden = false;
+      deskHint.textContent =
+        "Desk mode: bind and send on the same OSC port so the mixer can reply to parameter changes.";
+    }
+  }
+}
+
+function applyDiscoveredDeskToCard(card, device) {
+  const hostField = card.querySelector('[data-field="remote_host"]');
+  if (hostField) {
+    hostField.value = device.ip;
+  }
+  const libraryField = card.querySelector('[data-field="osc_library"]');
+  if (libraryField && !libraryField.value) {
+    libraryField.value = device.protocol === "wing" ? "behringer_wing" : "behringer_x32";
+    updateOscCardDeskMode(card);
+  }
+  const portField = card.querySelector('[data-field="osc_port"]');
+  if (portField) {
+    portField.value = String(device.protocol === "wing" ? 2223 : 10023);
+    portField.dataset.userEdited = "true";
+  }
+  updateMidiAdapterCardDirtyState(card);
 }
 
 function createOscAdapterCard(instance, config, options = {}) {
@@ -1057,9 +1137,18 @@ function createOscAdapterCard(instance, config, options = {}) {
   if (!isNew) {
     const runtime = document.createElement("p");
     runtime.className = "message";
-    runtime.textContent = instance.runtime_active ? "Runtime: active" : "Runtime: inactive";
+    let runtimeText = instance.runtime_active ? "Runtime: active" : "Runtime: inactive";
+    if (instance.desk_proxy_mode && instance.proxy_client_count > 0) {
+      runtimeText += `; proxy clients: ${instance.proxy_client_count}`;
+    }
+    runtime.textContent = runtimeText;
     card.appendChild(runtime);
   }
+
+  const deskHint = document.createElement("p");
+  deskHint.className = "hint osc-desk-hint";
+  deskHint.hidden = true;
+  card.appendChild(deskHint);
 
   const enabledLabel = document.createElement("label");
   enabledLabel.className = "inline-field";
@@ -1073,7 +1162,10 @@ function createOscAdapterCard(instance, config, options = {}) {
   card.appendChild(
     createTextField("Listen host", "listen_host", instance.listen_host || "0.0.0.0"),
   );
-  card.appendChild(
+
+  const genericPorts = document.createElement("div");
+  genericPorts.dataset.oscGeneric = "true";
+  genericPorts.appendChild(
     createNumberField(
       "Listen port",
       "listen_port",
@@ -1083,8 +1175,7 @@ function createOscAdapterCard(instance, config, options = {}) {
       1,
     ),
   );
-  card.appendChild(createTextField("Remote host", "remote_host", instance.remote_host || ""));
-  card.appendChild(
+  genericPorts.appendChild(
     createNumberField(
       "Remote port",
       "remote_port",
@@ -1094,6 +1185,61 @@ function createOscAdapterCard(instance, config, options = {}) {
       1,
     ),
   );
+  card.appendChild(genericPorts);
+
+  const deskPortField = createNumberField(
+    "OSC port",
+    "osc_port",
+    instance.osc_port ?? instance.listen_port ?? 9000,
+    1,
+    65535,
+    1,
+  );
+  deskPortField.dataset.oscDesk = "true";
+  card.appendChild(deskPortField);
+
+  const remoteHostField = createTextField("Remote host", "remote_host", instance.remote_host || "");
+  const discoverRow = document.createElement("div");
+  discoverRow.className = "osc-discover-row";
+  const discoverSelect = document.createElement("select");
+  discoverSelect.className = "osc-discover-select";
+  discoverSelect.appendChild(new Option("Choose discovered desk...", ""));
+  const discoverButton = document.createElement("button");
+  discoverButton.type = "button";
+  discoverButton.textContent = "Scan";
+  discoverButton.addEventListener("click", () => {
+    discoverButton.disabled = true;
+    fetch("/api/osc-adapters/discover")
+      .then((response) => response.json())
+      .then((payload) => {
+        discoverSelect.replaceChildren();
+        discoverSelect.appendChild(new Option("Choose discovered desk...", ""));
+        for (const device of payload.devices || []) {
+          const label = `${device.protocol.toUpperCase()} ${device.ip}${device.name ? ` (${device.name})` : ""}`;
+          const option = new Option(label, JSON.stringify(device));
+          discoverSelect.appendChild(option);
+        }
+        if (!(payload.devices || []).length) {
+          oscMessage.textContent = "no desks discovered on the local network";
+        }
+      })
+      .catch((error) => {
+        oscMessage.textContent = `scan error: ${error.message}`;
+      })
+      .finally(() => {
+        discoverButton.disabled = false;
+      });
+  });
+  discoverSelect.addEventListener("change", () => {
+    if (!discoverSelect.value) {
+      return;
+    }
+    applyDiscoveredDeskToCard(card, JSON.parse(discoverSelect.value));
+  });
+  discoverRow.append(discoverButton, discoverSelect);
+  remoteHostField.appendChild(discoverRow);
+  card.appendChild(remoteHostField);
+
   const libraryOptions = [
     { id: "", label: "No library" },
     ...(config.available_osc_libraries || []),
@@ -1110,7 +1256,36 @@ function createOscAdapterCard(instance, config, options = {}) {
     ),
   );
 
+  const syncLabel = document.createElement("label");
+  syncLabel.className = "inline-field";
+  syncLabel.dataset.oscDesk = "true";
+  const syncInput = document.createElement("input");
+  syncInput.type = "checkbox";
+  syncInput.dataset.field = "desk_sync_on_connect";
+  syncInput.checked = Boolean(instance.desk_sync_on_connect);
+  syncLabel.append(syncInput, document.createTextNode(" Full sync on connect"));
+  card.appendChild(syncLabel);
+
+  const proxyLabel = document.createElement("label");
+  proxyLabel.className = "inline-field";
+  proxyLabel.dataset.oscDesk = "true";
+  const proxyInput = document.createElement("input");
+  proxyInput.type = "checkbox";
+  proxyInput.dataset.field = "desk_proxy_mode";
+  proxyInput.checked = Boolean(instance.desk_proxy_mode);
+  proxyLabel.append(proxyInput, document.createTextNode(" Proxy mode (Wing)"));
+  card.appendChild(proxyLabel);
+
+  const librarySelect = card.querySelector('[data-field="osc_library"]');
+  librarySelect?.addEventListener("change", () => updateOscCardDeskMode(card));
+  proxyInput.addEventListener("change", () => updateOscCardDeskMode(card));
+  const portField = card.querySelector('[data-field="osc_port"]');
+  portField?.addEventListener("input", () => {
+    portField.dataset.userEdited = "true";
+  });
+
   attachMidiAdapterCardControls(card);
+  updateOscCardDeskMode(card);
   return card;
 }
 
@@ -1468,6 +1643,27 @@ rtpMidiAddButton?.addEventListener("click", () => {
 
 oscAddButton?.addEventListener("click", () => {
   addOscAdapterCard();
+});
+
+oscDiscoverButton?.addEventListener("click", () => {
+  oscMessage.textContent = "scanning for desks...";
+  fetch("/api/osc-adapters/discover")
+    .then((response) => response.json())
+    .then((payload) => {
+      const devices = payload.devices || [];
+      if (!devices.length) {
+        oscMessage.textContent = "no desks discovered on the local network";
+        return;
+      }
+      oscMessage.textContent = `discovered ${devices.length} desk(s)`;
+      const firstCard = oscInstances.querySelector(".midi-adapter-card");
+      if (firstCard) {
+        applyDiscoveredDeskToCard(firstCard, devices[0]);
+      }
+    })
+    .catch((error) => {
+      oscMessage.textContent = `scan error: ${error.message}`;
+    });
 });
 
 gpioForm.addEventListener("submit", (event) => {
