@@ -23,7 +23,7 @@ bpm_lsb_cc = 21
 click_interval_cc = 22
 midi_channel = 1
 
-# Optional audio click via ALSA/aplay and a USB sound card.
+# Optional audio click via ALSA and a USB sound card (pyalsaaudio or aplay).
 click_enabled = false
 click_wav = "/etc/midijuggler/click.wav"
 click_interval = "quarter"

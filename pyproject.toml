@@ -18,6 +18,9 @@ dependencies = [
 test = [
   "pytest>=8.0",
 ]
+alsa = [
+  "pyalsaaudio",
+]
 
 [project.scripts]
 midijuggler = "midijuggler.__main__:main"

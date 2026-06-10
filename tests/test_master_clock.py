@@ -11,7 +11,6 @@ from midijuggler.master_clock import (
     MIDI_STOP,
     MIDI_TIMING_CLOCK,
     MasterClock,
-    ClickPlayer,
     bpm_to_parameters,
 )
 
@@ -23,6 +22,9 @@ class FakeClickPlayer:
     async def play(self) -> None:
         self.plays += 1
 
+    async def close(self) -> None:
+        return
+
 
 class SlowClickPlayer:
     def __init__(self) -> None:
@@ -33,45 +35,8 @@ class SlowClickPlayer:
         self.plays += 1
         await self.release.wait()
 
-
-class FakeFailedProcess:
-    returncode = 1
-
-    async def communicate(self) -> tuple[bytes, bytes]:
-        return b"", b"aplay: audio open error: Permission denied\n"
-
-
-class FakeBusyProcess:
-    returncode = 1
-
-    async def communicate(self) -> tuple[bytes, bytes]:
-        return b"", b"aplay: audio open error: Device or resource busy\n"
-
-
-class FakeLongProcess:
-    def __init__(self) -> None:
-        self.returncode: int | None = None
-        self.terminated = False
-        self.killed = False
-        self._finished = asyncio.Event()
-
-    async def communicate(self) -> tuple[bytes, bytes]:
-        await self._finished.wait()
-        return b"", b""
-
-    def terminate(self) -> None:
-        self.terminated = True
-        self.returncode = -15
-        self._finished.set()
-
-    def kill(self) -> None:
-        self.killed = True
-        self.returncode = -9
-        self._finished.set()
-
-    async def wait(self) -> int | None:
-        await self._finished.wait()
-        return self.returncode
+    async def close(self) -> None:
+        return
 
 
 def test_bpm_to_parameters_exposes_millisecond_values() -> None:
@@ -83,64 +48,6 @@ def test_bpm_to_parameters_exposes_millisecond_values() -> None:
     assert parameters.whole_ms == pytest.approx(2000.0)
     assert parameters.ppqn_tick_ms == pytest.approx(500.0 / 24.0)
     assert parameters.bar_4_4_ms == pytest.approx(2000.0)
-
-
-def test_click_player_logs_nonzero_aplay_exit(caplog) -> None:
-    async def scenario() -> None:
-        player = ClickPlayer("/tmp/click.wav")
-        with caplog.at_level(logging.WARNING, logger="midijuggler.master_clock"):
-            await player._wait_for_process(FakeFailedProcess())  # type: ignore[arg-type]
-
-    asyncio.run(scenario())
-
-    assert "click playback command exited with status 1" in caplog.text
-    assert "Permission denied" in caplog.text
-
-
-def test_click_player_does_not_warn_for_busy_audio_device(caplog) -> None:
-    async def scenario() -> None:
-        player = ClickPlayer("/tmp/click.wav")
-        with caplog.at_level(logging.WARNING, logger="midijuggler.master_clock"):
-            await player._wait_for_process(FakeBusyProcess())  # type: ignore[arg-type]
-
-    asyncio.run(scenario())
-
-    assert "Device or resource busy" not in caplog.text
-
-
-def test_click_player_restarts_previous_process_when_overlap_is_disabled(
-    tmp_path,
-    monkeypatch,
-) -> None:
-    async def scenario() -> list[FakeLongProcess]:
-        wav = tmp_path / "click.wav"
-        wav.write_bytes(b"fake")
-        processes: list[FakeLongProcess] = []
-
-        async def fake_create_subprocess_exec(*args, **kwargs):
-            process = FakeLongProcess()
-            processes.append(process)
-            return process
-
-        monkeypatch.setattr(asyncio, "create_subprocess_exec", fake_create_subprocess_exec)
-
-        player = ClickPlayer(str(wav), allow_overlap=False)
-        await player.play()
-        await asyncio.sleep(0)
-        await player.play()
-        await asyncio.sleep(0)
-
-        for process in processes:
-            if process.returncode is None:
-                process.terminate()
-        await asyncio.sleep(0)
-        return processes
-
-    processes = asyncio.run(scenario())
-
-    assert len(processes) == 2
-    assert processes[0].terminated is True
-    assert processes[1].terminated is True
 
 
 def test_master_clock_outputs_midi_ticks_and_clicks() -> None:

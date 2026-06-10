@@ -107,13 +107,14 @@ As with GPIO, if the service cannot write the config file, the master-clock
 change is still applied at runtime and the web UI reports that it was not
 persisted.
 
-`click_command` is fixed to `aplay` internally. The web UI lists available ALSA
-devices discovered through `aplay -l`, and WAV files found in
+Click playback prefers `pyalsaaudio` when installed and falls back to `aplay`.
+The web UI lists available ALSA devices discovered through `aplay -l`, and WAV
+files found in
 `/etc/midijuggler/*.wav`.
 The selected ALSA device is used as the slave for a generated dmix PCM named
 `master_clock` when it is a hardware PCM. If the selected target is already a
 software PCM, `master_clock` is generated as a plug alias instead. The click
-player always uses `aplay -D master_clock`.
+player always uses the generated `master_clock` PCM.
 
 ## Configuration import/export
 

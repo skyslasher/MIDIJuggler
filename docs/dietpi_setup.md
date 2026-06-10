@@ -11,14 +11,19 @@ sudo apt update
 sudo apt install -y git python3 python3-venv python3-pip
 ```
 
-Optional packages that are commonly useful for later adapter work:
+Packages for master-clock click output through a USB sound card:
 
 ```bash
 sudo apt install -y libasound2-dev alsa-utils
 ```
 
-`alsa-utils` provides `aplay`, which MIDIJuggler can use for the optional
-master-clock click output through a USB sound card.
+`alsa-utils` provides `aplay`, which MIDIJuggler can use as a fallback click
+backend. For lower-latency persistent playback, install the Python ALSA extra
+after cloning the app:
+
+```bash
+sudo -u midijuggler /opt/midijuggler/venv/bin/python -m pip install -e "/opt/midijuggler/app[alsa]"
+```
 
 ## Install
 
@@ -31,7 +36,7 @@ sudo usermod -aG gpio,audio midijuggler
 sudo -u midijuggler git clone https://github.com/skyslasher/midijuggler.git /opt/midijuggler/app
 sudo -u midijuggler python3 -m venv /opt/midijuggler/venv
 sudo -u midijuggler /opt/midijuggler/venv/bin/python -m pip install -U pip
-sudo -u midijuggler /opt/midijuggler/venv/bin/python -m pip install -e /opt/midijuggler/app
+sudo -u midijuggler /opt/midijuggler/venv/bin/python -m pip install -e "/opt/midijuggler/app[alsa]"
 sudo cp /opt/midijuggler/app/configs/example.toml /etc/midijuggler/config.toml
 sudo chown -R midijuggler:midijuggler /etc/midijuggler
 ```

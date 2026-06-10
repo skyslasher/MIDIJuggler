@@ -72,8 +72,9 @@ The two 7-bit values form one 14-bit value. MIDIJuggler scales it into
 
 ## Audio click
 
-If `click_enabled = true`, MIDIJuggler can play a WAV file through ALSA's
-`aplay`, which works well with small USB sound cards on DietPi:
+If `click_enabled = true`, MIDIJuggler plays a WAV file through ALSA. On the
+Pi it uses `pyalsaaudio` with a persistent PCM handle when that package is
+installed; otherwise it falls back to `aplay`:
 
 ```toml
 click_enabled = true
@@ -82,13 +83,19 @@ click_audio_device = "plughw:1,0"
 ```
 
 The web UI discovers ALSA devices with `aplay -l` and shows them as a dropdown.
-Click WAV files are discovered from `/etc/midijuggler/*.wav`. Playback always
-uses `aplay`.
+Click WAV files are discovered from `/etc/midijuggler/*.wav`.
+
+Install the ALSA backend on DietPi for lower-latency click playback:
+
+```bash
+sudo apt install -y libasound2-dev
+sudo -u midijuggler /opt/midijuggler/venv/bin/python -m pip install -e "/opt/midijuggler/app[alsa]"
+```
 
 MIDIJuggler writes an ALSA config next to the active TOML config, usually
 `/etc/midijuggler/asoundrc`, defining a PCM named `master_clock`. The master
-clock always plays clicks through `aplay -D master_clock`; changing the audio
-device in the web UI rewrites that generated PCM.
+clock always plays clicks through the generated `master_clock` PCM; changing
+the audio device in the web UI rewrites that generated PCM.
 
 MIDIJuggler uses two ALSA strategies:
 
@@ -108,9 +115,9 @@ a 5.1 sound card.
 Click playback is triggered in the background, so a click WAV that is longer
 than the configured click interval does not block the master clock from
 triggering the next click. In hardware/dmix mode, clicks may overlap. In
-software/alias mode, MIDIJuggler stops any still-running click process before
-starting the next one, because many software PCMs still open the underlying
-device exclusively.
+software/alias mode, MIDIJuggler serializes click playback before starting the
+next one, because many software PCMs still open the underlying device
+exclusively.
 
 The click interval can be:
 

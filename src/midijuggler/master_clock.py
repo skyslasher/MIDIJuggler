@@ -5,11 +5,11 @@ from __future__ import annotations
 import asyncio
 import contextlib
 import logging
-import os
 from dataclasses import dataclass, replace
 from pathlib import Path
 from typing import Any
 
+from midijuggler.click_player import ClickPlayer, create_click_player
 from midijuggler.clock import MIDI_CLOCK_TICKS_PER_QUARTER
 from midijuggler.config import MasterClockConfig
 from midijuggler.eventbus import EventBus
@@ -79,98 +79,6 @@ def bpm_to_parameters(bpm: float) -> MasterClockParameters:
         whole_ms=quarter_ms * 4.0,
         bar_4_4_ms=quarter_ms * 4.0,
     )
-
-
-class ClickPlayer:
-    """Play an audio click WAV through ALSA's aplay command."""
-
-    def __init__(
-        self,
-        wav_path: str,
-        command: str = "aplay",
-        audio_device: str = "",
-        environment: dict[str, str] | None = None,
-        allow_overlap: bool = True,
-    ) -> None:
-        self.wav_path = wav_path
-        self.command = command
-        self.audio_device = audio_device
-        self.environment = environment or {}
-        self.allow_overlap = allow_overlap
-        self._lock = asyncio.Lock()
-        self._process_tasks: dict[asyncio.subprocess.Process, asyncio.Task[None]] = {}
-
-    async def play(self) -> None:
-        if not self.wav_path:
-            return
-        if not Path(self.wav_path).is_file():
-            LOGGER.warning("click WAV does not exist: %s", self.wav_path)
-            return
-
-        command = [self.command, "-q"]
-        if self.audio_device:
-            command.extend(["-D", self.audio_device])
-        command.append(self.wav_path)
-
-        async with self._lock:
-            if not self.allow_overlap:
-                await self._stop_active_processes()
-
-            try:
-                process = await asyncio.create_subprocess_exec(
-                    *command,
-                    stdout=asyncio.subprocess.DEVNULL,
-                    stderr=asyncio.subprocess.PIPE,
-                    env={**os.environ, **self.environment} if self.environment else None,
-                )
-            except OSError:
-                LOGGER.exception("failed to start click playback command")
-                return
-
-            task = asyncio.create_task(self._wait_for_process(process), name="click-playback")
-            self._process_tasks[process] = task
-
-    async def _wait_for_process(self, process: asyncio.subprocess.Process) -> None:
-        try:
-            _, stderr = await process.communicate()
-        except asyncio.CancelledError:
-            raise
-        except Exception:
-            LOGGER.exception("click playback command failed while waiting")
-            return
-        finally:
-            self._process_tasks.pop(process, None)
-
-        if process.returncode:
-            message = stderr.decode(errors="replace").strip() if stderr else ""
-            if "Device or resource busy" in message:
-                LOGGER.debug(
-                    "click playback skipped because audio device is busy: %s",
-                    message,
-                )
-                return
-            LOGGER.warning(
-                "click playback command exited with status %s%s",
-                process.returncode,
-                f": {message}" if message else "",
-            )
-
-    async def _stop_active_processes(self) -> None:
-        for process, task in list(self._process_tasks.items()):
-            task.cancel()
-            with contextlib.suppress(asyncio.CancelledError):
-                await task
-            if process.returncode is None:
-                with contextlib.suppress(ProcessLookupError):
-                    process.terminate()
-                try:
-                    await asyncio.wait_for(process.wait(), timeout=0.2)
-                except asyncio.TimeoutError:
-                    with contextlib.suppress(ProcessLookupError):
-                        process.kill()
-                    with contextlib.suppress(Exception):
-                        await process.wait()
-            self._process_tasks.pop(process, None)
 
 
 class MasterClockRemote:
@@ -278,6 +186,7 @@ class MasterClock:
 
     async def stop(self) -> None:
         await self.stop_transport(send_transport=False)
+        await self.click_player.close()
 
     async def configure(self, config: MasterClockConfig) -> None:
         """Apply a new master-clock configuration at runtime."""
@@ -288,7 +197,7 @@ class MasterClock:
 
         self.config = config
         self.remote = MasterClockRemote(config)
-        self.click_player = self._build_click_player(config)
+        await self._replace_click_player(config)
         self.bpm = config.bpm
         self.click_interval = config.click_interval
 
@@ -385,13 +294,19 @@ class MasterClock:
         if self._task is None or self._task.done():
             self._task = asyncio.create_task(self._run(), name="master-clock")
 
+    async def _replace_click_player(self, config: MasterClockConfig) -> None:
+        previous = self.click_player
+        self.click_player = self._build_click_player(config)
+        if previous is not None:
+            await previous.close()
+
     def _build_click_player(self, config: MasterClockConfig) -> ClickPlayer:
         environment = (
             {"ALSA_CONFIG_PATH": str(self.alsa_config_path)}
             if self.alsa_config_path is not None
             else None
         )
-        return ClickPlayer(
+        return create_click_player(
             config.click_wav,
             command=config.click_command,
             audio_device=self.click_audio_device or config.click_audio_device,
