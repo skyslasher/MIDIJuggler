@@ -76,12 +76,15 @@ p {
   padding: 1rem;
 }
 
-button {
+button,
+.button-link {
+  appearance: none;
   background: #6ea8fe;
   border: 0;
   border-radius: 999px;
   color: #08111f;
   cursor: pointer;
+  font: inherit;
   font-weight: 700;
   padding: 0.7rem 1rem;
 }
@@ -97,13 +100,8 @@ button {
 }
 
 .button-link {
-  background: #6ea8fe;
-  border-radius: 999px;
-  color: #08111f;
   display: inline-block;
-  font-weight: 700;
   margin: 0.5rem 0 1rem;
-  padding: 0.7rem 1rem;
   text-decoration: none;
 }
 

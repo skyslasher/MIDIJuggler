@@ -455,7 +455,7 @@ class WebInterface:
                 if later > earlier
             ]
             if intervals:
-                bpm = 60.0 / (sum(intervals) / len(intervals))
+                bpm = _quantize_bpm(60.0 / (sum(intervals) / len(intervals)))
                 await self.master_clock.set_bpm(
                     min(
                         max(bpm, self.master_clock.config.bpm_min),
@@ -598,6 +598,10 @@ def _validate_midi_7bit(value: Any, field_name: str) -> int:
     if not 0 <= parsed <= 127:
         raise ValueError(f"{field_name} must be between 0 and 127")
     return parsed
+
+
+def _quantize_bpm(bpm: float, step: float = 0.5) -> float:
+    return round(bpm / step) * step
 
 
 async def run_web_server(interface: WebInterface) -> web.AppRunner:
