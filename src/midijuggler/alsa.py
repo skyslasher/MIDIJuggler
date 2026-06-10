@@ -67,8 +67,13 @@ def write_master_clock_dmix_config(path: str | Path, slave_pcm: str) -> None:
 
 def _render_dmix_pcm(slave_pcm: str, pcm_name: str) -> str:
     slave_pcm = _dmix_slave_pcm(slave_pcm)
+    dmix_pcm_name = f"{pcm_name}_dmix"
     return (
         f"pcm.{pcm_name} {{\n"
+        "    type plug\n"
+        f"    slave.pcm {_alsa_string(dmix_pcm_name)}\n"
+        "}\n\n"
+        f"pcm.{dmix_pcm_name} {{\n"
         "    type dmix\n"
         "    ipc_key 426110\n"
         "    ipc_perm 0666\n"

@@ -93,9 +93,10 @@ device in the web UI rewrites that generated PCM.
 MIDIJuggler uses two ALSA strategies:
 
 - hardware PCMs such as `hw:1,0` or `plughw:1,0`: generate `pcm.master_clock`
-  as `type dmix`, with a direct `hw:X,Y` PCM as the dmix slave. If `plughw:X,Y`
-  is selected in the UI, MIDIJuggler automatically uses `hw:X,Y` internally for
-  the dmix slave.
+  as a `plug` wrapper around `pcm.master_clock_dmix`. The dmix slave is a direct
+  `hw:X,Y` PCM. If `plughw:X,Y` is selected in the UI, MIDIJuggler automatically
+  uses `hw:X,Y` internally for the dmix slave. The plug wrapper lets ALSA convert
+  mono/stereo channel counts and sample formats from the click WAV before dmix.
 - software PCMs such as `default`, `dmix`, `plug`, route plugins, or custom
   channel mappings: generate `pcm.master_clock` as a `plug` alias to the
   selected PCM
