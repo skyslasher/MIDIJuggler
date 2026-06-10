@@ -12,7 +12,13 @@ from midijuggler.rtp_midi.avahi import (
     avahi_tool_paths,
     avahi_tools_available,
 )
-from midijuggler.rtp_midi.discovery import RtpMidiAnnouncer, RtpMidiDiscovery, zeroconf_available
+from midijuggler.rtp_midi.discovery import (
+    RtpMidiAnnouncer,
+    RtpMidiDiscovery,
+    local_mdns_server_name,
+    rtp_session_id,
+    zeroconf_available,
+)
 
 LOGGER = logging.getLogger(__name__)
 
@@ -62,6 +68,24 @@ class RtpMidiManager:
         if self._discovery is None:
             return []
         return [session.as_dict() for session in self._discovery.sessions()]
+
+    def hosted_session_ids(self) -> set[str]:
+        hosted_ids: set[str] = set()
+        for instance_name, config in self._instances.items():
+            if instance_name not in self._announcers:
+                continue
+            if not config.enabled:
+                continue
+            if str(config.options.get("role", "host")) != "host":
+                continue
+            session_name = str(config.options.get("session_name", "")).strip()
+            if not session_name:
+                continue
+            port = int(config.options.get("port", 5004))
+            hosted_ids.add(
+                rtp_session_id(session_name, local_mdns_server_name(), port)
+            )
+        return hosted_ids
 
     async def start(self) -> None:
         if self._backend != "none":

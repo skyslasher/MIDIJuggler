@@ -202,6 +202,21 @@ def test_rtp_midi_manager_hosts_enabled_instance_with_zeroconf(monkeypatch) -> N
     asyncio.run(exercise())
 
 
+def test_hosted_session_ids_tracks_active_host_instances() -> None:
+    manager = RtpMidiManager()
+    manager._instances["rtp_midi"] = AdapterConfig(
+        enabled=True,
+        kind="rtp_midi",
+        options={"role": "host", "session_name": "MIDIJuggler", "port": 5004},
+    )
+    manager._announcers["rtp_midi"] = MagicMock()
+
+    hosted_ids = manager.hosted_session_ids()
+
+    assert len(hosted_ids) == 1
+    assert list(hosted_ids)[0].endswith(":MIDIJuggler")
+
+
 def test_midi_payload_includes_rtp_discovery_fields(monkeypatch) -> None:
     monkeypatch.setattr("midijuggler.web.server.list_midi_ports", lambda: [])
     manager = RtpMidiManager()

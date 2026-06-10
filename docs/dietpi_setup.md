@@ -23,12 +23,20 @@ prefers on the Pi for RTP-MIDI mDNS instead of opening a second mDNS stack throu
 
 `alsa-utils` provides `aplay`, which MIDIJuggler can use as a fallback click
 backend. For lower-latency persistent playback, install the Python ALSA extra
-(`pyalsaaudio`). For RTP-MIDI mDNS discovery and session hosting, install the
-`rtp` extra (`zeroconf`). Both are optional pip extras defined in
-`pyproject.toml`.
+(`pyalsaaudio`).
 
-On the Pi, install the app into the service venv with both extras (recommended
+RTP-MIDI on the Pi uses `avahi-utils` by default. The Python `rtp` extra
+(`zeroconf`) is optional fallback software and mainly useful for development on
+macOS or PCs.
+
+On the Pi, install the app into the service venv with the ALSA extra (recommended
 path — works from any directory):
+
+```bash
+sudo -u midijuggler /opt/midijuggler/venv/bin/python -m pip install -e "/opt/midijuggler/app[alsa]"
+```
+
+Add the `rtp` extra only if you want the `python-zeroconf` fallback:
 
 ```bash
 sudo -u midijuggler /opt/midijuggler/venv/bin/python -m pip install -e "/opt/midijuggler/app[alsa,rtp]"
@@ -58,7 +66,7 @@ sudo usermod -aG gpio,audio midijuggler
 sudo -u midijuggler git clone https://github.com/skyslasher/midijuggler.git /opt/midijuggler/app
 sudo -u midijuggler python3 -m venv /opt/midijuggler/venv
 sudo -u midijuggler /opt/midijuggler/venv/bin/python -m pip install -U pip
-sudo -u midijuggler /opt/midijuggler/venv/bin/python -m pip install -e "/opt/midijuggler/app[alsa,rtp]"
+sudo -u midijuggler /opt/midijuggler/venv/bin/python -m pip install -e "/opt/midijuggler/app[alsa]"
 sudo cp /opt/midijuggler/app/configs/example.toml /etc/midijuggler/config.toml
 sudo chown -R midijuggler:midijuggler /etc/midijuggler
 ```
@@ -165,26 +173,28 @@ sudo systemctl restart avahi-daemon
 
 ### Verify RTP-MIDI on the Pi
 
-Confirm the Python dependency is installed in the service venv:
+Confirm Avahi is running and the CLI tools are installed:
 
 ```bash
-/opt/midijuggler/venv/bin/python -c "import zeroconf; print('zeroconf ok')"
+systemctl status avahi-daemon
+which avahi-publish-service avahi-browse
 ```
 
-Check who is using port 5353:
+Test manual announcement and discovery:
 
 ```bash
-sudo ss -ulnp | grep 5353
+avahi-publish-service "MIDIJuggler-Test" _apple-midi._udp 5004
+avahi-browse -art _apple-midi._udp
 ```
 
 After starting MIDIJuggler, the journal should show RTP-MIDI activity when an
 adapter is enabled in host mode:
 
 ```text
-RTP-MIDI mDNS backend: avahi
-started RTP-MIDI discovery via avahi-browse
-RTP-MIDI status: {'backend': 'avahi', ...}
-announced RTP-MIDI session MIDIJuggler via avahi-publish-service on UDP 5004
+RTP-MIDI mDNS backend: avahi (/usr/bin/avahi-publish-service, /usr/bin/avahi-browse)
+started RTP-MIDI discovery via /usr/bin/avahi-browse
+RTP-MIDI status: {'backend': 'avahi', 'avahi_tools': True, ...}
+announced RTP-MIDI session MIDIJuggler via /usr/bin/avahi-publish-service on UDP 5004
 discovered RTP-MIDI session MyMac at MyMac.local.:5004
 ```
 
@@ -195,15 +205,20 @@ Make sure the RTP-MIDI adapter is actually enabled in the web UI or
 journalctl -u midijuggler.service -f
 ```
 
-If discovery or hosting fails with `Address already in use`, adjust the Avahi
-setting above. On some systems, port sharing only works when both processes run
-as the same user; Avahi runs as `avahi` while MIDIJuggler runs as `midijuggler`.
-In that case, discovery of remote sessions in the LAN still works, but hosting
-a local RTP-MIDI session on the Pi may require stopping `avahi-daemon` or moving
-to an Avahi-based publisher in a future release.
+If the journal reports `backend: none`, install `avahi-utils`, restart
+`avahi-daemon`, update the systemd unit from the repository and restart
+MIDIJuggler.
+
+Optional fallback only:
+
+```bash
+/opt/midijuggler/venv/bin/python -c "import zeroconf; print('zeroconf ok')"
+```
+
+### Host and join sessions
 
 Configure RTP-MIDI adapters in the web UI under **MIDI Devices** or in
-`config.toml`:
+`config.toml`. A common setup uses one host instance and one join instance:
 
 ```toml
 [adapters.rtp_midi]
@@ -211,11 +226,20 @@ enabled = true
 role = "host"
 session_name = "MIDIJuggler"
 port = 5004
+
+[adapters.rtp_remote]
+type = "rtp_midi"
+enabled = true
+role = "join"
+join_target = "MacBook.local.:5004:Studio"
+port = 5005
 ```
 
-Use `role = "join"` and `join_target` to connect to a session discovered on the
-network. See [`web_configuration.md`](web_configuration.md) for the HTTP API
-details.
+In the web UI, switch the join instance to **Join discovered session**, click
+**Refresh RTP sessions**, then choose the remote Mac or iPad session. Locally
+hosted sessions are hidden from the join dropdown.
+
+See [`web_configuration.md`](web_configuration.md) for the HTTP API details.
 
 ## systemd
 

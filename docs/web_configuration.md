@@ -65,13 +65,35 @@ adapter instances. For each instance you can edit:
 - USB MIDI `input_port` and `output_port`
 - optional `midi_library`
 - RTP-MIDI mode: `host` (announce a local session via mDNS) or `join` (connect
-  to a discovered session)
+  to a discovered remote session)
 - RTP-MIDI `session_name` and UDP `port` in host mode
-- RTP-MIDI `join_target` in join mode, chosen from sessions discovered via mDNS
+- RTP-MIDI `join_target` in join mode, chosen from discovered remote sessions
 
-RTP-MIDI discovery uses the `_apple-midi._udp` mDNS service type. Install the
-optional `zeroconf` dependency (`pip install midijuggler[rtp]`) to enable
-network discovery and local session announcements.
+Use **Refresh RTP sessions** to reload the current mDNS discovery results before
+selecting a join target. The counter above the adapter cards shows how many
+sessions are visible on the network in total.
+
+### RTP-MIDI mDNS backend
+
+RTP-MIDI uses the `_apple-midi._udp` mDNS service type.
+
+On the Raspberry Pi, MIDIJuggler prefers the Avahi CLI tools when
+`avahi-utils` is installed:
+
+- `avahi-publish-service` announces local host sessions
+- `avahi-browse` discovers sessions on the LAN
+
+The Python `zeroconf` package (`pip install midijuggler[rtp]`) is only a
+fallback when the Avahi tools are not available, for example during local
+development on macOS.
+
+In join mode, the web UI lists only **remote** sessions. Locally hosted sessions
+are filtered out so you do not accidentally join your own announcement.
+
+A typical setup uses two `rtp_midi` instances:
+
+- one instance in `host` mode to announce the Pi session
+- a second instance in `join` mode to connect to a Mac or iPad session
 
 Available ALSA sequencer ports are discovered with `aconnect -l`. Saving
 updates the in-memory adapter configuration and persists the corresponding
@@ -83,6 +105,40 @@ The HTTP API is:
 GET /api/midi-adapters
 POST /api/midi-adapters
 ```
+
+Example GET fields for RTP-MIDI:
+
+```json
+{
+  "rtp_midi_available": true,
+  "rtp_midi_backend": "avahi",
+  "discovered_rtp_sessions": [
+    {
+      "id": "MacBook.local.:5004:Studio",
+      "name": "Studio",
+      "host": "MacBook.local.",
+      "port": 5004,
+      "label": "Studio (MacBook.local.:5004)"
+    }
+  ],
+  "instances": [
+    {
+      "name": "rtp_midi",
+      "type": "rtp_midi",
+      "role": "join",
+      "join_target": "MacBook.local.:5004:Studio",
+      "available_rtp_sessions": [
+        {
+          "id": "MacBook.local.:5004:Studio",
+          "label": "Studio (MacBook.local.:5004)"
+        }
+      ]
+    }
+  ]
+}
+```
+
+`rtp_midi_backend` is one of `avahi`, `zeroconf` or `none`.
 
 Example POST body:
 
@@ -102,10 +158,19 @@ Example POST body:
       "role": "host",
       "session_name": "MIDIJuggler",
       "port": 5004
+    },
+    {
+      "name": "rtp_remote",
+      "enabled": true,
+      "role": "join",
+      "join_target": "MacBook.local.:5004:Studio",
+      "port": 5005
     }
   ]
 }
 ```
+
+`join_target` must match the `id` of a currently discovered remote session.
 
 As with GPIO and master clock, runtime changes are applied immediately. A full
 restart is still recommended after changing enabled MIDI adapters so the service

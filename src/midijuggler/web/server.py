@@ -649,6 +649,13 @@ class WebInterface:
                 if self.rtp_midi_manager is not None
                 else []
             )
+            if role == "join" and self.rtp_midi_manager is not None:
+                hosted_ids = self.rtp_midi_manager.hosted_session_ids()
+                discovered = [
+                    session
+                    for session in discovered
+                    if session["id"] not in hosted_ids
+                ]
             payload.update(
                 {
                     "role": role,

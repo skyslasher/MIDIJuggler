@@ -4,9 +4,11 @@ from pathlib import Path
 import pytest
 
 from midijuggler.clock import ClockBpmTracker
-from midijuggler.config import load_config, parse_config
+from midijuggler.config import AdapterConfig, load_config, parse_config
 from midijuggler.eventbus import EventBus
 from midijuggler.master_clock import MasterClock
+from midijuggler.rtp_midi.discovery import RtpMidiSession, local_mdns_server_name, rtp_session_id
+from midijuggler.rtp_midi.manager import RtpMidiManager
 from midijuggler.web.server import WebInterface
 
 
@@ -174,6 +176,64 @@ def test_apply_midi_adapters_config_keeps_runtime_change_when_persisting_fails(
     assert result["persisted"] is False
     assert "Permission denied" in result["persist_error"]
     assert config.adapters["usb_midi"].options["input_port"] == "New In"
+
+
+def test_join_mode_excludes_locally_hosted_rtp_sessions(monkeypatch) -> None:
+    monkeypatch.setattr("midijuggler.web.server.list_midi_ports", lambda: [])
+    manager = RtpMidiManager()
+    local_host = local_mdns_server_name()
+    local_id = rtp_session_id("MIDIJuggler", local_host, 5004)
+    remote_id = rtp_session_id("MacSession", "MacBook.local.", 5004)
+    manager._discovery = manager._discovery or None
+    from midijuggler.rtp_midi.discovery import RtpMidiDiscovery
+
+    discovery = RtpMidiDiscovery()
+    discovery._sessions = {
+        local_id: RtpMidiSession(
+            id=local_id,
+            name="MIDIJuggler",
+            host=local_host,
+            port=5004,
+        ),
+        remote_id: RtpMidiSession(
+            id=remote_id,
+            name="MacSession",
+            host="MacBook.local.",
+            port=5004,
+        ),
+    }
+    manager._discovery = discovery
+    manager._instances["rtp_midi"] = AdapterConfig(
+        enabled=True,
+        kind="rtp_midi",
+        options={"role": "host", "session_name": "MIDIJuggler", "port": 5004},
+    )
+    manager._announcers["rtp_midi"] = object()
+
+    config = parse_config(
+        {
+            "adapters": {
+                "rtp_midi": {
+                    "enabled": True,
+                    "role": "join",
+                    "join_target": remote_id,
+                    "port": 5004,
+                }
+            }
+        }
+    )
+    interface = WebInterface(
+        config,
+        EventBus(),
+        ClockBpmTracker(),
+        MasterClock(config.master_clock, EventBus()),
+        rtp_midi_manager=manager,
+    )
+
+    payload = interface.midi_adapters_config_payload()
+    join_choices = payload["instances"][0]["available_rtp_sessions"]
+
+    assert [choice["id"] for choice in join_choices] == [remote_id]
 
 
 def test_apply_midi_adapters_config_rejects_unknown_instance() -> None:

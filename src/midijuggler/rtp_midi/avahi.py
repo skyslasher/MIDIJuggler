@@ -130,7 +130,10 @@ class AvahiRtpMidiDiscovery:
     async def _refresh_sessions(self) -> None:
         process = await asyncio.create_subprocess_exec(
             self._browse_path,
-            "-rpt",
+            "-a",
+            "-r",
+            "-p",
+            "-t",
             _AVAHI_SERVICE_TYPE,
             stdout=asyncio.subprocess.PIPE,
             stderr=asyncio.subprocess.PIPE,

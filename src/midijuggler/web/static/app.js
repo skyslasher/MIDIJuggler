@@ -28,6 +28,7 @@ const configImportFile = document.querySelector("#config-import-file");
 const configImportMessage = document.querySelector("#config-import-message");
 const midiAdaptersForm = document.querySelector("#midi-adapters-form");
 const midiAdapterInstances = document.querySelector("#midi-adapter-instances");
+const midiAdaptersRefresh = document.querySelector("#midi-adapters-refresh");
 const midiAdaptersMessage = document.querySelector("#midi-adapters-message");
 const gpioForm = document.querySelector("#gpio-form");
 const gpioPins = document.querySelector("#gpio-pins");
@@ -180,21 +181,72 @@ function selectedGpioPins() {
     .map((input) => Number(input.value));
 }
 
+function mergeRtpSessionChoices(config, instance) {
+  const merged = new Map();
+  for (const session of config.discovered_rtp_sessions || []) {
+    merged.set(session.id, session);
+  }
+  for (const session of instance?.available_rtp_sessions || []) {
+    merged.set(session.id, session);
+  }
+  return [...merged.values()];
+}
+
+function updateRtpDiscoveryNote(config) {
+  const note = midiAdapterInstances.querySelector(".rtp-discovery-note");
+  if (!note) {
+    return;
+  }
+  if (config.rtp_midi_available === false) {
+    note.textContent =
+      "Install avahi-utils on the Pi or the zeroconf package for RTP-MIDI discovery.";
+    return;
+  }
+  const discoveredCount = (config.discovered_rtp_sessions || []).length;
+  note.textContent =
+    `RTP-MIDI discovery active (${config.rtp_midi_backend || "none"}). ` +
+    `${discoveredCount} session(s) on the network.`;
+}
+
+function refreshRtpJoinSelects(config) {
+  for (const card of midiAdapterInstances.querySelectorAll(".midi-adapter-card")) {
+    const roleSelect = card.querySelector('[data-field="role"]');
+    const joinSelect = card.querySelector('[data-field="join_target"]');
+    if (!roleSelect || !joinSelect || roleSelect.value !== "join") {
+      continue;
+    }
+    const instanceName = card.dataset.instanceName;
+    const instance = (config.instances || []).find((item) => item.name === instanceName);
+    const choices = mergeRtpSessionChoices(config, instance);
+    replaceSelectOptions(
+      joinSelect,
+      choices,
+      "id",
+      "label",
+      joinSelect.value,
+      "No remote session discovered",
+    );
+  }
+  updateRtpDiscoveryNote(config);
+}
+
+function loadMidiAdaptersConfig() {
+  return fetch("/api/midi-adapters")
+    .then((response) => response.json())
+    .then((config) => {
+      renderMidiAdaptersConfig(config);
+      return config;
+    });
+}
+
 function renderMidiAdaptersConfig(config) {
   midiAdaptersConfig = config;
   midiAdapterInstances.replaceChildren();
 
   const discoveryNote = document.createElement("p");
-  discoveryNote.className = "hint";
-  if (config.rtp_midi_available === false) {
-    discoveryNote.textContent =
-      "Install the zeroconf package for RTP-MIDI mDNS discovery and session hosting.";
-  } else {
-    const discoveredCount = (config.discovered_rtp_sessions || []).length;
-    discoveryNote.textContent =
-      `RTP-MIDI mDNS discovery active. ${discoveredCount} session(s) visible on the network.`;
-  }
+  discoveryNote.className = "hint rtp-discovery-note";
   midiAdapterInstances.appendChild(discoveryNote);
+  updateRtpDiscoveryNote(config);
 
   for (const instance of config.instances || []) {
     const card = document.createElement("section");
@@ -281,17 +333,16 @@ function renderMidiAdaptersConfig(config) {
 
       const joinFields = document.createElement("div");
       joinFields.className = "rtp-join-fields";
-      joinFields.appendChild(
-        createSelectField(
-          "Discovered session",
-          "join_target",
-          instance.available_rtp_sessions || [],
-          "id",
-          "label",
-          instance.join_target || "",
-          "No session discovered",
-        ),
+      const joinSelect = createSelectField(
+        "Discovered session",
+        "join_target",
+        mergeRtpSessionChoices(config, instance),
+        "id",
+        "label",
+        instance.join_target || "",
+        "No remote session discovered",
       );
+      joinFields.appendChild(joinSelect);
       card.appendChild(joinFields);
 
       const roleSelect = card.querySelector('[data-field="role"]');
@@ -299,6 +350,11 @@ function renderMidiAdaptersConfig(config) {
         const isHost = roleSelect.value === "host";
         hostFields.hidden = !isHost;
         joinFields.hidden = isHost;
+        if (!isHost) {
+          loadMidiAdaptersConfig().then((freshConfig) => {
+            refreshRtpJoinSelects(freshConfig);
+          });
+        }
       };
       roleSelect.addEventListener("change", updateRtpVisibility);
       updateRtpVisibility();
@@ -543,6 +599,17 @@ configurationExit.addEventListener("click", () => {
   configurationToggle.hidden = false;
 });
 
+midiAdaptersRefresh?.addEventListener("click", () => {
+  midiAdaptersMessage.textContent = "refreshing RTP sessions...";
+  loadMidiAdaptersConfig()
+    .then(() => {
+      midiAdaptersMessage.textContent = "RTP sessions refreshed";
+    })
+    .catch((error) => {
+      midiAdaptersMessage.textContent = `error: ${error.message}`;
+    });
+});
+
 midiAdaptersForm.addEventListener("submit", (event) => {
   event.preventDefault();
   midiAdaptersMessage.textContent = "saving...";
@@ -689,7 +756,7 @@ configImportForm.addEventListener("submit", (event) => {
 });
 
 fetch("/api/status").then((response) => response.json()).then(renderStatus);
-fetch("/api/midi-adapters").then((response) => response.json()).then(renderMidiAdaptersConfig);
+loadMidiAdaptersConfig();
 fetch("/api/gpio").then((response) => response.json()).then(renderGpioConfig);
 fetch("/api/master-clock").then((response) => response.json()).then(renderMasterClockConfig);
 fetch("/api/osc-libraries").then((response) => response.json()).then(renderOscLibraries);
