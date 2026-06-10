@@ -107,7 +107,10 @@ a 5.1 sound card.
 
 Click playback is triggered in the background, so a click WAV that is longer
 than the configured click interval does not block the master clock from
-triggering the next click.
+triggering the next click. In hardware/dmix mode, clicks may overlap. In
+software/alias mode, MIDIJuggler stops any still-running click process before
+starting the next one, because many software PCMs still open the underlying
+device exclusively.
 
 The click interval can be:
 

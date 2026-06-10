@@ -22,6 +22,7 @@ from midijuggler.events import (
     MidiMessageEvent,
     OscMessageEvent,
 )
+from midijuggler.alsa import alsa_mode_for_device
 
 LOGGER = logging.getLogger(__name__)
 
@@ -89,11 +90,15 @@ class ClickPlayer:
         command: str = "aplay",
         audio_device: str = "",
         environment: dict[str, str] | None = None,
+        allow_overlap: bool = True,
     ) -> None:
         self.wav_path = wav_path
         self.command = command
         self.audio_device = audio_device
         self.environment = environment or {}
+        self.allow_overlap = allow_overlap
+        self._lock = asyncio.Lock()
+        self._process_tasks: dict[asyncio.subprocess.Process, asyncio.Task[None]] = {}
 
     async def play(self) -> None:
         if not self.wav_path:
@@ -107,25 +112,34 @@ class ClickPlayer:
             command.extend(["-D", self.audio_device])
         command.append(self.wav_path)
 
-        try:
-            process = await asyncio.create_subprocess_exec(
-                *command,
-                stdout=asyncio.subprocess.DEVNULL,
-                stderr=asyncio.subprocess.PIPE,
-                env={**os.environ, **self.environment} if self.environment else None,
-            )
-        except OSError:
-            LOGGER.exception("failed to start click playback command")
-            return
+        async with self._lock:
+            if not self.allow_overlap:
+                await self._stop_active_processes()
 
-        asyncio.create_task(self._wait_for_process(process), name="click-playback")
+            try:
+                process = await asyncio.create_subprocess_exec(
+                    *command,
+                    stdout=asyncio.subprocess.DEVNULL,
+                    stderr=asyncio.subprocess.PIPE,
+                    env={**os.environ, **self.environment} if self.environment else None,
+                )
+            except OSError:
+                LOGGER.exception("failed to start click playback command")
+                return
+
+            task = asyncio.create_task(self._wait_for_process(process), name="click-playback")
+            self._process_tasks[process] = task
 
     async def _wait_for_process(self, process: asyncio.subprocess.Process) -> None:
         try:
             _, stderr = await process.communicate()
+        except asyncio.CancelledError:
+            raise
         except Exception:
             LOGGER.exception("click playback command failed while waiting")
             return
+        finally:
+            self._process_tasks.pop(process, None)
 
         if process.returncode:
             message = stderr.decode(errors="replace").strip() if stderr else ""
@@ -140,6 +154,23 @@ class ClickPlayer:
                 process.returncode,
                 f": {message}" if message else "",
             )
+
+    async def _stop_active_processes(self) -> None:
+        for process, task in list(self._process_tasks.items()):
+            task.cancel()
+            with contextlib.suppress(asyncio.CancelledError):
+                await task
+            if process.returncode is None:
+                with contextlib.suppress(ProcessLookupError):
+                    process.terminate()
+                try:
+                    await asyncio.wait_for(process.wait(), timeout=0.2)
+                except asyncio.TimeoutError:
+                    with contextlib.suppress(ProcessLookupError):
+                        process.kill()
+                    with contextlib.suppress(Exception):
+                        await process.wait()
+            self._process_tasks.pop(process, None)
 
 
 class MasterClockRemote:
@@ -365,6 +396,7 @@ class MasterClock:
             command=config.click_command,
             audio_device=self.click_audio_device or config.click_audio_device,
             environment=environment,
+            allow_overlap=alsa_mode_for_device(config.click_audio_device) == "dmix",
         )
 
     def _trigger_click(self) -> None:

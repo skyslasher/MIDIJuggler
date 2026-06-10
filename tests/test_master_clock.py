@@ -48,6 +48,32 @@ class FakeBusyProcess:
         return b"", b"aplay: audio open error: Device or resource busy\n"
 
 
+class FakeLongProcess:
+    def __init__(self) -> None:
+        self.returncode: int | None = None
+        self.terminated = False
+        self.killed = False
+        self._finished = asyncio.Event()
+
+    async def communicate(self) -> tuple[bytes, bytes]:
+        await self._finished.wait()
+        return b"", b""
+
+    def terminate(self) -> None:
+        self.terminated = True
+        self.returncode = -15
+        self._finished.set()
+
+    def kill(self) -> None:
+        self.killed = True
+        self.returncode = -9
+        self._finished.set()
+
+    async def wait(self) -> int | None:
+        await self._finished.wait()
+        return self.returncode
+
+
 def test_bpm_to_parameters_exposes_millisecond_values() -> None:
     parameters = bpm_to_parameters(120.0)
 
@@ -80,6 +106,41 @@ def test_click_player_does_not_warn_for_busy_audio_device(caplog) -> None:
     asyncio.run(scenario())
 
     assert "Device or resource busy" not in caplog.text
+
+
+def test_click_player_restarts_previous_process_when_overlap_is_disabled(
+    tmp_path,
+    monkeypatch,
+) -> None:
+    async def scenario() -> list[FakeLongProcess]:
+        wav = tmp_path / "click.wav"
+        wav.write_bytes(b"fake")
+        processes: list[FakeLongProcess] = []
+
+        async def fake_create_subprocess_exec(*args, **kwargs):
+            process = FakeLongProcess()
+            processes.append(process)
+            return process
+
+        monkeypatch.setattr(asyncio, "create_subprocess_exec", fake_create_subprocess_exec)
+
+        player = ClickPlayer(str(wav), allow_overlap=False)
+        await player.play()
+        await asyncio.sleep(0)
+        await player.play()
+        await asyncio.sleep(0)
+
+        for process in processes:
+            if process.returncode is None:
+                process.terminate()
+        await asyncio.sleep(0)
+        return processes
+
+    processes = asyncio.run(scenario())
+
+    assert len(processes) == 2
+    assert processes[0].terminated is True
+    assert processes[1].terminated is True
 
 
 def test_master_clock_outputs_midi_ticks_and_clicks() -> None:
