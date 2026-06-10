@@ -5,6 +5,12 @@
   color: #edf2ff;
 }
 
+*,
+*::before,
+*::after {
+  box-sizing: border-box;
+}
+
 body {
   margin: 0;
 }
@@ -86,6 +92,7 @@ input[type="number"] {
   color: #edf2ff;
   display: block;
   margin-top: 0.35rem;
+  max-width: 12rem;
   padding: 0.55rem;
   width: 100%;
 }
