@@ -1,8 +1,10 @@
 import asyncio
+import os
+from pathlib import Path
 
 import pytest
 
-from midijuggler.adapters.gpio import GpioAdapter, parse_gpio_inputs
+from midijuggler.adapters.gpio import GpioAdapter, _write_sysfs_file, parse_gpio_inputs
 from midijuggler.config import AdapterConfig
 from midijuggler.eventbus import EventBus
 from midijuggler.events import ControlEvent
@@ -52,6 +54,32 @@ def test_parse_gpio_inputs_accepts_named_input_tables() -> None:
 def test_parse_gpio_inputs_rejects_missing_pins() -> None:
     with pytest.raises(ValueError, match="at least one"):
         parse_gpio_inputs({})
+
+
+def test_write_sysfs_file_does_not_open_with_truncate(monkeypatch: pytest.MonkeyPatch) -> None:
+    calls: list[tuple[str, object]] = []
+
+    def fake_open(path: Path, flags: int) -> int:
+        calls.append(("open", path, flags))
+        return 123
+
+    def fake_write(fd: int, value: bytes) -> int:
+        calls.append(("write", fd, value))
+        return len(value)
+
+    def fake_close(fd: int) -> None:
+        calls.append(("close", fd))
+
+    monkeypatch.setattr(os, "open", fake_open)
+    monkeypatch.setattr(os, "write", fake_write)
+    monkeypatch.setattr(os, "close", fake_close)
+
+    _write_sysfs_file(Path("/sys/class/gpio/export"), "17")
+
+    assert calls[0] == ("open", Path("/sys/class/gpio/export"), os.O_WRONLY)
+    assert calls[0][2] & os.O_TRUNC == 0
+    assert calls[1] == ("write", 123, b"17")
+    assert calls[2] == ("close", 123)
 
 
 def test_gpio_adapter_publishes_debounced_active_low_events() -> None:

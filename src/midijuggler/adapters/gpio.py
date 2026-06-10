@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import asyncio
 import contextlib
+import os
 import time
 from collections.abc import Callable
 from dataclasses import dataclass
@@ -68,7 +69,13 @@ class SysfsGpioPinReader:
 
         direction_path = self.gpio_path / "direction"
         if direction_path.exists():
-            direction_path.write_text("in", encoding="ascii")
+            try:
+                _write_sysfs_file(direction_path, "in")
+            except OSError as exc:
+                raise RuntimeError(
+                    f"cannot configure GPIO pin {pin} as input; "
+                    "check DietPi GPIO support and service permissions"
+                ) from exc
 
     def read(self) -> bool:
         value = (self.gpio_path / "value").read_text(encoding="ascii").strip()
@@ -83,12 +90,26 @@ class SysfsGpioPinReader:
 
     def _write_control(self, name: str, value: str) -> None:
         try:
-            (self.base_path / name).write_text(value, encoding="ascii")
+            _write_sysfs_file(self.base_path / name, value)
         except OSError as exc:
             raise RuntimeError(
                 f"cannot access GPIO sysfs {name!r}; check DietPi GPIO support "
                 "and service permissions"
             ) from exc
+
+
+def _write_sysfs_file(path: Path, value: str) -> None:
+    """Write a sysfs attribute without opening it with O_TRUNC.
+
+    GPIO sysfs control files such as ``export`` and ``unexport`` can reject the
+    truncating open mode used by pathlib's ``write_text`` with ``EINVAL``.
+    """
+
+    fd = os.open(path, os.O_WRONLY)
+    try:
+        os.write(fd, value.encode("ascii"))
+    finally:
+        os.close(fd)
 
 
 PinReaderFactory = Callable[[GpioInput], GpioPinReader]
