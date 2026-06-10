@@ -1,0 +1,43 @@
+[web]
+host = "0.0.0.0"
+port = 8080
+
+[adapters.osc]
+enabled = true
+listen_host = "0.0.0.0"
+listen_port = 9000
+
+[adapters.usb_midi]
+enabled = true
+input_port = "MIDIJuggler In"
+output_port = "MIDIJuggler Out"
+
+[adapters.rtp_midi]
+enabled = false
+session_name = "MIDIJuggler"
+port = 5004
+
+[adapters.gpio]
+enabled = true
+pins = [17, 27, 22]
+bounce_ms = 25
+
+[[mappings]]
+id = "gpio-footswitch-to-midi-cc"
+source = "gpio:pin17"
+target = "usb_midi:cc:1:64"
+input_min = 0.0
+input_max = 1.0
+output_min = 0.0
+output_max = 127.0
+invert = false
+
+[[mappings]]
+id = "osc-expression-inverted"
+source = "osc:/pedal/expression"
+target = "rtp_midi:cc:1:11"
+input_min = 0.0
+input_max = 1.0
+output_min = 0.0
+output_max = 127.0
+invert = true

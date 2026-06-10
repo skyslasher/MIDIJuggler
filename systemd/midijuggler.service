@@ -1,0 +1,20 @@
+[Unit]
+Description=MIDIJuggler routing service
+After=network-online.target sound.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=midijuggler
+Group=midijuggler
+WorkingDirectory=/opt/midijuggler/app
+Environment=PYTHONUNBUFFERED=1
+ExecStart=/opt/midijuggler/venv/bin/midijuggler --config /etc/midijuggler/config.toml
+Restart=on-failure
+RestartSec=5
+
+# Allow GPIO and ALSA access via group membership on the host instead of root.
+NoNewPrivileges=true
+
+[Install]
+WantedBy=multi-user.target

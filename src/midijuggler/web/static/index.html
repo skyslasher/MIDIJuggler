@@ -1,0 +1,40 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>MIDIJuggler</title>
+    <link rel="stylesheet" href="/static/styles.css" />
+  </head>
+  <body>
+    <main>
+      <header>
+        <div>
+          <h1>MIDIJuggler</h1>
+          <p>OSC, USB MIDI, RTP-MIDI and GPIO routing monitor</p>
+        </div>
+        <div class="bpm-card">
+          <span>BPM</span>
+          <strong id="bpm">--</strong>
+        </div>
+      </header>
+
+      <section class="toolbar">
+        <button id="learn-toggle" type="button">Enable learn mode</button>
+        <span id="connection-state">connecting...</span>
+      </section>
+
+      <section class="grid">
+        <article>
+          <h2>Mappings</h2>
+          <ul id="mappings"></ul>
+        </article>
+        <article>
+          <h2>Monitor</h2>
+          <ol id="events" class="events"></ol>
+        </article>
+      </section>
+    </main>
+    <script src="/static/app.js"></script>
+  </body>
+</html>
