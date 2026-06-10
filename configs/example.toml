@@ -45,6 +45,13 @@ enabled = false
 input_port = "Stage MIDI In"
 output_port = "Stage MIDI Out"
 
+[adapters.faderport]
+type = "usb_midi"
+enabled = false
+input_port = "PreSonus FP16 Port 1"
+output_port = "PreSonus FP16 Port 1"
+midi_library = "presonus_faderport"
+
 [adapters.rtp_midi]
 enabled = false
 session_name = "MIDIJuggler"
@@ -101,6 +108,16 @@ source = "gpio:pin22"
 target = "wing_foh:/ch/1/send/1/lvl"
 input_min = 0.0
 input_max = 1.0
+output_min = 0.0
+output_max = 1.0
+invert = false
+
+[[mappings]]
+id = "faderport-channel-1-to-x32-monitor-send"
+source = "faderport:ch_1_fader"
+target = "x32_foh:/ch/01/mix/01/level"
+input_min = 0.0
+input_max = 16383.0
 output_min = 0.0
 output_max = 1.0
 invert = false

@@ -14,6 +14,7 @@ from midijuggler.clock import ClockBpmTracker
 from midijuggler.config import AppConfig
 from midijuggler.eventbus import EventBus
 from midijuggler.events import Event
+from midijuggler.midi_library import get_midi_library, list_midi_libraries
 from midijuggler.osc_library import get_osc_library, list_osc_libraries
 
 
@@ -34,6 +35,8 @@ class WebInterface:
         app.router.add_get("/", self.index)
         app.router.add_get("/static/{filename}", self.static_asset)
         app.router.add_get("/api/status", self.status)
+        app.router.add_get("/api/midi-libraries", self.midi_libraries)
+        app.router.add_get("/api/midi-libraries/{library_id}", self.midi_library)
         app.router.add_get("/api/osc-libraries", self.osc_libraries)
         app.router.add_get("/api/osc-libraries/{library_id}", self.osc_library)
         app.router.add_post("/api/learn", self.set_learn_mode)
@@ -59,6 +62,29 @@ class WebInterface:
 
     async def status(self, request: web.Request) -> web.Response:
         return web.json_response(self._status_payload())
+
+    async def midi_libraries(self, request: web.Request) -> web.Response:
+        libraries = list_midi_libraries()
+        return web.json_response(
+            [
+                {
+                    "id": library.id,
+                    "name": library.name,
+                    "vendor": library.vendor,
+                    "model": library.model,
+                    "notes": library.notes,
+                    "parameter_count": len(library.parameters),
+                }
+                for library in libraries
+            ]
+        )
+
+    async def midi_library(self, request: web.Request) -> web.Response:
+        try:
+            library = get_midi_library(request.match_info["library_id"])
+        except KeyError:
+            raise web.HTTPNotFound() from None
+        return web.json_response(library.as_dict())
 
     async def osc_libraries(self, request: web.Request) -> web.Response:
         libraries = list_osc_libraries()

@@ -1,6 +1,7 @@
 const bpm = document.querySelector("#bpm");
 const mappings = document.querySelector("#mappings");
 const oscLibraries = document.querySelector("#osc-libraries");
+const midiLibraries = document.querySelector("#midi-libraries");
 const events = document.querySelector("#events");
 const learnToggle = document.querySelector("#learn-toggle");
 const connectionState = document.querySelector("#connection-state");
@@ -38,6 +39,15 @@ function renderOscLibraries(libraries) {
     const item = document.createElement("li");
     item.textContent = `${library.name}: ${library.parameter_count} parameters`;
     oscLibraries.appendChild(item);
+  }
+}
+
+function renderMidiLibraries(libraries) {
+  midiLibraries.replaceChildren();
+  for (const library of libraries) {
+    const item = document.createElement("li");
+    item.textContent = `${library.name}: ${library.parameter_count} parameters`;
+    midiLibraries.appendChild(item);
   }
 }
 
@@ -79,4 +89,5 @@ learnToggle.addEventListener("click", () => {
 
 fetch("/api/status").then((response) => response.json()).then(renderStatus);
 fetch("/api/osc-libraries").then((response) => response.json()).then(renderOscLibraries);
+fetch("/api/midi-libraries").then((response) => response.json()).then(renderMidiLibraries);
 connect();
