@@ -8,7 +8,7 @@ bpm = 120.0
 bpm_min = 40.0
 bpm_max = 240.0
 auto_start = false
-output_targets = ["usb_midi", "rtp_midi"]
+output_targets = ["usb_midi"]
 send_transport = true
 
 # Remote control:

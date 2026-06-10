@@ -347,7 +347,7 @@ class WebInterface:
                     "name": name,
                     "type": adapter.kind or name,
                     "enabled": adapter.enabled,
-                    "selected": name in selected_targets,
+                    "selected": adapter.enabled and name in selected_targets,
                 }
                 for name, adapter in self.config.adapters.items()
                 if (adapter.kind or name) in {"usb_midi", "rtp_midi"}
@@ -434,7 +434,7 @@ class WebInterface:
         available_targets = {
             name
             for name, adapter in self.config.adapters.items()
-            if (adapter.kind or name) in {"usb_midi", "rtp_midi"}
+            if adapter.enabled and (adapter.kind or name) in {"usb_midi", "rtp_midi"}
         }
         raw_targets = payload.get("output_targets", current.output_targets)
         if not isinstance(raw_targets, list):

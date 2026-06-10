@@ -5,6 +5,7 @@ from __future__ import annotations
 import asyncio
 import contextlib
 import logging
+from dataclasses import replace
 from pathlib import Path
 
 from midijuggler.adapters import build_adapters
@@ -22,7 +23,7 @@ from midijuggler.events import (
     MappedEvent,
     OscMessageEvent,
 )
-from midijuggler.master_clock import MasterClock
+from midijuggler.master_clock import MIDI_TIMING_CLOCK, MasterClock
 from midijuggler.mapping import MappingEngine
 from midijuggler.web.server import WebInterface, run_web_server, stop_web_server
 
@@ -37,9 +38,9 @@ class MIDIJugglerService:
         self.config_path = Path(config_path) if config_path is not None else None
         self.bus = EventBus()
         self.clock = ClockBpmTracker()
-        self.master_clock = MasterClock(config.master_clock, self.bus)
         self.mapping = MappingEngine(config.mappings)
         self.adapters = build_adapters(config.adapters, self.bus)
+        self.master_clock = MasterClock(self._master_clock_config(), self.bus)
         self.web = WebInterface(
             config,
             self.bus,
@@ -109,6 +110,8 @@ class MIDIJugglerService:
             return
         adapter = self._adapter_for_target(event.target)
         if adapter is None:
+            if event.status == MIDI_TIMING_CLOCK:
+                return
             LOGGER.warning("no enabled adapter for MIDI target %s", event.target)
             return
         await adapter.send_midi_message(event)
@@ -130,6 +133,25 @@ class MIDIJugglerService:
             (adapter for adapter in self.adapters if isinstance(adapter, GpioAdapter)),
             None,
         )
+
+    def _master_clock_config(self):
+        enabled_midi_targets = {
+            adapter.name
+            for adapter in self.adapters
+            if adapter.config.enabled and adapter.config.kind in {"usb_midi", "rtp_midi"}
+        }
+        output_targets = [
+            target
+            for target in self.config.master_clock.output_targets
+            if target in enabled_midi_targets
+        ]
+        dropped_targets = set(self.config.master_clock.output_targets) - set(output_targets)
+        if dropped_targets:
+            LOGGER.warning(
+                "ignoring disabled MIDI clock output targets: %s",
+                ", ".join(sorted(dropped_targets)),
+            )
+        return replace(self.config.master_clock, output_targets=output_targets)
 
 
 async def run_from_config(config_path: str) -> None:

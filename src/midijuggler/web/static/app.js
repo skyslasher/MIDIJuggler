@@ -200,6 +200,7 @@ function renderMasterClockConfig(config) {
     input.type = "checkbox";
     input.value = target.name;
     input.checked = Boolean(target.selected);
+    input.disabled = !target.enabled;
     label.append(
       input,
       document.createTextNode(`${target.name} (${target.type}${target.enabled ? "" : ", disabled"})`),

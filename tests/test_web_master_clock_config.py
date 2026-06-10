@@ -151,6 +151,28 @@ def test_apply_master_clock_config_rejects_unknown_output_target() -> None:
         )
 
 
+def test_apply_master_clock_config_rejects_disabled_output_target() -> None:
+    config = parse_config(
+        {
+            "adapters": {
+                "usb_midi": {"enabled": True},
+                "rtp_midi": {"enabled": False},
+            }
+        }
+    )
+    interface = WebInterface(
+        config,
+        EventBus(),
+        ClockBpmTracker(),
+        MasterClock(config.master_clock, EventBus()),
+    )
+
+    with pytest.raises(ValueError, match="unknown MIDI clock output targets"):
+        asyncio.run(
+            interface.apply_master_clock_config({"output_targets": ["rtp_midi"]})
+        )
+
+
 def test_export_and_import_config_text(tmp_path: Path) -> None:
     config_file = tmp_path / "config.toml"
     config_file.write_text(

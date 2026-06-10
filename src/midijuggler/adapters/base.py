@@ -10,6 +10,7 @@ from midijuggler.eventbus import EventBus
 from midijuggler.events import AdapterStatusEvent, MappedEvent, MidiMessageEvent
 
 LOGGER = logging.getLogger(__name__)
+MIDI_TIMING_CLOCK = 0xF8
 
 
 class Adapter(ABC):
@@ -57,4 +58,7 @@ class Adapter(ABC):
     async def send_midi_message(self, event: MidiMessageEvent) -> None:
         """Send a MIDI message to a MIDI-capable adapter."""
 
+        if event.status == MIDI_TIMING_CLOCK:
+            LOGGER.debug("%s stub received MIDI timing clock", self.name)
+            return
         LOGGER.info("%s stub received MIDI message: %s", self.name, event.as_dict())
