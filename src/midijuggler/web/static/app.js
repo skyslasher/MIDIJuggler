@@ -1,5 +1,6 @@
 const bpm = document.querySelector("#bpm");
 const mappings = document.querySelector("#mappings");
+const oscLibraries = document.querySelector("#osc-libraries");
 const events = document.querySelector("#events");
 const learnToggle = document.querySelector("#learn-toggle");
 const connectionState = document.querySelector("#connection-state");
@@ -28,6 +29,15 @@ function appendEvent(event) {
 
   while (events.children.length > 100) {
     events.removeChild(events.lastElementChild);
+  }
+}
+
+function renderOscLibraries(libraries) {
+  oscLibraries.replaceChildren();
+  for (const library of libraries) {
+    const item = document.createElement("li");
+    item.textContent = `${library.name}: ${library.parameter_count} parameters`;
+    oscLibraries.appendChild(item);
   }
 }
 
@@ -68,4 +78,5 @@ learnToggle.addEventListener("click", () => {
 });
 
 fetch("/api/status").then((response) => response.json()).then(renderStatus);
+fetch("/api/osc-libraries").then((response) => response.json()).then(renderOscLibraries);
 connect();

@@ -16,6 +16,24 @@ enabled = false
 listen_host = "0.0.0.0"
 listen_port = 9001
 
+[adapters.x32_foh]
+type = "osc"
+enabled = false
+listen_host = "0.0.0.0"
+listen_port = 9100
+remote_host = "192.168.10.32"
+remote_port = 10023
+osc_library = "behringer_x32"
+
+[adapters.wing_foh]
+type = "osc"
+enabled = false
+listen_host = "0.0.0.0"
+listen_port = 9101
+remote_host = "192.168.10.48"
+remote_port = 2223
+osc_library = "behringer_wing"
+
 [adapters.usb_midi]
 enabled = true
 input_port = "MIDIJuggler In"
@@ -66,3 +84,23 @@ input_max = 1.0
 output_min = 0.0
 output_max = 127.0
 invert = true
+
+[[mappings]]
+id = "gpio-to-x32-channel-01-on"
+source = "gpio:pin27"
+target = "x32_foh:/ch/01/mix/on"
+input_min = 0.0
+input_max = 1.0
+output_min = 0.0
+output_max = 1.0
+invert = false
+
+[[mappings]]
+id = "gpio-to-wing-channel-1-mute"
+source = "gpio:pin22"
+target = "wing_foh:/ch/1/mute"
+input_min = 0.0
+input_max = 1.0
+output_min = 0.0
+output_max = 1.0
+invert = false

@@ -27,6 +27,7 @@ where = ["src"]
 
 [tool.setuptools.package-data]
 "midijuggler.web" = ["static/*"]
+"midijuggler.osc_libraries" = ["*.toml"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]

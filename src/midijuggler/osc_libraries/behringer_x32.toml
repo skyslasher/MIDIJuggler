@@ -1,0 +1,140 @@
+[library]
+id = "behringer_x32"
+name = "Behringer X32 OSC"
+vendor = "Behringer"
+model = "X32"
+notes = "Common X32 OSC mapping targets. Channel and bus numbers use X32's two-digit path notation where applicable."
+
+[[templates]]
+id = "ch_{channel:02d}_fader"
+label = "Channel {channel:02d} Fader"
+address = "/ch/{channel:02d}/mix/fader"
+range_name = "channel"
+range_start = 1
+range_end = 32
+value_type = "float"
+value_min = 0.0
+value_max = 1.0
+category = "channel"
+direction = "target"
+description = "Input channel fader, normalized 0.0 to 1.0."
+
+[[templates]]
+id = "ch_{channel:02d}_on"
+label = "Channel {channel:02d} On"
+address = "/ch/{channel:02d}/mix/on"
+range_name = "channel"
+range_start = 1
+range_end = 32
+value_type = "int"
+value_min = 0
+value_max = 1
+category = "channel"
+direction = "target"
+description = "Input channel on switch. 1 is on, 0 is muted/off."
+
+[[templates]]
+id = "ch_{channel:02d}_pan"
+label = "Channel {channel:02d} Pan"
+address = "/ch/{channel:02d}/mix/pan"
+range_name = "channel"
+range_start = 1
+range_end = 32
+value_type = "float"
+value_min = 0.0
+value_max = 1.0
+category = "channel"
+direction = "target"
+description = "Input channel pan, normalized 0.0 left to 1.0 right."
+
+[[templates]]
+id = "ch_{channel:02d}_bus_01_send"
+label = "Channel {channel:02d} Bus 01 Send"
+address = "/ch/{channel:02d}/mix/01/level"
+range_name = "channel"
+range_start = 1
+range_end = 32
+value_type = "float"
+value_min = 0.0
+value_max = 1.0
+category = "send"
+direction = "target"
+description = "Input channel send level to bus 01."
+
+[[templates]]
+id = "bus_{bus:02d}_fader"
+label = "Bus {bus:02d} Fader"
+address = "/bus/{bus:02d}/mix/fader"
+range_name = "bus"
+range_start = 1
+range_end = 16
+value_type = "float"
+value_min = 0.0
+value_max = 1.0
+category = "bus"
+direction = "target"
+description = "Bus master fader, normalized 0.0 to 1.0."
+
+[[templates]]
+id = "bus_{bus:02d}_on"
+label = "Bus {bus:02d} On"
+address = "/bus/{bus:02d}/mix/on"
+range_name = "bus"
+range_start = 1
+range_end = 16
+value_type = "int"
+value_min = 0
+value_max = 1
+category = "bus"
+direction = "target"
+description = "Bus master on switch. 1 is on, 0 is muted/off."
+
+[[templates]]
+id = "dca_{dca}_fader"
+label = "DCA {dca} Fader"
+address = "/dca/{dca}/fader"
+range_name = "dca"
+range_start = 1
+range_end = 8
+value_type = "float"
+value_min = 0.0
+value_max = 1.0
+category = "dca"
+direction = "target"
+description = "DCA group fader, normalized 0.0 to 1.0."
+
+[[templates]]
+id = "dca_{dca}_on"
+label = "DCA {dca} On"
+address = "/dca/{dca}/on"
+range_name = "dca"
+range_start = 1
+range_end = 8
+value_type = "int"
+value_min = 0
+value_max = 1
+category = "dca"
+direction = "target"
+description = "DCA on switch. 1 is on, 0 is muted/off."
+
+[[parameters]]
+id = "main_st_fader"
+label = "Main Stereo Fader"
+address = "/main/st/mix/fader"
+value_type = "float"
+value_min = 0.0
+value_max = 1.0
+category = "main"
+direction = "target"
+description = "Main stereo bus fader, normalized 0.0 to 1.0."
+
+[[parameters]]
+id = "main_st_on"
+label = "Main Stereo On"
+address = "/main/st/mix/on"
+value_type = "int"
+value_min = 0
+value_max = 1
+category = "main"
+direction = "target"
+description = "Main stereo bus on switch. 1 is on, 0 is muted/off."

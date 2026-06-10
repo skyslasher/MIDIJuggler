@@ -1,0 +1,176 @@
+[library]
+id = "behringer_wing"
+name = "Behringer Wing OSC"
+vendor = "Behringer"
+model = "Wing"
+notes = "Common Wing OSC mapping targets using OSC node notation. Wing returns both normalized and engineering values for many parameters; these presets target practical control values."
+
+[[templates]]
+id = "ch_{channel}_fdr"
+label = "Channel {channel} Fader"
+address = "/ch/{channel}/fdr"
+range_name = "channel"
+range_start = 1
+range_end = 48
+value_type = "float"
+value_min = 0.0
+value_max = 1.0
+category = "channel"
+direction = "target"
+description = "Channel strip fader using normalized control range."
+
+[[templates]]
+id = "ch_{channel}_mute"
+label = "Channel {channel} Mute"
+address = "/ch/{channel}/mute"
+range_name = "channel"
+range_start = 1
+range_end = 48
+value_type = "int"
+value_min = 0
+value_max = 1
+category = "channel"
+direction = "target"
+description = "Channel strip mute. 1 is muted, 0 is unmuted."
+
+[[templates]]
+id = "ch_{channel}_pan"
+label = "Channel {channel} Pan"
+address = "/ch/{channel}/pan"
+range_name = "channel"
+range_start = 1
+range_end = 48
+value_type = "float"
+value_min = 0.0
+value_max = 1.0
+category = "channel"
+direction = "target"
+description = "Channel strip pan, normalized 0.0 left to 1.0 right."
+
+[[templates]]
+id = "bus_{bus}_fdr"
+label = "Bus {bus} Fader"
+address = "/bus/{bus}/fdr"
+range_name = "bus"
+range_start = 1
+range_end = 16
+value_type = "float"
+value_min = 0.0
+value_max = 1.0
+category = "bus"
+direction = "target"
+description = "Bus fader using normalized control range."
+
+[[templates]]
+id = "bus_{bus}_mute"
+label = "Bus {bus} Mute"
+address = "/bus/{bus}/mute"
+range_name = "bus"
+range_start = 1
+range_end = 16
+value_type = "int"
+value_min = 0
+value_max = 1
+category = "bus"
+direction = "target"
+description = "Bus mute. 1 is muted, 0 is unmuted."
+
+[[templates]]
+id = "mtx_{matrix}_fdr"
+label = "Matrix {matrix} Fader"
+address = "/mtx/{matrix}/fdr"
+range_name = "matrix"
+range_start = 1
+range_end = 8
+value_type = "float"
+value_min = 0.0
+value_max = 1.0
+category = "matrix"
+direction = "target"
+description = "Matrix fader using normalized control range."
+
+[[templates]]
+id = "mtx_{matrix}_mute"
+label = "Matrix {matrix} Mute"
+address = "/mtx/{matrix}/mute"
+range_name = "matrix"
+range_start = 1
+range_end = 8
+value_type = "int"
+value_min = 0
+value_max = 1
+category = "matrix"
+direction = "target"
+description = "Matrix mute. 1 is muted, 0 is unmuted."
+
+[[templates]]
+id = "dca_{dca}_fdr"
+label = "DCA {dca} Fader"
+address = "/dca/{dca}/fdr"
+range_name = "dca"
+range_start = 1
+range_end = 16
+value_type = "float"
+value_min = 0.0
+value_max = 1.0
+category = "dca"
+direction = "target"
+description = "DCA fader using normalized control range."
+
+[[templates]]
+id = "dca_{dca}_mute"
+label = "DCA {dca} Mute"
+address = "/dca/{dca}/mute"
+range_name = "dca"
+range_start = 1
+range_end = 16
+value_type = "int"
+value_min = 0
+value_max = 1
+category = "dca"
+direction = "target"
+description = "DCA mute. 1 is muted, 0 is unmuted."
+
+[[parameters]]
+id = "main_1_fdr"
+label = "Main 1 Fader"
+address = "/main/1/fdr"
+value_type = "float"
+value_min = 0.0
+value_max = 1.0
+category = "main"
+direction = "target"
+description = "Main 1 fader using normalized control range."
+
+[[parameters]]
+id = "main_1_mute"
+label = "Main 1 Mute"
+address = "/main/1/mute"
+value_type = "int"
+value_min = 0
+value_max = 1
+category = "main"
+direction = "target"
+description = "Main 1 mute. 1 is muted, 0 is unmuted."
+
+[[parameters]]
+id = "main_2_fdr"
+label = "Main 2 Fader"
+address = "/main/2/fdr"
+value_type = "float"
+value_min = 0.0
+value_max = 1.0
+category = "main"
+direction = "target"
+description = "Main 2 fader using normalized control range."
+
+[[parameters]]
+id = "main_2_mute"
+label = "Main 2 Mute"
+address = "/main/2/mute"
+value_type = "int"
+value_min = 0
+value_max = 1
+category = "main"
+direction = "target"
+description = "Main 2 mute. 1 is muted, 0 is unmuted."
