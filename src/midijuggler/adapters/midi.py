@@ -10,8 +10,19 @@ import shutil
 from midijuggler.adapters.base import Adapter, MIDI_TIMING_CLOCK
 from midijuggler.config import AdapterConfig
 from midijuggler.eventbus import EventBus
-from midijuggler.events import AdapterStatusEvent, MidiClockEvent, MidiMessageEvent
+from midijuggler.events import (
+    AdapterStatusEvent,
+    ControlEvent,
+    MidiClockEvent,
+    MidiMessageEvent,
+)
 from midijuggler.midi.alsa import parse_aseqdump_line
+from midijuggler.midi.library_match import (
+    MidiSourceIndex,
+    build_source_index,
+    resolve_library_port,
+)
+from midijuggler.midi_library import get_midi_library
 from midijuggler.system_info import resolve_midi_port_address
 
 LOGGER = logging.getLogger(__name__)
@@ -26,8 +37,10 @@ class MidiAdapter(Adapter):
         self._output_address: str | None = None
         self._input_task: asyncio.Task[None] | None = None
         self._input_process: asyncio.subprocess.Process | None = None
+        self._source_index: MidiSourceIndex | None = None
 
     async def start(self) -> None:
+        self._source_index = self._load_source_index()
         input_port = str(self.config.options.get("input_port", "")).strip()
         output_port = str(self.config.options.get("output_port", "")).strip()
         self._input_address = (
@@ -124,6 +137,7 @@ class MidiAdapter(Adapter):
                     await asyncio.wait_for(self._input_process.wait(), timeout=1.0)
             self._input_process = None
 
+        self._source_index = None
         await self.bus.publish(
             AdapterStatusEvent(
                 source=self.name,
@@ -132,6 +146,23 @@ class MidiAdapter(Adapter):
                 detail="MIDI adapter stopped",
             )
         )
+
+    def _load_source_index(self) -> MidiSourceIndex | None:
+        library_id = str(self.config.options.get("midi_library", "")).strip()
+        if not library_id:
+            return None
+
+        try:
+            library = get_midi_library(library_id)
+        except KeyError:
+            LOGGER.warning(
+                "MIDI adapter %s uses unknown midi_library %r",
+                self.name,
+                library_id,
+            )
+            return None
+
+        return build_source_index(library, resolve_library_port(self.config))
 
     async def _input_loop(self) -> None:
         assert self._input_address is not None
@@ -197,7 +228,17 @@ class MidiAdapter(Adapter):
                 direction="input",
             )
         )
+        if self._source_index is None:
+            return
 
+        for match in self._source_index.match(status, data):
+            await self.bus.publish(
+                ControlEvent(
+                    source=self.name,
+                    control=match.control_id,
+                    value=match.value,
+                )
+            )
 
     async def send_midi_message(self, event: MidiMessageEvent) -> None:
         if self._output_address is None:

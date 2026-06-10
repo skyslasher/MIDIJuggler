@@ -26,12 +26,15 @@ from midijuggler.config import (
     _validate_adapter_instance_name,
     parse_config,
     save_gpio_adapter_options,
+    save_mappings,
     save_master_clock_config,
     remove_midi_adapter_configs,
     save_midi_adapter_configs,
 )
 from midijuggler.eventbus import EventBus
-from midijuggler.events import Event
+from midijuggler.events import ControlEvent, Event
+from midijuggler.learn import LearnController, upsert_mapping_rule
+from midijuggler.mapping import MappingEngine
 from midijuggler.midi_library import get_midi_library, list_midi_libraries
 from midijuggler.master_clock import MasterClock
 from midijuggler.rtp_midi.manager import RtpMidiManager
@@ -56,6 +59,7 @@ class WebInterface:
         master_clock: MasterClock,
         gpio_adapter: GpioAdapter | None = None,
         midi_adapters: dict[str, MidiAdapter] | None = None,
+        mapping_engine: MappingEngine | None = None,
         rtp_midi_manager: RtpMidiManager | None = None,
         config_path: str | Path | None = None,
         alsa_config_path: str | Path | None = None,
@@ -66,15 +70,17 @@ class WebInterface:
         self.master_clock = master_clock
         self.gpio_adapter = gpio_adapter
         self.midi_adapters = midi_adapters or {}
+        self.mapping_engine = mapping_engine
         self.rtp_midi_manager = rtp_midi_manager
+        self.learn = LearnController()
         self.config_path = Path(config_path) if config_path is not None else None
         self.alsa_config_path = (
             Path(alsa_config_path) if alsa_config_path is not None else None
         )
-        self.learn_mode = False
         self._tap_times: list[float] = []
         self._websockets: set[web.WebSocketResponse] = set()
         self.bus.subscribe("*", self._broadcast_event)
+        self.bus.subscribe(ControlEvent, self._handle_learn_control)
 
     def create_app(self) -> web.Application:
         app = web.Application()
@@ -97,6 +103,8 @@ class WebInterface:
         app.router.add_get("/api/osc-libraries", self.osc_libraries)
         app.router.add_get("/api/osc-libraries/{library_id}", self.osc_library)
         app.router.add_post("/api/learn", self.set_learn_mode)
+        app.router.add_post("/api/learn/clear", self.clear_learn_source)
+        app.router.add_post("/api/learn/complete", self.complete_learn_mapping)
         app.router.add_get("/ws/monitor", self.monitor_ws)
         return app
 
@@ -263,8 +271,21 @@ class WebInterface:
 
     async def set_learn_mode(self, request: web.Request) -> web.Response:
         payload: dict[str, Any] = await request.json()
-        self.learn_mode = bool(payload.get("enabled", False))
+        self.learn.set_enabled(bool(payload.get("enabled", False)))
         return web.json_response(self._status_payload())
+
+    async def clear_learn_source(self, request: web.Request) -> web.Response:
+        await request.json()
+        self.learn.clear_source()
+        return web.json_response(self._status_payload())
+
+    async def complete_learn_mapping(self, request: web.Request) -> web.Response:
+        payload: dict[str, Any] = await request.json()
+        try:
+            response = await self.apply_learn_mapping(payload)
+        except ValueError as exc:
+            raise web.HTTPBadRequest(text=str(exc)) from exc
+        return web.json_response(response)
 
     async def monitor_ws(self, request: web.Request) -> web.WebSocketResponse:
         ws = web.WebSocketResponse(heartbeat=30)
@@ -291,8 +312,83 @@ class WebInterface:
             return
 
         if payload.get("type") == "learn":
-            self.learn_mode = bool(payload.get("enabled", False))
+            self.learn.set_enabled(bool(payload.get("enabled", False)))
             await self._broadcast_payload({"type": "status", "payload": self._status_payload()})
+            return
+
+        if payload.get("type") == "learn_clear":
+            self.learn.clear_source()
+            await self._broadcast_payload({"type": "status", "payload": self._status_payload()})
+            return
+
+        if payload.get("type") == "learn_complete":
+            try:
+                result = await self.apply_learn_mapping(payload)
+            except ValueError as exc:
+                await ws.send_json({"type": "error", "message": str(exc)})
+                return
+            status = self._status_payload()
+            status.update(
+                {
+                    key: result[key]
+                    for key in ("created_mapping", "persisted", "persist_error")
+                    if key in result
+                }
+            )
+            await self._broadcast_payload({"type": "status", "payload": status})
+
+    async def _handle_learn_control(self, event: ControlEvent) -> None:
+        if self.learn.capture(event) is not None:
+            await self._broadcast_payload({"type": "status", "payload": self._status_payload()})
+
+    async def apply_learn_mapping(self, payload: dict[str, Any]) -> dict[str, Any]:
+        source = self.learn.state.source
+        if source is None:
+            raise ValueError("learn mode has no captured source")
+
+        target_adapter = str(payload.get("target_adapter", "")).strip()
+        parameter_id = str(payload.get("parameter_id", "")).strip()
+        if not target_adapter or not parameter_id:
+            raise ValueError("target_adapter and parameter_id are required")
+
+        rule = self.learn.build_mapping(
+            self.config,
+            source=source,
+            target_adapter=target_adapter,
+            target_parameter_id=parameter_id,
+            mapping_id=str(payload.get("id", "")).strip() or None,
+        )
+        updated_mappings = upsert_mapping_rule(self.config.mappings, rule)
+        self.config.mappings[:] = updated_mappings
+        if self.mapping_engine is not None:
+            self.mapping_engine.replace_rules(updated_mappings)
+
+        persisted = False
+        persist_error = ""
+        if self.config_path is not None:
+            try:
+                save_mappings(self.config_path, updated_mappings)
+                persisted = True
+            except OSError as exc:
+                persist_error = str(exc)
+                LOGGER.warning(
+                    "Learn mapping applied at runtime but could not be persisted to %s: %s",
+                    self.config_path,
+                    exc,
+                )
+        else:
+            persist_error = "no config path available"
+
+        self.learn.clear_source()
+        response = self._status_payload()
+        response.update(
+            {
+                "created_mapping": rule.__dict__,
+                "persisted": persisted,
+                "persist_error": persist_error,
+            }
+        )
+        return response
 
     async def _broadcast_event(self, event: Event) -> None:
         await self._broadcast_payload({"type": "event", "payload": event.as_dict()})
@@ -323,7 +419,9 @@ class WebInterface:
                 "click_interval": self.master_clock.click_interval,
                 "parameters": self.master_clock.parameters.as_controls(),
             },
-            "learn_mode": self.learn_mode,
+            "learn_mode": self.learn.state.enabled,
+            "learn": self.learn.state.as_dict(),
+            "osc_instances": self._osc_instances_payload(),
             "mappings": [rule.__dict__ for rule in self.config.mappings],
             "adapters": {
                 name: {
@@ -334,6 +432,20 @@ class WebInterface:
                 for name, adapter in self.config.adapters.items()
             },
         }
+
+    def _osc_instances_payload(self) -> list[dict[str, Any]]:
+        instances: list[dict[str, Any]] = []
+        for name, adapter in self.config.adapters.items():
+            kind = adapter.kind or name
+            if kind != "osc" or not adapter.enabled:
+                continue
+            instances.append(
+                {
+                    "name": name,
+                    "osc_library": str(adapter.options.get("osc_library", "")),
+                }
+            )
+        return instances
 
     def gpio_config_payload(self) -> dict[str, Any]:
         options = self._gpio_options()

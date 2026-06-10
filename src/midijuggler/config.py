@@ -130,6 +130,65 @@ def save_master_clock_config(path: str | Path, config: MasterClockConfig) -> Non
     temp_path.replace(config_path)
 
 
+def save_mappings(path: str | Path, mappings: list[MappingRule]) -> None:
+    """Persist mapping rules in a TOML config file."""
+
+    config_path = Path(path)
+    text = _remove_mapping_sections(config_path.read_text(encoding="utf-8"))
+    if mappings:
+        text = text.rstrip() + "\n\n" + _format_mappings_section(mappings)
+    else:
+        text = text.rstrip() + "\n"
+
+    temp_path = config_path.with_suffix(config_path.suffix + ".tmp")
+    temp_path.write_text(text, encoding="utf-8")
+    temp_path.replace(config_path)
+
+
+def _remove_mapping_sections(text: str) -> str:
+    lines = text.splitlines()
+    kept: list[str] = []
+    index = 0
+    while index < len(lines):
+        if lines[index].strip() == "[[mappings]]":
+            index += 1
+            while index < len(lines):
+                stripped = lines[index].strip()
+                if stripped == "[[mappings]]":
+                    break
+                if (
+                    stripped.startswith("[")
+                    and stripped.endswith("]")
+                    and stripped != "[[mappings]]"
+                ):
+                    break
+                index += 1
+            continue
+        kept.append(lines[index])
+        index += 1
+    return "\n".join(kept).rstrip() + "\n"
+
+
+def _format_mappings_section(mappings: list[MappingRule]) -> str:
+    blocks = [_format_mapping_rule(rule) for rule in mappings]
+    return "\n\n".join(blocks) + "\n"
+
+
+def _format_mapping_rule(rule: MappingRule) -> str:
+    lines = [
+        "[[mappings]]",
+        f"id = {_toml_string(rule.id)}",
+        f"source = {_toml_string(rule.source)}",
+        f"target = {_toml_string(rule.target)}",
+        f"input_min = {rule.input_min}",
+        f"input_max = {rule.input_max}",
+        f"output_min = {rule.output_min}",
+        f"output_max = {rule.output_max}",
+        f"invert = {_toml_bool(rule.invert)}",
+    ]
+    return "\n".join(lines)
+
+
 def _remove_toml_section(text: str, header: str) -> str:
     lines = text.splitlines()
     start = next(

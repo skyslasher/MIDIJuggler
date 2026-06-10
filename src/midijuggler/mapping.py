@@ -41,11 +41,14 @@ class MappingEngine:
     """Apply all matching mapping rules to incoming control events."""
 
     def __init__(self, rules: list[MappingRule]) -> None:
-        self._rules = rules
+        self._rules = list(rules)
 
     @property
     def rules(self) -> tuple[MappingRule, ...]:
         return tuple(self._rules)
+
+    def replace_rules(self, rules: list[MappingRule]) -> None:
+        self._rules = list(rules)
 
     def map_event(self, event: ControlEvent) -> list[MappedEvent]:
         return [

@@ -249,6 +249,35 @@ legend {
   min-height: 1.4rem;
 }
 
+.hint {
+  color: #9fb5d9;
+}
+
+.learn-panel {
+  border-color: #4a6ea8;
+}
+
+.learn-target-fields {
+  display: grid;
+  gap: 0.75rem;
+}
+
+.stacked-field {
+  display: grid;
+  gap: 0.35rem;
+}
+
+.learn-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+}
+
+.active-button {
+  background: #3d6db3;
+  border-color: #6f9be0;
+}
+
 .master-status {
   display: grid;
   gap: 0.85rem;

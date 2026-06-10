@@ -67,6 +67,7 @@ class MIDIJugglerService:
             self.master_clock,
             gpio_adapter=self._gpio_adapter(),
             midi_adapters=self._midi_adapters(),
+            mapping_engine=self.mapping,
             rtp_midi_manager=self.rtp_midi_manager,
             config_path=self.config_path,
             alsa_config_path=self.alsa_config_path,

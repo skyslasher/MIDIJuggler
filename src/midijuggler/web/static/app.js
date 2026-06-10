@@ -48,6 +48,14 @@ const midiLibraries = document.querySelector("#midi-libraries");
 const events = document.querySelector("#events");
 const showClockTicks = document.querySelector("#show-clock-ticks");
 const learnToggle = document.querySelector("#learn-toggle");
+const learnPanel = document.querySelector("#learn-panel");
+const learnStatus = document.querySelector("#learn-status");
+const learnTargetFields = document.querySelector("#learn-target-fields");
+const learnOscAdapter = document.querySelector("#learn-osc-adapter");
+const learnOscParameter = document.querySelector("#learn-osc-parameter");
+const learnCreate = document.querySelector("#learn-create");
+const learnClear = document.querySelector("#learn-clear");
+const learnMessage = document.querySelector("#learn-message");
 const configurationToggle = document.querySelector("#configuration-toggle");
 const configurationExit = document.querySelector("#configuration-exit");
 const monitorView = document.querySelector("#monitor-view");
@@ -55,6 +63,8 @@ const configurationView = document.querySelector("#configuration-view");
 const connectionState = document.querySelector("#connection-state");
 
 let learnMode = false;
+let learnOscInstances = [];
+let cachedOscLibrary = null;
 let socket;
 let gpioConfig = null;
 let masterClockConfig = null;
@@ -65,6 +75,14 @@ function renderStatus(status) {
   bpm.textContent = displayedBpm ? displayedBpm.toFixed(1) : "--";
   learnMode = Boolean(status.learn_mode);
   learnToggle.textContent = learnMode ? "Disable learn mode" : "Enable learn mode";
+  learnToggle.classList.toggle("active-button", learnMode);
+  learnOscInstances = status.osc_instances || [];
+  renderLearnState(status.learn || {});
+  if (status.created_mapping) {
+    learnMessage.textContent = status.persisted === false
+      ? `saved for runtime only: ${status.persist_error}`
+      : `created mapping ${status.created_mapping.id}`;
+  }
 
   if (status.master_clock) {
     const clock = status.master_clock;
@@ -89,6 +107,140 @@ function renderStatus(status) {
     item.textContent = `${rule.id}: ${rule.source} -> ${rule.target}`;
     mappings.appendChild(item);
   }
+}
+
+function renderLearnState(learn) {
+  learnPanel.hidden = !learnMode;
+  learnStatus.textContent = learn.message || "";
+  const showTargets = learnMode && learn.phase === "waiting_target";
+  learnTargetFields.hidden = !showTargets;
+  if (!learnMode) {
+    learnMessage.textContent = "";
+    return;
+  }
+
+  const previousAdapter = learnOscAdapter.value;
+  learnOscAdapter.replaceChildren();
+  const placeholder = document.createElement("option");
+  placeholder.value = "";
+  placeholder.textContent = learnOscInstances.length
+    ? "Select OSC adapter"
+    : "No enabled OSC adapters";
+  learnOscAdapter.appendChild(placeholder);
+
+  for (const instance of learnOscInstances) {
+    const option = document.createElement("option");
+    option.value = instance.name;
+    option.textContent = instance.osc_library
+      ? `${instance.name} (${instance.osc_library})`
+      : instance.name;
+    option.dataset.libraryId = instance.osc_library || "";
+    learnOscAdapter.appendChild(option);
+  }
+
+  if (previousAdapter) {
+    learnOscAdapter.value = previousAdapter;
+  }
+  if (showTargets && learnOscAdapter.value) {
+    loadLearnOscParameters(learnOscAdapter.value);
+  } else {
+    learnOscParameter.replaceChildren();
+  }
+}
+
+async function loadLearnOscParameters(adapterName) {
+  const selected = learnOscAdapter.selectedOptions[0];
+  const libraryId = selected?.dataset.libraryId || "";
+  learnOscParameter.replaceChildren();
+  if (!libraryId) {
+    const option = document.createElement("option");
+    option.value = "";
+    option.textContent = "Selected adapter has no OSC library";
+    learnOscParameter.appendChild(option);
+    return;
+  }
+
+  const response = await fetch(`/api/osc-libraries/${encodeURIComponent(libraryId)}`);
+  if (!response.ok) {
+    learnMessage.textContent = `error: could not load OSC library ${libraryId}`;
+    return;
+  }
+
+  const library = await response.json();
+  cachedOscLibrary = library;
+  const placeholder = document.createElement("option");
+  placeholder.value = "";
+  placeholder.textContent = "Select OSC parameter";
+  learnOscParameter.appendChild(placeholder);
+
+  for (const parameter of library.parameters || []) {
+    if (parameter.direction !== "target") {
+      continue;
+    }
+    const option = document.createElement("option");
+    option.value = parameter.id;
+    option.textContent = `${parameter.label} (${parameter.address})`;
+    learnOscParameter.appendChild(option);
+  }
+}
+
+function completeLearnMapping() {
+  const targetAdapter = learnOscAdapter.value;
+  const parameterId = learnOscParameter.value;
+  if (!targetAdapter || !parameterId) {
+    learnMessage.textContent = "error: select an OSC adapter and parameter";
+    return;
+  }
+
+  const payload = {
+    type: "learn_complete",
+    target_adapter: targetAdapter,
+    parameter_id: parameterId,
+  };
+  learnMessage.textContent = "creating mapping...";
+
+  if (socket && socket.readyState === WebSocket.OPEN) {
+    socket.send(JSON.stringify(payload));
+    return;
+  }
+
+  fetch("/api/learn/complete", {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify(payload),
+  })
+    .then(async (response) => {
+      if (!response.ok) {
+        throw new Error(await response.text());
+      }
+      return response.json();
+    })
+    .then((status) => {
+      renderStatus(status);
+      if (status.persisted === false) {
+        learnMessage.textContent = `saved for runtime only: ${status.persist_error}`;
+      } else {
+        learnMessage.textContent = `created mapping ${status.created_mapping?.id || ""}`;
+      }
+    })
+    .catch((error) => {
+      learnMessage.textContent = `error: ${error.message}`;
+    });
+}
+
+function clearLearnSource() {
+  learnMessage.textContent = "";
+  if (socket && socket.readyState === WebSocket.OPEN) {
+    socket.send(JSON.stringify({ type: "learn_clear" }));
+    return;
+  }
+  fetch("/api/learn/clear", {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({}),
+  })
+    .then((response) => response.json())
+    .then(renderStatus);
 }
 
 function statusRow(label, valueNode) {
@@ -844,6 +996,7 @@ function connect() {
 
 learnToggle.addEventListener("click", () => {
   const enabled = !learnMode;
+  learnMessage.textContent = "";
   if (socket && socket.readyState === WebSocket.OPEN) {
     socket.send(JSON.stringify({ type: "learn", enabled }));
   } else {
@@ -854,6 +1007,16 @@ learnToggle.addEventListener("click", () => {
     }).then((response) => response.json()).then(renderStatus);
   }
 });
+
+learnOscAdapter.addEventListener("change", () => {
+  learnMessage.textContent = "";
+  if (learnOscAdapter.value) {
+    loadLearnOscParameters(learnOscAdapter.value);
+  }
+});
+
+learnCreate.addEventListener("click", completeLearnMapping);
+learnClear.addEventListener("click", clearLearnSource);
 
 masterTap.addEventListener("click", () => {
   fetch("/api/master-clock/tap", { method: "POST" })
