@@ -74,6 +74,8 @@ Use **Refresh RTP sessions** in the RTP-MIDI card to reload the current mDNS
 discovery results before selecting a join target. The status line in that card
 shows how many sessions are visible on the network in total.
 
+Each card has its own save button: **Save MIDI** and **Save RTP-MIDI**.
+
 ### RTP-MIDI mDNS backend
 
 RTP-MIDI uses the `_apple-midi._udp` mDNS service type.

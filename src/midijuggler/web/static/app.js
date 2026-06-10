@@ -26,12 +26,14 @@ const masterClockMessage = document.querySelector("#master-clock-message");
 const configImportForm = document.querySelector("#config-import-form");
 const configImportFile = document.querySelector("#config-import-file");
 const configImportMessage = document.querySelector("#config-import-message");
-const midiAdaptersForm = document.querySelector("#midi-adapters-form");
 const midiInstances = document.querySelector("#midi-instances");
 const rtpMidiInstances = document.querySelector("#rtp-midi-instances");
 const rtpDiscoveryNote = document.querySelector(".rtp-discovery-note");
+const midiSaveButton = document.querySelector("#midi-save");
+const rtpMidiSaveButton = document.querySelector("#rtp-midi-save");
 const midiAdaptersRefresh = document.querySelector("#midi-adapters-refresh");
-const midiAdaptersMessage = document.querySelector("#midi-adapters-message");
+const midiMessage = document.querySelector("#midi-message");
+const rtpMidiMessage = document.querySelector("#rtp-midi-message");
 const gpioForm = document.querySelector("#gpio-form");
 const gpioPins = document.querySelector("#gpio-pins");
 const gpioActiveLow = document.querySelector("#gpio-active-low");
@@ -377,20 +379,26 @@ function createMidiAdapterCard(instance, config) {
   return card;
 }
 
-function renderMidiAdaptersConfig(config) {
-  midiAdaptersConfig = config;
-  midiInstances.replaceChildren();
-  rtpMidiInstances.replaceChildren();
-  updateRtpDiscoveryNote(config);
+function renderMidiAdapterSection(kind, config) {
+  const container = kind === "midi" ? midiInstances : rtpMidiInstances;
+  container.replaceChildren();
 
   for (const instance of config.instances || []) {
-    const card = createMidiAdapterCard(instance, config);
-    if (instance.type === "midi") {
-      midiInstances.appendChild(card);
-    } else {
-      rtpMidiInstances.appendChild(card);
+    if (instance.type !== kind) {
+      continue;
     }
+    container.appendChild(createMidiAdapterCard(instance, config));
   }
+
+  if (kind === "rtp_midi") {
+    updateRtpDiscoveryNote(config);
+  }
+}
+
+function renderMidiAdaptersConfig(config) {
+  midiAdaptersConfig = config;
+  renderMidiAdapterSection("midi", config);
+  renderMidiAdapterSection("rtp_midi", config);
 }
 
 function createTextField(labelText, fieldName, value) {
@@ -428,12 +436,8 @@ function createSelectField(labelText, fieldName, options, valueKey, labelKey, se
   return label;
 }
 
-function collectMidiAdapterInstances() {
-  const cards = [
-    ...midiInstances.querySelectorAll(".midi-adapter-card"),
-    ...rtpMidiInstances.querySelectorAll(".midi-adapter-card"),
-  ];
-  return cards.map((card) => {
+function collectMidiAdapterInstancesFrom(container) {
+  return [...container.querySelectorAll(".midi-adapter-card")].map((card) => {
     const payload = { name: card.dataset.instanceName };
     for (const element of card.querySelectorAll("[data-field]")) {
       const field = element.dataset.field;
@@ -634,24 +638,15 @@ configurationExit.addEventListener("click", () => {
   configurationToggle.hidden = false;
 });
 
-midiAdaptersRefresh?.addEventListener("click", () => {
-  midiAdaptersMessage.textContent = "refreshing RTP sessions...";
-  loadMidiAdaptersConfig()
-    .then(() => {
-      midiAdaptersMessage.textContent = "RTP sessions refreshed";
-    })
-    .catch((error) => {
-      midiAdaptersMessage.textContent = `error: ${error.message}`;
-    });
-});
+function saveMidiAdapterSection(kind) {
+  const container = kind === "midi" ? midiInstances : rtpMidiInstances;
+  const message = kind === "midi" ? midiMessage : rtpMidiMessage;
+  message.textContent = "saving...";
 
-midiAdaptersForm.addEventListener("submit", (event) => {
-  event.preventDefault();
-  midiAdaptersMessage.textContent = "saving...";
-  fetch("/api/midi-adapters", {
+  return fetch("/api/midi-adapters", {
     method: "POST",
     headers: { "content-type": "application/json" },
-    body: JSON.stringify({ instances: collectMidiAdapterInstances() }),
+    body: JSON.stringify({ instances: collectMidiAdapterInstancesFrom(container) }),
   })
     .then(async (response) => {
       if (!response.ok) {
@@ -660,19 +655,41 @@ midiAdaptersForm.addEventListener("submit", (event) => {
       return response.json();
     })
     .then((config) => {
-      renderMidiAdaptersConfig(config);
+      midiAdaptersConfig = config;
+      renderMidiAdapterSection(kind, config);
       if (config.persisted === false) {
-        midiAdaptersMessage.textContent = `saved for runtime only: ${config.persist_error}`;
+        message.textContent = `saved for runtime only: ${config.persist_error}`;
       } else {
-        midiAdaptersMessage.textContent = "saved";
+        message.textContent = "saved";
       }
+      return config;
     })
     .catch((error) => {
-      midiAdaptersMessage.textContent = `error: ${error.message}`;
+      message.textContent = `error: ${error.message}`;
       if (midiAdaptersConfig) {
-        renderMidiAdaptersConfig(midiAdaptersConfig);
+        renderMidiAdapterSection(kind, midiAdaptersConfig);
       }
+      throw error;
     });
+}
+
+midiAdaptersRefresh?.addEventListener("click", () => {
+  rtpMidiMessage.textContent = "refreshing RTP sessions...";
+  loadMidiAdaptersConfig()
+    .then(() => {
+      rtpMidiMessage.textContent = "RTP sessions refreshed";
+    })
+    .catch((error) => {
+      rtpMidiMessage.textContent = `error: ${error.message}`;
+    });
+});
+
+midiSaveButton?.addEventListener("click", () => {
+  saveMidiAdapterSection("midi");
+});
+
+rtpMidiSaveButton?.addEventListener("click", () => {
+  saveMidiAdapterSection("rtp_midi");
 });
 
 gpioForm.addEventListener("submit", (event) => {
