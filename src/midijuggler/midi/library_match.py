@@ -30,6 +30,8 @@ class MidiSourceIndex:
     _by_control_change: dict[tuple[int, int], list[MidiParameter]]
     _by_program_change: dict[tuple[int, int], list[MidiParameter]]
     _by_pitch_bend: dict[int, list[MidiParameter]]
+    _by_note_number: dict[int, list[MidiParameter]]
+    _by_cc_number: dict[int, list[MidiParameter]]
 
     def match(self, status: int, data: tuple[int, ...]) -> list[MatchedControl]:
         message_type = status & 0xF0
@@ -46,6 +48,22 @@ class MidiSourceIndex:
         if message_type == PITCH_BEND and len(data) >= 2:
             value = float(data[0] + (data[1] << 7))
             return self._match_pitch_bend(channel, value)
+        return []
+
+    def match_relaxed(self, status: int, data: tuple[int, ...]) -> list[MatchedControl]:
+        """Match ignoring MIDI channel when the library entry is unambiguous."""
+
+        exact = self.match(status, data)
+        if exact:
+            return exact
+
+        message_type = status & 0xF0
+        if message_type in {NOTE_ON, NOTE_OFF} and data:
+            pressed = message_type == NOTE_ON and len(data) > 1 and data[1] > 0
+            value = float(data[1]) if pressed and len(data) > 1 else 0.0
+            return self._match_unique_note_number(data[0], value)
+        if message_type == CONTROL_CHANGE and len(data) >= 2:
+            return self._match_unique_cc_number(data[0], float(data[1]))
         return []
 
     def _match_note(
@@ -95,6 +113,74 @@ class MidiSourceIndex:
             for parameter in parameters
         ]
 
+    def _match_unique_cc_number(
+        self,
+        controller: int,
+        value: float,
+    ) -> list[MatchedControl]:
+        parameters = self._by_cc_number.get(controller, [])
+        if len(parameters) != 1:
+            return []
+        return [MatchedControl(control_id=parameters[0].id, value=value)]
+
+    def _match_unique_note_number(
+        self,
+        note: int,
+        value: float,
+    ) -> list[MatchedControl]:
+        parameters = self._by_note_number.get(note, [])
+        if len(parameters) != 1:
+            return []
+        return [MatchedControl(control_id=parameters[0].id, value=value)]
+
+
+def resolve_incoming_controls(
+    index: MidiSourceIndex | None,
+    status: int,
+    data: tuple[int, ...],
+) -> list[MatchedControl]:
+    """Resolve library and raw MIDI controls for one incoming message."""
+
+    if index is not None:
+        matches = index.match_relaxed(status, data)
+        if matches:
+            return matches
+
+    raw_control = format_raw_midi_control(status, data)
+    if raw_control is None:
+        return []
+    return [MatchedControl(control_id=raw_control, value=extract_midi_value(status, data))]
+
+
+def format_raw_midi_control(status: int, data: tuple[int, ...]) -> str | None:
+    message_type = status & 0xF0
+    channel = status & 0x0F
+
+    if message_type == CONTROL_CHANGE and len(data) >= 2:
+        return f"cc_{channel}_{data[0]}"
+    if message_type in {NOTE_ON, NOTE_OFF} and data:
+        return f"note_{channel}_{data[0]}"
+    if message_type == PITCH_BEND and len(data) >= 2:
+        return f"pitch_bend_{channel}"
+    if message_type == PROGRAM_CHANGE and data:
+        return f"program_{channel}_{data[0]}"
+    return None
+
+
+def extract_midi_value(status: int, data: tuple[int, ...]) -> float:
+    message_type = status & 0xF0
+    if message_type in {NOTE_ON, NOTE_OFF} and data:
+        if message_type == NOTE_OFF or (len(data) > 1 and data[1] == 0):
+            return 0.0
+        return float(data[1]) if len(data) > 1 else 0.0
+    if message_type == CONTROL_CHANGE and len(data) >= 2:
+        return float(data[1])
+    if message_type == PITCH_BEND and len(data) >= 2:
+        return float(data[0] + (data[1] << 7))
+    if message_type == PROGRAM_CHANGE and data:
+        return float(data[0])
+    return 0.0
+
 
 def build_source_index(
     library: MidiLibrary,
@@ -106,6 +192,8 @@ def build_source_index(
     by_control_change: dict[tuple[int, int], list[MidiParameter]] = {}
     by_program_change: dict[tuple[int, int], list[MidiParameter]] = {}
     by_pitch_bend: dict[int, list[MidiParameter]] = {}
+    by_note_number: dict[int, list[MidiParameter]] = {}
+    by_cc_number: dict[int, list[MidiParameter]] = {}
 
     for parameter in library.parameters:
         if parameter.direction != "source":
@@ -120,10 +208,12 @@ def build_source_index(
             if parameter.number is None:
                 continue
             _append(by_note, (channel, parameter.number), parameter)
+            _append(by_note_number, parameter.number, parameter)
         elif parameter.message_type == "control_change":
             if parameter.number is None:
                 continue
             _append(by_control_change, (channel, parameter.number), parameter)
+            _append(by_cc_number, parameter.number, parameter)
         elif parameter.message_type == "program_change":
             if parameter.number is None:
                 continue
@@ -138,6 +228,8 @@ def build_source_index(
         _by_control_change=by_control_change,
         _by_program_change=by_program_change,
         _by_pitch_bend=by_pitch_bend,
+        _by_note_number=by_note_number,
+        _by_cc_number=by_cc_number,
     )
 
 

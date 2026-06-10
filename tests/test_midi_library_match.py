@@ -1,6 +1,7 @@
 from midijuggler.config import AdapterConfig
 from midijuggler.midi.library_match import (
     build_source_index,
+    resolve_incoming_controls,
     resolve_library_port,
 )
 from midijuggler.midi_library import get_midi_library
@@ -61,3 +62,21 @@ def test_unknown_message_returns_no_matches() -> None:
     index = build_source_index(get_midi_library("behringer_xtouch_mini"))
 
     assert index.match(0xF0, ()) == []
+
+
+def test_relaxed_match_ignores_midi_channel_when_unique() -> None:
+    index = build_source_index(get_midi_library("behringer_xtouch_mini"))
+
+    matches = index.match_relaxed(0xB1, (1, 42))
+
+    assert len(matches) == 1
+    assert matches[0].control_id == "layer_a_encoder_1_turn"
+    assert matches[0].value == 42.0
+
+
+def test_resolve_incoming_controls_falls_back_to_raw_midi_id() -> None:
+    matches = resolve_incoming_controls(None, 0xB0, (7, 100))
+
+    assert len(matches) == 1
+    assert matches[0].control_id == "cc_0_7"
+    assert matches[0].value == 100.0

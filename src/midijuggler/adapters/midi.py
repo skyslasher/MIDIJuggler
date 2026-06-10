@@ -20,6 +20,7 @@ from midijuggler.midi.alsa import parse_aseqdump_line
 from midijuggler.midi.library_match import (
     MidiSourceIndex,
     build_source_index,
+    resolve_incoming_controls,
     resolve_library_port,
 )
 from midijuggler.midi_library import get_midi_library
@@ -228,10 +229,7 @@ class MidiAdapter(Adapter):
                 direction="input",
             )
         )
-        if self._source_index is None:
-            return
-
-        for match in self._source_index.match(status, data):
+        for match in resolve_incoming_controls(self._source_index, status, data):
             await self.bus.publish(
                 ControlEvent(
                     source=self.name,

@@ -55,7 +55,7 @@ class LearnController:
             self._state = LearnState(
                 enabled=True,
                 phase="waiting_source",
-                message="Move a control on your MIDI or GPIO device.",
+                message="Move a control on your MIDI or GPIO device. Learn listens for ControlEvent or MIDI input.",
             )
         else:
             self._state = LearnState()

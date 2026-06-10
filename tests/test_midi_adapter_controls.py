@@ -39,3 +39,29 @@ def test_midi_adapter_publishes_control_events_for_library_matches() -> None:
     assert controls[0].source == "xtouch_mini"
     assert controls[0].control == "layer_a_encoder_1_turn"
     assert controls[0].value == 42.0
+
+
+def test_midi_adapter_publishes_raw_control_without_library() -> None:
+    async def scenario() -> list[ControlEvent]:
+        bus = EventBus()
+        controls: list[ControlEvent] = []
+        bus.subscribe(ControlEvent, lambda event: controls.append(event))
+
+        adapter = MidiAdapter(
+            "usb_stage",
+            AdapterConfig(enabled=True, kind="midi", options={}),
+            bus,
+        )
+        adapter.running = True
+        adapter._source_index = None
+
+        await adapter._handle_input_line(
+            " 24:0   Control change          0, controller 7, value 55"
+        )
+        return controls
+
+    controls = asyncio.run(scenario())
+
+    assert len(controls) == 1
+    assert controls[0].control == "cc_0_7"
+    assert controls[0].value == 55.0

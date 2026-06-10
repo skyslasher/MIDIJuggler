@@ -32,9 +32,15 @@ from midijuggler.config import (
     save_midi_adapter_configs,
 )
 from midijuggler.eventbus import EventBus
-from midijuggler.events import ControlEvent, Event
+from midijuggler.events import ControlEvent, Event, MidiMessageEvent
 from midijuggler.learn import LearnController, upsert_mapping_rule
 from midijuggler.mapping import MappingEngine
+from midijuggler.midi.library_match import (
+    MidiSourceIndex,
+    build_source_index,
+    resolve_incoming_controls,
+    resolve_library_port,
+)
 from midijuggler.midi_library import get_midi_library, list_midi_libraries
 from midijuggler.master_clock import MasterClock
 from midijuggler.rtp_midi.manager import RtpMidiManager
@@ -81,6 +87,8 @@ class WebInterface:
         self._websockets: set[web.WebSocketResponse] = set()
         self.bus.subscribe("*", self._broadcast_event)
         self.bus.subscribe(ControlEvent, self._handle_learn_control)
+        self.bus.subscribe(MidiMessageEvent, self._handle_learn_midi)
+        self._midi_source_indexes: dict[str, MidiSourceIndex | None] = {}
 
     def create_app(self) -> web.Application:
         app = web.Application()
@@ -340,6 +348,55 @@ class WebInterface:
     async def _handle_learn_control(self, event: ControlEvent) -> None:
         if self.learn.capture(event) is not None:
             await self._broadcast_payload({"type": "status", "payload": self._status_payload()})
+
+    async def _handle_learn_midi(self, event: MidiMessageEvent) -> None:
+        if event.direction != "input" or not self.learn.state.enabled:
+            return
+        if self.learn.state.phase != "waiting_source":
+            return
+
+        adapter = self.config.adapters.get(event.source)
+        if adapter is None:
+            return
+
+        matches = resolve_incoming_controls(
+            self._midi_source_index_for(adapter),
+            event.status,
+            tuple(event.data),
+        )
+        if not matches:
+            return
+
+        match = matches[0]
+        captured = self.learn.capture(
+            ControlEvent(
+                source=event.source,
+                control=match.control_id,
+                value=match.value,
+            )
+        )
+        if captured is not None:
+            await self._broadcast_payload({"type": "status", "payload": self._status_payload()})
+
+    def _midi_source_index_for(self, adapter: AdapterConfig) -> MidiSourceIndex | None:
+        cache_key = json.dumps(adapter.options, sort_keys=True, default=str)
+        if cache_key in self._midi_source_indexes:
+            return self._midi_source_indexes[cache_key]
+
+        library_id = str(adapter.options.get("midi_library", "")).strip()
+        if not library_id:
+            self._midi_source_indexes[cache_key] = None
+            return None
+
+        try:
+            library = get_midi_library(library_id)
+        except KeyError:
+            self._midi_source_indexes[cache_key] = None
+            return None
+
+        index = build_source_index(library, resolve_library_port(adapter))
+        self._midi_source_indexes[cache_key] = index
+        return index
 
     async def apply_learn_mapping(self, payload: dict[str, Any]) -> dict[str, Any]:
         source = self.learn.state.source
