@@ -64,6 +64,54 @@ def load_config(path: str | Path) -> AppConfig:
     return parse_config(raw)
 
 
+def save_gpio_adapter_options(path: str | Path, options: dict[str, Any]) -> None:
+    """Persist the editable GPIO adapter options in a TOML config file."""
+
+    config_path = Path(path)
+    text = config_path.read_text(encoding="utf-8")
+    section = _format_gpio_adapter_section(options)
+    lines = text.splitlines()
+
+    start = next(
+        (index for index, line in enumerate(lines) if line.strip() == "[adapters.gpio]"),
+        None,
+    )
+    if start is None:
+        new_text = text.rstrip() + "\n\n" + section
+    else:
+        end = start + 1
+        while end < len(lines):
+            stripped = lines[end].strip()
+            if stripped.startswith("[") and stripped.endswith("]"):
+                break
+            end += 1
+        new_lines = [*lines[:start], *section.rstrip().splitlines(), *lines[end:]]
+        new_text = "\n".join(new_lines).rstrip() + "\n"
+
+    temp_path = config_path.with_suffix(config_path.suffix + ".tmp")
+    temp_path.write_text(new_text, encoding="utf-8")
+    temp_path.replace(config_path)
+
+
+def _format_gpio_adapter_section(options: dict[str, Any]) -> str:
+    pins = [int(pin) for pin in options.get("pins", [])]
+    active_low = bool(options.get("active_low", True))
+    bounce_ms = int(float(options.get("bounce_ms", 25)))
+    poll_interval_ms = int(float(options.get("poll_interval_ms", 5)))
+    return (
+        "[adapters.gpio]\n"
+        "enabled = true\n"
+        f"pins = [{', '.join(str(pin) for pin in pins)}]\n"
+        f"active_low = {_toml_bool(active_low)}\n"
+        f"bounce_ms = {bounce_ms}\n"
+        f"poll_interval_ms = {poll_interval_ms}\n"
+    )
+
+
+def _toml_bool(value: bool) -> str:
+    return "true" if value else "false"
+
+
 def parse_config(raw: dict[str, Any]) -> AppConfig:
     web_raw = raw.get("web", {})
     web = WebConfig(

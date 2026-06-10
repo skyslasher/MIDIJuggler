@@ -6,12 +6,14 @@ import asyncio
 import json
 import mimetypes
 from importlib import resources
+from pathlib import Path
 from typing import Any
 
 from aiohttp import WSMsgType, web
 
+from midijuggler.adapters.gpio import GpioAdapter, RASPBERRY_PI_HEADER_BCM_PINS
 from midijuggler.clock import ClockBpmTracker
-from midijuggler.config import AppConfig
+from midijuggler.config import AppConfig, save_gpio_adapter_options
 from midijuggler.eventbus import EventBus
 from midijuggler.events import Event
 from midijuggler.midi_library import get_midi_library, list_midi_libraries
@@ -28,11 +30,15 @@ class WebInterface:
         bus: EventBus,
         clock: ClockBpmTracker,
         master_clock: MasterClock,
+        gpio_adapter: GpioAdapter | None = None,
+        config_path: str | Path | None = None,
     ) -> None:
         self.config = config
         self.bus = bus
         self.clock = clock
         self.master_clock = master_clock
+        self.gpio_adapter = gpio_adapter
+        self.config_path = Path(config_path) if config_path is not None else None
         self.learn_mode = False
         self._websockets: set[web.WebSocketResponse] = set()
         self.bus.subscribe("*", self._broadcast_event)
@@ -43,6 +49,8 @@ class WebInterface:
         app.router.add_get("/", self.index)
         app.router.add_get("/static/{filename}", self.static_asset)
         app.router.add_get("/api/status", self.status)
+        app.router.add_get("/api/gpio", self.gpio_config)
+        app.router.add_post("/api/gpio", self.set_gpio_config)
         app.router.add_get("/api/midi-libraries", self.midi_libraries)
         app.router.add_get("/api/midi-libraries/{library_id}", self.midi_library)
         app.router.add_get("/api/osc-libraries", self.osc_libraries)
@@ -70,6 +78,17 @@ class WebInterface:
 
     async def status(self, request: web.Request) -> web.Response:
         return web.json_response(self._status_payload())
+
+    async def gpio_config(self, request: web.Request) -> web.Response:
+        return web.json_response(self.gpio_config_payload())
+
+    async def set_gpio_config(self, request: web.Request) -> web.Response:
+        payload = await request.json()
+        try:
+            response = await self.apply_gpio_config(payload)
+        except ValueError as exc:
+            raise web.HTTPBadRequest(text=str(exc)) from exc
+        return web.json_response(response)
 
     async def midi_libraries(self, request: web.Request) -> web.Response:
         libraries = list_midi_libraries()
@@ -189,6 +208,74 @@ class WebInterface:
                 }
                 for name, adapter in self.config.adapters.items()
             },
+        }
+
+    def gpio_config_payload(self) -> dict[str, Any]:
+        options = self._gpio_options()
+        configured_pins = set(options["pins"])
+        return {
+            "enabled": self.config.adapters["gpio"].enabled,
+            "runtime_active": self.gpio_adapter is not None and self.gpio_adapter.running,
+            "active_low": options["active_low"],
+            "bounce_ms": options["bounce_ms"],
+            "poll_interval_ms": options["poll_interval_ms"],
+            "pins": [
+                {
+                    "pin": pin,
+                    "label": f"GPIO {pin}",
+                    "enabled": pin in configured_pins,
+                }
+                for pin in RASPBERRY_PI_HEADER_BCM_PINS
+            ],
+        }
+
+    async def apply_gpio_config(self, payload: dict[str, Any]) -> dict[str, Any]:
+        if not isinstance(payload, dict):
+            raise ValueError("GPIO config payload must be an object")
+        options = self._normalized_gpio_options(payload)
+
+        if self.gpio_adapter is not None:
+            await self.gpio_adapter.configure_options(options)
+        else:
+            self.config.adapters["gpio"].options.clear()
+            self.config.adapters["gpio"].options.update(options)
+
+        if self.config_path is not None:
+            save_gpio_adapter_options(self.config_path, options)
+
+        return self.gpio_config_payload()
+
+    def _gpio_options(self) -> dict[str, Any]:
+        if self.gpio_adapter is not None:
+            return self.gpio_adapter.config_payload()
+        raw_options = self.config.adapters["gpio"].options
+        return {
+            "pins": [int(pin) for pin in raw_options.get("pins", [])],
+            "active_low": bool(raw_options.get("active_low", True)),
+            "bounce_ms": int(float(raw_options.get("bounce_ms", 25))),
+            "poll_interval_ms": int(float(raw_options.get("poll_interval_ms", 5))),
+        }
+
+    def _normalized_gpio_options(self, payload: dict[str, Any]) -> dict[str, Any]:
+        allowed_pins = set(RASPBERRY_PI_HEADER_BCM_PINS)
+        raw_pins = payload.get("pins")
+        if not isinstance(raw_pins, list):
+            raise ValueError("GPIO config requires a pins list")
+        pins = sorted({int(pin) for pin in raw_pins})
+        invalid_pins = [pin for pin in pins if pin not in allowed_pins]
+        if invalid_pins:
+            raise ValueError(f"unsupported BCM GPIO pins: {invalid_pins}")
+        if not pins:
+            raise ValueError("at least one GPIO pin must be enabled")
+
+        current = self._gpio_options()
+        return {
+            "pins": pins,
+            "active_low": bool(payload.get("active_low", current["active_low"])),
+            "bounce_ms": int(float(payload.get("bounce_ms", current["bounce_ms"]))),
+            "poll_interval_ms": int(
+                float(payload.get("poll_interval_ms", current["poll_interval_ms"]))
+            ),
         }
 
 

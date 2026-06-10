@@ -206,3 +206,48 @@ def test_gpio_adapter_publishes_debounced_active_low_events() -> None:
     assert events[0].source == "gpio"
     assert events[0].control == "pin17"
     assert events[0].value == pytest.approx(1.0)
+
+
+def test_gpio_adapter_can_reconfigure_inputs_at_runtime() -> None:
+    async def scenario() -> tuple[GpioAdapter, FakePinReader, FakePinReader]:
+        bus = EventBus()
+        readers = {
+            17: FakePinReader(state=True),
+            27: FakePinReader(state=False),
+        }
+        adapter = GpioAdapter(
+            name="gpio",
+            config=AdapterConfig(
+                enabled=True,
+                options={
+                    "pins": [17],
+                    "active_low": True,
+                    "bounce_ms": 25,
+                    "poll_interval_ms": 5,
+                },
+            ),
+            bus=bus,
+            reader_factory=lambda gpio_input: readers[gpio_input.pin],
+        )
+
+        await adapter.start()
+        await adapter.configure_options(
+            {
+                "pins": [27],
+                "active_low": False,
+                "bounce_ms": 10,
+                "poll_interval_ms": 2,
+            }
+        )
+        await adapter.stop()
+        return adapter, readers[17], readers[27]
+
+    adapter, old_reader, new_reader = asyncio.run(scenario())
+
+    assert old_reader.closed is True
+    assert new_reader.closed is True
+    assert [gpio_input.pin for gpio_input in adapter.inputs] == [27]
+    assert adapter.config.options["pins"] == [27]
+    assert adapter.config.options["active_low"] is False
+    assert adapter.config.options["bounce_ms"] == 10
+    assert adapter.poll_interval_seconds == pytest.approx(0.002)

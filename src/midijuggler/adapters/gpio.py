@@ -19,6 +19,35 @@ from midijuggler.events import AdapterStatusEvent, ControlEvent
 
 LOGGER = logging.getLogger(__name__)
 
+RASPBERRY_PI_HEADER_BCM_PINS = (
+    2,
+    3,
+    4,
+    5,
+    6,
+    7,
+    8,
+    9,
+    10,
+    11,
+    12,
+    13,
+    14,
+    15,
+    16,
+    17,
+    18,
+    19,
+    20,
+    21,
+    22,
+    23,
+    24,
+    25,
+    26,
+    27,
+)
+
 
 class GpioPinReader(Protocol):
     """Read one physical GPIO pin as a raw high/low value."""
@@ -227,21 +256,17 @@ class GpioAdapter(Adapter):
         self._readers: dict[int, GpioPinReader] = {}
         self._states: dict[int, _DebounceState] = {}
         self._poll_task: asyncio.Task[None] | None = None
+        self._lock = asyncio.Lock()
+
+    @property
+    def available_pins(self) -> tuple[int, ...]:
+        return RASPBERRY_PI_HEADER_BCM_PINS
 
     async def start(self) -> None:
-        self._readers = {
-            gpio_input.pin: self._reader_factory(gpio_input)
-            for gpio_input in self.inputs
-        }
-        now = asyncio.get_running_loop().time()
-        self._states = {}
-        for gpio_input in self.inputs:
-            logical_value = self._logical_value(gpio_input)
-            self._states[gpio_input.pin] = _DebounceState(
-                stable=logical_value,
-                candidate=logical_value,
-                candidate_since=now,
-            )
+        async with self._lock:
+            readers, states = self._open_inputs(self.inputs)
+            self._readers = readers
+            self._states = states
 
         self.running = True
         self._poll_task = asyncio.create_task(self._poll_loop(), name="gpio-poll")
@@ -282,32 +307,96 @@ class GpioAdapter(Adapter):
             await asyncio.sleep(self.poll_interval_seconds)
 
     async def _poll_once(self) -> None:
-        now = asyncio.get_running_loop().time()
-        for gpio_input in self.inputs:
-            state = self._states[gpio_input.pin]
-            logical_value = self._logical_value(gpio_input)
+        async with self._lock:
+            now = asyncio.get_running_loop().time()
+            for gpio_input in self.inputs:
+                state = self._states[gpio_input.pin]
+                logical_value = self._logical_value(gpio_input)
 
-            if logical_value != state.candidate:
-                state.candidate = logical_value
-                state.candidate_since = now
-                continue
+                if logical_value != state.candidate:
+                    state.candidate = logical_value
+                    state.candidate_since = now
+                    continue
 
-            if (
-                logical_value != state.stable
-                and now - state.candidate_since >= gpio_input.bounce_seconds
-            ):
-                state.stable = logical_value
-                await self.bus.publish(
-                    ControlEvent(
-                        source=self.name,
-                        control=gpio_input.control,
-                        value=1.0 if logical_value else 0.0,
+                if (
+                    logical_value != state.stable
+                    and now - state.candidate_since >= gpio_input.bounce_seconds
+                ):
+                    state.stable = logical_value
+                    await self.bus.publish(
+                        ControlEvent(
+                            source=self.name,
+                            control=gpio_input.control,
+                            value=1.0 if logical_value else 0.0,
+                        )
                     )
-                )
 
     def _logical_value(self, gpio_input: GpioInput) -> bool:
         raw_high = self._readers[gpio_input.pin].read()
         return not raw_high if gpio_input.active_low else raw_high
+
+    async def configure_options(self, options: dict[str, Any]) -> None:
+        """Apply a new GPIO input configuration at runtime."""
+
+        new_inputs = parse_gpio_inputs(options)
+        new_interval = _milliseconds_to_seconds(
+            options.get("poll_interval_ms", 5),
+            "poll_interval_ms",
+        )
+        async with self._lock:
+            readers, states = self._open_inputs(new_inputs)
+            old_readers = self._readers
+            self.inputs = new_inputs
+            self.poll_interval_seconds = new_interval
+            self._readers = readers
+            self._states = states
+            self.config.options.clear()
+            self.config.options.update(options)
+
+        for reader in old_readers.values():
+            reader.close()
+
+        await self.bus.publish(
+            AdapterStatusEvent(
+                source=self.name,
+                adapter=self.name,
+                status="configured",
+                detail=f"watching GPIO pins {', '.join(str(i.pin) for i in self.inputs)}",
+            )
+        )
+
+    def config_payload(self) -> dict[str, Any]:
+        options = self.config.options
+        return {
+            "pins": [gpio_input.pin for gpio_input in self.inputs],
+            "active_low": bool(options.get("active_low", True)),
+            "bounce_ms": int(float(options.get("bounce_ms", 25))),
+            "poll_interval_ms": int(float(options.get("poll_interval_ms", 5))),
+        }
+
+    def _open_inputs(
+        self,
+        inputs: list[GpioInput],
+    ) -> tuple[dict[int, GpioPinReader], dict[int, _DebounceState]]:
+        readers: dict[int, GpioPinReader] = {}
+        states: dict[int, _DebounceState] = {}
+        try:
+            now = asyncio.get_running_loop().time()
+            for gpio_input in inputs:
+                reader = self._reader_factory(gpio_input)
+                readers[gpio_input.pin] = reader
+                raw_high = reader.read()
+                logical_value = not raw_high if gpio_input.active_low else raw_high
+                states[gpio_input.pin] = _DebounceState(
+                    stable=logical_value,
+                    candidate=logical_value,
+                    candidate_since=now,
+                )
+        except Exception:
+            for reader in readers.values():
+                reader.close()
+            raise
+        return readers, states
 
 
 def parse_gpio_inputs(options: dict[str, Any]) -> list[GpioInput]:

@@ -2,7 +2,7 @@ from pathlib import Path
 
 import pytest
 
-from midijuggler.config import load_config, parse_config
+from midijuggler.config import load_config, parse_config, save_gpio_adapter_options
 
 
 def test_parse_config_reads_web_adapters_and_mappings() -> None:
@@ -99,6 +99,47 @@ def test_load_config_reads_toml_file(tmp_path: Path) -> None:
 
     assert config.web.port == 8081
     assert config.mappings[0].target == "usb_midi:cc:1:11"
+
+
+def test_save_gpio_adapter_options_replaces_gpio_section(tmp_path: Path) -> None:
+    config_file = tmp_path / "config.toml"
+    config_file.write_text(
+        """
+        [web]
+        port = 8080
+
+        [adapters.gpio]
+        enabled = true
+        pins = [17]
+        active_low = true
+        bounce_ms = 25
+        poll_interval_ms = 5
+
+        [adapters.osc]
+        enabled = false
+        """,
+        encoding="utf-8",
+    )
+
+    save_gpio_adapter_options(
+        config_file,
+        {
+            "pins": [22, 27],
+            "active_low": False,
+            "bounce_ms": 10,
+            "poll_interval_ms": 2,
+        },
+    )
+
+    config = load_config(config_file)
+
+    assert config.adapters["gpio"].options == {
+        "pins": [22, 27],
+        "active_low": False,
+        "bounce_ms": 10,
+        "poll_interval_ms": 2,
+    }
+    assert config.adapters["osc"].enabled is False
 
 
 def test_parse_config_rejects_incomplete_mapping() -> None:

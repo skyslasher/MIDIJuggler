@@ -1,0 +1,101 @@
+import asyncio
+from pathlib import Path
+
+import pytest
+
+from midijuggler.clock import ClockBpmTracker
+from midijuggler.config import load_config, parse_config
+from midijuggler.eventbus import EventBus
+from midijuggler.master_clock import MasterClock
+from midijuggler.web.server import WebInterface
+
+
+def test_gpio_config_payload_marks_configured_pins() -> None:
+    config = parse_config(
+        {
+            "adapters": {
+                "gpio": {
+                    "enabled": True,
+                    "pins": [17, 22],
+                    "active_low": True,
+                    "bounce_ms": 25,
+                    "poll_interval_ms": 5,
+                }
+            }
+        }
+    )
+    interface = WebInterface(
+        config,
+        EventBus(),
+        ClockBpmTracker(),
+        MasterClock(config.master_clock, EventBus()),
+    )
+
+    payload = interface.gpio_config_payload()
+    enabled_pins = [
+        pin["pin"]
+        for pin in payload["pins"]
+        if pin["enabled"]
+    ]
+
+    assert enabled_pins == [17, 22]
+    assert payload["active_low"] is True
+    assert payload["bounce_ms"] == 25
+
+
+def test_apply_gpio_config_persists_gpio_section(tmp_path: Path) -> None:
+    config_file = tmp_path / "config.toml"
+    config_file.write_text(
+        """
+        [web]
+        port = 8080
+
+        [adapters.gpio]
+        enabled = true
+        pins = [17]
+        active_low = true
+        bounce_ms = 25
+        poll_interval_ms = 5
+        """,
+        encoding="utf-8",
+    )
+    config = load_config(config_file)
+    bus = EventBus()
+    interface = WebInterface(
+        config,
+        bus,
+        ClockBpmTracker(),
+        MasterClock(config.master_clock, bus),
+        config_path=config_file,
+    )
+
+    result = asyncio.run(
+        interface.apply_gpio_config(
+            {
+                "pins": [22, 27],
+                "active_low": False,
+                "bounce_ms": 10,
+                "poll_interval_ms": 2,
+            }
+        )
+    )
+
+    saved = load_config(config_file)
+    enabled_pins = [pin["pin"] for pin in result["pins"] if pin["enabled"]]
+
+    assert enabled_pins == [22, 27]
+    assert saved.adapters["gpio"].options["pins"] == [22, 27]
+    assert saved.adapters["gpio"].options["active_low"] is False
+
+
+def test_apply_gpio_config_rejects_unsupported_pins() -> None:
+    config = parse_config({"adapters": {"gpio": {"enabled": True, "pins": [17]}}})
+    interface = WebInterface(
+        config,
+        EventBus(),
+        ClockBpmTracker(),
+        MasterClock(config.master_clock, EventBus()),
+    )
+
+    with pytest.raises(ValueError, match="unsupported"):
+        asyncio.run(interface.apply_gpio_config({"pins": [99]}))

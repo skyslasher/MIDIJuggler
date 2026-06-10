@@ -7,6 +7,7 @@ footswitch input through a small web interface.
 This initial scaffold includes:
 
 - `aiohttp` web server with monitor, BPM display and learn-mode controls
+- web-based GPIO input selection
 - async event bus with in-memory event history
 - MIDI clock BPM tracker and MIDI master clock
 - mapping engine with linear scaling and inversion
@@ -78,3 +79,4 @@ Hardware notes:
 - [MIDI master clock](docs/master_clock.md)
 - [MIDI mapping libraries](docs/midi_mapping_libraries.md)
 - [OSC mapping libraries](docs/osc_mapping_libraries.md)
+- [Web configuration](docs/web_configuration.md)

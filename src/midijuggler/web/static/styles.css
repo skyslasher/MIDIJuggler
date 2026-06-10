@@ -74,6 +74,51 @@ button {
   padding: 0.7rem 1rem;
 }
 
+label {
+  display: block;
+  margin: 0.7rem 0;
+}
+
+input[type="number"] {
+  background: #101827;
+  border: 1px solid #3a4a68;
+  border-radius: 8px;
+  color: #edf2ff;
+  display: block;
+  margin-top: 0.35rem;
+  padding: 0.55rem;
+  width: 100%;
+}
+
+.inline-field {
+  align-items: center;
+  display: flex;
+  gap: 0.5rem;
+}
+
+.gpio-pins {
+  display: grid;
+  gap: 0.45rem;
+  grid-template-columns: repeat(auto-fit, minmax(100px, 1fr));
+  margin-bottom: 1rem;
+}
+
+.gpio-pin {
+  align-items: center;
+  background: #101827;
+  border: 1px solid #31405e;
+  border-radius: 10px;
+  display: flex;
+  gap: 0.4rem;
+  margin: 0;
+  padding: 0.45rem 0.55rem;
+}
+
+.message {
+  color: #9fb5d9;
+  min-height: 1.4rem;
+}
+
 .grid {
   display: grid;
   gap: 1rem;

@@ -1,5 +1,11 @@
 const bpm = document.querySelector("#bpm");
 const masterClock = document.querySelector("#master-clock");
+const gpioForm = document.querySelector("#gpio-form");
+const gpioPins = document.querySelector("#gpio-pins");
+const gpioActiveLow = document.querySelector("#gpio-active-low");
+const gpioBounceMs = document.querySelector("#gpio-bounce-ms");
+const gpioPollMs = document.querySelector("#gpio-poll-ms");
+const gpioMessage = document.querySelector("#gpio-message");
 const mappings = document.querySelector("#mappings");
 const oscLibraries = document.querySelector("#osc-libraries");
 const midiLibraries = document.querySelector("#midi-libraries");
@@ -9,6 +15,7 @@ const connectionState = document.querySelector("#connection-state");
 
 let learnMode = false;
 let socket;
+let gpioConfig = null;
 
 function renderStatus(status) {
   const displayedBpm = status.master_clock?.bpm || status.bpm;
@@ -72,6 +79,30 @@ function renderMidiLibraries(libraries) {
   }
 }
 
+function renderGpioConfig(config) {
+  gpioConfig = config;
+  gpioPins.replaceChildren();
+  gpioActiveLow.checked = Boolean(config.active_low);
+  gpioBounceMs.value = config.bounce_ms;
+  gpioPollMs.value = config.poll_interval_ms;
+
+  for (const pin of config.pins || []) {
+    const label = document.createElement("label");
+    label.className = "gpio-pin";
+    const input = document.createElement("input");
+    input.type = "checkbox";
+    input.value = pin.pin;
+    input.checked = Boolean(pin.enabled);
+    label.append(input, document.createTextNode(pin.label));
+    gpioPins.appendChild(label);
+  }
+}
+
+function selectedGpioPins() {
+  return [...gpioPins.querySelectorAll("input[type='checkbox']:checked")]
+    .map((input) => Number(input.value));
+}
+
 function connect() {
   socket = new WebSocket(`${location.protocol === "https:" ? "wss" : "ws"}://${location.host}/ws/monitor`);
   socket.addEventListener("open", () => {
@@ -108,7 +139,39 @@ learnToggle.addEventListener("click", () => {
   }
 });
 
+gpioForm.addEventListener("submit", (event) => {
+  event.preventDefault();
+  gpioMessage.textContent = "saving...";
+  fetch("/api/gpio", {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({
+      pins: selectedGpioPins(),
+      active_low: gpioActiveLow.checked,
+      bounce_ms: Number(gpioBounceMs.value),
+      poll_interval_ms: Number(gpioPollMs.value),
+    }),
+  })
+    .then(async (response) => {
+      if (!response.ok) {
+        throw new Error(await response.text());
+      }
+      return response.json();
+    })
+    .then((config) => {
+      renderGpioConfig(config);
+      gpioMessage.textContent = "saved";
+    })
+    .catch((error) => {
+      gpioMessage.textContent = `error: ${error.message}`;
+      if (gpioConfig) {
+        renderGpioConfig(gpioConfig);
+      }
+    });
+});
+
 fetch("/api/status").then((response) => response.json()).then(renderStatus);
+fetch("/api/gpio").then((response) => response.json()).then(renderGpioConfig);
 fetch("/api/osc-libraries").then((response) => response.json()).then(renderOscLibraries);
 fetch("/api/midi-libraries").then((response) => response.json()).then(renderMidiLibraries);
 connect();

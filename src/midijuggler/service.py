@@ -5,9 +5,11 @@ from __future__ import annotations
 import asyncio
 import contextlib
 import logging
+from pathlib import Path
 
 from midijuggler.adapters import build_adapters
 from midijuggler.adapters.base import Adapter
+from midijuggler.adapters.gpio import GpioAdapter
 from midijuggler.clock import ClockBpmTracker
 from midijuggler.config import AppConfig, load_config
 from midijuggler.eventbus import EventBus
@@ -30,14 +32,22 @@ LOGGER = logging.getLogger(__name__)
 class MIDIJugglerService:
     """Wire core services, adapters and web UI together."""
 
-    def __init__(self, config: AppConfig) -> None:
+    def __init__(self, config: AppConfig, config_path: str | Path | None = None) -> None:
         self.config = config
+        self.config_path = Path(config_path) if config_path is not None else None
         self.bus = EventBus()
         self.clock = ClockBpmTracker()
         self.master_clock = MasterClock(config.master_clock, self.bus)
         self.mapping = MappingEngine(config.mappings)
         self.adapters = build_adapters(config.adapters, self.bus)
-        self.web = WebInterface(config, self.bus, self.clock, self.master_clock)
+        self.web = WebInterface(
+            config,
+            self.bus,
+            self.clock,
+            self.master_clock,
+            gpio_adapter=self._gpio_adapter(),
+            config_path=self.config_path,
+        )
         self._runner = None
 
         self.bus.subscribe(MidiClockEvent, self._track_clock)
@@ -115,9 +125,15 @@ class MIDIJugglerService:
         adapter_name = target.split(":", 1)[0]
         return next((adapter for adapter in self.adapters if adapter.name == adapter_name), None)
 
+    def _gpio_adapter(self) -> GpioAdapter | None:
+        return next(
+            (adapter for adapter in self.adapters if isinstance(adapter, GpioAdapter)),
+            None,
+        )
+
 
 async def run_from_config(config_path: str) -> None:
     config = load_config(config_path)
-    service = MIDIJugglerService(config)
+    service = MIDIJugglerService(config, config_path=config_path)
     with contextlib.suppress(asyncio.CancelledError):
         await service.run_forever()
