@@ -598,6 +598,35 @@ function defaultRtpMidiInstanceTemplate() {
   };
 }
 
+function createAdapterNameField(instance, defaultNames, { isNew = false } = {}) {
+  const field = createTextField(
+    "Instance name",
+    "adapter_name",
+    isNew ? "" : instance.name || "",
+  );
+  const input = field.querySelector("input");
+  if (!isNew && defaultNames.has(instance.name)) {
+    input.disabled = true;
+    input.title = "Default instances cannot be renamed";
+  }
+  return field;
+}
+
+function adapterInstanceNameFromCard(card) {
+  const nameInput = card.querySelector('[data-field="adapter_name"]');
+  const name = (nameInput?.value || card.dataset.instanceName || "").trim();
+  const payload = { name };
+  if (
+    card.dataset.isNew !== "true" &&
+    name &&
+    name !== card.dataset.instanceName &&
+    !nameInput?.disabled
+  ) {
+    payload.previous_name = card.dataset.instanceName;
+  }
+  return payload;
+}
+
 function createMidiAdapterCard(instance, config, options = {}) {
   const isNew = Boolean(options.isNew);
   const card = document.createElement("section");
@@ -611,13 +640,9 @@ function createMidiAdapterCard(instance, config, options = {}) {
   const header = document.createElement("div");
   header.className = "midi-adapter-card-header";
 
-  if (isNew) {
-    header.appendChild(createTextField("Instance name", "adapter_name", ""));
-  } else {
-    const title = document.createElement("h3");
-    title.textContent = instance.name;
-    header.appendChild(title);
-  }
+  header.appendChild(
+    createAdapterNameField(instance, DEFAULT_MIDI_ADAPTER_NAMES, { isNew }),
+  );
 
   const actions = document.createElement("div");
   actions.className = "midi-adapter-card-actions";
@@ -765,10 +790,7 @@ function createMidiAdapterCard(instance, config, options = {}) {
 function collectMidiAdapterInstanceFrom(card) {
   const payload = {
     type: card.dataset.instanceType,
-    name:
-      card.dataset.isNew === "true"
-        ? (card.querySelector('[data-field="adapter_name"]')?.value || "").trim()
-        : card.dataset.instanceName,
+    ...adapterInstanceNameFromCard(card),
   };
   for (const element of card.querySelectorAll("[data-field]")) {
     const field = element.dataset.field;
@@ -1101,13 +1123,9 @@ function createOscAdapterCard(instance, config, options = {}) {
   const header = document.createElement("div");
   header.className = "midi-adapter-card-header";
 
-  if (isNew) {
-    header.appendChild(createTextField("Instance name", "adapter_name", ""));
-  } else {
-    const title = document.createElement("h3");
-    title.textContent = instance.name;
-    header.appendChild(title);
-  }
+  header.appendChild(
+    createAdapterNameField(instance, DEFAULT_OSC_ADAPTER_NAMES, { isNew }),
+  );
 
   const actions = document.createElement("div");
   actions.className = "midi-adapter-card-actions";

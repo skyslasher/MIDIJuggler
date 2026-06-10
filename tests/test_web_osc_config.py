@@ -210,3 +210,58 @@ def test_apply_osc_adapters_config_can_add_and_delete_instances(tmp_path: Path) 
 
     reloaded = load_config(config_file)
     assert "desk_b" not in reloaded.adapters
+
+
+def test_apply_osc_adapters_config_can_rename_instance(tmp_path: Path) -> None:
+    config_file = tmp_path / "config.toml"
+    config_file.write_text(
+        """
+        [adapters.osc]
+        enabled = true
+        listen_port = 9000
+
+        [adapters.x32_foh]
+        type = "osc"
+        enabled = true
+        listen_host = "0.0.0.0"
+        osc_port = 10023
+        remote_host = "192.168.10.32"
+        osc_library = "behringer_x32"
+        """,
+        encoding="utf-8",
+    )
+    config = load_config(config_file)
+    interface = WebInterface(
+        config,
+        EventBus(),
+        ClockBpmTracker(),
+        MasterClock(config.master_clock, EventBus()),
+        config_path=config_file,
+    )
+
+    result = asyncio.run(
+        interface.apply_osc_adapters_config(
+            {
+                "instances": [
+                    {
+                        "name": "foh_x32",
+                        "previous_name": "x32_foh",
+                        "enabled": True,
+                        "listen_host": "0.0.0.0",
+                        "osc_port": 10023,
+                        "remote_host": "192.168.10.32",
+                        "osc_library": "behringer_x32",
+                    }
+                ]
+            }
+        )
+    )
+
+    saved = load_config(config_file)
+    saved_text = config_file.read_text(encoding="utf-8")
+
+    assert result["persisted"] is True
+    assert "x32_foh" not in saved.adapters
+    assert saved.adapters["foh_x32"].enabled is True
+    assert "[adapters.foh_x32]" in saved_text
+    assert "[adapters.x32_foh]" not in saved_text

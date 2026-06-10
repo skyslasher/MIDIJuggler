@@ -427,3 +427,80 @@ def test_apply_midi_adapters_config_rejects_unknown_instance() -> None:
                 {"instances": [{"name": "missing", "enabled": True}]}
             )
         )
+
+
+def test_apply_midi_adapters_config_can_rename_instance(tmp_path: Path, monkeypatch) -> None:
+    monkeypatch.setattr("midijuggler.web.server.list_midi_ports", lambda: [])
+    config_file = tmp_path / "config.toml"
+    config_file.write_text(
+        """
+        [adapters.midi]
+        enabled = true
+
+        [adapters.stage_midi]
+        type = "midi"
+        enabled = true
+        input_port = "Stage In"
+        output_port = "Stage Out"
+        """,
+        encoding="utf-8",
+    )
+    config = load_config(config_file)
+    interface = WebInterface(
+        config,
+        EventBus(),
+        ClockBpmTracker(),
+        MasterClock(config.master_clock, EventBus()),
+        config_path=config_file,
+    )
+
+    result = asyncio.run(
+        interface.apply_midi_adapters_config(
+            {
+                "kind": "midi",
+                "instances": [
+                    {
+                        "name": "foh_midi",
+                        "previous_name": "stage_midi",
+                        "enabled": True,
+                        "input_port": "FOH In",
+                        "output_port": "FOH Out",
+                    }
+                ],
+            }
+        )
+    )
+
+    saved = load_config(config_file)
+    saved_text = config_file.read_text(encoding="utf-8")
+
+    assert result["persisted"] is True
+    assert "stage_midi" not in saved.adapters
+    assert saved.adapters["foh_midi"].options["input_port"] == "FOH In"
+    assert "[adapters.foh_midi]" in saved_text
+    assert "[adapters.stage_midi]" not in saved_text
+
+
+def test_apply_midi_adapters_config_rejects_default_rename() -> None:
+    config = parse_config({"adapters": {"midi": {"enabled": True}}})
+    interface = WebInterface(
+        config,
+        EventBus(),
+        ClockBpmTracker(),
+        MasterClock(config.master_clock, EventBus()),
+    )
+
+    with pytest.raises(ValueError, match="cannot rename default adapter instance"):
+        asyncio.run(
+            interface.apply_midi_adapters_config(
+                {
+                    "instances": [
+                        {
+                            "name": "foh_midi",
+                            "previous_name": "midi",
+                            "enabled": True,
+                        }
+                    ]
+                }
+            )
+        )

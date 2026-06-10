@@ -626,6 +626,53 @@ class WebInterface:
         response.update({"persisted": persisted, "persist_error": persist_error})
         return response
 
+    def _rename_adapter_config_instance(
+        self,
+        old_name: str,
+        new_name: str,
+        *,
+        allowed_kinds: set[str],
+    ) -> str:
+        _validate_adapter_instance_name(new_name)
+        if old_name in DEFAULT_ADAPTERS:
+            raise ValueError(f"cannot rename default adapter instance: {old_name}")
+        if new_name in DEFAULT_ADAPTERS:
+            raise ValueError(f"cannot rename adapter instance to reserved name: {new_name}")
+        if old_name not in self.config.adapters:
+            raise ValueError(f"unknown adapter instance: {old_name}")
+        if new_name in self.config.adapters:
+            raise ValueError(f"adapter instance already exists: {new_name}")
+
+        adapter = self.config.adapters[old_name]
+        kind = adapter.kind or old_name
+        if kind not in allowed_kinds:
+            raise ValueError(f"adapter {old_name} is not a supported adapter instance")
+
+        self.config.adapters[new_name] = adapter
+        self.config.adapters.pop(old_name)
+        return kind
+
+    async def _rename_runtime_adapter(self, old_name: str, new_name: str, kind: str) -> None:
+        if kind == "midi":
+            adapter = self.midi_adapters.pop(old_name, None)
+            if adapter is not None:
+                adapter.name = new_name
+                self.midi_adapters[new_name] = adapter
+            return
+
+        if kind == "osc":
+            adapter = self.osc_adapters.pop(old_name, None)
+            if adapter is not None:
+                adapter.name = new_name
+                self.osc_adapters[new_name] = adapter
+            return
+
+        if kind == "rtp_midi" and self.rtp_midi_manager is not None:
+            config = self.config.adapters.get(new_name)
+            if config is not None:
+                await self.rtp_midi_manager.remove_instance(old_name)
+                await self.rtp_midi_manager.apply_instance(new_name, config)
+
     def midi_adapters_config_payload(self) -> dict[str, Any]:
         available_ports = list_midi_ports()
         port_ids = {port["id"] for port in available_ports}
@@ -710,12 +757,24 @@ class WebInterface:
             self.config.adapters.pop(name, None)
 
         updates: dict[str, AdapterConfig] = {}
+        renamed_from: list[str] = []
+        runtime_renames: list[tuple[str, str, str]] = []
         for raw_instance in raw_instances:
             if not isinstance(raw_instance, dict):
                 raise ValueError("each MIDI adapter instance must be an object")
             name = str(raw_instance.get("name", "")).strip()
             if not name:
                 raise ValueError("each MIDI adapter instance requires a name")
+
+            previous_name = str(raw_instance.get("previous_name", "")).strip()
+            if previous_name and previous_name != name:
+                kind = self._rename_adapter_config_instance(
+                    previous_name,
+                    name,
+                    allowed_kinds={"midi", "rtp_midi"},
+                )
+                renamed_from.append(previous_name)
+                runtime_renames.append((previous_name, name, kind))
 
             if name not in self.config.adapters:
                 if kind_filter is None:
@@ -758,14 +817,19 @@ class WebInterface:
             updates[name] = updated
             self.config.adapters[name] = updated
 
+        removed_names = [*deleted_names]
+        for old_name in renamed_from:
+            if old_name not in removed_names:
+                removed_names.append(old_name)
+
         persisted = False
         persist_error = ""
-        if self.config_path is not None and (updates or deleted_names):
+        if self.config_path is not None and (updates or removed_names):
             try:
                 if updates:
                     save_midi_adapter_configs(self.config_path, updates)
-                if deleted_names:
-                    remove_midi_adapter_configs(self.config_path, deleted_names)
+                if removed_names:
+                    remove_midi_adapter_configs(self.config_path, removed_names)
                 persisted = True
             except OSError as exc:
                 persist_error = str(exc)
@@ -774,8 +838,11 @@ class WebInterface:
                     self.config_path,
                     exc,
                 )
-        elif self.config_path is None and (updates or deleted_names):
+        elif self.config_path is None and (updates or removed_names):
             persist_error = "no config path available"
+
+        for old_name, new_name, kind in runtime_renames:
+            await self._rename_runtime_adapter(old_name, new_name, kind)
 
         if self.rtp_midi_manager is not None:
             await self.rtp_midi_manager.start()
@@ -840,12 +907,24 @@ class WebInterface:
             self.config.adapters.pop(name, None)
 
         updates: dict[str, AdapterConfig] = {}
+        renamed_from: list[str] = []
+        runtime_renames: list[tuple[str, str, str]] = []
         for raw_instance in raw_instances:
             if not isinstance(raw_instance, dict):
                 raise ValueError("each OSC adapter instance must be an object")
             name = str(raw_instance.get("name", "")).strip()
             if not name:
                 raise ValueError("each OSC adapter instance requires a name")
+
+            previous_name = str(raw_instance.get("previous_name", "")).strip()
+            if previous_name and previous_name != name:
+                kind = self._rename_adapter_config_instance(
+                    previous_name,
+                    name,
+                    allowed_kinds={"osc"},
+                )
+                renamed_from.append(previous_name)
+                runtime_renames.append((previous_name, name, kind))
 
             if name not in self.config.adapters:
                 _validate_adapter_instance_name(name)
@@ -871,14 +950,19 @@ class WebInterface:
             updates[name] = updated
             self.config.adapters[name] = updated
 
+        removed_names = [*deleted_names]
+        for old_name in renamed_from:
+            if old_name not in removed_names:
+                removed_names.append(old_name)
+
         persisted = False
         persist_error = ""
-        if self.config_path is not None and (updates or deleted_names):
+        if self.config_path is not None and (updates or removed_names):
             try:
                 if updates:
                     save_osc_adapter_configs(self.config_path, updates)
-                if deleted_names:
-                    remove_osc_adapter_configs(self.config_path, deleted_names)
+                if removed_names:
+                    remove_osc_adapter_configs(self.config_path, removed_names)
                 persisted = True
             except OSError as exc:
                 persist_error = str(exc)
@@ -887,8 +971,11 @@ class WebInterface:
                     self.config_path,
                     exc,
                 )
-        elif self.config_path is None and (updates or deleted_names):
+        elif self.config_path is None and (updates or removed_names):
             persist_error = "no config path available"
+
+        for old_name, new_name, kind in runtime_renames:
+            await self._rename_runtime_adapter(old_name, new_name, kind)
 
         for name, updated in updates.items():
             adapter = self.osc_adapters.get(name)
