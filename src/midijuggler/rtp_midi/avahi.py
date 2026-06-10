@@ -20,6 +20,7 @@ from midijuggler.rtp_midi.discovery import (
 LOGGER = logging.getLogger(__name__)
 
 _AVAHI_SERVICE_TYPE = "_apple-midi._udp"
+_AVAHI_BROWSE_ARGS = ("-r", "-p", "-t")
 _BROWSE_INTERVAL_SECONDS = 5.0
 _PUBLISH_CANDIDATES = ("avahi-publish-service", "/usr/bin/avahi-publish-service")
 _BROWSE_CANDIDATES = ("avahi-browse", "/usr/bin/avahi-browse")
@@ -130,10 +131,7 @@ class AvahiRtpMidiDiscovery:
     async def _refresh_sessions(self) -> None:
         process = await asyncio.create_subprocess_exec(
             self._browse_path,
-            "-a",
-            "-r",
-            "-p",
-            "-t",
+            *_AVAHI_BROWSE_ARGS,
             _AVAHI_SERVICE_TYPE,
             stdout=asyncio.subprocess.PIPE,
             stderr=asyncio.subprocess.PIPE,

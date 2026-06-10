@@ -184,7 +184,7 @@ Test manual announcement and discovery:
 
 ```bash
 avahi-publish-service "MIDIJuggler-Test" _apple-midi._udp 5004
-avahi-browse -art _apple-midi._udp
+avahi-browse -rpt _apple-midi._udp
 ```
 
 After starting MIDIJuggler, the journal should show RTP-MIDI activity when an

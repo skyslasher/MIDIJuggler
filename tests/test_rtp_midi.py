@@ -7,7 +7,11 @@ from midijuggler.config import AdapterConfig, parse_config
 from midijuggler.clock import ClockBpmTracker
 from midijuggler.eventbus import EventBus
 from midijuggler.master_clock import MasterClock
-from midijuggler.rtp_midi.avahi import avahi_tool_paths, parse_avahi_browse_line
+from midijuggler.rtp_midi.avahi import (
+    _AVAHI_BROWSE_ARGS,
+    avahi_tool_paths,
+    parse_avahi_browse_line,
+)
 from midijuggler.rtp_midi.discovery import (
     APPLE_MIDI_SERVICE_TYPE,
     RtpMidiDiscovery,
@@ -29,6 +33,11 @@ def test_parse_rtp_session_name_strips_service_suffix() -> None:
 
 def test_rtp_session_id_is_stable() -> None:
     assert rtp_session_id("Studio", "pi.local.", 5004) == "pi.local.:5004:Studio"
+
+
+def test_avahi_browse_args_do_not_use_all_flag_with_service_type() -> None:
+    assert "-a" not in _AVAHI_BROWSE_ARGS
+    assert _AVAHI_BROWSE_ARGS == ("-r", "-p", "-t")
 
 
 def test_avahi_tool_paths_fall_back_to_usr_bin(tmp_path, monkeypatch) -> None:
