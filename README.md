@@ -13,6 +13,7 @@ This initial scaffold includes:
 - adapter stubs for OSC, USB MIDI, RTP-MIDI and GPIO
 - TOML configuration loader and example configuration
 - DietPi setup notes and a systemd service template
+- PC817 optocoupler circuit for protected 5 V footswitch polling
 - focused tests for mapping, config loading and MIDI clock tracking
 
 ## Quick start
@@ -30,3 +31,8 @@ Open <http://127.0.0.1:8080> to view the web interface.
 The hardware-facing adapters are intentionally stubs in this baseline. They
 define the lifecycle and routing boundaries that concrete OSC, MIDI, RTP-MIDI
 and GPIO implementations can fill in later.
+
+Hardware notes:
+
+- [DietPi setup](docs/dietpi_setup.md)
+- [GPIO footswitch input with PC817 optocoupler](docs/gpio_optocoupler_footswitch.md)

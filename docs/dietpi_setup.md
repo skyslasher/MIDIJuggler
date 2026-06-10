@@ -35,6 +35,9 @@ Adjust `/etc/midijuggler/config.toml` for local ports, MIDI devices and GPIO
 pins. On a production Pi, restrict the web host or firewall access if the device
 is on an untrusted network.
 
+For protected GPIO footswitch wiring with 5 V polling voltage, see
+[`gpio_optocoupler_footswitch.md`](gpio_optocoupler_footswitch.md).
+
 ## systemd
 
 ```bash
