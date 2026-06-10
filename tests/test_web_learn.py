@@ -4,13 +4,12 @@ from pathlib import Path
 from midijuggler.clock import ClockBpmTracker
 from midijuggler.config import load_config, parse_config
 from midijuggler.eventbus import EventBus
-from midijuggler.events import ControlEvent
 from midijuggler.mapping import MappingEngine
 from midijuggler.master_clock import MasterClock
 from midijuggler.web.server import WebInterface
 
 
-def test_learn_capture_updates_status_payload() -> None:
+def test_select_learn_source_from_monitor_event_updates_status_payload() -> None:
     config = parse_config(
         {
             "adapters": {
@@ -37,8 +36,14 @@ def test_learn_capture_updates_status_payload() -> None:
     interface.learn.set_enabled(True)
 
     asyncio.run(
-        interface._handle_learn_control(
-            ControlEvent(source="xtouch_mini", control="layer_a_fader", value=12.0)
+        interface.apply_learn_source(
+            {
+                "event": {
+                    "kind": "ControlEvent",
+                    "source": "xtouch_mini",
+                    "control": "layer_a_fader",
+                }
+            }
         )
     )
 
@@ -82,8 +87,16 @@ osc_library = "behringer_x32"
         config_path=config_path,
     )
     interface.learn.set_enabled(True)
-    interface.learn.capture(
-        ControlEvent(source="xtouch_mini", control="layer_a_fader", value=12.0)
+    asyncio.run(
+        interface.apply_learn_source(
+            {
+                "event": {
+                    "kind": "ControlEvent",
+                    "source": "xtouch_mini",
+                    "control": "layer_a_fader",
+                }
+            }
+        )
     )
 
     result = asyncio.run(

@@ -40,6 +40,28 @@ class ControlEvent(Event):
 
 
 @dataclass(frozen=True)
+class GpioEvent(Event):
+    """GPIO input transition or initial state."""
+
+    pin: int = 0
+    control: str = ""
+    value: float = 0.0
+    initial: bool = False
+
+    def as_dict(self) -> dict[str, Any]:
+        payload = super().as_dict()
+        payload.update(
+            {
+                "pin": self.pin,
+                "control": self.control,
+                "value": self.value,
+                "initial": self.initial,
+            }
+        )
+        return payload
+
+
+@dataclass(frozen=True)
 class MidiClockEvent(Event):
     """MIDI timing clock tick, typically status byte 0xF8 at 24 PPQN."""
 

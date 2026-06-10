@@ -3,12 +3,11 @@ import asyncio
 from midijuggler.clock import ClockBpmTracker
 from midijuggler.config import parse_config
 from midijuggler.eventbus import EventBus
-from midijuggler.events import MidiMessageEvent
 from midijuggler.master_clock import MasterClock
 from midijuggler.web.server import WebInterface
 
 
-def test_learn_capture_from_midi_message_without_prior_control_event() -> None:
+def test_select_learn_source_from_monitor_midi_message() -> None:
     config = parse_config(
         {
             "adapters": {
@@ -29,13 +28,16 @@ def test_learn_capture_from_midi_message_without_prior_control_event() -> None:
     interface.learn.set_enabled(True)
 
     asyncio.run(
-        interface._handle_learn_midi(
-            MidiMessageEvent(
-                source="xtouch_mini",
-                status=0xB0,
-                data=(1, 64),
-                direction="input",
-            )
+        interface.apply_learn_source(
+            {
+                "event": {
+                    "kind": "MidiMessageEvent",
+                    "source": "xtouch_mini",
+                    "status": 0xB0,
+                    "data": [1, 64],
+                    "direction": "input",
+                }
+            }
         )
     )
 

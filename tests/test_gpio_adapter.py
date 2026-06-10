@@ -13,7 +13,7 @@ from midijuggler.adapters.gpio import (
 )
 from midijuggler.config import AdapterConfig
 from midijuggler.eventbus import EventBus
-from midijuggler.events import ControlEvent
+from midijuggler.events import ControlEvent, GpioEvent
 
 
 class FakePinReader:
@@ -168,10 +168,47 @@ def test_sysfs_reader_continues_when_direction_denied_but_value_readable(
     assert reader.read() is True
 
 
-def test_gpio_adapter_publishes_debounced_active_low_events() -> None:
-    async def scenario() -> tuple[list[ControlEvent], FakePinReader]:
+def test_gpio_adapter_publishes_initial_gpio_events_on_start() -> None:
+    async def scenario() -> list[GpioEvent]:
         bus = EventBus()
-        events: list[ControlEvent] = []
+        events: list[GpioEvent] = []
+        bus.subscribe(GpioEvent, lambda event: events.append(event))
+
+        reader = FakePinReader(state=True)
+        adapter = GpioAdapter(
+            name="gpio",
+            config=AdapterConfig(
+                enabled=True,
+                options={
+                    "pins": [17],
+                    "active_low": True,
+                    "bounce_ms": 0,
+                    "poll_interval_ms": 1,
+                },
+            ),
+            bus=bus,
+            reader_factory=lambda gpio_input: reader,
+        )
+
+        await adapter.start()
+        await adapter.stop()
+        return events
+
+    events = asyncio.run(scenario())
+
+    assert len(events) == 1
+    assert events[0].source == "gpio"
+    assert events[0].pin == 17
+    assert events[0].control == "pin17"
+    assert events[0].value == pytest.approx(0.0)
+    assert events[0].initial is True
+
+
+def test_gpio_adapter_publishes_debounced_active_low_events() -> None:
+    async def scenario() -> tuple[list[object], FakePinReader]:
+        bus = EventBus()
+        events: list[object] = []
+        bus.subscribe(GpioEvent, lambda event: events.append(event))
         bus.subscribe(ControlEvent, lambda event: events.append(event))
 
         reader = FakePinReader(state=True)
@@ -192,8 +229,9 @@ def test_gpio_adapter_publishes_debounced_active_low_events() -> None:
 
         await adapter.start()
         reader.state = False
-        for _ in range(20):
-            if events:
+        for _ in range(50):
+            gpio_count = sum(1 for event in events if isinstance(event, GpioEvent))
+            if gpio_count >= 2:
                 break
             await asyncio.sleep(0.002)
         await adapter.stop()
@@ -202,10 +240,16 @@ def test_gpio_adapter_publishes_debounced_active_low_events() -> None:
     events, reader = asyncio.run(scenario())
 
     assert reader.closed is True
-    assert len(events) == 1
-    assert events[0].source == "gpio"
-    assert events[0].control == "pin17"
-    assert events[0].value == pytest.approx(1.0)
+    gpio_events = [event for event in events if isinstance(event, GpioEvent)]
+    control_events = [event for event in events if isinstance(event, ControlEvent)]
+
+    assert len(gpio_events) == 2
+    assert gpio_events[0].initial is True
+    assert gpio_events[1].initial is False
+    assert gpio_events[1].value == pytest.approx(1.0)
+    assert len(control_events) == 2
+    assert control_events[1].control == "pin17"
+    assert control_events[1].value == pytest.approx(1.0)
 
 
 def test_gpio_adapter_can_reconfigure_inputs_at_runtime() -> None:

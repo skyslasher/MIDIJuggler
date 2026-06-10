@@ -73,6 +73,40 @@ def save_midi_adapter_configs(
 ) -> None:
     """Persist editable MIDI adapter sections in a TOML config file."""
 
+    _save_adapter_configs(path, instances)
+
+
+def remove_midi_adapter_configs(
+    path: str | Path,
+    instance_names: list[str],
+) -> None:
+    """Remove MIDI adapter sections from a TOML config file."""
+
+    _remove_adapter_configs(path, instance_names)
+
+
+def save_osc_adapter_configs(
+    path: str | Path,
+    instances: dict[str, AdapterConfig],
+) -> None:
+    """Persist editable OSC adapter sections in a TOML config file."""
+
+    _save_adapter_configs(path, instances)
+
+
+def remove_osc_adapter_configs(
+    path: str | Path,
+    instance_names: list[str],
+) -> None:
+    """Remove OSC adapter sections from a TOML config file."""
+
+    _remove_adapter_configs(path, instance_names)
+
+
+def _save_adapter_configs(
+    path: str | Path,
+    instances: dict[str, AdapterConfig],
+) -> None:
     config_path = Path(path)
     text = config_path.read_text(encoding="utf-8")
     for instance_name, adapter in instances.items():
@@ -85,12 +119,7 @@ def save_midi_adapter_configs(
     temp_path.replace(config_path)
 
 
-def remove_midi_adapter_configs(
-    path: str | Path,
-    instance_names: list[str],
-) -> None:
-    """Remove MIDI adapter sections from a TOML config file."""
-
+def _remove_adapter_configs(path: str | Path, instance_names: list[str]) -> None:
     if not instance_names:
         return
 

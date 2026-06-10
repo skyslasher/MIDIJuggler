@@ -4,10 +4,16 @@ from __future__ import annotations
 
 import re
 from dataclasses import dataclass
+from typing import Any
 
-from midijuggler.config import AppConfig
-from midijuggler.events import ControlEvent
+from midijuggler.config import AdapterConfig, AppConfig
 from midijuggler.mapping import MappingRule
+from midijuggler.midi.library_match import (
+    MidiSourceIndex,
+    build_source_index,
+    resolve_incoming_controls,
+    resolve_library_port,
+)
 from midijuggler.midi_library import get_midi_library
 from midijuggler.osc_library import get_osc_library
 
@@ -55,7 +61,7 @@ class LearnController:
             self._state = LearnState(
                 enabled=True,
                 phase="waiting_source",
-                message="Move a control on your MIDI or GPIO device. Learn listens for ControlEvent or MIDI input.",
+                message="Click a monitor message to select the mapping source.",
             )
         else:
             self._state = LearnState()
@@ -67,22 +73,19 @@ class LearnController:
         self._state = LearnState(
             enabled=True,
             phase="waiting_source",
-            message="Move a control on your MIDI or GPIO device.",
+            message="Click a monitor message to select the mapping source.",
         )
         return self._state
 
-    def capture(self, event: ControlEvent) -> LearnState | None:
-        if not self._state.enabled or self._state.phase != "waiting_source":
-            return None
-        if event.source in {"clock", "mapping"}:
-            return None
+    def select_source(self, source: LearnSource) -> LearnState:
+        if not self._state.enabled:
+            raise ValueError("learn mode is disabled")
 
-        source = LearnSource(adapter=event.source, control=event.control)
         self._state = LearnState(
             enabled=True,
             phase="waiting_target",
             source=source,
-            message=f"Source captured: {source.key}. Select an OSC target.",
+            message=f"Source selected: {source.key}. Select an OSC target.",
         )
         return self._state
 
@@ -121,6 +124,70 @@ class LearnController:
             output_max=output_max,
             invert=False,
         )
+
+
+def resolve_monitor_source(config: AppConfig, event: dict[str, Any]) -> LearnSource:
+    """Resolve a monitor event payload into a mapping source."""
+
+    kind = str(event.get("kind", "")).strip()
+    adapter_name = str(event.get("source", "")).strip()
+    if not adapter_name:
+        raise ValueError("monitor event source is required")
+
+    if kind == "ControlEvent":
+        control = str(event.get("control", "")).strip()
+        if not control:
+            raise ValueError("monitor ControlEvent is missing control")
+        if adapter_name in {"clock", "mapping"}:
+            raise ValueError(f"cannot map {adapter_name} events")
+        return LearnSource(adapter=adapter_name, control=control)
+
+    if kind == "MidiMessageEvent":
+        if str(event.get("direction", "input")) != "input":
+            raise ValueError("only input MIDI messages can be mapped")
+        adapter = config.adapters.get(adapter_name)
+        if adapter is None:
+            raise ValueError(f"unknown adapter source {adapter_name!r}")
+
+        status = int(event.get("status", 0))
+        data = tuple(int(value) for value in event.get("data", []))
+        matches = resolve_incoming_controls(
+            build_midi_source_index_for_adapter(adapter),
+            status,
+            data,
+        )
+        if not matches:
+            raise ValueError("could not resolve MIDI message to a mapping source")
+        return LearnSource(adapter=adapter_name, control=matches[0].control_id)
+
+    if kind == "OscMessageEvent":
+        if str(event.get("direction", "input")) != "input":
+            raise ValueError("only input OSC messages can be mapped")
+        address = str(event.get("address", "")).strip()
+        if not address:
+            raise ValueError("monitor OscMessageEvent is missing address")
+        return LearnSource(adapter=adapter_name, control=address)
+
+    if kind == "GpioEvent":
+        control = str(event.get("control", "")).strip()
+        if not control:
+            raise ValueError("monitor GpioEvent is missing control")
+        return LearnSource(adapter=adapter_name, control=control)
+
+    raise ValueError(f"unsupported monitor event kind: {kind!r}")
+
+
+def build_midi_source_index_for_adapter(adapter: AdapterConfig) -> MidiSourceIndex | None:
+    library_id = str(adapter.options.get("midi_library", "")).strip()
+    if not library_id:
+        return None
+
+    try:
+        library = get_midi_library(library_id)
+    except KeyError:
+        return None
+
+    return build_source_index(library, resolve_library_port(adapter))
 
 
 def make_mapping_id(source: str, target: str) -> str:

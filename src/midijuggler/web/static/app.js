@@ -26,6 +26,9 @@ const masterClockMessage = document.querySelector("#master-clock-message");
 const configImportForm = document.querySelector("#config-import-form");
 const configImportFile = document.querySelector("#config-import-file");
 const configImportMessage = document.querySelector("#config-import-message");
+const oscInstances = document.querySelector("#osc-instances");
+const oscAddButton = document.querySelector("#osc-add");
+const oscMessage = document.querySelector("#osc-message");
 const midiInstances = document.querySelector("#midi-instances");
 const rtpMidiInstances = document.querySelector("#rtp-midi-instances");
 const rtpDiscoveryNote = document.querySelector(".rtp-discovery-note");
@@ -35,6 +38,7 @@ const midiAdaptersRefresh = document.querySelector("#midi-adapters-refresh");
 const midiMessage = document.querySelector("#midi-message");
 const rtpMidiMessage = document.querySelector("#rtp-midi-message");
 const DEFAULT_MIDI_ADAPTER_NAMES = new Set(["midi", "rtp_midi"]);
+const DEFAULT_OSC_ADAPTER_NAMES = new Set(["osc"]);
 
 const gpioForm = document.querySelector("#gpio-form");
 const gpioPins = document.querySelector("#gpio-pins");
@@ -56,6 +60,7 @@ const learnOscParameter = document.querySelector("#learn-osc-parameter");
 const learnCreate = document.querySelector("#learn-create");
 const learnClear = document.querySelector("#learn-clear");
 const learnMessage = document.querySelector("#learn-message");
+const learnMonitorHint = document.querySelector("#learn-monitor-hint");
 const configurationToggle = document.querySelector("#configuration-toggle");
 const configurationExit = document.querySelector("#configuration-exit");
 const monitorView = document.querySelector("#monitor-view");
@@ -63,12 +68,16 @@ const configurationView = document.querySelector("#configuration-view");
 const connectionState = document.querySelector("#connection-state");
 
 let learnMode = false;
+let learnPhase = "idle";
+let learnSourceKey = "";
+let selectedMonitorEventItem = null;
 let learnOscInstances = [];
 let cachedOscLibrary = null;
 let socket;
 let gpioConfig = null;
 let masterClockConfig = null;
 let midiAdaptersConfig = null;
+let oscAdaptersConfig = null;
 
 function renderStatus(status) {
   const displayedBpm = status.master_clock?.bpm || status.bpm;
@@ -77,7 +86,11 @@ function renderStatus(status) {
   learnToggle.textContent = learnMode ? "Disable learn mode" : "Enable learn mode";
   learnToggle.classList.toggle("active-button", learnMode);
   learnOscInstances = status.osc_instances || [];
+  learnPhase = status.learn?.phase || "idle";
+  learnSourceKey = status.learn?.source || "";
   renderLearnState(status.learn || {});
+  updateMonitorLearnHint();
+  highlightSelectedMonitorEvent();
   if (status.created_mapping) {
     learnMessage.textContent = status.persisted === false
       ? `saved for runtime only: ${status.persist_error}`
@@ -116,6 +129,8 @@ function renderLearnState(learn) {
   learnTargetFields.hidden = !showTargets;
   if (!learnMode) {
     learnMessage.textContent = "";
+    selectedMonitorEventItem = null;
+    refreshMonitorEventLearnState();
     return;
   }
 
@@ -146,6 +161,7 @@ function renderLearnState(learn) {
   } else {
     learnOscParameter.replaceChildren();
   }
+  refreshMonitorEventLearnState();
 }
 
 async function loadLearnOscParameters(adapterName) {
@@ -230,6 +246,7 @@ function completeLearnMapping() {
 
 function clearLearnSource() {
   learnMessage.textContent = "";
+  selectedMonitorEventItem = null;
   if (socket && socket.readyState === WebSocket.OPEN) {
     socket.send(JSON.stringify({ type: "learn_clear" }));
     return;
@@ -276,13 +293,149 @@ function timeCards(values) {
   return wrapper;
 }
 
+function isLearnSelectableEvent(event) {
+  if (event.kind === "GpioEvent") {
+    return true;
+  }
+  if (event.kind === "ControlEvent" && event.source !== "clock" && event.source !== "mapping") {
+    return true;
+  }
+  if (event.kind === "MidiMessageEvent" && event.direction === "input" && !isClockTick(event)) {
+    return true;
+  }
+  if (event.kind === "OscMessageEvent" && event.direction === "input" && event.address) {
+    return true;
+  }
+  return false;
+}
+
+function monitorSourceKeyForEvent(event) {
+  if (event.kind === "GpioEvent" || event.kind === "ControlEvent") {
+    return `${event.source}:${event.control}`;
+  }
+  if (event.kind === "OscMessageEvent") {
+    return `${event.source}:${event.address}`;
+  }
+  return "";
+}
+
+function updateMonitorLearnHint() {
+  if (!learnMonitorHint) {
+    return;
+  }
+  learnMonitorHint.hidden = !learnMode;
+  if (!learnMode) {
+    return;
+  }
+  if (learnPhase === "waiting_target" && learnSourceKey) {
+    learnMonitorHint.textContent = `Source selected: ${learnSourceKey}. Click another message to change it, or choose an OSC target below.`;
+    return;
+  }
+  learnMonitorHint.textContent = "Learn mode active: click a message below to select the mapping source.";
+}
+
+function refreshMonitorEventLearnState() {
+  for (const item of events.querySelectorAll(".monitor-event")) {
+    const event = item.monitorEvent;
+    if (!event) {
+      continue;
+    }
+    const selectable = learnMode && isLearnSelectableEvent(event);
+    item.classList.toggle("monitor-event-selectable", selectable);
+    if (selectable) {
+      item.title = "Select as mapping source";
+      item.onclick = () => selectMonitorEvent(event, item);
+    } else {
+      item.removeAttribute("title");
+      item.onclick = null;
+    }
+  }
+  highlightSelectedMonitorEvent();
+}
+
+function highlightSelectedMonitorEvent() {
+  let matchedSelection = false;
+  for (const item of events.querySelectorAll(".monitor-event")) {
+    const event = item.monitorEvent;
+    const sourceKey = event ? monitorSourceKeyForEvent(event) : "";
+    const selected = Boolean(
+      learnMode &&
+      learnSourceKey &&
+      (
+        (sourceKey && sourceKey === learnSourceKey) ||
+        item === selectedMonitorEventItem
+      ),
+    );
+    item.classList.toggle("monitor-event-selected", selected);
+    if (selected) {
+      matchedSelection = true;
+    }
+  }
+  if (!matchedSelection) {
+    selectedMonitorEventItem = null;
+  }
+}
+
+function selectMonitorEvent(event, item) {
+  if (selectedMonitorEventItem) {
+    selectedMonitorEventItem.classList.remove("monitor-event-selected");
+  }
+  selectedMonitorEventItem = item;
+  if (item) {
+    item.classList.add("monitor-event-selected");
+  }
+  learnMessage.textContent = "selecting source...";
+  const payload = { type: "learn_select", event };
+
+  if (socket && socket.readyState === WebSocket.OPEN) {
+    socket.send(JSON.stringify(payload));
+    return;
+  }
+
+  fetch("/api/learn/source", {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({ event }),
+  })
+    .then(async (response) => {
+      if (!response.ok) {
+        throw new Error(await response.text());
+      }
+      return response.json();
+    })
+    .then(renderStatus)
+    .catch((error) => {
+      learnMessage.textContent = `error: ${error.message}`;
+    });
+}
+
+function formatMonitorEventLine(event, time) {
+  if (event.kind === "GpioEvent") {
+    const suffix = event.initial ? " (initial)" : "";
+    return `[${time}] GPIO pin ${event.pin} ${event.control} = ${event.value}${suffix}`;
+  }
+  if (event.kind === "OscMessageEvent") {
+    return `[${time}] OSC ${event.direction} ${event.address} ${JSON.stringify(event.arguments || [])}`;
+  }
+  return `[${time}] ${event.kind} from ${event.source}: ${JSON.stringify(event)}`;
+}
+
 function appendEvent(event) {
   if (isClockTick(event) && !showClockTicks.checked) {
     return;
   }
   const item = document.createElement("li");
+  item.className = "monitor-event";
+  item.monitorEvent = event;
   const time = new Date().toLocaleTimeString();
-  item.textContent = `[${time}] ${event.kind} from ${event.source}: ${JSON.stringify(event)}`;
+  item.textContent = formatMonitorEventLine(event, time);
+
+  if (learnMode && isLearnSelectableEvent(event)) {
+    item.classList.add("monitor-event-selectable");
+    item.title = "Select as mapping source";
+    item.onclick = () => selectMonitorEvent(event, item);
+  }
+
   events.prepend(item);
 
   while (events.children.length > 100) {
@@ -678,6 +831,10 @@ function updateMidiAdapterCardDirtyState(card) {
 function attachMidiAdapterCardControls(card) {
   const saveButton = card.querySelector(".midi-adapter-save");
   saveButton?.addEventListener("click", () => {
+    if (card.dataset.instanceType === "osc") {
+      saveOscAdapterCard(card);
+      return;
+    }
     saveMidiAdapterCard(card);
   });
 
@@ -825,6 +982,232 @@ function renderMidiAdaptersConfig(config) {
   midiAdaptersConfig = config;
   renderMidiAdapterSection("midi", config);
   renderMidiAdapterSection("rtp_midi", config);
+}
+
+function fetchOscAdaptersConfig() {
+  return fetch("/api/osc-adapters").then((response) => response.json());
+}
+
+function loadOscAdaptersConfig() {
+  return fetchOscAdaptersConfig().then((config) => {
+    renderOscAdaptersConfig(config);
+    return config;
+  });
+}
+
+function defaultOscInstanceTemplate() {
+  return {
+    name: "",
+    type: "osc",
+    enabled: false,
+    listen_host: "0.0.0.0",
+    listen_port: 9000,
+    remote_host: "",
+    remote_port: 0,
+    osc_library: "",
+  };
+}
+
+function createOscAdapterCard(instance, config, options = {}) {
+  const isNew = Boolean(options.isNew);
+  const card = document.createElement("section");
+  card.className = "midi-adapter-card";
+  card.dataset.instanceName = instance.name;
+  card.dataset.instanceType = "osc";
+  if (isNew) {
+    card.dataset.isNew = "true";
+  }
+
+  const header = document.createElement("div");
+  header.className = "midi-adapter-card-header";
+
+  if (isNew) {
+    header.appendChild(createTextField("Instance name", "adapter_name", ""));
+  } else {
+    const title = document.createElement("h3");
+    title.textContent = instance.name;
+    header.appendChild(title);
+  }
+
+  const actions = document.createElement("div");
+  actions.className = "midi-adapter-card-actions";
+
+  const saveButton = document.createElement("button");
+  saveButton.type = "button";
+  saveButton.className = "midi-adapter-save";
+  saveButton.textContent = "Save";
+  saveButton.disabled = true;
+  actions.appendChild(saveButton);
+
+  const deleteButton = document.createElement("button");
+  deleteButton.type = "button";
+  deleteButton.className = "midi-adapter-delete";
+  deleteButton.textContent = "Delete";
+  if (!isNew && DEFAULT_OSC_ADAPTER_NAMES.has(instance.name)) {
+    deleteButton.disabled = true;
+    deleteButton.title = "Default instances cannot be deleted";
+  }
+  deleteButton.addEventListener("click", () => {
+    deleteOscAdapterCard(card);
+  });
+  actions.appendChild(deleteButton);
+  header.appendChild(actions);
+  card.appendChild(header);
+
+  if (!isNew) {
+    const runtime = document.createElement("p");
+    runtime.className = "message";
+    runtime.textContent = instance.runtime_active ? "Runtime: active" : "Runtime: inactive";
+    card.appendChild(runtime);
+  }
+
+  const enabledLabel = document.createElement("label");
+  enabledLabel.className = "inline-field";
+  const enabledInput = document.createElement("input");
+  enabledInput.type = "checkbox";
+  enabledInput.dataset.field = "enabled";
+  enabledInput.checked = Boolean(instance.enabled);
+  enabledLabel.append(enabledInput, document.createTextNode(" Enabled"));
+  card.appendChild(enabledLabel);
+
+  card.appendChild(
+    createTextField("Listen host", "listen_host", instance.listen_host || "0.0.0.0"),
+  );
+  card.appendChild(
+    createNumberField(
+      "Listen port",
+      "listen_port",
+      instance.listen_port ?? 9000,
+      0,
+      65535,
+      1,
+    ),
+  );
+  card.appendChild(createTextField("Remote host", "remote_host", instance.remote_host || ""));
+  card.appendChild(
+    createNumberField(
+      "Remote port",
+      "remote_port",
+      instance.remote_port ?? 0,
+      0,
+      65535,
+      1,
+    ),
+  );
+  const libraryOptions = [
+    { id: "", label: "No library" },
+    ...(config.available_osc_libraries || []),
+  ];
+  card.appendChild(
+    createSelectField(
+      "OSC library",
+      "osc_library",
+      libraryOptions,
+      "id",
+      "label",
+      instance.osc_library || "",
+      "No library",
+    ),
+  );
+
+  attachMidiAdapterCardControls(card);
+  return card;
+}
+
+function persistOscAdapterChanges(payload) {
+  return fetch("/api/osc-adapters", {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({
+      instances: payload.instances || [],
+      deleted: payload.deleted || [],
+    }),
+  }).then(async (response) => {
+    if (!response.ok) {
+      throw new Error(await response.text());
+    }
+    return response.json();
+  });
+}
+
+function deleteOscAdapterCard(card) {
+  if (!confirmMidiAdapterDelete(card)) {
+    return;
+  }
+
+  if (card.dataset.isNew === "true") {
+    card.remove();
+    return;
+  }
+
+  const name = card.dataset.instanceName;
+  card.remove();
+  oscMessage.textContent = "deleting...";
+
+  persistOscAdapterChanges({ instances: [], deleted: [name] })
+    .then((config) => {
+      oscAdaptersConfig = config;
+      renderOscAdaptersConfig(config);
+      oscMessage.textContent = "deleted";
+    })
+    .catch((error) => {
+      oscMessage.textContent = `error: ${error.message}`;
+      if (oscAdaptersConfig) {
+        renderOscAdaptersConfig(oscAdaptersConfig);
+      }
+    });
+}
+
+function saveOscAdapterCard(card) {
+  const saveButton = card.querySelector(".midi-adapter-save");
+  const wasNew = card.dataset.isNew === "true";
+
+  showMidiAdapterCardMessage(card, "saving...");
+  saveButton.disabled = true;
+
+  persistOscAdapterChanges({
+    instances: [collectMidiAdapterInstanceFrom(card)],
+  })
+    .then((config) => {
+      oscAdaptersConfig = config;
+      const status =
+        config.persisted === false
+          ? `saved for runtime only: ${config.persist_error}`
+          : "saved";
+      if (wasNew) {
+        renderOscAdaptersConfig(config);
+        oscMessage.textContent = status;
+      } else {
+        card.dataset.savedState = midiAdapterCardStateSignature(card);
+        updateMidiAdapterCardDirtyState(card);
+        showMidiAdapterCardMessage(card, status, { autoHide: true });
+      }
+    })
+    .catch((error) => {
+      showMidiAdapterCardMessage(card, `error: ${error.message}`);
+      updateMidiAdapterCardDirtyState(card);
+    });
+}
+
+function addOscAdapterCard() {
+  const config = oscAdaptersConfig || {
+    available_osc_libraries: [],
+    instances: [],
+  };
+  oscInstances.appendChild(
+    createOscAdapterCard(defaultOscInstanceTemplate(), config, { isNew: true }),
+  );
+}
+
+function renderOscAdaptersConfig(config) {
+  oscAdaptersConfig = config;
+  oscInstances.replaceChildren();
+  for (const instance of config.instances || []) {
+    if (instance.type !== "osc") {
+      continue;
+    }
+    oscInstances.appendChild(createOscAdapterCard(instance, config));
+  }
 }
 
 function createTextField(labelText, fieldName, value) {
@@ -1083,6 +1466,10 @@ rtpMidiAddButton?.addEventListener("click", () => {
   addMidiAdapterCard("rtp_midi");
 });
 
+oscAddButton?.addEventListener("click", () => {
+  addOscAdapterCard();
+});
+
 gpioForm.addEventListener("submit", (event) => {
   event.preventDefault();
   gpioMessage.textContent = "saving...";
@@ -1200,6 +1587,7 @@ configImportForm.addEventListener("submit", (event) => {
 
 fetch("/api/status").then((response) => response.json()).then(renderStatus);
 loadMidiAdaptersConfig();
+loadOscAdaptersConfig();
 fetch("/api/gpio").then((response) => response.json()).then(renderGpioConfig);
 fetch("/api/master-clock").then((response) => response.json()).then(renderMasterClockConfig);
 fetch("/api/osc-libraries").then((response) => response.json()).then(renderOscLibraries);

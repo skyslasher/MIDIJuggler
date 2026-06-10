@@ -16,6 +16,7 @@ from aiohttp import WSMsgType, web
 
 from midijuggler.adapters.gpio import GpioAdapter, RASPBERRY_PI_HEADER_BCM_PINS
 from midijuggler.adapters.midi import MidiAdapter
+from midijuggler.adapters.osc import OscAdapter
 from midijuggler.alsa import write_master_clock_pcm_config
 from midijuggler.clock import ClockBpmTracker
 from midijuggler.config import (
@@ -29,19 +30,15 @@ from midijuggler.config import (
     save_mappings,
     save_master_clock_config,
     remove_midi_adapter_configs,
+    remove_osc_adapter_configs,
     save_midi_adapter_configs,
+    save_osc_adapter_configs,
 )
 from midijuggler.eventbus import EventBus
-from midijuggler.events import ControlEvent, Event, MidiMessageEvent
-from midijuggler.learn import LearnController, upsert_mapping_rule
+from midijuggler.events import Event
+from midijuggler.learn import LearnController, resolve_monitor_source, upsert_mapping_rule
 from midijuggler.mapping import MappingEngine
-from midijuggler.midi.library_match import (
-    MidiSourceIndex,
-    build_source_index,
-    resolve_incoming_controls,
-    resolve_library_port,
-)
-from midijuggler.midi_library import get_midi_library, list_midi_libraries
+from midijuggler.midi_library import list_midi_libraries
 from midijuggler.master_clock import MasterClock
 from midijuggler.rtp_midi.manager import RtpMidiManager
 from midijuggler.osc_library import get_osc_library, list_osc_libraries
@@ -65,6 +62,7 @@ class WebInterface:
         master_clock: MasterClock,
         gpio_adapter: GpioAdapter | None = None,
         midi_adapters: dict[str, MidiAdapter] | None = None,
+        osc_adapters: dict[str, OscAdapter] | None = None,
         mapping_engine: MappingEngine | None = None,
         rtp_midi_manager: RtpMidiManager | None = None,
         config_path: str | Path | None = None,
@@ -76,6 +74,7 @@ class WebInterface:
         self.master_clock = master_clock
         self.gpio_adapter = gpio_adapter
         self.midi_adapters = midi_adapters or {}
+        self.osc_adapters = osc_adapters or {}
         self.mapping_engine = mapping_engine
         self.rtp_midi_manager = rtp_midi_manager
         self.learn = LearnController()
@@ -86,9 +85,6 @@ class WebInterface:
         self._tap_times: list[float] = []
         self._websockets: set[web.WebSocketResponse] = set()
         self.bus.subscribe("*", self._broadcast_event)
-        self.bus.subscribe(ControlEvent, self._handle_learn_control)
-        self.bus.subscribe(MidiMessageEvent, self._handle_learn_midi)
-        self._midi_source_indexes: dict[str, MidiSourceIndex | None] = {}
 
     def create_app(self) -> web.Application:
         app = web.Application()
@@ -102,6 +98,8 @@ class WebInterface:
         app.router.add_post("/api/gpio", self.set_gpio_config)
         app.router.add_get("/api/midi-adapters", self.midi_adapters_config)
         app.router.add_post("/api/midi-adapters", self.set_midi_adapters_config)
+        app.router.add_get("/api/osc-adapters", self.osc_adapters_config)
+        app.router.add_post("/api/osc-adapters", self.set_osc_adapters_config)
         app.router.add_get("/api/master-clock", self.master_clock_config)
         app.router.add_post("/api/master-clock", self.set_master_clock_config)
         app.router.add_post("/api/master-clock/tap", self.tap_master_clock)
@@ -112,6 +110,7 @@ class WebInterface:
         app.router.add_get("/api/osc-libraries/{library_id}", self.osc_library)
         app.router.add_post("/api/learn", self.set_learn_mode)
         app.router.add_post("/api/learn/clear", self.clear_learn_source)
+        app.router.add_post("/api/learn/source", self.select_learn_source)
         app.router.add_post("/api/learn/complete", self.complete_learn_mapping)
         app.router.add_get("/ws/monitor", self.monitor_ws)
         return app
@@ -204,6 +203,17 @@ class WebInterface:
             raise web.HTTPBadRequest(text=str(exc)) from exc
         return web.json_response(response)
 
+    async def osc_adapters_config(self, request: web.Request) -> web.Response:
+        return web.json_response(self.osc_adapters_config_payload())
+
+    async def set_osc_adapters_config(self, request: web.Request) -> web.Response:
+        payload = await request.json()
+        try:
+            response = await self.apply_osc_adapters_config(payload)
+        except ValueError as exc:
+            raise web.HTTPBadRequest(text=str(exc)) from exc
+        return web.json_response(response)
+
     async def master_clock_config(self, request: web.Request) -> web.Response:
         return web.json_response(self.master_clock_config_payload())
 
@@ -287,6 +297,14 @@ class WebInterface:
         self.learn.clear_source()
         return web.json_response(self._status_payload())
 
+    async def select_learn_source(self, request: web.Request) -> web.Response:
+        payload: dict[str, Any] = await request.json()
+        try:
+            response = await self.apply_learn_source(payload)
+        except ValueError as exc:
+            raise web.HTTPBadRequest(text=str(exc)) from exc
+        return web.json_response(response)
+
     async def complete_learn_mapping(self, request: web.Request) -> web.Response:
         payload: dict[str, Any] = await request.json()
         try:
@@ -329,6 +347,15 @@ class WebInterface:
             await self._broadcast_payload({"type": "status", "payload": self._status_payload()})
             return
 
+        if payload.get("type") == "learn_select":
+            try:
+                result = await self.apply_learn_source(payload)
+            except ValueError as exc:
+                await ws.send_json({"type": "error", "message": str(exc)})
+                return
+            await self._broadcast_payload({"type": "status", "payload": result})
+            return
+
         if payload.get("type") == "learn_complete":
             try:
                 result = await self.apply_learn_mapping(payload)
@@ -345,58 +372,17 @@ class WebInterface:
             )
             await self._broadcast_payload({"type": "status", "payload": status})
 
-    async def _handle_learn_control(self, event: ControlEvent) -> None:
-        if self.learn.capture(event) is not None:
-            await self._broadcast_payload({"type": "status", "payload": self._status_payload()})
+    async def apply_learn_source(self, payload: dict[str, Any]) -> dict[str, Any]:
+        if not self.learn.state.enabled:
+            raise ValueError("learn mode is disabled")
 
-    async def _handle_learn_midi(self, event: MidiMessageEvent) -> None:
-        if event.direction != "input" or not self.learn.state.enabled:
-            return
-        if self.learn.state.phase != "waiting_source":
-            return
+        event = payload.get("event")
+        if not isinstance(event, dict):
+            raise ValueError("event payload is required")
 
-        adapter = self.config.adapters.get(event.source)
-        if adapter is None:
-            return
-
-        matches = resolve_incoming_controls(
-            self._midi_source_index_for(adapter),
-            event.status,
-            tuple(event.data),
-        )
-        if not matches:
-            return
-
-        match = matches[0]
-        captured = self.learn.capture(
-            ControlEvent(
-                source=event.source,
-                control=match.control_id,
-                value=match.value,
-            )
-        )
-        if captured is not None:
-            await self._broadcast_payload({"type": "status", "payload": self._status_payload()})
-
-    def _midi_source_index_for(self, adapter: AdapterConfig) -> MidiSourceIndex | None:
-        cache_key = json.dumps(adapter.options, sort_keys=True, default=str)
-        if cache_key in self._midi_source_indexes:
-            return self._midi_source_indexes[cache_key]
-
-        library_id = str(adapter.options.get("midi_library", "")).strip()
-        if not library_id:
-            self._midi_source_indexes[cache_key] = None
-            return None
-
-        try:
-            library = get_midi_library(library_id)
-        except KeyError:
-            self._midi_source_indexes[cache_key] = None
-            return None
-
-        index = build_source_index(library, resolve_library_port(adapter))
-        self._midi_source_indexes[cache_key] = index
-        return index
+        source = resolve_monitor_source(self.config, event)
+        self.learn.select_source(source)
+        return self._status_payload()
 
     async def apply_learn_mapping(self, payload: dict[str, Any]) -> dict[str, Any]:
         source = self.learn.state.source
@@ -491,18 +477,55 @@ class WebInterface:
         }
 
     def _osc_instances_payload(self) -> list[dict[str, Any]]:
-        instances: list[dict[str, Any]] = []
-        for name, adapter in self.config.adapters.items():
-            kind = adapter.kind or name
-            if kind != "osc" or not adapter.enabled:
-                continue
-            instances.append(
-                {
-                    "name": name,
-                    "osc_library": str(adapter.options.get("osc_library", "")),
-                }
-            )
-        return instances
+        return [
+            {
+                "name": instance["name"],
+                "osc_library": instance.get("osc_library", ""),
+            }
+            for instance in self.osc_adapters_config_payload()["instances"]
+            if instance.get("enabled")
+        ]
+
+    def _osc_instance_payload(self, name: str, adapter: AdapterConfig) -> dict[str, Any]:
+        options = adapter.options
+        return {
+            "name": name,
+            "type": "osc",
+            "enabled": adapter.enabled,
+            "runtime_active": self.osc_adapters.get(name) is not None
+            and self.osc_adapters[name].running,
+            "listen_host": str(options.get("listen_host", "0.0.0.0")),
+            "listen_port": int(options.get("listen_port", 9000)),
+            "remote_host": str(options.get("remote_host", "")),
+            "remote_port": int(options.get("remote_port", 0)),
+            "osc_library": str(options.get("osc_library", "")),
+        }
+
+    def _normalized_osc_options(
+        self,
+        payload: dict[str, Any],
+        current: dict[str, Any],
+    ) -> dict[str, Any]:
+        listen_port = int(payload.get("listen_port", current.get("listen_port", 9000)))
+        remote_port = int(payload.get("remote_port", current.get("remote_port", 0)))
+        if not 0 <= listen_port <= 65535:
+            raise ValueError("listen_port must be between 0 and 65535")
+        if not 0 <= remote_port <= 65535:
+            raise ValueError("remote_port must be between 0 and 65535")
+
+        osc_library = str(payload.get("osc_library", current.get("osc_library", ""))).strip()
+        options = {
+            "listen_host": str(payload.get("listen_host", current.get("listen_host", "0.0.0.0"))).strip(),
+            "listen_port": listen_port,
+            "remote_host": str(payload.get("remote_host", current.get("remote_host", ""))).strip(),
+            "remote_port": remote_port,
+        }
+        if osc_library:
+            known_libraries = {library.id for library in list_osc_libraries()}
+            if osc_library not in known_libraries:
+                raise ValueError(f"unknown OSC library: {osc_library}")
+            options["osc_library"] = osc_library
+        return options
 
     def gpio_config_payload(self) -> dict[str, Any]:
         options = self._gpio_options()
@@ -721,6 +744,109 @@ class WebInterface:
                 await adapter.reload(updated)
 
         response = self.midi_adapters_config_payload()
+        response.update({"persisted": persisted, "persist_error": persist_error})
+        return response
+
+    def osc_adapters_config_payload(self) -> dict[str, Any]:
+        libraries = list_osc_libraries()
+        return {
+            "available_osc_libraries": [
+                {"id": library.id, "label": library.name}
+                for library in libraries
+            ],
+            "instances": [
+                self._osc_instance_payload(name, adapter)
+                for name, adapter in sorted(self.config.adapters.items())
+                if (adapter.kind or name) == "osc"
+            ],
+        }
+
+    async def apply_osc_adapters_config(self, payload: dict[str, Any]) -> dict[str, Any]:
+        if not isinstance(payload, dict):
+            raise ValueError("OSC adapter config payload must be an object")
+
+        raw_instances = payload.get("instances")
+        if not isinstance(raw_instances, list):
+            raise ValueError("OSC adapter config requires an instances list")
+
+        raw_deleted = payload.get("deleted", [])
+        if not isinstance(raw_deleted, list):
+            raise ValueError("deleted must be a list")
+
+        deleted_names: list[str] = []
+        for raw_name in raw_deleted:
+            name = str(raw_name).strip()
+            if not name:
+                continue
+            if name in DEFAULT_ADAPTERS:
+                raise ValueError(f"cannot delete default adapter instance: {name}")
+            if name not in self.config.adapters:
+                raise ValueError(f"unknown OSC adapter instance: {name}")
+            adapter_kind = self.config.adapters[name].kind or name
+            if adapter_kind != "osc":
+                raise ValueError(f"adapter {name} is not an OSC adapter")
+            deleted_names.append(name)
+
+        for name in deleted_names:
+            self.config.adapters.pop(name, None)
+
+        updates: dict[str, AdapterConfig] = {}
+        for raw_instance in raw_instances:
+            if not isinstance(raw_instance, dict):
+                raise ValueError("each OSC adapter instance must be an object")
+            name = str(raw_instance.get("name", "")).strip()
+            if not name:
+                raise ValueError("each OSC adapter instance requires a name")
+
+            if name not in self.config.adapters:
+                _validate_adapter_instance_name(name)
+                if name in DEFAULT_ADAPTERS:
+                    raise ValueError(
+                        f"cannot create reserved adapter instance name: {name}"
+                    )
+                kind = str(raw_instance.get("type", "osc")).strip()
+                if kind != "osc":
+                    raise ValueError(f"adapter {name} must use type 'osc', not {kind!r}")
+                current_options: dict[str, Any] = {}
+                enabled = bool(raw_instance.get("enabled", False))
+            else:
+                current = self.config.adapters[name]
+                kind = current.kind or name
+                if kind != "osc":
+                    raise ValueError(f"adapter {name} is not an OSC adapter")
+                current_options = current.options
+                enabled = bool(raw_instance.get("enabled", current.enabled))
+
+            options = self._normalized_osc_options(raw_instance, current_options)
+            updated = AdapterConfig(enabled=enabled, options=options, kind="osc")
+            updates[name] = updated
+            self.config.adapters[name] = updated
+
+        persisted = False
+        persist_error = ""
+        if self.config_path is not None and (updates or deleted_names):
+            try:
+                if updates:
+                    save_osc_adapter_configs(self.config_path, updates)
+                if deleted_names:
+                    remove_osc_adapter_configs(self.config_path, deleted_names)
+                persisted = True
+            except OSError as exc:
+                persist_error = str(exc)
+                LOGGER.warning(
+                    "OSC adapter config applied at runtime but could not be persisted to %s: %s",
+                    self.config_path,
+                    exc,
+                )
+        elif self.config_path is None and (updates or deleted_names):
+            persist_error = "no config path available"
+
+        for name, updated in updates.items():
+            adapter = self.osc_adapters.get(name)
+            if adapter is not None:
+                await adapter.reload(updated)
+
+        response = self.osc_adapters_config_payload()
         response.update({"persisted": persisted, "persist_error": persist_error})
         return response
 

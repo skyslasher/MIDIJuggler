@@ -68,8 +68,11 @@
           <h2>MIDI Libraries</h2>
           <ul id="midi-libraries"></ul>
         </article>
-        <article>
+        <article class="monitor-panel">
           <h2>Monitor</h2>
+          <p id="learn-monitor-hint" class="hint learn-monitor-hint" hidden>
+            Learn mode active: click a message below to select the mapping source.
+          </p>
           <label class="inline-field monitor-filter">
             <input id="show-clock-ticks" type="checkbox" />
             Show clock ticks
@@ -79,6 +82,12 @@
       </section>
 
       <section id="configuration-view" class="grid" hidden>
+        <article class="midi-device-panel">
+          <h2>OSC</h2>
+          <div id="osc-instances"></div>
+          <button type="button" id="osc-add">Add OSC instance</button>
+          <p id="osc-message" class="message"></p>
+        </article>
         <article class="midi-device-panel">
           <h2>MIDI</h2>
           <div id="midi-instances"></div>

@@ -12,6 +12,7 @@ from midijuggler.adapters import build_adapters
 from midijuggler.adapters.base import Adapter
 from midijuggler.adapters.gpio import GpioAdapter
 from midijuggler.adapters.midi import MidiAdapter
+from midijuggler.adapters.osc import OscAdapter
 from midijuggler.alsa import (
     MASTER_CLOCK_PCM_NAME,
     alsa_config_path_for_config,
@@ -67,6 +68,7 @@ class MIDIJugglerService:
             self.master_clock,
             gpio_adapter=self._gpio_adapter(),
             midi_adapters=self._midi_adapters(),
+            osc_adapters=self._osc_adapters(),
             mapping_engine=self.mapping,
             rtp_midi_manager=self.rtp_midi_manager,
             config_path=self.config_path,
@@ -188,6 +190,13 @@ class MIDIJugglerService:
             adapter.name: adapter
             for adapter in self.adapters
             if isinstance(adapter, MidiAdapter)
+        }
+
+    def _osc_adapters(self) -> dict[str, OscAdapter]:
+        return {
+            adapter.name: adapter
+            for adapter in self.adapters
+            if isinstance(adapter, OscAdapter)
         }
 
     def _master_clock_config(self):

@@ -365,6 +365,26 @@ article {
   word-break: break-word;
 }
 
+.monitor-event-selectable {
+  border-radius: 8px;
+  cursor: pointer;
+  margin-left: -0.35rem;
+  padding: 0.2rem 0.35rem;
+}
+
+.monitor-event-selectable:hover {
+  background: rgb(61 109 179 / 22%);
+}
+
+.monitor-event-selected {
+  background: rgb(61 109 179 / 35%);
+  outline: 1px solid #6f9be0;
+}
+
+.learn-monitor-hint {
+  margin-bottom: 0.75rem;
+}
+
 .monitor-filter {
   margin-bottom: 0.75rem;
 }

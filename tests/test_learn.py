@@ -1,28 +1,81 @@
 from midijuggler.config import parse_config
-from midijuggler.events import ControlEvent
-from midijuggler.learn import LearnController, upsert_mapping_rule
+from midijuggler.learn import (
+    LearnController,
+    LearnSource,
+    resolve_monitor_source,
+    upsert_mapping_rule,
+)
 from midijuggler.mapping import MappingRule
 
 
-def test_learn_controller_captures_control_source() -> None:
+def test_learn_controller_selects_control_source() -> None:
     controller = LearnController()
     controller.set_enabled(True)
 
-    state = controller.capture(
-        ControlEvent(source="xtouch_mini", control="layer_a_fader", value=100.0)
+    state = controller.select_source(
+        LearnSource(adapter="xtouch_mini", control="layer_a_fader")
     )
 
-    assert state is not None
     assert state.phase == "waiting_target"
     assert state.source is not None
     assert state.source.key == "xtouch_mini:layer_a_fader"
 
 
-def test_learn_controller_ignores_clock_events() -> None:
-    controller = LearnController()
-    controller.set_enabled(True)
+def test_resolve_monitor_source_from_gpio_event() -> None:
+    config = parse_config({"adapters": {}})
+    source = resolve_monitor_source(
+        config,
+        {
+            "kind": "GpioEvent",
+            "source": "gpio",
+            "pin": 17,
+            "control": "pin17",
+            "value": 1.0,
+            "initial": False,
+        },
+    )
 
-    assert controller.capture(ControlEvent(source="clock", control="bpm", value=120.0)) is None
+    assert source.key == "gpio:pin17"
+
+
+def test_resolve_monitor_source_from_control_event() -> None:
+    config = parse_config({"adapters": {}})
+    source = resolve_monitor_source(
+        config,
+        {
+            "kind": "ControlEvent",
+            "source": "gpio",
+            "control": "pin17",
+        },
+    )
+
+    assert source.key == "gpio:pin17"
+
+
+def test_resolve_monitor_source_from_midi_message() -> None:
+    config = parse_config(
+        {
+            "adapters": {
+                "xtouch_mini": {
+                    "type": "midi",
+                    "enabled": True,
+                    "midi_library": "behringer_xtouch_mini",
+                }
+            }
+        }
+    )
+    source = resolve_monitor_source(
+        config,
+        {
+            "kind": "MidiMessageEvent",
+            "source": "xtouch_mini",
+            "status": 0xB0,
+            "data": [1, 64],
+            "direction": "input",
+        },
+    )
+
+    assert source.key == "xtouch_mini:layer_a_encoder_1_turn"
 
 
 def test_build_mapping_uses_library_ranges() -> None:
@@ -44,8 +97,15 @@ def test_build_mapping_uses_library_ranges() -> None:
     )
     controller = LearnController()
     controller.set_enabled(True)
-    controller.capture(
-        ControlEvent(source="xtouch_mini", control="layer_a_fader", value=10.0)
+    controller.select_source(
+        resolve_monitor_source(
+            config,
+            {
+                "kind": "ControlEvent",
+                "source": "xtouch_mini",
+                "control": "layer_a_fader",
+            },
+        )
     )
     assert controller.state.source is not None
 

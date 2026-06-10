@@ -15,7 +15,7 @@ from typing import Any, Protocol
 from midijuggler.adapters.base import Adapter
 from midijuggler.config import AdapterConfig
 from midijuggler.eventbus import EventBus
-from midijuggler.events import AdapterStatusEvent, ControlEvent
+from midijuggler.events import AdapterStatusEvent, ControlEvent, GpioEvent
 
 LOGGER = logging.getLogger(__name__)
 
@@ -269,6 +269,7 @@ class GpioAdapter(Adapter):
             self._states = states
 
         self.running = True
+        await self._publish_initial_states()
         self._poll_task = asyncio.create_task(self._poll_loop(), name="gpio-poll")
         await self.bus.publish(
             AdapterStatusEvent(
@@ -323,13 +324,46 @@ class GpioAdapter(Adapter):
                     and now - state.candidate_since >= gpio_input.bounce_seconds
                 ):
                     state.stable = logical_value
-                    await self.bus.publish(
-                        ControlEvent(
-                            source=self.name,
-                            control=gpio_input.control,
-                            value=1.0 if logical_value else 0.0,
-                        )
-                    )
+                    await self._publish_input_state(gpio_input, logical_value)
+
+    async def _publish_initial_states(self) -> None:
+        async with self._lock:
+            for gpio_input in self.inputs:
+                logical_value = self._logical_value(gpio_input)
+                state = self._states[gpio_input.pin]
+                state.candidate = logical_value
+                state.stable = logical_value
+                state.candidate_since = asyncio.get_running_loop().time()
+                await self._publish_input_state(
+                    gpio_input,
+                    logical_value,
+                    initial=True,
+                )
+
+    async def _publish_input_state(
+        self,
+        gpio_input: GpioInput,
+        logical_value: bool,
+        *,
+        initial: bool = False,
+    ) -> None:
+        value = 1.0 if logical_value else 0.0
+        await self.bus.publish(
+            GpioEvent(
+                source=self.name,
+                pin=gpio_input.pin,
+                control=gpio_input.control,
+                value=value,
+                initial=initial,
+            )
+        )
+        await self.bus.publish(
+            ControlEvent(
+                source=self.name,
+                control=gpio_input.control,
+                value=value,
+            )
+        )
 
     def _logical_value(self, gpio_input: GpioInput) -> bool:
         raw_high = self._readers[gpio_input.pin].read()
