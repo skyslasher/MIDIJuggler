@@ -226,6 +226,30 @@ class MasterClock:
     async def stop(self) -> None:
         await self.stop_transport(send_transport=False)
 
+    async def configure(self, config: MasterClockConfig) -> None:
+        """Apply a new master-clock configuration at runtime."""
+
+        was_running = self.running
+        if was_running and not config.enabled:
+            await self.stop_transport(send_transport=config.send_transport)
+
+        self.config = config
+        self.remote = MasterClockRemote(config)
+        self.click_player = ClickPlayer(
+            config.click_wav,
+            command=config.click_command,
+            audio_device=config.click_audio_device,
+        )
+        self.bpm = config.bpm
+        self.click_interval = config.click_interval
+
+        if config.enabled and config.auto_start and not self.running:
+            await self.start_transport(reset_position=True)
+        else:
+            await self.bus.publish(BpmChangedEvent(source="master_clock", bpm=self.bpm))
+            await self._publish_state()
+            await self._publish_parameters()
+
     async def handle_command(self, event: MasterClockCommandEvent) -> None:
         if event.command == "set_bpm":
             await self.set_bpm(float(event.value))

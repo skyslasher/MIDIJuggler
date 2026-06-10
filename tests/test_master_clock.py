@@ -139,3 +139,30 @@ def test_master_clock_bpm_and_click_interval_can_be_set_by_midi_cc() -> None:
 
     assert clock.bpm == pytest.approx(180.0)
     assert clock.click_interval == "half"
+
+
+def test_master_clock_can_be_reconfigured_at_runtime() -> None:
+    async def scenario() -> MasterClock:
+        bus = EventBus()
+        clock = MasterClock(MasterClockConfig(enabled=True, bpm=120.0), bus)
+
+        await clock.configure(
+            MasterClockConfig(
+                enabled=True,
+                bpm=96.0,
+                bpm_min=40.0,
+                bpm_max=200.0,
+                output_targets=["usb_midi"],
+                click_enabled=True,
+                click_interval="eighth",
+                click_wav="/tmp/click.wav",
+            )
+        )
+        return clock
+
+    clock = asyncio.run(scenario())
+
+    assert clock.config.output_targets == ["usb_midi"]
+    assert clock.bpm == pytest.approx(96.0)
+    assert clock.click_interval == "eighth"
+    assert clock.config.click_enabled is True

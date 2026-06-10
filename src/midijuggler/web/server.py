@@ -14,7 +14,12 @@ from aiohttp import WSMsgType, web
 
 from midijuggler.adapters.gpio import GpioAdapter, RASPBERRY_PI_HEADER_BCM_PINS
 from midijuggler.clock import ClockBpmTracker
-from midijuggler.config import AppConfig, save_gpio_adapter_options
+from midijuggler.config import (
+    AppConfig,
+    MasterClockConfig,
+    save_gpio_adapter_options,
+    save_master_clock_config,
+)
 from midijuggler.eventbus import EventBus
 from midijuggler.events import Event
 from midijuggler.midi_library import get_midi_library, list_midi_libraries
@@ -54,6 +59,8 @@ class WebInterface:
         app.router.add_get("/api/status", self.status)
         app.router.add_get("/api/gpio", self.gpio_config)
         app.router.add_post("/api/gpio", self.set_gpio_config)
+        app.router.add_get("/api/master-clock", self.master_clock_config)
+        app.router.add_post("/api/master-clock", self.set_master_clock_config)
         app.router.add_get("/api/midi-libraries", self.midi_libraries)
         app.router.add_get("/api/midi-libraries/{library_id}", self.midi_library)
         app.router.add_get("/api/osc-libraries", self.osc_libraries)
@@ -89,6 +96,17 @@ class WebInterface:
         payload = await request.json()
         try:
             response = await self.apply_gpio_config(payload)
+        except ValueError as exc:
+            raise web.HTTPBadRequest(text=str(exc)) from exc
+        return web.json_response(response)
+
+    async def master_clock_config(self, request: web.Request) -> web.Response:
+        return web.json_response(self.master_clock_config_payload())
+
+    async def set_master_clock_config(self, request: web.Request) -> web.Response:
+        payload = await request.json()
+        try:
+            response = await self.apply_master_clock_config(payload)
         except ValueError as exc:
             raise web.HTTPBadRequest(text=str(exc)) from exc
         return web.json_response(response)
@@ -194,7 +212,7 @@ class WebInterface:
         return {
             "bpm": self.clock.bpm,
             "master_clock": {
-                "enabled": self.config.master_clock.enabled,
+                "enabled": self.master_clock.config.enabled,
                 "bpm": self.master_clock.bpm,
                 "running": self.master_clock.running,
                 "position_ticks": self.master_clock.position_ticks,
@@ -263,6 +281,69 @@ class WebInterface:
         response.update({"persisted": persisted, "persist_error": persist_error})
         return response
 
+    def master_clock_config_payload(self) -> dict[str, Any]:
+        config = self.master_clock.config
+        selected_targets = set(config.output_targets)
+        return {
+            "enabled": config.enabled,
+            "bpm": config.bpm,
+            "bpm_min": config.bpm_min,
+            "bpm_max": config.bpm_max,
+            "auto_start": config.auto_start,
+            "output_targets": config.output_targets,
+            "available_output_targets": [
+                {
+                    "name": name,
+                    "type": adapter.kind or name,
+                    "enabled": adapter.enabled,
+                    "selected": name in selected_targets,
+                }
+                for name, adapter in self.config.adapters.items()
+                if (adapter.kind or name) in {"usb_midi", "rtp_midi"}
+            ],
+            "send_transport": config.send_transport,
+            "bpm_osc_address": config.bpm_osc_address,
+            "click_interval_osc_address": config.click_interval_osc_address,
+            "bpm_msb_cc": config.bpm_msb_cc,
+            "bpm_lsb_cc": config.bpm_lsb_cc,
+            "click_interval_cc": config.click_interval_cc,
+            "midi_channel": config.midi_channel,
+            "click_enabled": config.click_enabled,
+            "click_wav": config.click_wav,
+            "click_interval": config.click_interval,
+            "click_command": config.click_command,
+            "click_audio_device": config.click_audio_device,
+            "running": self.master_clock.running,
+            "position_ticks": self.master_clock.position_ticks,
+            "parameters": self.master_clock.parameters.as_controls(),
+        }
+
+    async def apply_master_clock_config(self, payload: dict[str, Any]) -> dict[str, Any]:
+        if not isinstance(payload, dict):
+            raise ValueError("Master clock config payload must be an object")
+        config = self._normalized_master_clock_config(payload)
+        await self.master_clock.configure(config)
+
+        persisted = False
+        persist_error = ""
+        if self.config_path is not None:
+            try:
+                save_master_clock_config(self.config_path, config)
+                persisted = True
+            except OSError as exc:
+                persist_error = str(exc)
+                LOGGER.warning(
+                    "Master clock config applied at runtime but could not be persisted to %s: %s",
+                    self.config_path,
+                    exc,
+                )
+        else:
+            persist_error = "no config path available"
+
+        response = self.master_clock_config_payload()
+        response.update({"persisted": persisted, "persist_error": persist_error})
+        return response
+
     def _gpio_options(self) -> dict[str, Any]:
         if self.gpio_adapter is not None:
             return self.gpio_adapter.config_payload()
@@ -295,6 +376,76 @@ class WebInterface:
                 float(payload.get("poll_interval_ms", current["poll_interval_ms"]))
             ),
         }
+
+    def _normalized_master_clock_config(self, payload: dict[str, Any]) -> MasterClockConfig:
+        current = self.master_clock.config
+        available_targets = {
+            name
+            for name, adapter in self.config.adapters.items()
+            if (adapter.kind or name) in {"usb_midi", "rtp_midi"}
+        }
+        raw_targets = payload.get("output_targets", current.output_targets)
+        if not isinstance(raw_targets, list):
+            raise ValueError("Master clock output_targets must be a list")
+        output_targets = [str(target) for target in raw_targets]
+        unknown_targets = [target for target in output_targets if target not in available_targets]
+        if unknown_targets:
+            raise ValueError(f"unknown MIDI clock output targets: {unknown_targets}")
+
+        click_interval = str(payload.get("click_interval", current.click_interval))
+        if click_interval not in {"eighth", "quarter", "half", "whole"}:
+            raise ValueError("click_interval must be eighth, quarter, half or whole")
+
+        bpm_min = float(payload.get("bpm_min", current.bpm_min))
+        bpm_max = float(payload.get("bpm_max", current.bpm_max))
+        bpm = float(payload.get("bpm", current.bpm))
+        if bpm_min <= 0 or bpm_max <= 0 or bpm_min >= bpm_max:
+            raise ValueError("bpm_min/bpm_max must be positive and ordered")
+        if not bpm_min <= bpm <= bpm_max:
+            raise ValueError("bpm must be inside bpm_min/bpm_max")
+
+        bpm_msb_cc = _validate_midi_7bit(payload.get("bpm_msb_cc", current.bpm_msb_cc), "bpm_msb_cc")
+        bpm_lsb_cc = _validate_midi_7bit(payload.get("bpm_lsb_cc", current.bpm_lsb_cc), "bpm_lsb_cc")
+        click_interval_cc = _validate_midi_7bit(
+            payload.get("click_interval_cc", current.click_interval_cc),
+            "click_interval_cc",
+        )
+        midi_channel = int(payload.get("midi_channel", current.midi_channel))
+        if not 1 <= midi_channel <= 16:
+            raise ValueError("midi_channel must be between 1 and 16")
+
+        return MasterClockConfig(
+            enabled=bool(payload.get("enabled", current.enabled)),
+            bpm=bpm,
+            bpm_min=bpm_min,
+            bpm_max=bpm_max,
+            auto_start=bool(payload.get("auto_start", current.auto_start)),
+            output_targets=output_targets,
+            send_transport=bool(payload.get("send_transport", current.send_transport)),
+            bpm_osc_address=str(payload.get("bpm_osc_address", current.bpm_osc_address)),
+            click_interval_osc_address=str(
+                payload.get(
+                    "click_interval_osc_address",
+                    current.click_interval_osc_address,
+                )
+            ),
+            bpm_msb_cc=bpm_msb_cc,
+            bpm_lsb_cc=bpm_lsb_cc,
+            click_interval_cc=click_interval_cc,
+            midi_channel=midi_channel,
+            click_enabled=bool(payload.get("click_enabled", current.click_enabled)),
+            click_wav=str(payload.get("click_wav", current.click_wav)),
+            click_interval=click_interval,
+            click_command=str(payload.get("click_command", current.click_command)),
+            click_audio_device=str(payload.get("click_audio_device", current.click_audio_device)),
+        )
+
+
+def _validate_midi_7bit(value: Any, field_name: str) -> int:
+    parsed = int(value)
+    if not 0 <= parsed <= 127:
+        raise ValueError(f"{field_name} must be between 0 and 127")
+    return parsed
 
 
 async def run_web_server(interface: WebInterface) -> web.AppRunner:

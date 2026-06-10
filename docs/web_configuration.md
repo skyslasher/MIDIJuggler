@@ -55,3 +55,54 @@ Example POST body:
 
 At least one GPIO pin must be enabled. Pin numbers are BCM numbers, matching the
 hardware and DietPi documentation.
+
+## MIDI master clock
+
+The **Master Clock** card exposes the editable MIDI master-clock settings:
+
+- enabled / auto-start / send-transport flags
+- BPM, BPM minimum and BPM maximum
+- MIDI clock output targets
+- OSC addresses for BPM and click-interval remote control
+- MIDI CC numbers for BPM MSB, BPM LSB and click interval
+- MIDI channel for remote control
+- audio click enablement, WAV path, interval, command and ALSA device
+
+Saving updates the running master clock immediately and persists the
+`[master_clock]` section in the active TOML configuration file.
+
+The HTTP API is:
+
+```text
+GET /api/master-clock
+POST /api/master-clock
+```
+
+Example POST body:
+
+```json
+{
+  "enabled": true,
+  "bpm": 120.0,
+  "bpm_min": 40.0,
+  "bpm_max": 240.0,
+  "auto_start": false,
+  "output_targets": ["usb_midi", "rtp_midi"],
+  "send_transport": true,
+  "bpm_osc_address": "/midijuggler/clock/bpm",
+  "click_interval_osc_address": "/midijuggler/clock/click_interval",
+  "bpm_msb_cc": 20,
+  "bpm_lsb_cc": 21,
+  "click_interval_cc": 22,
+  "midi_channel": 1,
+  "click_enabled": false,
+  "click_wav": "/etc/midijuggler/click.wav",
+  "click_interval": "quarter",
+  "click_command": "aplay",
+  "click_audio_device": "plughw:1,0"
+}
+```
+
+As with GPIO, if the service cannot write the config file, the master-clock
+change is still applied at runtime and the web UI reports that it was not
+persisted.

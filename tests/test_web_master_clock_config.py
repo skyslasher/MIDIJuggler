@@ -1,0 +1,148 @@
+import asyncio
+from pathlib import Path
+
+import pytest
+
+from midijuggler.clock import ClockBpmTracker
+from midijuggler.config import load_config, parse_config
+from midijuggler.eventbus import EventBus
+from midijuggler.master_clock import MasterClock
+from midijuggler.web.server import WebInterface
+
+
+def test_master_clock_config_payload_lists_midi_output_targets() -> None:
+    config = parse_config(
+        {
+            "master_clock": {
+                "enabled": True,
+                "bpm": 120.0,
+                "output_targets": ["usb_midi"],
+            },
+            "adapters": {
+                "usb_midi": {"enabled": True},
+                "rtp_remote": {
+                    "type": "rtp_midi",
+                    "enabled": False,
+                },
+                "osc": {"enabled": True},
+            },
+        }
+    )
+    bus = EventBus()
+    interface = WebInterface(
+        config,
+        bus,
+        ClockBpmTracker(),
+        MasterClock(config.master_clock, bus),
+    )
+
+    payload = interface.master_clock_config_payload()
+
+    assert payload["enabled"] is True
+    assert payload["bpm"] == 120.0
+    assert [
+        (target["name"], target["type"], target["selected"])
+        for target in payload["available_output_targets"]
+    ] == [
+        ("usb_midi", "usb_midi", True),
+        ("rtp_midi", "rtp_midi", False),
+        ("rtp_remote", "rtp_midi", False),
+    ]
+
+
+def test_apply_master_clock_config_persists_section(tmp_path: Path) -> None:
+    config_file = tmp_path / "config.toml"
+    config_file.write_text(
+        """
+        [master_clock]
+        enabled = false
+        bpm = 120.0
+
+        [adapters.usb_midi]
+        enabled = true
+        """,
+        encoding="utf-8",
+    )
+    config = load_config(config_file)
+    bus = EventBus()
+    interface = WebInterface(
+        config,
+        bus,
+        ClockBpmTracker(),
+        MasterClock(config.master_clock, bus),
+        config_path=config_file,
+    )
+
+    result = asyncio.run(
+        interface.apply_master_clock_config(
+            {
+                "enabled": True,
+                "bpm": 128.0,
+                "bpm_min": 40.0,
+                "bpm_max": 240.0,
+                "output_targets": ["usb_midi"],
+                "click_interval": "eighth",
+            }
+        )
+    )
+
+    saved = load_config(config_file)
+
+    assert result["persisted"] is True
+    assert result["enabled"] is True
+    assert saved.master_clock.bpm == pytest.approx(128.0)
+    assert saved.master_clock.output_targets == ["usb_midi"]
+    assert saved.master_clock.click_interval == "eighth"
+
+
+def test_apply_master_clock_config_keeps_runtime_change_when_persisting_fails(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    config_file = tmp_path / "config.toml"
+    config_file.write_text("[master_clock]\nenabled = false\n", encoding="utf-8")
+    config = load_config(config_file)
+    bus = EventBus()
+    interface = WebInterface(
+        config,
+        bus,
+        ClockBpmTracker(),
+        MasterClock(config.master_clock, bus),
+        config_path=config_file,
+    )
+
+    def deny_persist(path: str | Path, config: object) -> None:
+        raise PermissionError(13, "Permission denied", f"{path}.tmp")
+
+    monkeypatch.setattr("midijuggler.web.server.save_master_clock_config", deny_persist)
+
+    result = asyncio.run(
+        interface.apply_master_clock_config(
+            {
+                "enabled": True,
+                "bpm": 99.0,
+                "bpm_min": 40.0,
+                "bpm_max": 240.0,
+                "output_targets": [],
+            }
+        )
+    )
+
+    assert result["persisted"] is False
+    assert "Permission denied" in result["persist_error"]
+    assert interface.master_clock.bpm == pytest.approx(99.0)
+
+
+def test_apply_master_clock_config_rejects_unknown_output_target() -> None:
+    config = parse_config({"adapters": {"usb_midi": {"enabled": True}}})
+    interface = WebInterface(
+        config,
+        EventBus(),
+        ClockBpmTracker(),
+        MasterClock(config.master_clock, EventBus()),
+    )
+
+    with pytest.raises(ValueError, match="unknown MIDI clock output targets"):
+        asyncio.run(
+            interface.apply_master_clock_config({"output_targets": ["missing"]})
+        )

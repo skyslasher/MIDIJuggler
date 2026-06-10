@@ -70,14 +70,35 @@ def save_gpio_adapter_options(path: str | Path, options: dict[str, Any]) -> None
     config_path = Path(path)
     text = config_path.read_text(encoding="utf-8")
     section = _format_gpio_adapter_section(options)
+    new_text = _replace_toml_section(text, "[adapters.gpio]", section)
+
+    temp_path = config_path.with_suffix(config_path.suffix + ".tmp")
+    temp_path.write_text(new_text, encoding="utf-8")
+    temp_path.replace(config_path)
+
+
+def save_master_clock_config(path: str | Path, config: MasterClockConfig) -> None:
+    """Persist the editable master clock config in a TOML config file."""
+
+    config_path = Path(path)
+    text = config_path.read_text(encoding="utf-8")
+    section = _format_master_clock_section(config)
+    new_text = _replace_toml_section(text, "[master_clock]", section)
+
+    temp_path = config_path.with_suffix(config_path.suffix + ".tmp")
+    temp_path.write_text(new_text, encoding="utf-8")
+    temp_path.replace(config_path)
+
+
+def _replace_toml_section(text: str, header: str, section: str) -> str:
     lines = text.splitlines()
 
     start = next(
-        (index for index, line in enumerate(lines) if line.strip() == "[adapters.gpio]"),
+        (index for index, line in enumerate(lines) if line.strip() == header),
         None,
     )
     if start is None:
-        new_text = text.rstrip() + "\n\n" + section
+        return text.rstrip() + "\n\n" + section
     else:
         end = start + 1
         while end < len(lines):
@@ -86,11 +107,7 @@ def save_gpio_adapter_options(path: str | Path, options: dict[str, Any]) -> None
                 break
             end += 1
         new_lines = [*lines[:start], *section.rstrip().splitlines(), "", *lines[end:]]
-        new_text = "\n".join(new_lines).rstrip() + "\n"
-
-    temp_path = config_path.with_suffix(config_path.suffix + ".tmp")
-    temp_path.write_text(new_text, encoding="utf-8")
-    temp_path.replace(config_path)
+        return "\n".join(new_lines).rstrip() + "\n"
 
 
 def _format_gpio_adapter_section(options: dict[str, Any]) -> str:
@@ -108,8 +125,37 @@ def _format_gpio_adapter_section(options: dict[str, Any]) -> str:
     )
 
 
+def _format_master_clock_section(config: MasterClockConfig) -> str:
+    output_targets = ", ".join(_toml_string(target) for target in config.output_targets)
+    return (
+        "[master_clock]\n"
+        f"enabled = {_toml_bool(config.enabled)}\n"
+        f"bpm = {config.bpm}\n"
+        f"bpm_min = {config.bpm_min}\n"
+        f"bpm_max = {config.bpm_max}\n"
+        f"auto_start = {_toml_bool(config.auto_start)}\n"
+        f"output_targets = [{output_targets}]\n"
+        f"send_transport = {_toml_bool(config.send_transport)}\n"
+        f"bpm_osc_address = {_toml_string(config.bpm_osc_address)}\n"
+        f"click_interval_osc_address = {_toml_string(config.click_interval_osc_address)}\n"
+        f"bpm_msb_cc = {config.bpm_msb_cc}\n"
+        f"bpm_lsb_cc = {config.bpm_lsb_cc}\n"
+        f"click_interval_cc = {config.click_interval_cc}\n"
+        f"midi_channel = {config.midi_channel}\n"
+        f"click_enabled = {_toml_bool(config.click_enabled)}\n"
+        f"click_wav = {_toml_string(config.click_wav)}\n"
+        f"click_interval = {_toml_string(config.click_interval)}\n"
+        f"click_command = {_toml_string(config.click_command)}\n"
+        f"click_audio_device = {_toml_string(config.click_audio_device)}\n\n"
+    )
+
+
 def _toml_bool(value: bool) -> str:
     return "true" if value else "false"
+
+
+def _toml_string(value: str) -> str:
+    return '"' + value.replace("\\", "\\\\").replace('"', '\\"') + '"'
 
 
 def parse_config(raw: dict[str, Any]) -> AppConfig:

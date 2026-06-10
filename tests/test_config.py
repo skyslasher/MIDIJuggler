@@ -2,7 +2,13 @@ from pathlib import Path
 
 import pytest
 
-from midijuggler.config import load_config, parse_config, save_gpio_adapter_options
+from midijuggler.config import (
+    MasterClockConfig,
+    load_config,
+    parse_config,
+    save_gpio_adapter_options,
+    save_master_clock_config,
+)
 
 
 def test_parse_config_reads_web_adapters_and_mappings() -> None:
@@ -145,6 +151,52 @@ def test_save_gpio_adapter_options_replaces_gpio_section(tmp_path: Path) -> None
     poll_line_index = saved_lines.index("poll_interval_ms = 2")
     assert saved_lines[poll_line_index + 1] == ""
     assert saved_lines[poll_line_index + 2].strip() == "[adapters.osc]"
+
+
+def test_save_master_clock_config_replaces_master_clock_section(tmp_path: Path) -> None:
+    config_file = tmp_path / "config.toml"
+    config_file.write_text(
+        """
+        [web]
+        port = 8080
+
+        [master_clock]
+        enabled = false
+        bpm = 120.0
+
+        [adapters.gpio]
+        enabled = true
+        pins = [17]
+        """,
+        encoding="utf-8",
+    )
+
+    save_master_clock_config(
+        config_file,
+        MasterClockConfig(
+            enabled=True,
+            bpm=128.5,
+            bpm_min=40.0,
+            bpm_max=240.0,
+            output_targets=["usb_midi", "rtp_midi"],
+            click_enabled=True,
+            click_interval="half",
+            click_wav="/etc/midijuggler/click.wav",
+        ),
+    )
+
+    config = load_config(config_file)
+    saved_text = config_file.read_text(encoding="utf-8")
+
+    assert config.master_clock.enabled is True
+    assert config.master_clock.bpm == pytest.approx(128.5)
+    assert config.master_clock.output_targets == ["usb_midi", "rtp_midi"]
+    assert config.master_clock.click_interval == "half"
+    assert 'output_targets = ["usb_midi", "rtp_midi"]' in saved_text
+    saved_lines = saved_text.splitlines()
+    click_device_index = saved_lines.index('click_audio_device = ""')
+    assert saved_lines[click_device_index + 1] == ""
+    assert saved_lines[click_device_index + 2].strip() == "[adapters.gpio]"
 
 
 def test_parse_config_rejects_incomplete_mapping() -> None:
