@@ -125,6 +125,49 @@ def test_sysfs_reader_falls_back_to_gpiochip_base_for_bcm_pin(
     ]
 
 
+def test_sysfs_reader_skips_direction_write_when_already_input(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    base_path = tmp_path / "gpio"
+    gpio_path = base_path / "gpio17"
+    gpio_path.mkdir(parents=True)
+    (gpio_path / "direction").write_text("in", encoding="ascii")
+    (gpio_path / "value").write_text("0", encoding="ascii")
+
+    def fail_write_sysfs_file(path: Path, value: str) -> None:
+        raise AssertionError("direction should not be rewritten")
+
+    monkeypatch.setattr(gpio_module, "_write_sysfs_file", fail_write_sysfs_file)
+
+    reader = SysfsGpioPinReader(17, base_path=base_path)
+
+    assert reader.sysfs_pin == 17
+    assert reader.read() is False
+
+
+def test_sysfs_reader_continues_when_direction_denied_but_value_readable(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    base_path = tmp_path / "gpio"
+    gpio_path = base_path / "gpio17"
+    gpio_path.mkdir(parents=True)
+    (gpio_path / "direction").write_text("out", encoding="ascii")
+    (gpio_path / "value").write_text("1", encoding="ascii")
+
+    def fake_write_sysfs_file(path: Path, value: str) -> None:
+        if path == gpio_path / "direction":
+            raise PermissionError(13, "Permission denied")
+
+    monkeypatch.setattr(gpio_module, "_write_sysfs_file", fake_write_sysfs_file)
+
+    reader = SysfsGpioPinReader(17, base_path=base_path)
+
+    assert reader.sysfs_pin == 17
+    assert reader.read() is True
+
+
 def test_gpio_adapter_publishes_debounced_active_low_events() -> None:
     async def scenario() -> tuple[list[ControlEvent], FakePinReader]:
         bus = EventBus()

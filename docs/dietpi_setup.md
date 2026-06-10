@@ -54,6 +54,9 @@ poll_interval_ms = 5
 MIDIJuggler accepts BCM numbers here. On newer Raspberry Pi kernels, the
 deprecated sysfs GPIO interface may internally use global GPIO numbers with a
 `gpiochip` base offset; MIDIJuggler resolves that offset at startup.
+The systemd template also sets `SupplementaryGroups=gpio`. After changing group
+membership or the unit file, run `sudo systemctl daemon-reload` and restart the
+service so systemd picks up the new permissions.
 
 For protected GPIO footswitch wiring with 5 V polling voltage, see
 [`gpio_optocoupler_footswitch.md`](gpio_optocoupler_footswitch.md).

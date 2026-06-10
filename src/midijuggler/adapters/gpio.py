@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import asyncio
 import contextlib
+import logging
 import os
 import time
 from collections.abc import Callable
@@ -15,6 +16,8 @@ from midijuggler.adapters.base import Adapter
 from midijuggler.config import AdapterConfig
 from midijuggler.eventbus import EventBus
 from midijuggler.events import AdapterStatusEvent, ControlEvent
+
+LOGGER = logging.getLogger(__name__)
 
 
 class GpioPinReader(Protocol):
@@ -63,13 +66,7 @@ class SysfsGpioPinReader:
 
         direction_path = self.gpio_path / "direction"
         if direction_path.exists():
-            try:
-                _write_sysfs_file(direction_path, "in")
-            except OSError as exc:
-                raise RuntimeError(
-                    f"cannot configure GPIO pin {pin} as input; "
-                    "check DietPi GPIO support and service permissions"
-                ) from exc
+            self._configure_direction(direction_path)
 
     def read(self) -> bool:
         value = (self.gpio_path / "value").read_text(encoding="ascii").strip()
@@ -81,6 +78,31 @@ class SysfsGpioPinReader:
         if self._exported_by_us:
             with contextlib.suppress(OSError):
                 self._write_control("unexport", str(self.sysfs_pin))
+
+    def _configure_direction(self, direction_path: Path) -> None:
+        if _read_optional_text(direction_path) == "in":
+            return
+
+        try:
+            _write_sysfs_file(direction_path, "in")
+        except PermissionError as exc:
+            if _can_read_gpio_value(self.gpio_path):
+                LOGGER.warning(
+                    "cannot write GPIO direction for BCM pin %s/sysfs GPIO %s, "
+                    "but value is readable; continuing as input",
+                    self.pin,
+                    self.sysfs_pin,
+                )
+                return
+            raise RuntimeError(
+                f"cannot configure GPIO pin {self.pin} as input; "
+                "check DietPi GPIO support and service permissions"
+            ) from exc
+        except OSError as exc:
+            raise RuntimeError(
+                f"cannot configure GPIO pin {self.pin} as input; "
+                "check DietPi GPIO support and service permissions"
+            ) from exc
 
     def _ensure_exported(self) -> None:
         errors: list[str] = []
@@ -161,6 +183,22 @@ def _read_optional_int(path: Path) -> int | None:
         return int(path.read_text(encoding="ascii").strip())
     except (OSError, ValueError):
         return None
+
+
+def _read_optional_text(path: Path) -> str | None:
+    try:
+        return path.read_text(encoding="ascii").strip()
+    except OSError:
+        return None
+
+
+def _can_read_gpio_value(gpio_path: Path) -> bool:
+    value_path = gpio_path / "value"
+    try:
+        value = value_path.read_text(encoding="ascii").strip()
+    except OSError:
+        return False
+    return value in {"0", "1"}
 
 
 PinReaderFactory = Callable[[GpioInput], GpioPinReader]
