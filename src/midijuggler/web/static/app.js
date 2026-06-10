@@ -29,11 +29,19 @@ const configImportMessage = document.querySelector("#config-import-message");
 const midiInstances = document.querySelector("#midi-instances");
 const rtpMidiInstances = document.querySelector("#rtp-midi-instances");
 const rtpDiscoveryNote = document.querySelector(".rtp-discovery-note");
+const midiAddButton = document.querySelector("#midi-add");
+const rtpMidiAddButton = document.querySelector("#rtp-midi-add");
 const midiSaveButton = document.querySelector("#midi-save");
 const rtpMidiSaveButton = document.querySelector("#rtp-midi-save");
 const midiAdaptersRefresh = document.querySelector("#midi-adapters-refresh");
 const midiMessage = document.querySelector("#midi-message");
 const rtpMidiMessage = document.querySelector("#rtp-midi-message");
+const DEFAULT_MIDI_ADAPTER_NAMES = new Set(["midi", "rtp_midi"]);
+const pendingAdapterDeletes = {
+  midi: new Set(),
+  rtp_midi: new Set(),
+};
+
 const gpioForm = document.querySelector("#gpio-form");
 const gpioPins = document.querySelector("#gpio-pins");
 const gpioActiveLow = document.querySelector("#gpio-active-low");
@@ -253,14 +261,73 @@ function loadMidiAdaptersConfig() {
   });
 }
 
-function createMidiAdapterCard(instance, config) {
+function midiPortChoices(config) {
+  return (config.available_ports || []).map((port) => ({
+    id: port.id,
+    label: port.label,
+  }));
+}
+
+function defaultMidiInstanceTemplate(config) {
+  const portChoices = midiPortChoices(config);
+  return {
+    name: "",
+    type: "midi",
+    enabled: false,
+    input_port: "",
+    output_port: "",
+    midi_library: "",
+    available_input_ports: portChoices,
+    available_output_ports: portChoices,
+  };
+}
+
+function defaultRtpMidiInstanceTemplate() {
+  return {
+    name: "",
+    type: "rtp_midi",
+    enabled: false,
+    role: "listen",
+    session_name: "",
+    port: 5004,
+    join_target: "",
+  };
+}
+
+function createMidiAdapterCard(instance, config, options = {}) {
+  const isNew = Boolean(options.isNew);
   const card = document.createElement("section");
   card.className = "midi-adapter-card";
   card.dataset.instanceName = instance.name;
+  card.dataset.instanceType = instance.type;
+  if (isNew) {
+    card.dataset.isNew = "true";
+  }
 
-  const title = document.createElement("h3");
-  title.textContent = instance.name;
-  card.appendChild(title);
+  const header = document.createElement("div");
+  header.className = "midi-adapter-card-header";
+
+  if (isNew) {
+    header.appendChild(createTextField("Instance name", "adapter_name", ""));
+  } else {
+    const title = document.createElement("h3");
+    title.textContent = instance.name;
+    header.appendChild(title);
+  }
+
+  const deleteButton = document.createElement("button");
+  deleteButton.type = "button";
+  deleteButton.className = "midi-adapter-delete";
+  deleteButton.textContent = "Delete";
+  if (!isNew && DEFAULT_MIDI_ADAPTER_NAMES.has(instance.name)) {
+    deleteButton.disabled = true;
+    deleteButton.title = "Default instances cannot be deleted";
+  }
+  deleteButton.addEventListener("click", () => {
+    deleteMidiAdapterCard(card, instance.type);
+  });
+  header.appendChild(deleteButton);
+  card.appendChild(header);
 
   const enabledLabel = document.createElement("label");
   enabledLabel.className = "inline-field";
@@ -379,9 +446,35 @@ function createMidiAdapterCard(instance, config) {
   return card;
 }
 
+function deleteMidiAdapterCard(card, kind) {
+  if (card.dataset.isNew === "true") {
+    card.remove();
+    return;
+  }
+
+  const name = card.dataset.instanceName;
+  pendingAdapterDeletes[kind].add(name);
+  card.remove();
+}
+
+function addMidiAdapterCard(kind) {
+  const config = midiAdaptersConfig || {
+    available_ports: [],
+    available_midi_libraries: [],
+    instances: [],
+  };
+  const instance =
+    kind === "midi"
+      ? defaultMidiInstanceTemplate(config)
+      : defaultRtpMidiInstanceTemplate();
+  const container = kind === "midi" ? midiInstances : rtpMidiInstances;
+  container.appendChild(createMidiAdapterCard(instance, config, { isNew: true }));
+}
+
 function renderMidiAdapterSection(kind, config) {
   const container = kind === "midi" ? midiInstances : rtpMidiInstances;
   container.replaceChildren();
+  pendingAdapterDeletes[kind].clear();
 
   for (const instance of config.instances || []) {
     if (instance.type !== kind) {
@@ -438,9 +531,18 @@ function createSelectField(labelText, fieldName, options, valueKey, labelKey, se
 
 function collectMidiAdapterInstancesFrom(container) {
   return [...container.querySelectorAll(".midi-adapter-card")].map((card) => {
-    const payload = { name: card.dataset.instanceName };
+    const payload = {
+      type: card.dataset.instanceType,
+      name:
+        card.dataset.isNew === "true"
+          ? (card.querySelector('[data-field="adapter_name"]')?.value || "").trim()
+          : card.dataset.instanceName,
+    };
     for (const element of card.querySelectorAll("[data-field]")) {
       const field = element.dataset.field;
+      if (field === "adapter_name") {
+        continue;
+      }
       if (element.type === "checkbox") {
         payload[field] = element.checked;
       } else if (element.type === "number") {
@@ -646,7 +748,11 @@ function saveMidiAdapterSection(kind) {
   return fetch("/api/midi-adapters", {
     method: "POST",
     headers: { "content-type": "application/json" },
-    body: JSON.stringify({ instances: collectMidiAdapterInstancesFrom(container) }),
+    body: JSON.stringify({
+      kind,
+      instances: collectMidiAdapterInstancesFrom(container),
+      deleted: [...pendingAdapterDeletes[kind]],
+    }),
   })
     .then(async (response) => {
       if (!response.ok) {
@@ -682,6 +788,14 @@ midiAdaptersRefresh?.addEventListener("click", () => {
     .catch((error) => {
       rtpMidiMessage.textContent = `error: ${error.message}`;
     });
+});
+
+midiAddButton?.addEventListener("click", () => {
+  addMidiAdapterCard("midi");
+});
+
+rtpMidiAddButton?.addEventListener("click", () => {
+  addMidiAdapterCard("rtp_midi");
 });
 
 midiSaveButton?.addEventListener("click", () => {

@@ -208,9 +208,22 @@ legend {
   padding: 0.9rem;
 }
 
-.midi-adapter-card h3 {
+.midi-adapter-card-header {
+  align-items: center;
+  display: flex;
+  gap: 0.75rem;
+  justify-content: space-between;
+  margin-bottom: 0.6rem;
+}
+
+.midi-adapter-card-header h3 {
   font-size: 1rem;
-  margin: 0 0 0.6rem;
+  margin: 0;
+}
+
+.midi-adapter-delete {
+  flex-shrink: 0;
+  margin-top: 0;
 }
 
 .midi-adapter-card .inline-field {

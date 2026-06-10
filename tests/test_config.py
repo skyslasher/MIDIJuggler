@@ -3,6 +3,7 @@ from pathlib import Path
 import pytest
 
 from midijuggler.config import (
+    remove_midi_adapter_configs,
     AdapterConfig,
     MasterClockConfig,
     load_config,
@@ -153,6 +154,32 @@ def test_save_gpio_adapter_options_replaces_gpio_section(tmp_path: Path) -> None
     poll_line_index = saved_lines.index("poll_interval_ms = 2")
     assert saved_lines[poll_line_index + 1] == ""
     assert saved_lines[poll_line_index + 2].strip() == "[adapters.osc]"
+
+
+def test_remove_midi_adapter_configs_deletes_adapter_sections(tmp_path: Path) -> None:
+    config_file = tmp_path / "config.toml"
+    config_file.write_text(
+        """
+        [adapters.midi]
+        enabled = true
+
+        [adapters.stage_midi]
+        type = "midi"
+        enabled = true
+        input_port = "Stage In"
+        output_port = "Stage Out"
+        """,
+        encoding="utf-8",
+    )
+
+    remove_midi_adapter_configs(config_file, ["stage_midi"])
+
+    saved_text = config_file.read_text(encoding="utf-8")
+    config = load_config(config_file)
+
+    assert "stage_midi" not in config.adapters
+    assert "[adapters.stage_midi]" not in saved_text
+    assert "[adapters.midi]" in saved_text
 
 
 def test_save_midi_adapter_configs_replaces_adapter_sections(tmp_path: Path) -> None:

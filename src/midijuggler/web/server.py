@@ -18,12 +18,15 @@ from midijuggler.adapters.gpio import GpioAdapter, RASPBERRY_PI_HEADER_BCM_PINS
 from midijuggler.alsa import write_master_clock_pcm_config
 from midijuggler.clock import ClockBpmTracker
 from midijuggler.config import (
+    DEFAULT_ADAPTERS,
     AdapterConfig,
     AppConfig,
     MasterClockConfig,
+    _validate_adapter_instance_name,
     parse_config,
     save_gpio_adapter_options,
     save_master_clock_config,
+    remove_midi_adapter_configs,
     save_midi_adapter_configs,
 )
 from midijuggler.eventbus import EventBus
@@ -426,6 +429,42 @@ class WebInterface:
         if not isinstance(raw_instances, list):
             raise ValueError("MIDI adapter config requires an instances list")
 
+        kind_filter = payload.get("kind")
+        if kind_filter is not None:
+            kind_filter = str(kind_filter).strip()
+            if kind_filter not in {"midi", "rtp_midi"}:
+                raise ValueError("kind must be midi or rtp_midi")
+
+        raw_deleted = payload.get("deleted", [])
+        if not isinstance(raw_deleted, list):
+            raise ValueError("deleted must be a list")
+
+        deleted_names: list[str] = []
+        deleted_rtp_names: list[str] = []
+        for raw_name in raw_deleted:
+            name = str(raw_name).strip()
+            if not name:
+                continue
+            if name in DEFAULT_ADAPTERS:
+                raise ValueError(f"cannot delete default adapter instance: {name}")
+            if name not in self.config.adapters:
+                raise ValueError(f"unknown MIDI adapter instance: {name}")
+
+            adapter_kind = self.config.adapters[name].kind or name
+            if adapter_kind not in {"midi", "rtp_midi"}:
+                raise ValueError(f"adapter {name} is not a MIDI adapter")
+            if kind_filter is not None and adapter_kind != kind_filter:
+                raise ValueError(
+                    f"adapter {name} is not a {kind_filter} adapter instance"
+                )
+
+            deleted_names.append(name)
+            if adapter_kind == "rtp_midi":
+                deleted_rtp_names.append(name)
+
+        for name in deleted_names:
+            self.config.adapters.pop(name, None)
+
         updates: dict[str, AdapterConfig] = {}
         for raw_instance in raw_instances:
             if not isinstance(raw_instance, dict):
@@ -433,21 +472,41 @@ class WebInterface:
             name = str(raw_instance.get("name", "")).strip()
             if not name:
                 raise ValueError("each MIDI adapter instance requires a name")
+
             if name not in self.config.adapters:
-                raise ValueError(f"unknown MIDI adapter instance: {name}")
+                if kind_filter is None:
+                    raise ValueError(f"unknown MIDI adapter instance: {name}")
+                _validate_adapter_instance_name(name)
+                if name in DEFAULT_ADAPTERS:
+                    raise ValueError(
+                        f"cannot create reserved adapter instance name: {name}"
+                    )
 
-            current = self.config.adapters[name]
-            kind = current.kind or name
-            if kind not in {"midi", "rtp_midi"}:
-                raise ValueError(f"adapter {name} is not a MIDI adapter")
+                kind = str(raw_instance.get("type", kind_filter)).strip()
+                if kind != kind_filter:
+                    raise ValueError(
+                        f"adapter {name} must use type {kind_filter!r}, not {kind!r}"
+                    )
+                current_options: dict[str, Any] = {}
+                enabled = bool(raw_instance.get("enabled", False))
+            else:
+                current = self.config.adapters[name]
+                kind = current.kind or name
+                if kind not in {"midi", "rtp_midi"}:
+                    raise ValueError(f"adapter {name} is not a MIDI adapter")
+                if kind_filter is not None and kind != kind_filter:
+                    raise ValueError(
+                        f"adapter {name} is not a {kind_filter} adapter instance"
+                    )
+                current_options = current.options
+                enabled = bool(raw_instance.get("enabled", current.enabled))
 
-            enabled = bool(raw_instance.get("enabled", current.enabled))
             if kind == "midi":
-                options = self._normalized_midi_options(raw_instance, current.options)
+                options = self._normalized_midi_options(raw_instance, current_options)
             else:
                 options = self._normalized_rtp_midi_options(
                     raw_instance,
-                    current.options,
+                    current_options,
                     enabled=enabled,
                 )
 
@@ -457,9 +516,12 @@ class WebInterface:
 
         persisted = False
         persist_error = ""
-        if self.config_path is not None and updates:
+        if self.config_path is not None and (updates or deleted_names):
             try:
-                save_midi_adapter_configs(self.config_path, updates)
+                if updates:
+                    save_midi_adapter_configs(self.config_path, updates)
+                if deleted_names:
+                    remove_midi_adapter_configs(self.config_path, deleted_names)
                 persisted = True
             except OSError as exc:
                 persist_error = str(exc)
@@ -468,11 +530,13 @@ class WebInterface:
                     self.config_path,
                     exc,
                 )
-        elif self.config_path is None:
+        elif self.config_path is None and (updates or deleted_names):
             persist_error = "no config path available"
 
         if self.rtp_midi_manager is not None:
             await self.rtp_midi_manager.start()
+            for name in deleted_rtp_names:
+                await self.rtp_midi_manager.remove_instance(name)
             for name, updated in updates.items():
                 if updated.kind == "rtp_midi":
                     await self.rtp_midi_manager.apply_instance(name, updated)

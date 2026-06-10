@@ -293,6 +293,125 @@ def test_join_mode_excludes_locally_hosted_rtp_sessions(monkeypatch) -> None:
     assert local_id in payload["hosted_rtp_session_ids"]
 
 
+def test_apply_midi_adapters_config_creates_midi_instance(tmp_path: Path, monkeypatch) -> None:
+    monkeypatch.setattr("midijuggler.web.server.list_midi_ports", lambda: [])
+    config_file = tmp_path / "config.toml"
+    config_file.write_text(
+        """
+        [adapters.midi]
+        enabled = false
+        """,
+        encoding="utf-8",
+    )
+    config = load_config(config_file)
+    interface = WebInterface(
+        config,
+        EventBus(),
+        ClockBpmTracker(),
+        MasterClock(config.master_clock, EventBus()),
+        config_path=config_file,
+    )
+
+    result = asyncio.run(
+        interface.apply_midi_adapters_config(
+            {
+                "kind": "midi",
+                "instances": [
+                    {
+                        "name": "stage_midi",
+                        "type": "midi",
+                        "enabled": True,
+                        "input_port": "Stage In",
+                        "output_port": "Stage Out",
+                    }
+                ],
+            }
+        )
+    )
+
+    saved = load_config(config_file)
+
+    assert result["persisted"] is True
+    assert saved.adapters["stage_midi"].enabled is True
+    assert saved.adapters["stage_midi"].kind == "midi"
+    assert saved.adapters["stage_midi"].options["input_port"] == "Stage In"
+    assert "[adapters.stage_midi]" in config_file.read_text(encoding="utf-8")
+
+
+def test_apply_midi_adapters_config_deletes_additional_instance(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr("midijuggler.web.server.list_midi_ports", lambda: [])
+    config_file = tmp_path / "config.toml"
+    config_file.write_text(
+        """
+        [adapters.midi]
+        enabled = true
+
+        [adapters.stage_midi]
+        type = "midi"
+        enabled = true
+        input_port = "Stage In"
+        output_port = "Stage Out"
+        """,
+        encoding="utf-8",
+    )
+    config = load_config(config_file)
+    interface = WebInterface(
+        config,
+        EventBus(),
+        ClockBpmTracker(),
+        MasterClock(config.master_clock, EventBus()),
+        config_path=config_file,
+    )
+
+    result = asyncio.run(
+        interface.apply_midi_adapters_config(
+            {
+                "kind": "midi",
+                "instances": [
+                    {
+                        "name": "midi",
+                        "enabled": True,
+                        "input_port": "",
+                        "output_port": "",
+                    }
+                ],
+                "deleted": ["stage_midi"],
+            }
+        )
+    )
+
+    saved = load_config(config_file)
+    saved_text = config_file.read_text(encoding="utf-8")
+
+    assert result["persisted"] is True
+    assert "stage_midi" not in saved.adapters
+    assert "[adapters.stage_midi]" not in saved_text
+
+
+def test_apply_midi_adapters_config_rejects_deleting_default_instance() -> None:
+    config = parse_config({"adapters": {"midi": {"enabled": True}}})
+    interface = WebInterface(
+        config,
+        EventBus(),
+        ClockBpmTracker(),
+        MasterClock(config.master_clock, EventBus()),
+    )
+
+    with pytest.raises(ValueError, match="cannot delete default adapter instance"):
+        asyncio.run(
+            interface.apply_midi_adapters_config(
+                {
+                    "kind": "midi",
+                    "instances": [{"name": "midi", "enabled": True}],
+                    "deleted": ["midi"],
+                }
+            )
+        )
+
+
 def test_apply_midi_adapters_config_rejects_unknown_instance() -> None:
     config = parse_config({"adapters": {"midi": {"enabled": True}}})
     interface = WebInterface(

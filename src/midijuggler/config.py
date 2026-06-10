@@ -85,6 +85,25 @@ def save_midi_adapter_configs(
     temp_path.replace(config_path)
 
 
+def remove_midi_adapter_configs(
+    path: str | Path,
+    instance_names: list[str],
+) -> None:
+    """Remove MIDI adapter sections from a TOML config file."""
+
+    if not instance_names:
+        return
+
+    config_path = Path(path)
+    text = config_path.read_text(encoding="utf-8")
+    for instance_name in instance_names:
+        text = _remove_toml_section(text, f"[adapters.{instance_name}]")
+
+    temp_path = config_path.with_suffix(config_path.suffix + ".tmp")
+    temp_path.write_text(text, encoding="utf-8")
+    temp_path.replace(config_path)
+
+
 def save_gpio_adapter_options(path: str | Path, options: dict[str, Any]) -> None:
     """Persist the editable GPIO adapter options in a TOML config file."""
 
@@ -109,6 +128,26 @@ def save_master_clock_config(path: str | Path, config: MasterClockConfig) -> Non
     temp_path = config_path.with_suffix(config_path.suffix + ".tmp")
     temp_path.write_text(new_text, encoding="utf-8")
     temp_path.replace(config_path)
+
+
+def _remove_toml_section(text: str, header: str) -> str:
+    lines = text.splitlines()
+    start = next(
+        (index for index, line in enumerate(lines) if line.strip() == header),
+        None,
+    )
+    if start is None:
+        return text
+
+    end = start + 1
+    while end < len(lines):
+        stripped = lines[end].strip()
+        if stripped.startswith("[") and stripped.endswith("]"):
+            break
+        end += 1
+
+    new_lines = [*lines[:start], *lines[end:]]
+    return "\n".join(new_lines).rstrip() + "\n"
 
 
 def _replace_toml_section(text: str, header: str, section: str) -> str:
