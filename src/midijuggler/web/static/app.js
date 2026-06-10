@@ -230,13 +230,15 @@ function refreshRtpJoinSelects(config) {
   updateRtpDiscoveryNote(config);
 }
 
+function fetchMidiAdaptersConfig() {
+  return fetch("/api/midi-adapters").then((response) => response.json());
+}
+
 function loadMidiAdaptersConfig() {
-  return fetch("/api/midi-adapters")
-    .then((response) => response.json())
-    .then((config) => {
-      renderMidiAdaptersConfig(config);
-      return config;
-    });
+  return fetchMidiAdaptersConfig().then((config) => {
+    renderMidiAdaptersConfig(config);
+    return config;
+  });
 }
 
 function renderMidiAdaptersConfig(config) {
@@ -351,7 +353,8 @@ function renderMidiAdaptersConfig(config) {
         hostFields.hidden = !isHost;
         joinFields.hidden = isHost;
         if (!isHost) {
-          loadMidiAdaptersConfig().then((freshConfig) => {
+          fetchMidiAdaptersConfig().then((freshConfig) => {
+            midiAdaptersConfig = freshConfig;
             refreshRtpJoinSelects(freshConfig);
           });
         }
