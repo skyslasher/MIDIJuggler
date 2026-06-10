@@ -63,4 +63,8 @@ class RtpMidiAdapter(Adapter):
             return f"RTP-MIDI join mode targeting {target or 'no session selected'}"
         session_name = str(self.config.options.get("session_name", "")).strip()
         port = int(self.config.options.get("port", 5004))
+        if role == "listen":
+            return (
+                f"RTP-MIDI listen-only session {session_name or 'unnamed'} on UDP {port}"
+            )
         return f"RTP-MIDI host session {session_name or 'unnamed'} on UDP {port}"

@@ -22,7 +22,7 @@ from midijuggler.rtp_midi.discovery import (
 
 LOGGER = logging.getLogger(__name__)
 
-RTP_ROLES = {"host", "join"}
+RTP_ROLES = {"host", "listen", "join"}
 RtpMidiBackendName = Literal["avahi", "zeroconf", "none"]
 
 
@@ -184,13 +184,22 @@ class RtpMidiManager:
             return
 
         role = str(config.options.get("role", "host"))
-        if role == "host":
+        if role in {"host", "listen"}:
             session_name = str(config.options.get("session_name", "")).strip()
             port = int(config.options.get("port", 5004))
             if not session_name:
                 LOGGER.warning(
-                    "RTP-MIDI adapter %s is enabled in host mode without session_name",
+                    "RTP-MIDI adapter %s is enabled in %s mode without session_name",
                     instance_name,
+                    role,
+                )
+                return
+            if role == "listen":
+                LOGGER.info(
+                    "RTP-MIDI adapter %s configured listen-only session %s on UDP %s",
+                    instance_name,
+                    session_name,
+                    port,
                 )
                 return
             if self._backend == "none":

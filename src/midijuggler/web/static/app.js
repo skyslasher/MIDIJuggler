@@ -316,6 +316,7 @@ function renderMidiAdaptersConfig(config) {
       );
     } else {
       const roleOptions = [
+        { id: "listen", label: "Host session" },
         { id: "host", label: "Host session (announce via mDNS)" },
         { id: "join", label: "Join discovered session" },
       ];
@@ -356,8 +357,10 @@ function renderMidiAdaptersConfig(config) {
 
       const roleSelect = modeField.querySelector("select");
       const updateRtpVisibility = () => {
-        const isJoin = roleSelect.value.trim().toLowerCase() === "join";
-        hostFields.hidden = isJoin;
+        const role = roleSelect.value.trim().toLowerCase();
+        const isJoin = role === "join";
+        const showHostFields = role === "host" || role === "listen";
+        hostFields.hidden = !showHostFields;
         joinFields.hidden = !isJoin;
         card.dataset.joinRefreshGeneration = String(
           Number(card.dataset.joinRefreshGeneration || 0) + 1,

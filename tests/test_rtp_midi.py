@@ -211,6 +211,53 @@ def test_rtp_midi_manager_hosts_enabled_instance_with_zeroconf(monkeypatch) -> N
     asyncio.run(exercise())
 
 
+def test_listen_mode_does_not_announce_session(monkeypatch) -> None:
+    monkeypatch.setattr("midijuggler.rtp_midi.manager.avahi_tools_available", lambda: True)
+    monkeypatch.setattr("midijuggler.rtp_midi.manager.zeroconf_available", lambda: True)
+
+    discovery = MagicMock()
+    discovery.start = AsyncMock()
+    discovery.stop = AsyncMock()
+    discovery.sessions = MagicMock(return_value=[])
+    announcer = MagicMock()
+    announcer.start = AsyncMock()
+    announcer.stop = AsyncMock()
+
+    monkeypatch.setattr(
+        "midijuggler.rtp_midi.manager.avahi_tool_paths",
+        lambda: ("/usr/bin/avahi-publish-service", "/usr/bin/avahi-browse"),
+    )
+    monkeypatch.setattr(
+        "midijuggler.rtp_midi.manager.AvahiRtpMidiDiscovery",
+        lambda browse_path: discovery,
+    )
+    monkeypatch.setattr(
+        "midijuggler.rtp_midi.manager.AvahiRtpMidiAnnouncer",
+        lambda session_name, port, publish_path: announcer,
+    )
+
+    async def exercise() -> None:
+        manager = RtpMidiManager()
+        await manager.start()
+        await manager.apply_instance(
+            "rtp_midi",
+            AdapterConfig(
+                enabled=True,
+                kind="rtp_midi",
+                options={
+                    "role": "listen",
+                    "session_name": "MIDIJuggler",
+                    "port": 5004,
+                },
+            ),
+        )
+        announcer.start.assert_not_awaited()
+        assert "rtp_midi" not in manager._announcers
+        await manager.stop()
+
+    asyncio.run(exercise())
+
+
 def test_joinable_sessions_exclude_local_host() -> None:
     manager = RtpMidiManager()
     local_host = local_mdns_server_name()

@@ -129,6 +129,52 @@ def test_apply_midi_adapters_config_persists_sections(tmp_path: Path, monkeypatc
     assert 'session_name = "MIDIJuggler"' in saved_text
 
 
+def test_apply_midi_adapters_config_persists_listen_mode(tmp_path: Path, monkeypatch) -> None:
+    monkeypatch.setattr("midijuggler.web.server.list_midi_ports", lambda: [])
+    config_file = tmp_path / "config.toml"
+    config_file.write_text(
+        """
+        [adapters.rtp_midi]
+        enabled = false
+        role = "host"
+        session_name = "MIDIJuggler"
+        port = 5004
+        """,
+        encoding="utf-8",
+    )
+    config = load_config(config_file)
+    interface = WebInterface(
+        config,
+        EventBus(),
+        ClockBpmTracker(),
+        MasterClock(config.master_clock, EventBus()),
+        config_path=config_file,
+    )
+
+    result = asyncio.run(
+        interface.apply_midi_adapters_config(
+            {
+                "instances": [
+                    {
+                        "name": "rtp_midi",
+                        "enabled": True,
+                        "role": "listen",
+                        "session_name": "Local Only",
+                        "port": 5006,
+                    }
+                ]
+            }
+        )
+    )
+
+    saved = load_config(config_file)
+
+    assert result["persisted"] is True
+    assert saved.adapters["rtp_midi"].options["role"] == "listen"
+    assert saved.adapters["rtp_midi"].options["session_name"] == "Local Only"
+    assert saved.adapters["rtp_midi"].options["port"] == 5006
+
+
 def test_apply_midi_adapters_config_keeps_runtime_change_when_persisting_fails(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,

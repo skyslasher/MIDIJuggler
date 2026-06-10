@@ -738,7 +738,7 @@ class WebInterface:
 
         role = str(payload.get("role", current.get("role", "host"))).strip().lower()
         if role not in RTP_ROLES:
-            raise ValueError("rtp_midi role must be host or join")
+            raise ValueError("rtp_midi role must be host, listen, or join")
 
         port = int(payload.get("port", current.get("port", 5004)))
         if not 1 <= port <= 65535:
@@ -749,9 +749,11 @@ class WebInterface:
         ).strip()
         join_target = str(payload.get("join_target", current.get("join_target", ""))).strip()
 
-        if role == "host":
+        if role in {"host", "listen"}:
             if enabled and not session_name:
-                raise ValueError("rtp_midi session_name must not be empty in host mode")
+                raise ValueError(
+                    "rtp_midi session_name must not be empty in host or listen mode"
+                )
             return {"role": role, "session_name": session_name, "port": port}
 
         if enabled and not join_target:
