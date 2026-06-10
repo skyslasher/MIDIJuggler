@@ -221,9 +221,23 @@ legend {
   margin: 0;
 }
 
-.midi-adapter-delete {
+.midi-adapter-card-actions {
+  display: flex;
   flex-shrink: 0;
+  gap: 0.5rem;
+}
+
+.midi-adapter-card-actions button {
   margin-top: 0;
+}
+
+.midi-adapter-message {
+  margin-top: 0.75rem;
+}
+
+.midi-adapter-save:disabled {
+  cursor: not-allowed;
+  opacity: 0.55;
 }
 
 .midi-adapter-card .inline-field {

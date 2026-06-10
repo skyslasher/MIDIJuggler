@@ -74,10 +74,11 @@ Use **Refresh RTP sessions** in the RTP-MIDI card to reload the current mDNS
 discovery results before selecting a join target. The status line in that card
 shows how many sessions are visible on the network in total.
 
-Each card has its own save button: **Save MIDI** and **Save RTP-MIDI**. Use
-**Add MIDI instance** or **Add RTP-MIDI instance** to create additional adapter
-tables. Additional instances can be removed with **Delete**; the default `midi`
-and `rtp_midi` tables cannot be deleted.
+Each adapter instance card has its own **Save** button. It becomes active only
+after that instance was changed in the UI. Use **Add MIDI instance** or
+**Add RTP-MIDI instance** to create additional adapter tables. Additional
+instances can be removed with **Delete**; the default `midi` and `rtp_midi`
+tables cannot be deleted.
 
 ### RTP-MIDI mDNS backend
 

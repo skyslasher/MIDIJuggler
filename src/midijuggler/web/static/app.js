@@ -31,16 +31,10 @@ const rtpMidiInstances = document.querySelector("#rtp-midi-instances");
 const rtpDiscoveryNote = document.querySelector(".rtp-discovery-note");
 const midiAddButton = document.querySelector("#midi-add");
 const rtpMidiAddButton = document.querySelector("#rtp-midi-add");
-const midiSaveButton = document.querySelector("#midi-save");
-const rtpMidiSaveButton = document.querySelector("#rtp-midi-save");
 const midiAdaptersRefresh = document.querySelector("#midi-adapters-refresh");
 const midiMessage = document.querySelector("#midi-message");
 const rtpMidiMessage = document.querySelector("#rtp-midi-message");
 const DEFAULT_MIDI_ADAPTER_NAMES = new Set(["midi", "rtp_midi"]);
-const pendingAdapterDeletes = {
-  midi: new Set(),
-  rtp_midi: new Set(),
-};
 
 const gpioForm = document.querySelector("#gpio-form");
 const gpioPins = document.querySelector("#gpio-pins");
@@ -315,6 +309,16 @@ function createMidiAdapterCard(instance, config, options = {}) {
     header.appendChild(title);
   }
 
+  const actions = document.createElement("div");
+  actions.className = "midi-adapter-card-actions";
+
+  const saveButton = document.createElement("button");
+  saveButton.type = "button";
+  saveButton.className = "midi-adapter-save";
+  saveButton.textContent = "Save";
+  saveButton.disabled = true;
+  actions.appendChild(saveButton);
+
   const deleteButton = document.createElement("button");
   deleteButton.type = "button";
   deleteButton.className = "midi-adapter-delete";
@@ -326,7 +330,8 @@ function createMidiAdapterCard(instance, config, options = {}) {
   deleteButton.addEventListener("click", () => {
     deleteMidiAdapterCard(card, instance.type);
   });
-  header.appendChild(deleteButton);
+  actions.appendChild(deleteButton);
+  header.appendChild(actions);
   card.appendChild(header);
 
   const enabledLabel = document.createElement("label");
@@ -376,9 +381,7 @@ function createMidiAdapterCard(instance, config, options = {}) {
         "No library",
       ),
     );
-    return card;
-  }
-
+  } else {
   const roleOptions = [
     { id: "listen", label: "Host session" },
     { id: "host", label: "Host session (announce via mDNS)" },
@@ -443,18 +446,163 @@ function createMidiAdapterCard(instance, config, options = {}) {
   };
   roleSelect.addEventListener("change", updateRtpVisibility);
   updateRtpVisibility();
+  }
+
+  attachMidiAdapterCardControls(card);
   return card;
 }
 
+function collectMidiAdapterInstanceFrom(card) {
+  const payload = {
+    type: card.dataset.instanceType,
+    name:
+      card.dataset.isNew === "true"
+        ? (card.querySelector('[data-field="adapter_name"]')?.value || "").trim()
+        : card.dataset.instanceName,
+  };
+  for (const element of card.querySelectorAll("[data-field]")) {
+    const field = element.dataset.field;
+    if (field === "adapter_name") {
+      continue;
+    }
+    if (element.type === "checkbox") {
+      payload[field] = element.checked;
+    } else if (element.type === "number") {
+      payload[field] = Number(element.value);
+    } else {
+      payload[field] = element.value;
+    }
+  }
+  return payload;
+}
+
+function midiAdapterCardStateSignature(card) {
+  return JSON.stringify(collectMidiAdapterInstanceFrom(card));
+}
+
+function updateMidiAdapterCardDirtyState(card) {
+  const saveButton = card.querySelector(".midi-adapter-save");
+  if (!saveButton) {
+    return;
+  }
+  const isDirty = midiAdapterCardStateSignature(card) !== card.dataset.savedState;
+  saveButton.disabled = !isDirty;
+}
+
+function attachMidiAdapterCardControls(card) {
+  const saveButton = card.querySelector(".midi-adapter-save");
+  saveButton?.addEventListener("click", () => {
+    saveMidiAdapterCard(card);
+  });
+
+  const message = document.createElement("p");
+  message.className = "message midi-adapter-message";
+  card.appendChild(message);
+
+  const markDirty = () => {
+    updateMidiAdapterCardDirtyState(card);
+  };
+  for (const element of card.querySelectorAll("[data-field]")) {
+    element.addEventListener("input", markDirty);
+    element.addEventListener("change", markDirty);
+  }
+
+  card.dataset.savedState = midiAdapterCardStateSignature(card);
+  updateMidiAdapterCardDirtyState(card);
+}
+
+function confirmMidiAdapterDelete(card) {
+  if (card.dataset.isNew === "true") {
+    const name = card.querySelector('[data-field="adapter_name"]')?.value.trim();
+    const label = name ? `"${name}"` : "this new instance";
+    return window.confirm(`Discard ${label}?`);
+  }
+
+  const name = card.dataset.instanceName;
+  return window.confirm(`Delete adapter instance "${name}"? This cannot be undone.`);
+}
+
+function panelMessageForMidiKind(kind) {
+  return kind === "midi" ? midiMessage : rtpMidiMessage;
+}
+
+function persistMidiAdapterChanges(kind, payload) {
+  return fetch("/api/midi-adapters", {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({
+      kind,
+      instances: payload.instances || [],
+      deleted: payload.deleted || [],
+    }),
+  }).then(async (response) => {
+    if (!response.ok) {
+      throw new Error(await response.text());
+    }
+    return response.json();
+  });
+}
+
 function deleteMidiAdapterCard(card, kind) {
+  if (!confirmMidiAdapterDelete(card)) {
+    return;
+  }
+
   if (card.dataset.isNew === "true") {
     card.remove();
     return;
   }
 
   const name = card.dataset.instanceName;
-  pendingAdapterDeletes[kind].add(name);
+  const panelMessage = panelMessageForMidiKind(kind);
   card.remove();
+  panelMessage.textContent = "deleting...";
+
+  persistMidiAdapterChanges(kind, { instances: [], deleted: [name] })
+    .then((config) => {
+      midiAdaptersConfig = config;
+      renderMidiAdapterSection(kind, config);
+      panelMessage.textContent = "deleted";
+    })
+    .catch((error) => {
+      panelMessage.textContent = `error: ${error.message}`;
+      if (midiAdaptersConfig) {
+        renderMidiAdapterSection(kind, midiAdaptersConfig);
+      }
+    });
+}
+
+function saveMidiAdapterCard(card) {
+  const kind = card.dataset.instanceType;
+  const message = card.querySelector(".midi-adapter-message");
+  const saveButton = card.querySelector(".midi-adapter-save");
+  const wasNew = card.dataset.isNew === "true";
+
+  message.textContent = "saving...";
+  saveButton.disabled = true;
+
+  persistMidiAdapterChanges(kind, {
+    instances: [collectMidiAdapterInstanceFrom(card)],
+  })
+    .then((config) => {
+      midiAdaptersConfig = config;
+      const status =
+        config.persisted === false
+          ? `saved for runtime only: ${config.persist_error}`
+          : "saved";
+      if (wasNew) {
+        renderMidiAdapterSection(kind, config);
+        panelMessageForMidiKind(kind).textContent = status;
+      } else {
+        card.dataset.savedState = midiAdapterCardStateSignature(card);
+        updateMidiAdapterCardDirtyState(card);
+        message.textContent = status;
+      }
+    })
+    .catch((error) => {
+      message.textContent = `error: ${error.message}`;
+      updateMidiAdapterCardDirtyState(card);
+    });
 }
 
 function addMidiAdapterCard(kind) {
@@ -474,7 +622,6 @@ function addMidiAdapterCard(kind) {
 function renderMidiAdapterSection(kind, config) {
   const container = kind === "midi" ? midiInstances : rtpMidiInstances;
   container.replaceChildren();
-  pendingAdapterDeletes[kind].clear();
 
   for (const instance of config.instances || []) {
     if (instance.type !== kind) {
@@ -530,29 +677,9 @@ function createSelectField(labelText, fieldName, options, valueKey, labelKey, se
 }
 
 function collectMidiAdapterInstancesFrom(container) {
-  return [...container.querySelectorAll(".midi-adapter-card")].map((card) => {
-    const payload = {
-      type: card.dataset.instanceType,
-      name:
-        card.dataset.isNew === "true"
-          ? (card.querySelector('[data-field="adapter_name"]')?.value || "").trim()
-          : card.dataset.instanceName,
-    };
-    for (const element of card.querySelectorAll("[data-field]")) {
-      const field = element.dataset.field;
-      if (field === "adapter_name") {
-        continue;
-      }
-      if (element.type === "checkbox") {
-        payload[field] = element.checked;
-      } else if (element.type === "number") {
-        payload[field] = Number(element.value);
-      } else {
-        payload[field] = element.value;
-      }
-    }
-    return payload;
-  });
+  return [...container.querySelectorAll(".midi-adapter-card")].map((card) =>
+    collectMidiAdapterInstanceFrom(card),
+  );
 }
 
 function renderMasterClockConfig(config) {
@@ -740,45 +867,6 @@ configurationExit.addEventListener("click", () => {
   configurationToggle.hidden = false;
 });
 
-function saveMidiAdapterSection(kind) {
-  const container = kind === "midi" ? midiInstances : rtpMidiInstances;
-  const message = kind === "midi" ? midiMessage : rtpMidiMessage;
-  message.textContent = "saving...";
-
-  return fetch("/api/midi-adapters", {
-    method: "POST",
-    headers: { "content-type": "application/json" },
-    body: JSON.stringify({
-      kind,
-      instances: collectMidiAdapterInstancesFrom(container),
-      deleted: [...pendingAdapterDeletes[kind]],
-    }),
-  })
-    .then(async (response) => {
-      if (!response.ok) {
-        throw new Error(await response.text());
-      }
-      return response.json();
-    })
-    .then((config) => {
-      midiAdaptersConfig = config;
-      renderMidiAdapterSection(kind, config);
-      if (config.persisted === false) {
-        message.textContent = `saved for runtime only: ${config.persist_error}`;
-      } else {
-        message.textContent = "saved";
-      }
-      return config;
-    })
-    .catch((error) => {
-      message.textContent = `error: ${error.message}`;
-      if (midiAdaptersConfig) {
-        renderMidiAdapterSection(kind, midiAdaptersConfig);
-      }
-      throw error;
-    });
-}
-
 midiAdaptersRefresh?.addEventListener("click", () => {
   rtpMidiMessage.textContent = "refreshing RTP sessions...";
   loadMidiAdaptersConfig()
@@ -796,14 +884,6 @@ midiAddButton?.addEventListener("click", () => {
 
 rtpMidiAddButton?.addEventListener("click", () => {
   addMidiAdapterCard("rtp_midi");
-});
-
-midiSaveButton?.addEventListener("click", () => {
-  saveMidiAdapterSection("midi");
-});
-
-rtpMidiSaveButton?.addEventListener("click", () => {
-  saveMidiAdapterSection("rtp_midi");
 });
 
 gpioForm.addEventListener("submit", (event) => {
