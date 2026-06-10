@@ -480,6 +480,40 @@ function midiAdapterCardStateSignature(card) {
   return JSON.stringify(collectMidiAdapterInstanceFrom(card));
 }
 
+const midiAdapterMessageTimeouts = new WeakMap();
+const MIDI_ADAPTER_MESSAGE_HIDE_MS = 3000;
+
+function clearMidiAdapterCardMessage(card) {
+  const timeoutId = midiAdapterMessageTimeouts.get(card);
+  if (timeoutId != null) {
+    window.clearTimeout(timeoutId);
+    midiAdapterMessageTimeouts.delete(card);
+  }
+  const message = card.querySelector(".midi-adapter-message");
+  if (message) {
+    message.textContent = "";
+  }
+}
+
+function showMidiAdapterCardMessage(card, text, { autoHide = false } = {}) {
+  const message = card.querySelector(".midi-adapter-message");
+  if (!message) {
+    return;
+  }
+  clearMidiAdapterCardMessage(card);
+  message.textContent = text;
+  if (!text || !autoHide) {
+    return;
+  }
+  const timeoutId = window.setTimeout(() => {
+    if (message.textContent === text) {
+      message.textContent = "";
+    }
+    midiAdapterMessageTimeouts.delete(card);
+  }, MIDI_ADAPTER_MESSAGE_HIDE_MS);
+  midiAdapterMessageTimeouts.set(card, timeoutId);
+}
+
 function updateMidiAdapterCardDirtyState(card) {
   const saveButton = card.querySelector(".midi-adapter-save");
   if (!saveButton) {
@@ -500,6 +534,7 @@ function attachMidiAdapterCardControls(card) {
   card.appendChild(message);
 
   const markDirty = () => {
+    clearMidiAdapterCardMessage(card);
     updateMidiAdapterCardDirtyState(card);
   };
   for (const element of card.querySelectorAll("[data-field]")) {
@@ -574,11 +609,10 @@ function deleteMidiAdapterCard(card, kind) {
 
 function saveMidiAdapterCard(card) {
   const kind = card.dataset.instanceType;
-  const message = card.querySelector(".midi-adapter-message");
   const saveButton = card.querySelector(".midi-adapter-save");
   const wasNew = card.dataset.isNew === "true";
 
-  message.textContent = "saving...";
+  showMidiAdapterCardMessage(card, "saving...");
   saveButton.disabled = true;
 
   persistMidiAdapterChanges(kind, {
@@ -596,11 +630,11 @@ function saveMidiAdapterCard(card) {
       } else {
         card.dataset.savedState = midiAdapterCardStateSignature(card);
         updateMidiAdapterCardDirtyState(card);
-        message.textContent = status;
+        showMidiAdapterCardMessage(card, status, { autoHide: true });
       }
     })
     .catch((error) => {
-      message.textContent = `error: ${error.message}`;
+      showMidiAdapterCardMessage(card, `error: ${error.message}`);
       updateMidiAdapterCardDirtyState(card);
     });
 }
