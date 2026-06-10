@@ -31,6 +31,8 @@ class MasterClockConfig:
     bpm_max: float = 300.0
     auto_start: bool = False
     output_targets: list[str] = field(default_factory=list)
+    midi_input_targets: list[str] | None = None
+    osc_input_targets: list[str] | None = None
     send_transport: bool = True
     bpm_osc_address: str = "/midijuggler/clock/bpm"
     click_interval_osc_address: str = "/midijuggler/clock/click_interval"
@@ -135,7 +137,9 @@ def _format_master_clock_section(config: MasterClockConfig) -> str:
         f"bpm_max = {config.bpm_max}\n"
         f"auto_start = {_toml_bool(config.auto_start)}\n"
         f"output_targets = [{output_targets}]\n"
-        f"send_transport = {_toml_bool(config.send_transport)}\n"
+        + _format_optional_string_list("midi_input_targets", config.midi_input_targets)
+        + _format_optional_string_list("osc_input_targets", config.osc_input_targets)
+        + f"send_transport = {_toml_bool(config.send_transport)}\n"
         f"bpm_osc_address = {_toml_string(config.bpm_osc_address)}\n"
         f"click_interval_osc_address = {_toml_string(config.click_interval_osc_address)}\n"
         f"bpm_msb_cc = {config.bpm_msb_cc}\n"
@@ -147,6 +151,13 @@ def _format_master_clock_section(config: MasterClockConfig) -> str:
         f"click_interval = {_toml_string(config.click_interval)}\n"
         f"click_audio_device = {_toml_string(config.click_audio_device)}\n\n"
     )
+
+
+def _format_optional_string_list(name: str, values: list[str] | None) -> str:
+    if values is None:
+        return ""
+    items = ", ".join(_toml_string(value) for value in values)
+    return f"{name} = [{items}]\n"
 
 
 def _toml_bool(value: bool) -> str:
@@ -193,6 +204,15 @@ def _parse_master_clock(raw: Any) -> MasterClockConfig:
     if not isinstance(output_targets, list):
         raise ValueError("master_clock.output_targets must be a list")
 
+    midi_input_targets = _parse_optional_string_list(
+        raw.get("midi_input_targets"),
+        "master_clock.midi_input_targets",
+    )
+    osc_input_targets = _parse_optional_string_list(
+        raw.get("osc_input_targets"),
+        "master_clock.osc_input_targets",
+    )
+
     click_interval = str(raw.get("click_interval", "quarter"))
     if click_interval not in {"eighth", "quarter", "half", "whole"}:
         raise ValueError("master_clock.click_interval must be eighth, quarter, half or whole")
@@ -204,6 +224,8 @@ def _parse_master_clock(raw: Any) -> MasterClockConfig:
         bpm_max=bpm_max,
         auto_start=bool(raw.get("auto_start", False)),
         output_targets=[str(target) for target in output_targets],
+        midi_input_targets=midi_input_targets,
+        osc_input_targets=osc_input_targets,
         send_transport=bool(raw.get("send_transport", True)),
         bpm_osc_address=str(raw.get("bpm_osc_address", "/midijuggler/clock/bpm")),
         click_interval_osc_address=str(
@@ -304,6 +326,14 @@ def _parse_mapping(index: int, raw: Any) -> MappingRule:
         output_max=_as_float(raw.get("output_max", 127.0), f"mappings[{index}].output_max"),
         invert=bool(raw.get("invert", False)),
     )
+
+
+def _parse_optional_string_list(raw: Any, field_name: str) -> list[str] | None:
+    if raw is None:
+        return None
+    if not isinstance(raw, list):
+        raise ValueError(f"{field_name} must be a list")
+    return [str(item) for item in raw]
 
 
 def _as_int(value: Any, field_name: str) -> int:

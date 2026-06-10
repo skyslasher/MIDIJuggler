@@ -54,6 +54,22 @@ def test_master_clock_config_payload_lists_midi_output_targets() -> None:
         ("rtp_midi", "rtp_midi", False),
         ("rtp_remote", "rtp_midi", False),
     ]
+    assert payload["midi_input_targets"] is None
+    assert payload["osc_input_targets"] is None
+    assert [
+        (target["name"], target["type"], target["selected"])
+        for target in payload["available_midi_input_targets"]
+    ] == [
+        ("usb_midi", "usb_midi", True),
+        ("rtp_midi", "rtp_midi", False),
+        ("rtp_remote", "rtp_midi", False),
+    ]
+    assert [
+        (target["name"], target["type"], target["selected"])
+        for target in payload["available_osc_input_targets"]
+    ] == [
+        ("osc", "osc", True),
+    ]
 
 
 def test_apply_master_clock_config_persists_section(tmp_path: Path) -> None:
@@ -183,6 +199,74 @@ def test_apply_master_clock_config_rejects_unknown_output_target() -> None:
     with pytest.raises(ValueError, match="unknown MIDI clock output targets"):
         asyncio.run(
             interface.apply_master_clock_config({"output_targets": ["missing"]})
+        )
+
+
+def test_apply_master_clock_config_persists_input_targets(tmp_path: Path) -> None:
+    config_file = tmp_path / "config.toml"
+    config_file.write_text(
+        """
+        [master_clock]
+        enabled = true
+
+        [adapters.usb_midi]
+        enabled = true
+
+        [adapters.osc]
+        enabled = true
+        """,
+        encoding="utf-8",
+    )
+    config = load_config(config_file)
+    interface = WebInterface(
+        config,
+        EventBus(),
+        ClockBpmTracker(),
+        MasterClock(config.master_clock, EventBus()),
+        config_path=config_file,
+    )
+
+    result = asyncio.run(
+        interface.apply_master_clock_config(
+            {
+                "enabled": True,
+                "bpm": 120.0,
+                "bpm_min": 40.0,
+                "bpm_max": 240.0,
+                "output_targets": [],
+                "midi_input_targets": ["usb_midi"],
+                "osc_input_targets": ["osc"],
+            }
+        )
+    )
+
+    saved = load_config(config_file)
+
+    assert result["midi_input_targets"] == ["usb_midi"]
+    assert result["osc_input_targets"] == ["osc"]
+    assert saved.master_clock.midi_input_targets == ["usb_midi"]
+    assert saved.master_clock.osc_input_targets == ["osc"]
+
+
+def test_apply_master_clock_config_rejects_unknown_input_target() -> None:
+    config = parse_config(
+        {
+            "adapters": {
+                "usb_midi": {"enabled": True},
+                "osc": {"enabled": True},
+            }
+        }
+    )
+    interface = WebInterface(
+        config,
+        EventBus(),
+        ClockBpmTracker(),
+        MasterClock(config.master_clock, EventBus()),
+    )
+
+    with pytest.raises(ValueError, match="unknown master clock midi_input_targets"):
+        asyncio.run(
+            interface.apply_master_clock_config({"midi_input_targets": ["missing"]})
         )
 
 

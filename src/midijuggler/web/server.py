@@ -359,7 +359,13 @@ class WebInterface:
 
     def master_clock_config_payload(self) -> dict[str, Any]:
         config = self.master_clock.config
-        selected_targets = set(config.output_targets)
+        selected_outputs = set(config.output_targets)
+        selected_midi_inputs = (
+            None if config.midi_input_targets is None else set(config.midi_input_targets)
+        )
+        selected_osc_inputs = (
+            None if config.osc_input_targets is None else set(config.osc_input_targets)
+        )
         return {
             "enabled": config.enabled,
             "bpm": config.bpm,
@@ -367,16 +373,23 @@ class WebInterface:
             "bpm_max": config.bpm_max,
             "auto_start": config.auto_start,
             "output_targets": config.output_targets,
-            "available_output_targets": [
-                {
-                    "name": name,
-                    "type": adapter.kind or name,
-                    "enabled": adapter.enabled,
-                    "selected": adapter.enabled and name in selected_targets,
-                }
-                for name, adapter in self.config.adapters.items()
-                if (adapter.kind or name) in {"usb_midi", "rtp_midi"}
-            ],
+            "midi_input_targets": config.midi_input_targets,
+            "osc_input_targets": config.osc_input_targets,
+            "available_output_targets": self._available_adapter_targets(
+                {"usb_midi", "rtp_midi"},
+                selected_outputs,
+                require_enabled_for_selection=True,
+            ),
+            "available_midi_input_targets": self._available_adapter_targets(
+                {"usb_midi", "rtp_midi"},
+                selected_midi_inputs,
+                require_enabled_for_selection=False,
+            ),
+            "available_osc_input_targets": self._available_adapter_targets(
+                {"osc"},
+                selected_osc_inputs,
+                require_enabled_for_selection=False,
+            ),
             "send_transport": config.send_transport,
             "bpm_osc_address": config.bpm_osc_address,
             "click_interval_osc_address": config.click_interval_osc_address,
@@ -530,6 +543,19 @@ class WebInterface:
         if unknown_targets:
             raise ValueError(f"unknown MIDI clock output targets: {unknown_targets}")
 
+        midi_input_targets = self._normalized_input_targets(
+            payload,
+            "midi_input_targets",
+            current.midi_input_targets,
+            {"usb_midi", "rtp_midi"},
+        )
+        osc_input_targets = self._normalized_input_targets(
+            payload,
+            "osc_input_targets",
+            current.osc_input_targets,
+            {"osc"},
+        )
+
         click_interval = str(payload.get("click_interval", current.click_interval))
         if click_interval not in {"eighth", "quarter", "half", "whole"}:
             raise ValueError("click_interval must be eighth, quarter, half or whole")
@@ -559,6 +585,8 @@ class WebInterface:
             bpm_max=bpm_max,
             auto_start=bool(payload.get("auto_start", current.auto_start)),
             output_targets=output_targets,
+            midi_input_targets=midi_input_targets,
+            osc_input_targets=osc_input_targets,
             send_transport=bool(payload.get("send_transport", current.send_transport)),
             bpm_osc_address=str(payload.get("bpm_osc_address", current.bpm_osc_address)),
             click_interval_osc_address=str(
@@ -577,6 +605,61 @@ class WebInterface:
             click_command="aplay",
             click_audio_device=str(payload.get("click_audio_device", current.click_audio_device)),
         )
+
+    def _available_adapter_targets(
+        self,
+        kinds: set[str],
+        selected: set[str] | None,
+        *,
+        require_enabled_for_selection: bool,
+    ) -> list[dict[str, Any]]:
+        targets: list[dict[str, Any]] = []
+        for name, adapter in self.config.adapters.items():
+            adapter_kind = adapter.kind or name
+            if adapter_kind not in kinds:
+                continue
+            if selected is None:
+                is_selected = adapter.enabled
+            else:
+                is_selected = name in selected
+            if require_enabled_for_selection:
+                is_selected = adapter.enabled and is_selected
+            targets.append(
+                {
+                    "name": name,
+                    "type": adapter_kind,
+                    "enabled": adapter.enabled,
+                    "selected": is_selected,
+                }
+            )
+        return targets
+
+    def _normalized_input_targets(
+        self,
+        payload: dict[str, Any],
+        field_name: str,
+        current: list[str] | None,
+        kinds: set[str],
+    ) -> list[str] | None:
+        if field_name not in payload:
+            return current
+
+        raw_targets = payload[field_name]
+        if raw_targets is None:
+            return None
+        if not isinstance(raw_targets, list):
+            raise ValueError(f"Master clock {field_name} must be a list")
+
+        available_targets = {
+            name
+            for name, adapter in self.config.adapters.items()
+            if adapter.enabled and (adapter.kind or name) in kinds
+        }
+        input_targets = [str(target) for target in raw_targets]
+        unknown_targets = [target for target in input_targets if target not in available_targets]
+        if unknown_targets:
+            raise ValueError(f"unknown master clock {field_name}: {unknown_targets}")
+        return input_targets
 
     def _audio_devices(self, selected_device: str) -> list[dict[str, str]]:
         devices = list_alsa_output_devices()

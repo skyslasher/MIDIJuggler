@@ -89,6 +89,8 @@ Example POST body:
   "bpm_max": 240.0,
   "auto_start": false,
   "output_targets": ["usb_midi", "rtp_midi"],
+  "midi_input_targets": ["usb_midi"],
+  "osc_input_targets": ["osc"],
   "send_transport": true,
   "bpm_osc_address": "/midijuggler/clock/bpm",
   "click_interval_osc_address": "/midijuggler/clock/click_interval",

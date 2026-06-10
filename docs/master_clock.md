@@ -14,6 +14,8 @@ bpm_min = 40.0
 bpm_max = 240.0
 auto_start = false
 output_targets = ["usb_midi", "rtp_midi"]
+midi_input_targets = ["usb_midi"]
+osc_input_targets = ["osc"]
 send_transport = true
 
 bpm_osc_address = "/midijuggler/clock/bpm"
@@ -32,6 +34,12 @@ click_audio_device = ""
 
 `output_targets` are adapter instance names. Use USB MIDI and/or RTP-MIDI
 instances depending on where MIDI Clock should be sent.
+
+`midi_input_targets` and `osc_input_targets` select which adapter instances may
+send master-clock transport, BPM and click-interval controls. When either key
+is omitted from the TOML file, all enabled adapter instances of that type are
+accepted for backward compatibility. When present, only the listed enabled
+instances are used.
 
 ## Transport
 

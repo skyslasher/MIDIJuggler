@@ -116,7 +116,8 @@ class MIDIJugglerService:
 
     async def _handle_midi_message(self, event: MidiMessageEvent) -> None:
         if event.direction == "input" and self.config.master_clock.enabled:
-            await self.master_clock.handle_midi_message(event)
+            if event.source in self._allowed_midi_input_sources():
+                await self.master_clock.handle_midi_message(event)
             return
 
         if event.direction != "output":
@@ -131,7 +132,8 @@ class MIDIJugglerService:
 
     async def _handle_osc_message(self, event: OscMessageEvent) -> None:
         if event.direction == "input" and self.config.master_clock.enabled:
-            await self.master_clock.handle_osc_message(event)
+            if event.source in self._allowed_osc_input_sources():
+                await self.master_clock.handle_osc_message(event)
 
     async def _handle_master_clock_command(self, event: MasterClockCommandEvent) -> None:
         if self.config.master_clock.enabled:
@@ -140,6 +142,27 @@ class MIDIJugglerService:
     def _adapter_for_target(self, target: str) -> Adapter | None:
         adapter_name = target.split(":", 1)[0]
         return next((adapter for adapter in self.adapters if adapter.name == adapter_name), None)
+
+    def _enabled_adapter_names(self, kinds: set[str]) -> set[str]:
+        return {
+            adapter.name
+            for adapter in self.adapters
+            if adapter.config.enabled and (adapter.config.kind or adapter.name) in kinds
+        }
+
+    def _allowed_midi_input_sources(self) -> set[str]:
+        enabled = self._enabled_adapter_names({"usb_midi", "rtp_midi"})
+        configured = self.config.master_clock.midi_input_targets
+        if configured is None:
+            return enabled
+        return enabled & set(configured)
+
+    def _allowed_osc_input_sources(self) -> set[str]:
+        enabled = self._enabled_adapter_names({"osc"})
+        configured = self.config.master_clock.osc_input_targets
+        if configured is None:
+            return enabled
+        return enabled & set(configured)
 
     def _gpio_adapter(self) -> GpioAdapter | None:
         return next(

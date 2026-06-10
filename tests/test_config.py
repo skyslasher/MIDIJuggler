@@ -153,6 +153,20 @@ def test_save_gpio_adapter_options_replaces_gpio_section(tmp_path: Path) -> None
     assert saved_lines[poll_line_index + 2].strip() == "[adapters.osc]"
 
 
+def test_parse_config_reads_master_clock_input_targets() -> None:
+    config = parse_config(
+        {
+            "master_clock": {
+                "midi_input_targets": ["usb_midi"],
+                "osc_input_targets": ["osc", "osc_pedalboard"],
+            }
+        }
+    )
+
+    assert config.master_clock.midi_input_targets == ["usb_midi"]
+    assert config.master_clock.osc_input_targets == ["osc", "osc_pedalboard"]
+
+
 def test_save_master_clock_config_replaces_master_clock_section(tmp_path: Path) -> None:
     config_file = tmp_path / "config.toml"
     config_file.write_text(
@@ -179,6 +193,8 @@ def test_save_master_clock_config_replaces_master_clock_section(tmp_path: Path) 
             bpm_min=40.0,
             bpm_max=240.0,
             output_targets=["usb_midi", "rtp_midi"],
+            midi_input_targets=["usb_midi"],
+            osc_input_targets=["osc"],
             click_enabled=True,
             click_interval="half",
             click_wav="/etc/midijuggler/click.wav",
@@ -193,6 +209,8 @@ def test_save_master_clock_config_replaces_master_clock_section(tmp_path: Path) 
     assert config.master_clock.output_targets == ["usb_midi", "rtp_midi"]
     assert config.master_clock.click_interval == "half"
     assert 'output_targets = ["usb_midi", "rtp_midi"]' in saved_text
+    assert 'midi_input_targets = ["usb_midi"]' in saved_text
+    assert 'osc_input_targets = ["osc"]' in saved_text
     assert "click_command" not in saved_text
     saved_lines = saved_text.splitlines()
     click_device_index = saved_lines.index('click_audio_device = ""')

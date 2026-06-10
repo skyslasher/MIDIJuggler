@@ -15,6 +15,8 @@ const masterBpmLsbCc = document.querySelector("#master-bpm-lsb-cc");
 const masterClickCc = document.querySelector("#master-click-cc");
 const masterClickInterval = document.querySelector("#master-click-interval");
 const masterOutputTargets = document.querySelector("#master-output-targets");
+const masterMidiInputTargets = document.querySelector("#master-midi-input-targets");
+const masterOscInputTargets = document.querySelector("#master-osc-input-targets");
 const masterBpmOsc = document.querySelector("#master-bpm-osc");
 const masterClickOsc = document.querySelector("#master-click-osc");
 const masterClickEnabled = document.querySelector("#master-click-enabled");
@@ -207,8 +209,14 @@ function renderMasterClockConfig(config) {
     "default (software/mixed)",
   );
 
-  masterOutputTargets.replaceChildren();
-  for (const target of config.available_output_targets || []) {
+  renderAdapterTargetList(masterOutputTargets, config.available_output_targets || []);
+  renderAdapterTargetList(masterMidiInputTargets, config.available_midi_input_targets || []);
+  renderAdapterTargetList(masterOscInputTargets, config.available_osc_input_targets || []);
+}
+
+function renderAdapterTargetList(container, targets) {
+  container.replaceChildren();
+  for (const target of targets) {
     const label = document.createElement("label");
     label.className = "gpio-pin";
     const input = document.createElement("input");
@@ -220,12 +228,24 @@ function renderMasterClockConfig(config) {
       input,
       document.createTextNode(`${target.name} (${target.type}${target.enabled ? "" : ", disabled"})`),
     );
-    masterOutputTargets.appendChild(label);
+    container.appendChild(label);
   }
 }
 
 function selectedMasterOutputTargets() {
-  return [...masterOutputTargets.querySelectorAll("input[type='checkbox']:checked")]
+  return selectedAdapterTargets(masterOutputTargets);
+}
+
+function selectedMasterMidiInputTargets() {
+  return selectedAdapterTargets(masterMidiInputTargets);
+}
+
+function selectedMasterOscInputTargets() {
+  return selectedAdapterTargets(masterOscInputTargets);
+}
+
+function selectedAdapterTargets(container) {
+  return [...container.querySelectorAll("input[type='checkbox']:checked")]
     .map((input) => input.value);
 }
 
@@ -387,6 +407,8 @@ masterClockForm.addEventListener("submit", (event) => {
       bpm_max: Number(masterBpmMax.value),
       auto_start: masterAutoStart.checked,
       output_targets: selectedMasterOutputTargets(),
+      midi_input_targets: selectedMasterMidiInputTargets(),
+      osc_input_targets: selectedMasterOscInputTargets(),
       send_transport: masterSendTransport.checked,
       bpm_osc_address: masterBpmOsc.value,
       click_interval_osc_address: masterClickOsc.value,

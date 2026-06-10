@@ -1,9 +1,11 @@
 import asyncio
 import logging
 
+import pytest
+
 from midijuggler.config import parse_config
-from midijuggler.events import MidiMessageEvent
-from midijuggler.master_clock import MIDI_STOP, MIDI_TIMING_CLOCK
+from midijuggler.events import MidiMessageEvent, OscMessageEvent
+from midijuggler.master_clock import MIDI_START, MIDI_STOP, MIDI_TIMING_CLOCK
 from midijuggler.service import MIDIJugglerService
 
 
@@ -60,6 +62,98 @@ def test_service_filters_disabled_master_clock_output_targets() -> None:
     )
 
     assert service.master_clock.config.output_targets == ["usb_midi"]
+
+
+def test_service_filters_master_clock_midi_input_targets() -> None:
+    async def scenario() -> None:
+        service = MIDIJugglerService(
+            parse_config(
+                {
+                    "master_clock": {
+                        "enabled": True,
+                        "midi_input_targets": ["usb_stage"],
+                    },
+                    "adapters": {
+                        "usb_midi": {"enabled": True},
+                        "usb_stage": {"type": "usb_midi", "enabled": True},
+                    },
+                }
+            )
+        )
+        await service._handle_midi_message(
+            MidiMessageEvent(source="usb_midi", direction="input", status=MIDI_START)
+        )
+        await service._handle_midi_message(
+            MidiMessageEvent(source="usb_stage", direction="input", status=MIDI_STOP)
+        )
+        return service
+
+    service = asyncio.run(scenario())
+
+    assert service.master_clock.running is False
+
+
+def test_service_accepts_all_enabled_midi_inputs_when_unconfigured() -> None:
+    async def scenario() -> None:
+        service = MIDIJugglerService(
+            parse_config(
+                {
+                    "master_clock": {"enabled": True},
+                    "adapters": {"usb_midi": {"enabled": True}},
+                }
+            )
+        )
+        await service._handle_midi_message(
+            MidiMessageEvent(source="usb_midi", direction="input", status=MIDI_START)
+        )
+        return service
+
+    service = asyncio.run(scenario())
+
+    assert service.master_clock.running is True
+
+
+def test_service_filters_master_clock_osc_input_targets() -> None:
+    async def scenario() -> None:
+        service = MIDIJugglerService(
+            parse_config(
+                {
+                    "master_clock": {
+                        "enabled": True,
+                        "osc_input_targets": ["osc_pedalboard"],
+                    },
+                    "adapters": {
+                        "osc": {"enabled": True},
+                        "osc_pedalboard": {
+                            "type": "osc",
+                            "enabled": True,
+                            "listen_port": 9001,
+                        },
+                    },
+                }
+            )
+        )
+        await service._handle_osc_message(
+            OscMessageEvent(
+                source="osc",
+                direction="input",
+                address="/midijuggler/clock/bpm",
+                arguments=(140.0,),
+            )
+        )
+        await service._handle_osc_message(
+            OscMessageEvent(
+                source="osc_pedalboard",
+                direction="input",
+                address="/midijuggler/clock/bpm",
+                arguments=(150.0,),
+            )
+        )
+        return service
+
+    service = asyncio.run(scenario())
+
+    assert service.master_clock.bpm == pytest.approx(150.0)
 
 
 def test_service_writes_master_clock_alsa_config(tmp_path) -> None:
