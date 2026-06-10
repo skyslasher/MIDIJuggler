@@ -6,6 +6,7 @@ import asyncio
 import json
 import logging
 import mimetypes
+import time
 import tomllib
 from importlib import resources
 from pathlib import Path
@@ -51,6 +52,7 @@ class WebInterface:
         self.gpio_adapter = gpio_adapter
         self.config_path = Path(config_path) if config_path is not None else None
         self.learn_mode = False
+        self._tap_times: list[float] = []
         self._websockets: set[web.WebSocketResponse] = set()
         self.bus.subscribe("*", self._broadcast_event)
 
@@ -66,6 +68,8 @@ class WebInterface:
         app.router.add_post("/api/gpio", self.set_gpio_config)
         app.router.add_get("/api/master-clock", self.master_clock_config)
         app.router.add_post("/api/master-clock", self.set_master_clock_config)
+        app.router.add_post("/api/master-clock/tap", self.tap_master_clock)
+        app.router.add_post("/api/master-clock/transport", self.master_clock_transport)
         app.router.add_get("/api/midi-libraries", self.midi_libraries)
         app.router.add_get("/api/midi-libraries/{library_id}", self.midi_library)
         app.router.add_get("/api/osc-libraries", self.osc_libraries)
@@ -158,6 +162,22 @@ class WebInterface:
         payload = await request.json()
         try:
             response = await self.apply_master_clock_config(payload)
+        except ValueError as exc:
+            raise web.HTTPBadRequest(text=str(exc)) from exc
+        return web.json_response(response)
+
+    async def tap_master_clock(self, request: web.Request) -> web.Response:
+        try:
+            payload = await self.apply_tap_tempo()
+        except ValueError as exc:
+            raise web.HTTPBadRequest(text=str(exc)) from exc
+        return web.json_response(payload)
+
+    async def master_clock_transport(self, request: web.Request) -> web.Response:
+        payload = await request.json()
+        action = str(payload.get("action", "toggle"))
+        try:
+            response = await self.apply_master_clock_transport(action)
         except ValueError as exc:
             raise web.HTTPBadRequest(text=str(exc)) from exc
         return web.json_response(response)
@@ -395,6 +415,47 @@ class WebInterface:
         response = self.master_clock_config_payload()
         response.update({"persisted": persisted, "persist_error": persist_error})
         return response
+
+    async def apply_tap_tempo(self, timestamp: float | None = None) -> dict[str, Any]:
+        now = time.monotonic() if timestamp is None else timestamp
+        if self._tap_times and now - self._tap_times[-1] > 2.5:
+            self._tap_times.clear()
+        self._tap_times.append(now)
+        self._tap_times = self._tap_times[-5:]
+
+        if len(self._tap_times) >= 2:
+            intervals = [
+                later - earlier
+                for earlier, later in zip(self._tap_times, self._tap_times[1:])
+                if later > earlier
+            ]
+            if intervals:
+                bpm = 60.0 / (sum(intervals) / len(intervals))
+                await self.master_clock.set_bpm(
+                    min(
+                        max(bpm, self.master_clock.config.bpm_min),
+                        self.master_clock.config.bpm_max,
+                    )
+                )
+
+        payload = self._status_payload()
+        payload["tap_count"] = len(self._tap_times)
+        return payload
+
+    async def apply_master_clock_transport(self, action: str) -> dict[str, Any]:
+        if not self.master_clock.config.enabled:
+            raise ValueError("master clock is disabled")
+        if action == "toggle":
+            action = "stop" if self.master_clock.running else "start"
+        if action == "start":
+            await self.master_clock.start_transport(reset_position=True)
+        elif action == "stop":
+            await self.master_clock.stop_transport()
+        elif action == "continue":
+            await self.master_clock.continue_transport()
+        else:
+            raise ValueError("action must be toggle, start, stop or continue")
+        return self._status_payload()
 
     def _gpio_options(self) -> dict[str, Any]:
         if self.gpio_adapter is not None:

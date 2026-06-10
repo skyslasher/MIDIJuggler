@@ -1,4 +1,6 @@
 const bpm = document.querySelector("#bpm");
+const masterTap = document.querySelector("#master-tap");
+const masterTransport = document.querySelector("#master-transport");
 const masterClock = document.querySelector("#master-clock");
 const masterClockForm = document.querySelector("#master-clock-form");
 const masterEnabled = document.querySelector("#master-enabled");
@@ -32,6 +34,7 @@ const mappings = document.querySelector("#mappings");
 const oscLibraries = document.querySelector("#osc-libraries");
 const midiLibraries = document.querySelector("#midi-libraries");
 const events = document.querySelector("#events");
+const showClockTicks = document.querySelector("#show-clock-ticks");
 const learnToggle = document.querySelector("#learn-toggle");
 const configurationToggle = document.querySelector("#configuration-toggle");
 const configurationExit = document.querySelector("#configuration-exit");
@@ -63,6 +66,8 @@ function renderStatus(status) {
         ["Eighth ms", params.eighth_ms],
       ]),
     );
+    masterTransport.textContent = clock.running ? "Stop" : "Start";
+    masterTransport.classList.toggle("danger-button", Boolean(clock.running));
   }
 
   mappings.replaceChildren();
@@ -107,6 +112,9 @@ function timeCards(values) {
 }
 
 function appendEvent(event) {
+  if (isClockTick(event) && !showClockTicks.checked) {
+    return;
+  }
   const item = document.createElement("li");
   const time = new Date().toLocaleTimeString();
   item.textContent = `[${time}] ${event.kind} from ${event.source}: ${JSON.stringify(event)}`;
@@ -115,6 +123,13 @@ function appendEvent(event) {
   while (events.children.length > 100) {
     events.removeChild(events.lastElementChild);
   }
+}
+
+function isClockTick(event) {
+  return (
+    event.kind === "MidiClockEvent" ||
+    (event.kind === "MidiMessageEvent" && event.status === 248)
+  );
 }
 
 function renderOscLibraries(libraries) {
@@ -276,6 +291,38 @@ learnToggle.addEventListener("click", () => {
       body: JSON.stringify({ enabled }),
     }).then((response) => response.json()).then(renderStatus);
   }
+});
+
+masterTap.addEventListener("click", () => {
+  fetch("/api/master-clock/tap", { method: "POST" })
+    .then(async (response) => {
+      if (!response.ok) {
+        throw new Error(await response.text());
+      }
+      return response.json();
+    })
+    .then(renderStatus)
+    .catch((error) => {
+      connectionState.textContent = `tap error: ${error.message}`;
+    });
+});
+
+masterTransport.addEventListener("click", () => {
+  fetch("/api/master-clock/transport", {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({ action: "toggle" }),
+  })
+    .then(async (response) => {
+      if (!response.ok) {
+        throw new Error(await response.text());
+      }
+      return response.json();
+    })
+    .then(renderStatus)
+    .catch((error) => {
+      connectionState.textContent = `transport error: ${error.message}`;
+    });
 });
 
 configurationToggle.addEventListener("click", () => {

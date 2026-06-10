@@ -229,3 +229,45 @@ def test_import_config_text_rejects_invalid_toml(tmp_path: Path) -> None:
 
     with pytest.raises(Exception):
         interface.import_config_text("[web\n")
+
+
+def test_tap_tempo_updates_master_clock_bpm() -> None:
+    config = parse_config(
+        {
+            "master_clock": {
+                "enabled": True,
+                "bpm": 100.0,
+                "bpm_min": 40.0,
+                "bpm_max": 240.0,
+            }
+        }
+    )
+    bus = EventBus()
+    interface = WebInterface(
+        config,
+        bus,
+        ClockBpmTracker(),
+        MasterClock(config.master_clock, bus),
+    )
+
+    asyncio.run(interface.apply_tap_tempo(timestamp=10.0))
+    result = asyncio.run(interface.apply_tap_tempo(timestamp=10.5))
+
+    assert result["master_clock"]["bpm"] == pytest.approx(120.0)
+    assert interface.master_clock.config.bpm == pytest.approx(120.0)
+
+
+def test_master_clock_transport_toggle_starts_and_stops() -> None:
+    config = parse_config({"master_clock": {"enabled": True}})
+    interface = WebInterface(
+        config,
+        EventBus(),
+        ClockBpmTracker(),
+        MasterClock(config.master_clock, EventBus()),
+    )
+
+    started = asyncio.run(interface.apply_master_clock_transport("toggle"))
+    stopped = asyncio.run(interface.apply_master_clock_transport("toggle"))
+
+    assert started["master_clock"]["running"] is True
+    assert stopped["master_clock"]["running"] is False

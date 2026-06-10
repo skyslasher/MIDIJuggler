@@ -5,7 +5,7 @@ from __future__ import annotations
 import asyncio
 import contextlib
 import logging
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from pathlib import Path
 from typing import Any
 
@@ -278,6 +278,8 @@ class MasterClock:
                 f"bpm must be between {self.config.bpm_min} and {self.config.bpm_max}"
             )
         self.bpm = bpm
+        self.config = replace(self.config, bpm=bpm)
+        self.remote = MasterClockRemote(self.config)
         await self.bus.publish(BpmChangedEvent(source="master_clock", bpm=bpm))
         await self._publish_state()
         await self._publish_parameters()

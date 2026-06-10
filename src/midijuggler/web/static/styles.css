@@ -37,6 +37,12 @@ header {
   padding: 1.5rem;
 }
 
+.header-clock {
+  align-items: center;
+  display: flex;
+  gap: 1rem;
+}
+
 h1,
 h2,
 p {
@@ -78,6 +84,16 @@ button {
   cursor: pointer;
   font-weight: 700;
   padding: 0.7rem 1rem;
+}
+
+.danger-button {
+  background: #ff7b7b;
+}
+
+.clock-actions {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
 }
 
 .button-link {
@@ -262,9 +278,18 @@ article {
   word-break: break-word;
 }
 
+.monitor-filter {
+  margin-bottom: 0.75rem;
+}
+
 @media (max-width: 800px) {
   header,
   .toolbar {
+    align-items: flex-start;
+    flex-direction: column;
+  }
+
+  .header-clock {
     align-items: flex-start;
     flex-direction: column;
   }
