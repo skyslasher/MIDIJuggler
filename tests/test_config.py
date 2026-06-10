@@ -193,6 +193,7 @@ def test_save_master_clock_config_replaces_master_clock_section(tmp_path: Path) 
     assert config.master_clock.output_targets == ["usb_midi", "rtp_midi"]
     assert config.master_clock.click_interval == "half"
     assert 'output_targets = ["usb_midi", "rtp_midi"]' in saved_text
+    assert "click_command" not in saved_text
     saved_lines = saved_text.splitlines()
     click_device_index = saved_lines.index('click_audio_device = ""')
     assert saved_lines[click_device_index + 1] == ""

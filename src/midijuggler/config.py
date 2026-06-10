@@ -145,7 +145,6 @@ def _format_master_clock_section(config: MasterClockConfig) -> str:
         f"click_enabled = {_toml_bool(config.click_enabled)}\n"
         f"click_wav = {_toml_string(config.click_wav)}\n"
         f"click_interval = {_toml_string(config.click_interval)}\n"
-        f"click_command = {_toml_string(config.click_command)}\n"
         f"click_audio_device = {_toml_string(config.click_audio_device)}\n\n"
     )
 

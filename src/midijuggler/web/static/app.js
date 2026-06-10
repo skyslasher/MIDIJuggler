@@ -17,9 +17,11 @@ const masterBpmOsc = document.querySelector("#master-bpm-osc");
 const masterClickOsc = document.querySelector("#master-click-osc");
 const masterClickEnabled = document.querySelector("#master-click-enabled");
 const masterClickWav = document.querySelector("#master-click-wav");
-const masterClickCommand = document.querySelector("#master-click-command");
 const masterClickDevice = document.querySelector("#master-click-device");
 const masterClockMessage = document.querySelector("#master-clock-message");
+const configImportForm = document.querySelector("#config-import-form");
+const configImportFile = document.querySelector("#config-import-file");
+const configImportMessage = document.querySelector("#config-import-message");
 const gpioForm = document.querySelector("#gpio-form");
 const gpioPins = document.querySelector("#gpio-pins");
 const gpioActiveLow = document.querySelector("#gpio-active-low");
@@ -173,9 +175,22 @@ function renderMasterClockConfig(config) {
   masterBpmOsc.value = config.bpm_osc_address;
   masterClickOsc.value = config.click_interval_osc_address;
   masterClickEnabled.checked = Boolean(config.click_enabled);
-  masterClickWav.value = config.click_wav || "";
-  masterClickCommand.value = config.click_command || "aplay";
-  masterClickDevice.value = config.click_audio_device || "";
+  replaceSelectOptions(
+    masterClickWav,
+    config.available_click_wavs || [],
+    "path",
+    "label",
+    config.click_wav || "",
+    "No WAV file",
+  );
+  replaceSelectOptions(
+    masterClickDevice,
+    config.available_audio_devices || [],
+    "id",
+    "label",
+    config.click_audio_device || "",
+    "default",
+  );
 
   masterOutputTargets.replaceChildren();
   for (const target of config.available_output_targets || []) {
@@ -196,6 +211,31 @@ function renderMasterClockConfig(config) {
 function selectedMasterOutputTargets() {
   return [...masterOutputTargets.querySelectorAll("input[type='checkbox']:checked")]
     .map((input) => input.value);
+}
+
+function replaceSelectOptions(select, options, valueKey, labelKey, selectedValue, emptyLabel) {
+  select.replaceChildren();
+  const emptyOption = document.createElement("option");
+  emptyOption.value = "";
+  emptyOption.textContent = emptyLabel;
+  select.appendChild(emptyOption);
+
+  for (const option of options) {
+    const element = document.createElement("option");
+    element.value = option[valueKey];
+    element.textContent = option[labelKey];
+    if (element.value === selectedValue) {
+      element.selected = true;
+    }
+    select.appendChild(element);
+  }
+  if (selectedValue && select.value !== selectedValue) {
+    const configured = document.createElement("option");
+    configured.value = selectedValue;
+    configured.textContent = `${selectedValue} (configured)`;
+    configured.selected = true;
+    select.appendChild(configured);
+  }
 }
 
 function connect() {
@@ -306,7 +346,6 @@ masterClockForm.addEventListener("submit", (event) => {
       click_enabled: masterClickEnabled.checked,
       click_wav: masterClickWav.value,
       click_interval: masterClickInterval.value,
-      click_command: masterClickCommand.value,
       click_audio_device: masterClickDevice.value,
     }),
   })
@@ -329,6 +368,36 @@ masterClockForm.addEventListener("submit", (event) => {
       if (masterClockConfig) {
         renderMasterClockConfig(masterClockConfig);
       }
+    });
+});
+
+configImportForm.addEventListener("submit", (event) => {
+  event.preventDefault();
+  const file = configImportFile.files[0];
+  if (!file) {
+    configImportMessage.textContent = "error: select a TOML file first";
+    return;
+  }
+  configImportMessage.textContent = "importing...";
+  file.text()
+    .then((content) => fetch("/api/config/import", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ content }),
+    }))
+    .then(async (response) => {
+      if (!response.ok) {
+        throw new Error(await response.text());
+      }
+      return response.json();
+    })
+    .then((result) => {
+      configImportMessage.textContent = result.restart_required
+        ? "imported; restart service to apply all settings"
+        : "imported";
+    })
+    .catch((error) => {
+      configImportMessage.textContent = `error: ${error.message}`;
     });
 });
 

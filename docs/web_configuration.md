@@ -66,7 +66,8 @@ The **Master Clock** card exposes the editable MIDI master-clock settings:
 - OSC addresses for BPM and click-interval remote control
 - MIDI CC numbers for BPM MSB, BPM LSB and click interval
 - MIDI channel for remote control
-- audio click enablement, WAV path, interval, command and ALSA device
+- audio click enablement, WAV path, interval and ALSA device
+- audio click enablement, WAV path, interval and ALSA device
 
 Saving updates the running master clock immediately and persists the
 `[master_clock]` section in the active TOML configuration file.
@@ -98,7 +99,6 @@ Example POST body:
   "click_enabled": false,
   "click_wav": "/etc/midijuggler/click.wav",
   "click_interval": "quarter",
-  "click_command": "aplay",
   "click_audio_device": "plughw:1,0"
 }
 ```
@@ -106,3 +106,17 @@ Example POST body:
 As with GPIO, if the service cannot write the config file, the master-clock
 change is still applied at runtime and the web UI reports that it was not
 persisted.
+
+`click_command` is fixed to `aplay` internally. The web UI lists available ALSA
+devices discovered through `aplay -l`, and WAV files found in
+`/etc/midijuggler/*.wav`.
+
+## Configuration import/export
+
+The **Configuration import/export** card can export the active TOML file and
+import another TOML configuration. Imports are validated before writing the file.
+After importing, restart the service to apply all settings:
+
+```bash
+sudo systemctl restart midijuggler.service
+```

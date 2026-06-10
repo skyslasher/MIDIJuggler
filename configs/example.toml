@@ -27,7 +27,6 @@ midi_channel = 1
 click_enabled = false
 click_wav = "/etc/midijuggler/click.wav"
 click_interval = "quarter"
-click_command = "aplay"
 click_audio_device = ""
 
 [adapters.osc]

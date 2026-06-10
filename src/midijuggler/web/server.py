@@ -6,6 +6,7 @@ import asyncio
 import json
 import logging
 import mimetypes
+import tomllib
 from importlib import resources
 from pathlib import Path
 from typing import Any
@@ -17,6 +18,7 @@ from midijuggler.clock import ClockBpmTracker
 from midijuggler.config import (
     AppConfig,
     MasterClockConfig,
+    parse_config,
     save_gpio_adapter_options,
     save_master_clock_config,
 )
@@ -25,6 +27,7 @@ from midijuggler.events import Event
 from midijuggler.midi_library import get_midi_library, list_midi_libraries
 from midijuggler.master_clock import MasterClock
 from midijuggler.osc_library import get_osc_library, list_osc_libraries
+from midijuggler.system_info import list_alsa_output_devices, list_click_wavs
 
 LOGGER = logging.getLogger(__name__)
 
@@ -57,6 +60,8 @@ class WebInterface:
         app.router.add_get("/", self.index)
         app.router.add_get("/static/{filename}", self.static_asset)
         app.router.add_get("/api/status", self.status)
+        app.router.add_get("/api/config/export", self.export_config)
+        app.router.add_post("/api/config/import", self.import_config)
         app.router.add_get("/api/gpio", self.gpio_config)
         app.router.add_post("/api/gpio", self.set_gpio_config)
         app.router.add_get("/api/master-clock", self.master_clock_config)
@@ -88,6 +93,52 @@ class WebInterface:
 
     async def status(self, request: web.Request) -> web.Response:
         return web.json_response(self._status_payload())
+
+    async def export_config(self, request: web.Request) -> web.Response:
+        try:
+            body = self.export_config_text()
+        except FileNotFoundError as exc:
+            raise web.HTTPNotFound(text=str(exc)) from exc
+        except OSError as exc:
+            raise web.HTTPInternalServerError(text=str(exc)) from exc
+        return web.Response(
+            text=body,
+            content_type="application/toml",
+            headers={
+                "Content-Disposition": 'attachment; filename="midijuggler-config.toml"'
+            },
+        )
+
+    async def import_config(self, request: web.Request) -> web.Response:
+        if self.config_path is None:
+            raise web.HTTPNotFound(text="no config path available")
+        payload = await request.json()
+        content = str(payload.get("content", ""))
+        try:
+            result = self.import_config_text(content)
+        except (tomllib.TOMLDecodeError, ValueError) as exc:
+            raise web.HTTPBadRequest(text=f"invalid config: {exc}") from exc
+        except FileNotFoundError as exc:
+            raise web.HTTPNotFound(text=str(exc)) from exc
+        except OSError as exc:
+            raise web.HTTPInternalServerError(text=str(exc)) from exc
+        return web.json_response(result)
+
+    def export_config_text(self) -> str:
+        if self.config_path is None:
+            raise FileNotFoundError("no config path available")
+        return self.config_path.read_text(encoding="utf-8")
+
+    def import_config_text(self, content: str) -> dict[str, bool]:
+        if self.config_path is None:
+            raise FileNotFoundError("no config path available")
+        if not content.strip():
+            raise ValueError("config content is empty")
+        parse_config(tomllib.loads(content))
+        temp_path = self.config_path.with_suffix(self.config_path.suffix + ".tmp")
+        temp_path.write_text(content.rstrip() + "\n", encoding="utf-8")
+        temp_path.replace(self.config_path)
+        return {"imported": True, "restart_required": True}
 
     async def gpio_config(self, request: web.Request) -> web.Response:
         return web.json_response(self.gpio_config_payload())
@@ -311,8 +362,9 @@ class WebInterface:
             "click_enabled": config.click_enabled,
             "click_wav": config.click_wav,
             "click_interval": config.click_interval,
-            "click_command": config.click_command,
             "click_audio_device": config.click_audio_device,
+            "available_audio_devices": self._audio_devices(config.click_audio_device),
+            "available_click_wavs": self._click_wavs(config.click_wav),
             "running": self.master_clock.running,
             "position_ticks": self.master_clock.position_ticks,
             "parameters": self.master_clock.parameters.as_controls(),
@@ -436,9 +488,23 @@ class WebInterface:
             click_enabled=bool(payload.get("click_enabled", current.click_enabled)),
             click_wav=str(payload.get("click_wav", current.click_wav)),
             click_interval=click_interval,
-            click_command=str(payload.get("click_command", current.click_command)),
+            click_command="aplay",
             click_audio_device=str(payload.get("click_audio_device", current.click_audio_device)),
         )
+
+    def _audio_devices(self, selected_device: str) -> list[dict[str, str]]:
+        devices = list_alsa_output_devices()
+        ids = {device["id"] for device in devices}
+        if selected_device and selected_device not in ids:
+            devices.append({"id": selected_device, "label": f"{selected_device} (configured)"})
+        return devices
+
+    def _click_wavs(self, selected_wav: str) -> list[dict[str, str]]:
+        wavs = list_click_wavs()
+        paths = {wav["path"] for wav in wavs}
+        if selected_wav and selected_wav not in paths:
+            wavs.append({"path": selected_wav, "label": f"{Path(selected_wav).name} (configured)"})
+        return wavs
 
 
 def _validate_midi_7bit(value: Any, field_name: str) -> int:

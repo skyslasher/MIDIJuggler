@@ -40,6 +40,8 @@ def test_master_clock_config_payload_lists_midi_output_targets() -> None:
 
     assert payload["enabled"] is True
     assert payload["bpm"] == 120.0
+    assert "click_command" not in payload
+    assert payload["available_audio_devices"][0] == {"id": "", "label": "default"}
     assert [
         (target["name"], target["type"], target["selected"])
         for target in payload["available_output_targets"]
@@ -93,6 +95,7 @@ def test_apply_master_clock_config_persists_section(tmp_path: Path) -> None:
     assert saved.master_clock.bpm == pytest.approx(128.0)
     assert saved.master_clock.output_targets == ["usb_midi"]
     assert saved.master_clock.click_interval == "eighth"
+    assert saved.master_clock.click_command == "aplay"
 
 
 def test_apply_master_clock_config_keeps_runtime_change_when_persisting_fails(
@@ -146,3 +149,61 @@ def test_apply_master_clock_config_rejects_unknown_output_target() -> None:
         asyncio.run(
             interface.apply_master_clock_config({"output_targets": ["missing"]})
         )
+
+
+def test_export_and_import_config_text(tmp_path: Path) -> None:
+    config_file = tmp_path / "config.toml"
+    config_file.write_text(
+        """
+        [web]
+        port = 8080
+
+        [adapters.gpio]
+        enabled = true
+        pins = [17]
+        """,
+        encoding="utf-8",
+    )
+    config = load_config(config_file)
+    interface = WebInterface(
+        config,
+        EventBus(),
+        ClockBpmTracker(),
+        MasterClock(config.master_clock, EventBus()),
+        config_path=config_file,
+    )
+
+    exported = interface.export_config_text()
+    result = interface.import_config_text(
+        """
+        [web]
+        port = 9090
+
+        [adapters.gpio]
+        enabled = true
+        pins = [22]
+        """
+    )
+
+    saved = load_config(config_file)
+
+    assert "[adapters.gpio]" in exported
+    assert result == {"imported": True, "restart_required": True}
+    assert saved.web.port == 9090
+    assert saved.adapters["gpio"].options["pins"] == [22]
+
+
+def test_import_config_text_rejects_invalid_toml(tmp_path: Path) -> None:
+    config_file = tmp_path / "config.toml"
+    config_file.write_text("[web]\nport = 8080\n", encoding="utf-8")
+    config = load_config(config_file)
+    interface = WebInterface(
+        config,
+        EventBus(),
+        ClockBpmTracker(),
+        MasterClock(config.master_clock, EventBus()),
+        config_path=config_file,
+    )
+
+    with pytest.raises(Exception):
+        interface.import_config_text("[web\n")

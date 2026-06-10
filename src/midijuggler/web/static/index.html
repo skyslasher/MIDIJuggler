@@ -68,7 +68,7 @@
             <div class="form-grid">
               <label>
                 BPM
-                <input id="master-bpm" type="number" min="1" step="0.1" />
+                <input id="master-bpm" type="number" min="1" step="0.5" />
               </label>
               <label>
                 BPM min
@@ -122,15 +122,11 @@
             </label>
             <label>
               Click WAV
-              <input id="master-click-wav" type="text" />
-            </label>
-            <label>
-              Click command
-              <input id="master-click-command" type="text" />
+              <select id="master-click-wav"></select>
             </label>
             <label>
               Click audio device
-              <input id="master-click-device" type="text" />
+              <select id="master-click-device"></select>
             </label>
             <button type="submit">Save master clock</button>
             <p id="master-clock-message" class="message"></p>
@@ -154,6 +150,19 @@
             </label>
             <button type="submit">Save GPIO inputs</button>
             <p id="gpio-message" class="message"></p>
+          </form>
+        </article>
+        <article>
+          <h2>Configuration import/export</h2>
+          <p>Export the active TOML configuration or import a saved configuration for another setup.</p>
+          <a class="button-link" href="/api/config/export" download>Export configuration</a>
+          <form id="config-import-form">
+            <label>
+              Import TOML file
+              <input id="config-import-file" type="file" accept=".toml,text/plain" />
+            </label>
+            <button type="submit">Import configuration</button>
+            <p id="config-import-message" class="message"></p>
           </form>
         </article>
       </section>

@@ -27,7 +27,6 @@ midi_channel = 1
 click_enabled = false
 click_wav = "/etc/midijuggler/click.wav"
 click_interval = "quarter"
-click_command = "aplay"
 click_audio_device = ""
 ```
 
@@ -79,9 +78,12 @@ If `click_enabled = true`, MIDIJuggler can play a WAV file through ALSA's
 ```toml
 click_enabled = true
 click_wav = "/etc/midijuggler/click.wav"
-click_command = "aplay"
 click_audio_device = "plughw:1,0"
 ```
+
+The web UI discovers ALSA devices with `aplay -l` and shows them as a dropdown.
+Click WAV files are discovered from `/etc/midijuggler/*.wav`. Playback always
+uses `aplay`.
 
 The click interval can be:
 
