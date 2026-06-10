@@ -11,7 +11,7 @@ This initial scaffold includes:
 - MIDI clock BPM tracker
 - mapping engine with linear scaling and inversion
 - OSC mapping libraries for Behringer X32 and Behringer Wing
-- MIDI mapping library for PreSonus FaderPort 8/16 with LCD track-name targets
+- MIDI mapping libraries for Behringer X-Touch Mini and PreSonus FaderPort 8/16
 - GPIO footswitch input adapter plus stubs for OSC, USB MIDI and RTP-MIDI
 - TOML configuration loader and example configuration
 - DietPi setup notes and a systemd service template

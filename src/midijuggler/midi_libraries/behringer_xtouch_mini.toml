@@ -1,0 +1,287 @@
+[library]
+id = "behringer_xtouch_mini"
+name = "Behringer X-Touch Mini MIDI"
+vendor = "Behringer"
+model = "X-Touch Mini"
+notes = "Logical Standard Mode mapping catalog for X-Touch Mini. The controller is user-programmable with the X-Touch Editor; this library uses a predictable two-layer layout with 8 encoders, 16 buttons and one fader per layer, plus documented feedback targets for LED rings and button LEDs."
+
+[[templates]]
+id = "layer_a_encoder_{encoder}_turn"
+label = "Layer A Encoder {encoder} Turn"
+address = "xtouch-mini://layer_a/encoder/{encoder}/turn"
+range_name = "encoder"
+range_start = 1
+range_end = 8
+message_type = "control_change"
+value_type = "relative"
+value_min = 1
+value_max = 127
+category = "encoder"
+direction = "source"
+midi_channel = 1
+number = "{encoder}"
+description = "Layer A endless encoder {encoder} turn, intended for relative CC mapping."
+
+[[templates]]
+id = "layer_b_encoder_{encoder}_turn"
+label = "Layer B Encoder {encoder} Turn"
+address = "xtouch-mini://layer_b/encoder/{encoder}/turn"
+range_name = "encoder"
+range_start = 1
+range_end = 8
+derived = [
+  { name = "cc_number", source = "encoder", offset = 8 },
+]
+message_type = "control_change"
+value_type = "relative"
+value_min = 1
+value_max = 127
+category = "encoder"
+direction = "source"
+midi_channel = 1
+number = "{cc_number}"
+description = "Layer B endless encoder {encoder} turn, intended for relative CC mapping."
+
+[[templates]]
+id = "layer_a_encoder_{encoder}_push"
+label = "Layer A Encoder {encoder} Push"
+address = "xtouch-mini://layer_a/encoder/{encoder}/push"
+range_name = "encoder"
+range_start = 1
+range_end = 8
+derived = [
+  { name = "note_number", source = "encoder", offset = -1 },
+]
+message_type = "note"
+value_type = "int"
+value_min = 0
+value_max = 127
+category = "encoder_push"
+direction = "source"
+midi_channel = 1
+number = "{note_number}"
+description = "Layer A encoder {encoder} push switch."
+
+[[templates]]
+id = "layer_b_encoder_{encoder}_push"
+label = "Layer B Encoder {encoder} Push"
+address = "xtouch-mini://layer_b/encoder/{encoder}/push"
+range_name = "encoder"
+range_start = 1
+range_end = 8
+derived = [
+  { name = "note_number", source = "encoder", offset = 23 },
+]
+message_type = "note"
+value_type = "int"
+value_min = 0
+value_max = 127
+category = "encoder_push"
+direction = "source"
+midi_channel = 1
+number = "{note_number}"
+description = "Layer B encoder {encoder} push switch."
+
+[[templates]]
+id = "layer_a_top_button_{button}"
+label = "Layer A Top Button {button}"
+address = "xtouch-mini://layer_a/top_button/{button}"
+range_name = "button"
+range_start = 1
+range_end = 8
+derived = [
+  { name = "note_number", source = "button", offset = 7 },
+]
+message_type = "note"
+value_type = "int"
+value_min = 0
+value_max = 127
+category = "button"
+direction = "source"
+midi_channel = 1
+number = "{note_number}"
+description = "Layer A upper-row button {button}."
+
+[[templates]]
+id = "layer_b_top_button_{button}"
+label = "Layer B Top Button {button}"
+address = "xtouch-mini://layer_b/top_button/{button}"
+range_name = "button"
+range_start = 1
+range_end = 8
+derived = [
+  { name = "note_number", source = "button", offset = 31 },
+]
+message_type = "note"
+value_type = "int"
+value_min = 0
+value_max = 127
+category = "button"
+direction = "source"
+midi_channel = 1
+number = "{note_number}"
+description = "Layer B upper-row button {button}."
+
+[[templates]]
+id = "layer_a_bottom_button_{button}"
+label = "Layer A Bottom Button {button}"
+address = "xtouch-mini://layer_a/bottom_button/{button}"
+range_name = "button"
+range_start = 1
+range_end = 8
+derived = [
+  { name = "note_number", source = "button", offset = 15 },
+]
+message_type = "note"
+value_type = "int"
+value_min = 0
+value_max = 127
+category = "button"
+direction = "source"
+midi_channel = 1
+number = "{note_number}"
+description = "Layer A lower-row button {button}."
+
+[[templates]]
+id = "layer_b_bottom_button_{button}"
+label = "Layer B Bottom Button {button}"
+address = "xtouch-mini://layer_b/bottom_button/{button}"
+range_name = "button"
+range_start = 1
+range_end = 8
+derived = [
+  { name = "note_number", source = "button", offset = 39 },
+]
+message_type = "note"
+value_type = "int"
+value_min = 0
+value_max = 127
+category = "button"
+direction = "source"
+midi_channel = 1
+number = "{note_number}"
+description = "Layer B lower-row button {button}."
+
+[[parameters]]
+id = "layer_a_fader"
+label = "Layer A Fader"
+address = "xtouch-mini://layer_a/fader"
+message_type = "control_change"
+value_type = "int"
+value_min = 0
+value_max = 127
+category = "fader"
+direction = "source"
+midi_channel = 1
+number = 126
+description = "Layer A 60 mm fader."
+
+[[parameters]]
+id = "layer_b_fader"
+label = "Layer B Fader"
+address = "xtouch-mini://layer_b/fader"
+message_type = "control_change"
+value_type = "int"
+value_min = 0
+value_max = 127
+category = "fader"
+direction = "source"
+midi_channel = 1
+number = 127
+description = "Layer B 60 mm fader."
+
+[[templates]]
+id = "encoder_{encoder}_led_ring"
+label = "Encoder {encoder} LED Ring"
+address = "xtouch-mini://feedback/encoder/{encoder}/led_ring"
+range_name = "encoder"
+range_start = 1
+range_end = 8
+derived = [
+  { name = "cc_number", source = "encoder", offset = 8 },
+]
+message_type = "control_change"
+value_type = "int"
+value_min = 0
+value_max = 28
+category = "feedback"
+direction = "target"
+midi_channel = 1
+number = "{cc_number}"
+description = "Remote-control encoder {encoder} LED ring. 0 off, 1-13 position, 14-26 blinking position, 27 all on, 28 all blinking."
+
+[[templates]]
+id = "button_{button}_led"
+label = "Button {button} LED"
+address = "xtouch-mini://feedback/button/{button}/led"
+range_name = "button"
+range_start = 1
+range_end = 16
+derived = [
+  { name = "note_number", source = "button", offset = -1 },
+]
+message_type = "note"
+value_type = "int"
+value_min = 0
+value_max = 2
+category = "feedback"
+direction = "target"
+midi_channel = 1
+number = "{note_number}"
+description = "Remote-control button LED. 0 off, 1 on, 2 blinking."
+
+[[parameters]]
+id = "select_layer_a"
+label = "Select Layer A"
+address = "xtouch-mini://mode/layer_a"
+message_type = "program_change"
+value_type = "int"
+value_min = 0
+value_max = 0
+category = "layer"
+direction = "target"
+midi_channel = 1
+number = 0
+description = "Select Standard Mode Layer A by program change 0."
+
+[[parameters]]
+id = "select_layer_b"
+label = "Select Layer B"
+address = "xtouch-mini://mode/layer_b"
+message_type = "program_change"
+value_type = "int"
+value_min = 1
+value_max = 1
+category = "layer"
+direction = "target"
+midi_channel = 1
+number = 1
+description = "Select Standard Mode Layer B by program change 1."
+
+[[parameters]]
+id = "set_standard_mode"
+label = "Set Standard Mode"
+address = "xtouch-mini://mode/standard"
+message_type = "control_change"
+value_type = "int"
+value_min = 0
+value_max = 0
+category = "mode"
+direction = "target"
+midi_channel = 1
+number = 127
+description = "Set X-Touch Mini to Standard Mode with CC 127 value 0."
+
+[[parameters]]
+id = "set_mc_mode"
+label = "Set MC Mode"
+address = "xtouch-mini://mode/mc"
+message_type = "control_change"
+value_type = "int"
+value_min = 1
+value_max = 1
+category = "mode"
+direction = "target"
+midi_channel = 1
+number = 127
+description = "Set X-Touch Mini to Mackie Control Mode with CC 127 value 1."

@@ -52,6 +52,13 @@ input_port = "PreSonus FP16 Port 1"
 output_port = "PreSonus FP16 Port 1"
 midi_library = "presonus_faderport"
 
+[adapters.xtouch_mini]
+type = "usb_midi"
+enabled = false
+input_port = "X-TOUCH MINI"
+output_port = "X-TOUCH MINI"
+midi_library = "behringer_xtouch_mini"
+
 [adapters.rtp_midi]
 enabled = false
 session_name = "MIDIJuggler"
@@ -118,6 +125,16 @@ source = "faderport:ch_1_fader"
 target = "x32_foh:/ch/01/mix/01/level"
 input_min = 0.0
 input_max = 16383.0
+output_min = 0.0
+output_max = 1.0
+invert = false
+
+[[mappings]]
+id = "xtouch-mini-encoder-1-to-x32-monitor-send"
+source = "xtouch_mini:layer_a_encoder_1_turn"
+target = "x32_foh:/ch/01/mix/01/level"
+input_min = 0.0
+input_max = 127.0
 output_min = 0.0
 output_max = 1.0
 invert = false
