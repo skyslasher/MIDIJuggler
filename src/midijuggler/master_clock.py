@@ -5,6 +5,7 @@ from __future__ import annotations
 import asyncio
 import contextlib
 import logging
+import os
 from dataclasses import dataclass, replace
 from pathlib import Path
 from typing import Any
@@ -87,10 +88,12 @@ class ClickPlayer:
         wav_path: str,
         command: str = "aplay",
         audio_device: str = "",
+        environment: dict[str, str] | None = None,
     ) -> None:
         self.wav_path = wav_path
         self.command = command
         self.audio_device = audio_device
+        self.environment = environment or {}
 
     async def play(self) -> None:
         if not self.wav_path:
@@ -109,6 +112,7 @@ class ClickPlayer:
                 *command,
                 stdout=asyncio.subprocess.DEVNULL,
                 stderr=asyncio.subprocess.PIPE,
+                env={**os.environ, **self.environment} if self.environment else None,
             )
         except OSError:
             LOGGER.exception("failed to start click playback command")
@@ -209,6 +213,8 @@ class MasterClock:
         config: MasterClockConfig,
         bus: EventBus,
         click_player: ClickPlayer | None = None,
+        click_audio_device: str | None = None,
+        alsa_config_path: str | Path | None = None,
     ) -> None:
         self.config = config
         self.bus = bus
@@ -217,11 +223,9 @@ class MasterClock:
         self.running = False
         self.position_ticks = 0
         self.remote = MasterClockRemote(config)
-        self.click_player = click_player or ClickPlayer(
-            config.click_wav,
-            command=config.click_command,
-            audio_device=config.click_audio_device,
-        )
+        self.click_audio_device = click_audio_device
+        self.alsa_config_path = Path(alsa_config_path) if alsa_config_path is not None else None
+        self.click_player = click_player or self._build_click_player(config)
         self._task: asyncio.Task[None] | None = None
         self._click_tasks: set[asyncio.Task[None]] = set()
 
@@ -247,11 +251,7 @@ class MasterClock:
 
         self.config = config
         self.remote = MasterClockRemote(config)
-        self.click_player = ClickPlayer(
-            config.click_wav,
-            command=config.click_command,
-            audio_device=config.click_audio_device,
-        )
+        self.click_player = self._build_click_player(config)
         self.bpm = config.bpm
         self.click_interval = config.click_interval
 
@@ -347,6 +347,19 @@ class MasterClock:
     def _ensure_task(self) -> None:
         if self._task is None or self._task.done():
             self._task = asyncio.create_task(self._run(), name="master-clock")
+
+    def _build_click_player(self, config: MasterClockConfig) -> ClickPlayer:
+        environment = (
+            {"ALSA_CONFIG_PATH": str(self.alsa_config_path)}
+            if self.alsa_config_path is not None
+            else None
+        )
+        return ClickPlayer(
+            config.click_wav,
+            command=config.click_command,
+            audio_device=self.click_audio_device or config.click_audio_device,
+            environment=environment,
+        )
 
     def _trigger_click(self) -> None:
         task = asyncio.create_task(self.click_player.play(), name="click-trigger")

@@ -98,6 +98,37 @@ def test_apply_master_clock_config_persists_section(tmp_path: Path) -> None:
     assert saved.master_clock.click_command == "aplay"
 
 
+def test_apply_master_clock_config_updates_alsa_dmix_config(tmp_path: Path) -> None:
+    config_file = tmp_path / "config.toml"
+    config_file.write_text("[master_clock]\nbpm = 120.0\n", encoding="utf-8")
+    config = load_config(config_file)
+    bus = EventBus()
+    interface = WebInterface(
+        config,
+        bus,
+        ClockBpmTracker(),
+        MasterClock(config.master_clock, bus),
+        config_path=config_file,
+        alsa_config_path=tmp_path / "asoundrc",
+    )
+
+    result = asyncio.run(
+        interface.apply_master_clock_config(
+            {
+                "enabled": True,
+                "bpm": 120.0,
+                "bpm_min": 40.0,
+                "bpm_max": 240.0,
+                "output_targets": [],
+                "click_audio_device": "plughw:1,0",
+            }
+        )
+    )
+
+    assert result["alsa_config_error"] == ""
+    assert 'pcm "plughw:1,0"' in (tmp_path / "asoundrc").read_text(encoding="utf-8")
+
+
 def test_apply_master_clock_config_keeps_runtime_change_when_persisting_fails(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,

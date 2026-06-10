@@ -85,10 +85,15 @@ The web UI discovers ALSA devices with `aplay -l` and shows them as a dropdown.
 Click WAV files are discovered from `/etc/midijuggler/*.wav`. Playback always
 uses `aplay`.
 
+MIDIJuggler writes an ALSA config next to the active TOML config, usually
+`/etc/midijuggler/asoundrc`, defining a dmix PCM named `master_clock`. The master
+clock always plays clicks through `aplay -D master_clock`; changing the audio
+device in the web UI rewrites the dmix slave to point at the selected ALSA
+device.
+
 Click playback is triggered in the background, so a click WAV that is longer
 than the configured click interval does not block the master clock from
-triggering the next click. For true overlapping audio, use an ALSA device that
-allows mixing, for example the default/dmix device where available.
+triggering the next click.
 
 The click interval can be:
 

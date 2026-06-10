@@ -11,6 +11,11 @@ from pathlib import Path
 from midijuggler.adapters import build_adapters
 from midijuggler.adapters.base import Adapter
 from midijuggler.adapters.gpio import GpioAdapter
+from midijuggler.alsa import (
+    MASTER_CLOCK_PCM_NAME,
+    alsa_config_path_for_config,
+    write_master_clock_dmix_config,
+)
 from midijuggler.clock import ClockBpmTracker
 from midijuggler.config import AppConfig, load_config
 from midijuggler.eventbus import EventBus
@@ -36,11 +41,18 @@ class MIDIJugglerService:
     def __init__(self, config: AppConfig, config_path: str | Path | None = None) -> None:
         self.config = config
         self.config_path = Path(config_path) if config_path is not None else None
+        self.alsa_config_path = alsa_config_path_for_config(self.config_path)
         self.bus = EventBus()
         self.clock = ClockBpmTracker()
         self.mapping = MappingEngine(config.mappings)
         self.adapters = build_adapters(config.adapters, self.bus)
-        self.master_clock = MasterClock(self._master_clock_config(), self.bus)
+        self._write_master_clock_alsa_config(self.config.master_clock.click_audio_device)
+        self.master_clock = MasterClock(
+            self._master_clock_config(),
+            self.bus,
+            click_audio_device=MASTER_CLOCK_PCM_NAME,
+            alsa_config_path=self.alsa_config_path,
+        )
         self.web = WebInterface(
             config,
             self.bus,
@@ -48,6 +60,7 @@ class MIDIJugglerService:
             self.master_clock,
             gpio_adapter=self._gpio_adapter(),
             config_path=self.config_path,
+            alsa_config_path=self.alsa_config_path,
         )
         self._runner = None
 
@@ -152,6 +165,17 @@ class MIDIJugglerService:
                 ", ".join(sorted(dropped_targets)),
             )
         return replace(self.config.master_clock, output_targets=output_targets)
+
+    def _write_master_clock_alsa_config(self, audio_device: str) -> None:
+        if self.alsa_config_path is None:
+            return
+        try:
+            write_master_clock_dmix_config(self.alsa_config_path, audio_device)
+        except OSError:
+            LOGGER.exception(
+                "could not write ALSA dmix config for master clock to %s",
+                self.alsa_config_path,
+            )
 
 
 async def run_from_config(config_path: str) -> None:

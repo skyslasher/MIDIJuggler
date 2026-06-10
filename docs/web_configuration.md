@@ -110,6 +110,8 @@ persisted.
 `click_command` is fixed to `aplay` internally. The web UI lists available ALSA
 devices discovered through `aplay -l`, and WAV files found in
 `/etc/midijuggler/*.wav`.
+The selected ALSA device is used as the slave for a generated dmix PCM named
+`master_clock`; the click player always uses `aplay -D master_clock`.
 
 ## Configuration import/export
 

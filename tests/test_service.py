@@ -60,3 +60,20 @@ def test_service_filters_disabled_master_clock_output_targets() -> None:
     )
 
     assert service.master_clock.config.output_targets == ["usb_midi"]
+
+
+def test_service_writes_master_clock_alsa_config(tmp_path) -> None:
+    config_path = tmp_path / "config.toml"
+    config_path.write_text(
+        """
+        [master_clock]
+        click_audio_device = "plughw:1,0"
+        """,
+        encoding="utf-8",
+    )
+
+    MIDIJugglerService(parse_config({"master_clock": {"click_audio_device": "plughw:1,0"}}), config_path=config_path)
+
+    asoundrc = tmp_path / "asoundrc"
+    assert asoundrc.exists()
+    assert 'pcm "plughw:1,0"' in asoundrc.read_text(encoding="utf-8")

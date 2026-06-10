@@ -15,6 +15,7 @@ from typing import Any
 from aiohttp import WSMsgType, web
 
 from midijuggler.adapters.gpio import GpioAdapter, RASPBERRY_PI_HEADER_BCM_PINS
+from midijuggler.alsa import write_master_clock_dmix_config
 from midijuggler.clock import ClockBpmTracker
 from midijuggler.config import (
     AppConfig,
@@ -44,6 +45,7 @@ class WebInterface:
         master_clock: MasterClock,
         gpio_adapter: GpioAdapter | None = None,
         config_path: str | Path | None = None,
+        alsa_config_path: str | Path | None = None,
     ) -> None:
         self.config = config
         self.bus = bus
@@ -51,6 +53,9 @@ class WebInterface:
         self.master_clock = master_clock
         self.gpio_adapter = gpio_adapter
         self.config_path = Path(config_path) if config_path is not None else None
+        self.alsa_config_path = (
+            Path(alsa_config_path) if alsa_config_path is not None else None
+        )
         self.learn_mode = False
         self._tap_times: list[float] = []
         self._websockets: set[web.WebSocketResponse] = set()
@@ -394,6 +399,20 @@ class WebInterface:
         if not isinstance(payload, dict):
             raise ValueError("Master clock config payload must be an object")
         config = self._normalized_master_clock_config(payload)
+        alsa_config_error = ""
+        if self.alsa_config_path is not None:
+            try:
+                write_master_clock_dmix_config(
+                    self.alsa_config_path,
+                    config.click_audio_device,
+                )
+            except OSError as exc:
+                alsa_config_error = str(exc)
+                LOGGER.warning(
+                    "Master clock config applied but ALSA dmix config could not be written to %s: %s",
+                    self.alsa_config_path,
+                    exc,
+                )
         await self.master_clock.configure(config)
 
         persisted = False
@@ -413,7 +432,13 @@ class WebInterface:
             persist_error = "no config path available"
 
         response = self.master_clock_config_payload()
-        response.update({"persisted": persisted, "persist_error": persist_error})
+        response.update(
+            {
+                "persisted": persisted,
+                "persist_error": persist_error,
+                "alsa_config_error": alsa_config_error,
+            }
+        )
         return response
 
     async def apply_tap_tempo(self, timestamp: float | None = None) -> dict[str, Any]:
