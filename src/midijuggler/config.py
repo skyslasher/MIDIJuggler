@@ -85,7 +85,7 @@ def save_gpio_adapter_options(path: str | Path, options: dict[str, Any]) -> None
             if stripped.startswith("[") and stripped.endswith("]"):
                 break
             end += 1
-        new_lines = [*lines[:start], *section.rstrip().splitlines(), *lines[end:]]
+        new_lines = [*lines[:start], *section.rstrip().splitlines(), "", *lines[end:]]
         new_text = "\n".join(new_lines).rstrip() + "\n"
 
     temp_path = config_path.with_suffix(config_path.suffix + ".tmp")
@@ -104,7 +104,7 @@ def _format_gpio_adapter_section(options: dict[str, Any]) -> str:
         f"pins = [{', '.join(str(pin) for pin in pins)}]\n"
         f"active_low = {_toml_bool(active_low)}\n"
         f"bounce_ms = {bounce_ms}\n"
-        f"poll_interval_ms = {poll_interval_ms}\n"
+        f"poll_interval_ms = {poll_interval_ms}\n\n"
     )
 
 

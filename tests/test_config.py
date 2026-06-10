@@ -132,6 +132,7 @@ def test_save_gpio_adapter_options_replaces_gpio_section(tmp_path: Path) -> None
     )
 
     config = load_config(config_file)
+    saved_text = config_file.read_text(encoding="utf-8")
 
     assert config.adapters["gpio"].options == {
         "pins": [22, 27],
@@ -140,6 +141,10 @@ def test_save_gpio_adapter_options_replaces_gpio_section(tmp_path: Path) -> None
         "poll_interval_ms": 2,
     }
     assert config.adapters["osc"].enabled is False
+    saved_lines = saved_text.splitlines()
+    poll_line_index = saved_lines.index("poll_interval_ms = 2")
+    assert saved_lines[poll_line_index + 1] == ""
+    assert saved_lines[poll_line_index + 2].strip() == "[adapters.osc]"
 
 
 def test_parse_config_rejects_incomplete_mapping() -> None:
