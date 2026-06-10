@@ -43,11 +43,13 @@ def test_parse_aconnect_ports_returns_unique_port_names() -> None:
     assert ports == [
         {
             "id": "MIDIJuggler In",
+            "address": "20:0",
             "label": "MIDIJuggler / MIDIJuggler In",
             "client": "MIDIJuggler",
         },
         {
             "id": "MIDIJuggler Out",
+            "address": "20:1",
             "label": "MIDIJuggler / MIDIJuggler Out",
             "client": "MIDIJuggler",
         },

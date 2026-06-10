@@ -54,8 +54,9 @@ def parse_aconnect_ports(output: str) -> list[dict[str, str]]:
     ports: list[dict[str, str]] = []
     seen: set[str] = set()
     current_client = ""
-    client_pattern = re.compile(r"client \d+: '([^']+)'")
-    port_pattern = re.compile(r"\d+ '([^']+)'")
+    current_client_id = ""
+    client_pattern = re.compile(r"client (\d+): '([^']+)'")
+    port_pattern = re.compile(r"(\d+) '([^']+)'")
 
     for line in output.splitlines():
         line = line.strip()
@@ -63,26 +64,56 @@ def parse_aconnect_ports(output: str) -> list[dict[str, str]]:
             continue
         client_match = client_pattern.match(line)
         if client_match:
-            current_client = client_match.group(1)
+            current_client_id = client_match.group(1)
+            current_client = client_match.group(2)
             continue
 
         port_match = port_pattern.match(line)
         if not port_match or not current_client or current_client in _IGNORED_MIDI_CLIENTS:
             continue
 
-        port_name = port_match.group(1)
+        port_index = port_match.group(1)
+        port_name = port_match.group(2)
         if port_name in seen:
             continue
         seen.add(port_name)
         ports.append(
             {
                 "id": port_name,
+                "address": f"{current_client_id}:{port_index}",
                 "label": f"{current_client} / {port_name}",
                 "client": current_client,
             }
         )
 
     return ports
+
+
+def resolve_midi_port_address(port_name: str) -> str | None:
+    """Resolve a configured ALSA port label to a client:port address."""
+
+    normalized = port_name.strip()
+    if not normalized:
+        return None
+
+    for port in parse_aconnect_ports(_aconnect_list_output()):
+        if port["id"] == normalized:
+            return port["address"]
+    return None
+
+
+def _aconnect_list_output() -> str:
+    try:
+        result = subprocess.run(
+            ["aconnect", "-l"],
+            capture_output=True,
+            check=False,
+            text=True,
+            timeout=2.0,
+        )
+    except (OSError, subprocess.TimeoutExpired):
+        return ""
+    return result.stdout
 
 
 def list_midi_ports() -> list[dict[str, str]]:

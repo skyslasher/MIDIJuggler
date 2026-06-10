@@ -11,6 +11,7 @@ from pathlib import Path
 from midijuggler.adapters import build_adapters
 from midijuggler.adapters.base import Adapter
 from midijuggler.adapters.gpio import GpioAdapter
+from midijuggler.adapters.midi import MidiAdapter
 from midijuggler.alsa import (
     MASTER_CLOCK_PCM_NAME,
     alsa_config_path_for_config,
@@ -65,6 +66,7 @@ class MIDIJugglerService:
             self.clock,
             self.master_clock,
             gpio_adapter=self._gpio_adapter(),
+            midi_adapters=self._midi_adapters(),
             rtp_midi_manager=self.rtp_midi_manager,
             config_path=self.config_path,
             alsa_config_path=self.alsa_config_path,
@@ -179,6 +181,13 @@ class MIDIJugglerService:
             (adapter for adapter in self.adapters if isinstance(adapter, GpioAdapter)),
             None,
         )
+
+    def _midi_adapters(self) -> dict[str, MidiAdapter]:
+        return {
+            adapter.name: adapter
+            for adapter in self.adapters
+            if isinstance(adapter, MidiAdapter)
+        }
 
     def _master_clock_config(self):
         enabled_midi_targets = {

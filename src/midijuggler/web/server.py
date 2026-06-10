@@ -15,6 +15,7 @@ from typing import Any
 from aiohttp import WSMsgType, web
 
 from midijuggler.adapters.gpio import GpioAdapter, RASPBERRY_PI_HEADER_BCM_PINS
+from midijuggler.adapters.midi import MidiAdapter
 from midijuggler.alsa import write_master_clock_pcm_config
 from midijuggler.clock import ClockBpmTracker
 from midijuggler.config import (
@@ -54,6 +55,7 @@ class WebInterface:
         clock: ClockBpmTracker,
         master_clock: MasterClock,
         gpio_adapter: GpioAdapter | None = None,
+        midi_adapters: dict[str, MidiAdapter] | None = None,
         rtp_midi_manager: RtpMidiManager | None = None,
         config_path: str | Path | None = None,
         alsa_config_path: str | Path | None = None,
@@ -63,6 +65,7 @@ class WebInterface:
         self.clock = clock
         self.master_clock = master_clock
         self.gpio_adapter = gpio_adapter
+        self.midi_adapters = midi_adapters or {}
         self.rtp_midi_manager = rtp_midi_manager
         self.config_path = Path(config_path) if config_path is not None else None
         self.alsa_config_path = (
@@ -540,6 +543,13 @@ class WebInterface:
             for name, updated in updates.items():
                 if updated.kind == "rtp_midi":
                     await self.rtp_midi_manager.apply_instance(name, updated)
+
+        for name, updated in updates.items():
+            if updated.kind != "midi":
+                continue
+            adapter = self.midi_adapters.get(name)
+            if adapter is not None:
+                await adapter.reload(updated)
 
         response = self.midi_adapters_config_payload()
         response.update({"persisted": persisted, "persist_error": persist_error})
