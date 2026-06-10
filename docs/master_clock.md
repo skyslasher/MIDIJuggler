@@ -85,6 +85,11 @@ The web UI discovers ALSA devices with `aplay -l` and shows them as a dropdown.
 Click WAV files are discovered from `/etc/midijuggler/*.wav`. Playback always
 uses `aplay`.
 
+Click playback is triggered in the background, so a click WAV that is longer
+than the configured click interval does not block the master clock from
+triggering the next click. For true overlapping audio, use an ALSA device that
+allows mixing, for example the default/dmix device where available.
+
 The click interval can be:
 
 - `eighth`

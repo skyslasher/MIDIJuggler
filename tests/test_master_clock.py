@@ -24,6 +24,16 @@ class FakeClickPlayer:
         self.plays += 1
 
 
+class SlowClickPlayer:
+    def __init__(self) -> None:
+        self.plays = 0
+        self.release = asyncio.Event()
+
+    async def play(self) -> None:
+        self.plays += 1
+        await self.release.wait()
+
+
 class FakeFailedProcess:
     returncode = 1
 
@@ -75,6 +85,7 @@ def test_master_clock_outputs_midi_ticks_and_clicks() -> None:
 
         await clock.emit_tick()
         await clock.emit_tick()
+        await asyncio.sleep(0)
         return midi_events, click_events, click_player
 
     midi_events, click_events, click_player = asyncio.run(scenario())
@@ -84,6 +95,34 @@ def test_master_clock_outputs_midi_ticks_and_clicks() -> None:
     assert click_player.plays == 1
     assert len(click_events) == 1
     assert click_events[0].position_ticks == 0
+
+
+def test_master_clock_triggers_clicks_without_waiting_for_previous_playback() -> None:
+    async def scenario() -> SlowClickPlayer:
+        bus = EventBus()
+        click_player = SlowClickPlayer()
+        clock = MasterClock(
+            MasterClockConfig(
+                enabled=True,
+                click_enabled=True,
+                click_interval="eighth",
+            ),
+            bus,
+            click_player=click_player,
+        )
+
+        await clock.emit_tick()
+        for _ in range(11):
+            await clock.emit_tick()
+        await clock.emit_tick()
+        await asyncio.sleep(0)
+        click_player.release.set()
+        await asyncio.sleep(0)
+        return click_player
+
+    click_player = asyncio.run(scenario())
+
+    assert click_player.plays == 2
 
 
 def test_master_clock_responds_to_midi_transport_messages() -> None:

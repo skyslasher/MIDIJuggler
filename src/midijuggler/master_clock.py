@@ -223,6 +223,7 @@ class MasterClock:
             audio_device=config.click_audio_device,
         )
         self._task: asyncio.Task[None] | None = None
+        self._click_tasks: set[asyncio.Task[None]] = set()
 
     @property
     def parameters(self) -> MasterClockParameters:
@@ -332,7 +333,7 @@ class MasterClock:
         """Emit one MIDI clock tick. Exposed for tests and deterministic stepping."""
 
         if self.config.click_enabled and self._is_click_tick():
-            await self.click_player.play()
+            self._trigger_click()
             await self.bus.publish(
                 ClickEvent(
                     source="master_clock",
@@ -346,6 +347,11 @@ class MasterClock:
     def _ensure_task(self) -> None:
         if self._task is None or self._task.done():
             self._task = asyncio.create_task(self._run(), name="master-clock")
+
+    def _trigger_click(self) -> None:
+        task = asyncio.create_task(self.click_player.play(), name="click-trigger")
+        self._click_tasks.add(task)
+        task.add_done_callback(self._click_tasks.discard)
 
     async def _run(self) -> None:
         while self.running:
