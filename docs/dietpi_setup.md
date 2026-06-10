@@ -51,6 +51,10 @@ bounce_ms = 25
 poll_interval_ms = 5
 ```
 
+MIDIJuggler accepts BCM numbers here. On newer Raspberry Pi kernels, the
+deprecated sysfs GPIO interface may internally use global GPIO numbers with a
+`gpiochip` base offset; MIDIJuggler resolves that offset at startup.
+
 For protected GPIO footswitch wiring with 5 V polling voltage, see
 [`gpio_optocoupler_footswitch.md`](gpio_optocoupler_footswitch.md).
 

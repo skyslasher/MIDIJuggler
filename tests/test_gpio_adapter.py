@@ -4,7 +4,13 @@ from pathlib import Path
 
 import pytest
 
-from midijuggler.adapters.gpio import GpioAdapter, _write_sysfs_file, parse_gpio_inputs
+import midijuggler.adapters.gpio as gpio_module
+from midijuggler.adapters.gpio import (
+    GpioAdapter,
+    SysfsGpioPinReader,
+    _write_sysfs_file,
+    parse_gpio_inputs,
+)
 from midijuggler.config import AdapterConfig
 from midijuggler.eventbus import EventBus
 from midijuggler.events import ControlEvent
@@ -78,8 +84,45 @@ def test_write_sysfs_file_does_not_open_with_truncate(monkeypatch: pytest.Monkey
 
     assert calls[0] == ("open", Path("/sys/class/gpio/export"), os.O_WRONLY)
     assert calls[0][2] & os.O_TRUNC == 0
-    assert calls[1] == ("write", 123, b"17")
+    assert calls[1] == ("write", 123, b"17\n")
     assert calls[2] == ("close", 123)
+
+
+def test_sysfs_reader_falls_back_to_gpiochip_base_for_bcm_pin(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    base_path = tmp_path / "gpio"
+    chip_path = base_path / "gpiochip512"
+    chip_path.mkdir(parents=True)
+    (chip_path / "base").write_text("512", encoding="ascii")
+    (chip_path / "ngpio").write_text("54", encoding="ascii")
+    (base_path / "export").write_text("", encoding="ascii")
+    (base_path / "unexport").write_text("", encoding="ascii")
+
+    writes: list[tuple[Path, str]] = []
+
+    def fake_write_sysfs_file(path: Path, value: str) -> None:
+        writes.append((path, value))
+        if path == base_path / "export" and value == "17":
+            raise OSError(22, "Invalid argument")
+        if path == base_path / "export" and value == "529":
+            gpio_path = base_path / "gpio529"
+            gpio_path.mkdir()
+            (gpio_path / "direction").write_text("", encoding="ascii")
+            (gpio_path / "value").write_text("1", encoding="ascii")
+
+    monkeypatch.setattr(gpio_module, "_write_sysfs_file", fake_write_sysfs_file)
+
+    reader = SysfsGpioPinReader(17, base_path=base_path)
+
+    assert reader.sysfs_pin == 529
+    assert reader.read() is True
+    assert writes == [
+        (base_path / "export", "17"),
+        (base_path / "export", "529"),
+        (base_path / "gpio529" / "direction", "in"),
+    ]
 
 
 def test_gpio_adapter_publishes_debounced_active_low_events() -> None:

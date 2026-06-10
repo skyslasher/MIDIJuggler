@@ -55,17 +55,11 @@ class SysfsGpioPinReader:
     def __init__(self, pin: int, base_path: Path = Path("/sys/class/gpio")) -> None:
         self.pin = pin
         self.base_path = base_path
+        self.sysfs_pin = pin
         self.gpio_path = self.base_path / f"gpio{pin}"
         self._exported_by_us = False
 
-        if not self.gpio_path.exists():
-            self._write_control("export", str(pin))
-            self._exported_by_us = True
-            deadline = time.monotonic() + 1.0
-            while not self.gpio_path.exists() and time.monotonic() < deadline:
-                time.sleep(0.01)
-            if not self.gpio_path.exists():
-                raise RuntimeError(f"GPIO sysfs path was not created for pin {pin}")
+        self._ensure_exported()
 
         direction_path = self.gpio_path / "direction"
         if direction_path.exists():
@@ -86,7 +80,35 @@ class SysfsGpioPinReader:
     def close(self) -> None:
         if self._exported_by_us:
             with contextlib.suppress(OSError):
-                self._write_control("unexport", str(self.pin))
+                self._write_control("unexport", str(self.sysfs_pin))
+
+    def _ensure_exported(self) -> None:
+        errors: list[str] = []
+        for sysfs_pin in _sysfs_pin_candidates(self.pin, self.base_path):
+            self.sysfs_pin = sysfs_pin
+            self.gpio_path = self.base_path / f"gpio{sysfs_pin}"
+            if self.gpio_path.exists():
+                return
+
+            try:
+                self._write_control("export", str(sysfs_pin))
+            except RuntimeError as exc:
+                errors.append(f"{sysfs_pin}: {exc}")
+                continue
+
+            deadline = time.monotonic() + 1.0
+            while not self.gpio_path.exists() and time.monotonic() < deadline:
+                time.sleep(0.01)
+            if self.gpio_path.exists():
+                self._exported_by_us = True
+                return
+            errors.append(f"{sysfs_pin}: GPIO sysfs path was not created")
+
+        raise RuntimeError(
+            f"cannot export BCM GPIO {self.pin}; tried sysfs GPIO candidates "
+            f"{', '.join(str(pin) for pin in _sysfs_pin_candidates(self.pin, self.base_path))}. "
+            f"Details: {'; '.join(errors)}"
+        )
 
     def _write_control(self, name: str, value: str) -> None:
         try:
@@ -105,11 +127,40 @@ def _write_sysfs_file(path: Path, value: str) -> None:
     truncating open mode used by pathlib's ``write_text`` with ``EINVAL``.
     """
 
+    if not value.endswith("\n"):
+        value = f"{value}\n"
+
     fd = os.open(path, os.O_WRONLY)
     try:
         os.write(fd, value.encode("ascii"))
     finally:
         os.close(fd)
+
+
+def _sysfs_pin_candidates(pin: int, base_path: Path) -> list[int]:
+    """Return possible sysfs GPIO numbers for a BCM pin.
+
+    Older Raspberry Pi kernels commonly used global sysfs numbers that matched
+    BCM pins. Newer kernels may expose a non-zero gpiochip base, so BCM 17 can
+    become e.g. ``base + 17``. Try the direct value first for compatibility.
+    """
+
+    candidates = [pin]
+    for chip_path in sorted(base_path.glob("gpiochip*")):
+        base = _read_optional_int(chip_path / "base")
+        ngpio = _read_optional_int(chip_path / "ngpio")
+        if base is None or ngpio is None:
+            continue
+        if 0 <= pin < ngpio:
+            candidates.append(base + pin)
+    return list(dict.fromkeys(candidates))
+
+
+def _read_optional_int(path: Path) -> int | None:
+    try:
+        return int(path.read_text(encoding="ascii").strip())
+    except (OSError, ValueError):
+        return None
 
 
 PinReaderFactory = Callable[[GpioInput], GpioPinReader]
