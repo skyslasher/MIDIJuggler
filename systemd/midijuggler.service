@@ -10,6 +10,7 @@ Group=midijuggler
 SupplementaryGroups=gpio audio
 WorkingDirectory=/opt/midijuggler/app
 Environment=PYTHONUNBUFFERED=1
+Environment=PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
 ExecStart=/opt/midijuggler/venv/bin/midijuggler --config /etc/midijuggler/config.toml
 Restart=on-failure
 RestartSec=5

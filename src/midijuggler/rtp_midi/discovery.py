@@ -254,10 +254,10 @@ class RtpMidiAnnouncer:
             )
             try:
                 await self._zeroconf.async_register_service(self._info)
-            except OSError:
+            except Exception:
                 LOGGER.exception(
                     "failed to announce RTP-MIDI session %s on UDP port %s; "
-                    "check Avahi port 5353 sharing (disallow-other-stacks=no)",
+                    "on Linux prefer avahi-utils over python-zeroconf",
                     self.session_name,
                     self.port,
                 )

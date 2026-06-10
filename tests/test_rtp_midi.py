@@ -7,6 +7,7 @@ from midijuggler.config import AdapterConfig, parse_config
 from midijuggler.clock import ClockBpmTracker
 from midijuggler.eventbus import EventBus
 from midijuggler.master_clock import MasterClock
+from midijuggler.rtp_midi.avahi import avahi_tool_paths, parse_avahi_browse_line
 from midijuggler.rtp_midi.discovery import (
     APPLE_MIDI_SERVICE_TYPE,
     RtpMidiDiscovery,
@@ -28,6 +29,38 @@ def test_parse_rtp_session_name_strips_service_suffix() -> None:
 
 def test_rtp_session_id_is_stable() -> None:
     assert rtp_session_id("Studio", "pi.local.", 5004) == "pi.local.:5004:Studio"
+
+
+def test_avahi_tool_paths_fall_back_to_usr_bin(tmp_path, monkeypatch) -> None:
+    publish = tmp_path / "avahi-publish-service"
+    browse = tmp_path / "avahi-browse"
+    publish.write_text("#!/bin/sh\n", encoding="utf-8")
+    browse.write_text("#!/bin/sh\n", encoding="utf-8")
+    publish.chmod(0o755)
+    browse.chmod(0o755)
+
+    monkeypatch.setattr(
+        "midijuggler.rtp_midi.avahi._PUBLISH_CANDIDATES",
+        ("missing-publish", str(publish)),
+    )
+    monkeypatch.setattr(
+        "midijuggler.rtp_midi.avahi._BROWSE_CANDIDATES",
+        ("missing-browse", str(browse)),
+    )
+    monkeypatch.setattr("midijuggler.rtp_midi.avahi.shutil.which", lambda _: None)
+
+    assert avahi_tool_paths() == (str(publish), str(browse))
+
+
+def test_parse_avahi_browse_line_extracts_session() -> None:
+    line = "=;eth0;IPv4;MIDIJuggler;_apple-midi._udp;local;MIDIJuggler.local;192.168.1.10;5004;\"\""
+    session = parse_avahi_browse_line(line)
+
+    assert session is not None
+    assert session.name == "MIDIJuggler"
+    assert session.host == "MIDIJuggler.local."
+    assert session.port == 5004
+    assert session.addresses == ("192.168.1.10",)
 
 
 def test_build_apple_midi_service_name_uses_service_type_suffix() -> None:
@@ -78,7 +111,52 @@ def test_rtp_session_as_dict_includes_label() -> None:
     assert session.as_dict()["label"] == "Studio (pi.local.:5004)"
 
 
-def test_rtp_midi_manager_hosts_enabled_instance(monkeypatch) -> None:
+def test_rtp_midi_manager_uses_avahi_backend_when_tools_exist(monkeypatch) -> None:
+    monkeypatch.setattr("midijuggler.rtp_midi.manager.avahi_tools_available", lambda: True)
+    monkeypatch.setattr("midijuggler.rtp_midi.manager.zeroconf_available", lambda: True)
+
+    discovery = MagicMock()
+    discovery.start = AsyncMock()
+    discovery.stop = AsyncMock()
+    discovery.sessions = MagicMock(return_value=[])
+    announcer = MagicMock()
+    announcer.start = AsyncMock()
+    announcer.stop = AsyncMock()
+
+    monkeypatch.setattr(
+        "midijuggler.rtp_midi.manager.avahi_tool_paths",
+        lambda: ("/usr/bin/avahi-publish-service", "/usr/bin/avahi-browse"),
+    )
+    monkeypatch.setattr(
+        "midijuggler.rtp_midi.manager.AvahiRtpMidiDiscovery",
+        lambda browse_path: discovery,
+    )
+    monkeypatch.setattr(
+        "midijuggler.rtp_midi.manager.AvahiRtpMidiAnnouncer",
+        lambda session_name, port, publish_path: announcer,
+    )
+
+    async def exercise() -> None:
+        manager = RtpMidiManager()
+        await manager.start()
+        assert manager.backend == "avahi"
+        await manager.apply_instance(
+            "rtp_midi",
+            AdapterConfig(
+                enabled=True,
+                kind="rtp_midi",
+                options={"role": "host", "session_name": "MIDIJuggler", "port": 5004},
+            ),
+        )
+        announcer.start.assert_awaited_once()
+        await manager.stop()
+        announcer.stop.assert_awaited_once()
+
+    asyncio.run(exercise())
+
+
+def test_rtp_midi_manager_hosts_enabled_instance_with_zeroconf(monkeypatch) -> None:
+    monkeypatch.setattr("midijuggler.rtp_midi.manager.avahi_tools_available", lambda: False)
     monkeypatch.setattr(
         "midijuggler.rtp_midi.manager.zeroconf_available",
         lambda: True,
@@ -108,6 +186,7 @@ def test_rtp_midi_manager_hosts_enabled_instance(monkeypatch) -> None:
     async def exercise() -> None:
         manager = RtpMidiManager()
         await manager.start()
+        assert manager.backend == "zeroconf"
         await manager.apply_instance(
             "rtp_midi",
             AdapterConfig(
@@ -126,6 +205,7 @@ def test_rtp_midi_manager_hosts_enabled_instance(monkeypatch) -> None:
 def test_midi_payload_includes_rtp_discovery_fields(monkeypatch) -> None:
     monkeypatch.setattr("midijuggler.web.server.list_midi_ports", lambda: [])
     manager = RtpMidiManager()
+    manager._discovery = RtpMidiDiscovery()
     manager._discovery._sessions["studio"] = RtpMidiSession(
         id="mac.local.:5004:Studio",
         name="Studio",

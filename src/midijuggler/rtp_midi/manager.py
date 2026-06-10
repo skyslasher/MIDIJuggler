@@ -3,60 +3,123 @@
 from __future__ import annotations
 
 import logging
-from typing import Any
+from typing import Any, Literal
 
 from midijuggler.config import AdapterConfig
+from midijuggler.rtp_midi.avahi import (
+    AvahiRtpMidiAnnouncer,
+    AvahiRtpMidiDiscovery,
+    avahi_tool_paths,
+    avahi_tools_available,
+)
 from midijuggler.rtp_midi.discovery import RtpMidiAnnouncer, RtpMidiDiscovery, zeroconf_available
 
 LOGGER = logging.getLogger(__name__)
 
 RTP_ROLES = {"host", "join"}
+RtpMidiBackendName = Literal["avahi", "zeroconf", "none"]
 
 
 class RtpMidiManager:
     """Manage mDNS discovery and local RTP-MIDI session announcements."""
 
     def __init__(self) -> None:
-        self._discovery = RtpMidiDiscovery()
-        self._announcers: dict[str, RtpMidiAnnouncer] = {}
+        self._discovery: AvahiRtpMidiDiscovery | RtpMidiDiscovery | None = None
+        self._announcers: dict[str, AvahiRtpMidiAnnouncer | RtpMidiAnnouncer] = {}
         self._instances: dict[str, AdapterConfig] = {}
         self._zeroconf: Any | None = None
+        self._backend: RtpMidiBackendName = "none"
+        self._publish_path: str | None = None
+        self._browse_path: str | None = None
+        self._startup_error: str | None = None
 
     @property
     def available(self) -> bool:
-        return zeroconf_available()
+        return avahi_tools_available() or zeroconf_available()
+
+    @property
+    def backend(self) -> RtpMidiBackendName:
+        return self._backend
+
+    def status_summary(self) -> dict[str, Any]:
+        publish_path, browse_path = avahi_tool_paths()
+        discovery = self._discovery
+        return {
+            "backend": self._backend,
+            "available": self.available,
+            "avahi_tools": avahi_tools_available(),
+            "avahi_publish_path": publish_path,
+            "avahi_browse_path": browse_path,
+            "zeroconf_installed": zeroconf_available(),
+            "startup_error": self._startup_error,
+            "active_announcers": len(self._announcers),
+            "discovered_sessions": (
+                len(discovery.sessions()) if discovery is not None else 0
+            ),
+        }
 
     def discovered_sessions(self) -> list[dict[str, Any]]:
+        if self._discovery is None:
+            return []
         return [session.as_dict() for session in self._discovery.sessions()]
 
     async def start(self) -> None:
-        if not zeroconf_available():
-            LOGGER.info("zeroconf is not installed; RTP-MIDI manager is inactive")
+        if self._backend != "none":
             return
 
-        if self._zeroconf is not None:
+        publish_path, browse_path = avahi_tool_paths()
+        if publish_path is not None and browse_path is not None:
+            self._publish_path = publish_path
+            self._browse_path = browse_path
+            self._discovery = AvahiRtpMidiDiscovery(browse_path)
+            await self._discovery.start()
+            self._backend = "avahi"
+            self._startup_error = None
+            LOGGER.info(
+                "RTP-MIDI mDNS backend: avahi (%s, %s)",
+                publish_path,
+                browse_path,
+            )
+            return
+
+        if not zeroconf_available():
+            self._startup_error = (
+                "install avahi-utils (avahi-publish-service, avahi-browse) or "
+                "pip install midijuggler[rtp]"
+            )
+            LOGGER.warning("RTP-MIDI mDNS unavailable: %s", self._startup_error)
             return
 
         from zeroconf.asyncio import AsyncZeroconf
 
         try:
             self._zeroconf = AsyncZeroconf()
-        except OSError:
+        except Exception as exc:
+            self._startup_error = f"python-zeroconf failed: {exc}"
             LOGGER.exception(
-                "failed to open mDNS socket for RTP-MIDI; "
-                "check Avahi port 5353 sharing (disallow-other-stacks=no)"
+                "failed to open python-zeroconf mDNS socket; on Linux with Avahi "
+                "install avahi-utils and ensure avahi-daemon is running"
             )
             return
 
+        self._discovery = RtpMidiDiscovery()
         await self._discovery.start(self._zeroconf)
+        self._backend = "zeroconf"
+        self._startup_error = None
+        LOGGER.info("RTP-MIDI mDNS backend: python-zeroconf")
 
     async def stop(self) -> None:
         for instance_name in list(self._announcers):
             await self._stop_announcer(instance_name)
-        await self._discovery.stop()
+        if self._discovery is not None:
+            await self._discovery.stop()
+            self._discovery = None
         if self._zeroconf is not None:
             await self._zeroconf.async_close()
             self._zeroconf = None
+        self._backend = "none"
+        self._publish_path = None
+        self._browse_path = None
         self._instances.clear()
 
     async def apply_instance(self, instance_name: str, config: AdapterConfig) -> None:
@@ -76,14 +139,34 @@ class RtpMidiManager:
                     instance_name,
                 )
                 return
-            if self._zeroconf is None:
+            if self._backend == "none":
+                await self.start()
+            if self._backend == "none":
                 LOGGER.warning(
-                    "RTP-MIDI adapter %s cannot host session %s because mDNS is unavailable",
+                    "RTP-MIDI adapter %s cannot host session %s because mDNS is "
+                    "unavailable (%s)",
                     instance_name,
                     session_name,
+                    self._startup_error or self.status_summary(),
                 )
                 return
-            announcer = RtpMidiAnnouncer(session_name, port, self._zeroconf)
+
+            if self._backend == "avahi":
+                if self._publish_path is None:
+                    LOGGER.warning(
+                        "RTP-MIDI adapter %s cannot host session %s because avahi "
+                        "publish path is missing",
+                        instance_name,
+                        session_name,
+                    )
+                    return
+                announcer = AvahiRtpMidiAnnouncer(
+                    session_name,
+                    port,
+                    self._publish_path,
+                )
+            else:
+                announcer = RtpMidiAnnouncer(session_name, port, self._zeroconf)
             await announcer.start()
             self._announcers[instance_name] = announcer
             return

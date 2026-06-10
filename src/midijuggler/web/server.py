@@ -397,6 +397,9 @@ class WebInterface:
             "rtp_midi_available": (
                 self.rtp_midi_manager.available if self.rtp_midi_manager is not None else False
             ),
+            "rtp_midi_backend": (
+                self.rtp_midi_manager.backend if self.rtp_midi_manager is not None else "none"
+            ),
             "discovered_rtp_sessions": discovered_sessions,
             "instances": [
                 self._midi_instance_payload(name, adapter, port_ids)
@@ -459,6 +462,7 @@ class WebInterface:
             persist_error = "no config path available"
 
         if self.rtp_midi_manager is not None:
+            await self.rtp_midi_manager.start()
             for name, updated in updates.items():
                 if updated.kind == "rtp_midi":
                     await self.rtp_midi_manager.apply_instance(name, updated)

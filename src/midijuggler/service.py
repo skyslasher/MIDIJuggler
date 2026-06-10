@@ -81,6 +81,7 @@ class MIDIJugglerService:
     async def start(self) -> None:
         LOGGER.info("starting MIDIJuggler")
         await self.rtp_midi_manager.start()
+        LOGGER.info("RTP-MIDI status: %s", self.rtp_midi_manager.status_summary())
         for adapter in self.adapters:
             await adapter.start()
         await self.master_clock.start()

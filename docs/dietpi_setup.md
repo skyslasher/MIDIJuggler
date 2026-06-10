@@ -14,8 +14,12 @@ sudo apt install -y git python3 python3-venv python3-pip
 Packages for master-clock click output through a USB sound card:
 
 ```bash
-sudo apt install -y libasound2-dev alsa-utils
+sudo apt install -y libasound2-dev alsa-utils avahi-daemon avahi-utils
 ```
+
+`avahi-utils` provides `avahi-publish-service` and `avahi-browse`, which MIDIJuggler
+prefers on the Pi for RTP-MIDI mDNS instead of opening a second mDNS stack through
+`python-zeroconf`.
 
 `alsa-utils` provides `aplay`, which MIDIJuggler can use as a fallback click
 backend. For lower-latency persistent playback, install the Python ALSA extra
@@ -102,15 +106,21 @@ DietPi often ships with **Avahi** (`avahi-daemon`) already installed. That is
 compatible with MIDIJuggler at the protocol level: Avahi, Bonjour and the Python
 `zeroconf` package all speak the same mDNS/DNS-SD protocol.
 
-MIDIJuggler does **not** use Avahi's D-Bus API. RTP-MIDI discovery and local
-session announcements go through the optional `rtp` extra (`zeroconf`), which
-opens its own UDP sockets on port **5353**. Avahi and `zeroconf` can run on the
-same Pi, but both must be allowed to share that port.
+On the Pi, MIDIJuggler prefers the Avahi CLI tools (`avahi-publish-service`,
+`avahi-browse`) when `avahi-utils` is installed. That avoids port-5353 conflicts
+with `avahi-daemon`. The Python `zeroconf` package is only used as a fallback.
 
-### Install zeroconf (`rtp` extra)
+### Install RTP-MIDI dependencies
 
-RTP-MIDI requires the `zeroconf` Python package. Install it through the `rtp`
-pip extra into the service venv:
+Install Avahi on DietPi first:
+
+```bash
+sudo apt install -y avahi-daemon avahi-utils
+sudo systemctl enable --now avahi-daemon
+```
+
+The Python `zeroconf` package is optional fallback software. Install it through
+the `rtp` pip extra into the service venv if needed:
 
 ```bash
 sudo -u midijuggler /opt/midijuggler/venv/bin/python -m pip install -e "/opt/midijuggler/app[rtp]"
@@ -171,8 +181,10 @@ After starting MIDIJuggler, the journal should show RTP-MIDI activity when an
 adapter is enabled in host mode:
 
 ```text
-started RTP-MIDI mDNS discovery
-announced RTP-MIDI session MIDIJuggler as MIDIJuggler._apple-midi._udp.local. on MIDIJuggler.local. UDP 5004
+RTP-MIDI mDNS backend: avahi
+started RTP-MIDI discovery via avahi-browse
+RTP-MIDI status: {'backend': 'avahi', ...}
+announced RTP-MIDI session MIDIJuggler via avahi-publish-service on UDP 5004
 discovered RTP-MIDI session MyMac at MyMac.local.:5004
 ```
 
