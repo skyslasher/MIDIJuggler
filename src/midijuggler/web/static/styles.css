@@ -184,6 +184,23 @@ legend {
   padding: 0.45rem 0.55rem;
 }
 
+.midi-adapter-card {
+  background: #101827;
+  border: 1px solid #31405e;
+  border-radius: 12px;
+  margin: 0 0 1rem;
+  padding: 0.9rem;
+}
+
+.midi-adapter-card h3 {
+  font-size: 1rem;
+  margin: 0 0 0.6rem;
+}
+
+.midi-adapter-card .inline-field {
+  margin-top: 0;
+}
+
 .message {
   color: #9fb5d9;
   min-height: 1.4rem;

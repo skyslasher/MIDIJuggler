@@ -21,6 +21,9 @@ test = [
 alsa = [
   "pyalsaaudio",
 ]
+rtp = [
+  "zeroconf>=0.131",
+]
 
 [project.scripts]
 midijuggler = "midijuggler.__main__:main"

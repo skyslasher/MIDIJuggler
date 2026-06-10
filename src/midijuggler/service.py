@@ -30,6 +30,7 @@ from midijuggler.events import (
 )
 from midijuggler.master_clock import MIDI_TIMING_CLOCK, MasterClock
 from midijuggler.mapping import MappingEngine
+from midijuggler.rtp_midi import RtpMidiManager
 from midijuggler.web.server import WebInterface, run_web_server, stop_web_server
 
 LOGGER = logging.getLogger(__name__)
@@ -45,7 +46,12 @@ class MIDIJugglerService:
         self.bus = EventBus()
         self.clock = ClockBpmTracker()
         self.mapping = MappingEngine(config.mappings)
-        self.adapters = build_adapters(config.adapters, self.bus)
+        self.rtp_midi_manager = RtpMidiManager()
+        self.adapters = build_adapters(
+            config.adapters,
+            self.bus,
+            rtp_midi_manager=self.rtp_midi_manager,
+        )
         self._write_master_clock_alsa_config(self.config.master_clock.click_audio_device)
         self.master_clock = MasterClock(
             self._master_clock_config(),
@@ -59,6 +65,7 @@ class MIDIJugglerService:
             self.clock,
             self.master_clock,
             gpio_adapter=self._gpio_adapter(),
+            rtp_midi_manager=self.rtp_midi_manager,
             config_path=self.config_path,
             alsa_config_path=self.alsa_config_path,
         )
@@ -73,6 +80,7 @@ class MIDIJugglerService:
 
     async def start(self) -> None:
         LOGGER.info("starting MIDIJuggler")
+        await self.rtp_midi_manager.start()
         for adapter in self.adapters:
             await adapter.start()
         await self.master_clock.start()
@@ -91,6 +99,7 @@ class MIDIJugglerService:
         await self.master_clock.stop()
         for adapter in reversed(self.adapters):
             await adapter.stop()
+        await self.rtp_midi_manager.stop()
 
     async def run_forever(self) -> None:
         await self.start()

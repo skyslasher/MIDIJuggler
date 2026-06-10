@@ -1,7 +1,7 @@
 # Web configuration
 
-MIDIJuggler exposes first configuration endpoints in the web interface. The
-initial editable area is GPIO input selection.
+MIDIJuggler exposes configuration endpoints in the web interface for GPIO
+inputs, MIDI devices and the MIDI master clock.
 
 ## GPIO inputs
 
@@ -55,6 +55,61 @@ Example POST body:
 
 At least one GPIO pin must be enabled. Pin numbers are BCM numbers, matching the
 hardware and DietPi documentation.
+
+## MIDI devices
+
+The **MIDI Devices** card exposes all configured `usb_midi` and `rtp_midi`
+adapter instances. For each instance you can edit:
+
+- enabled flag
+- USB MIDI `input_port` and `output_port`
+- optional `midi_library`
+- RTP-MIDI mode: `host` (announce a local session via mDNS) or `join` (connect
+  to a discovered session)
+- RTP-MIDI `session_name` and UDP `port` in host mode
+- RTP-MIDI `join_target` in join mode, chosen from sessions discovered via mDNS
+
+RTP-MIDI discovery uses the `_apple-midi._udp` mDNS service type. Install the
+optional `zeroconf` dependency (`pip install midijuggler[rtp]`) to enable
+network discovery and local session announcements.
+
+Available ALSA sequencer ports are discovered with `aconnect -l`. Saving
+updates the in-memory adapter configuration and persists the corresponding
+`[adapters.<name>]` sections in the active TOML configuration file.
+
+The HTTP API is:
+
+```text
+GET /api/midi-adapters
+POST /api/midi-adapters
+```
+
+Example POST body:
+
+```json
+{
+  "instances": [
+    {
+      "name": "usb_midi",
+      "enabled": true,
+      "input_port": "MIDIJuggler In",
+      "output_port": "MIDIJuggler Out",
+      "midi_library": ""
+    },
+    {
+      "name": "rtp_midi",
+      "enabled": true,
+      "role": "host",
+      "session_name": "MIDIJuggler",
+      "port": 5004
+    }
+  ]
+}
+```
+
+As with GPIO and master clock, runtime changes are applied immediately. A full
+restart is still recommended after changing enabled MIDI adapters so the service
+can rebuild the active adapter set.
 
 ## MIDI master clock
 

@@ -1,6 +1,6 @@
 from pathlib import Path
 
-from midijuggler.system_info import list_click_wavs, parse_aplay_devices
+from midijuggler.system_info import list_click_wavs, parse_aconnect_ports, parse_aplay_devices
 
 
 def test_parse_aplay_devices_returns_plughw_ids() -> None:
@@ -23,6 +23,33 @@ def test_parse_aplay_devices_returns_plughw_ids() -> None:
             "id": "plughw:1,0",
             "label": "Device / USB Audio (plughw:1,0)",
             "mode": "dmix",
+        },
+    ]
+
+
+def test_parse_aconnect_ports_returns_unique_port_names() -> None:
+    ports = parse_aconnect_ports(
+        """
+        client 0: 'System' [type=kernel]
+            0 'Timer'
+        client 20: 'MIDIJuggler' [type=user]
+            0 'MIDIJuggler In'
+            1 'MIDIJuggler Out'
+        client 21: 'MIDIJuggler' [type=user]
+            0 'MIDIJuggler In'
+        """
+    )
+
+    assert ports == [
+        {
+            "id": "MIDIJuggler In",
+            "label": "MIDIJuggler / MIDIJuggler In",
+            "client": "MIDIJuggler",
+        },
+        {
+            "id": "MIDIJuggler Out",
+            "label": "MIDIJuggler / MIDIJuggler Out",
+            "client": "MIDIJuggler",
         },
     ]
 

@@ -26,6 +26,9 @@ const masterClockMessage = document.querySelector("#master-clock-message");
 const configImportForm = document.querySelector("#config-import-form");
 const configImportFile = document.querySelector("#config-import-file");
 const configImportMessage = document.querySelector("#config-import-message");
+const midiAdaptersForm = document.querySelector("#midi-adapters-form");
+const midiAdapterInstances = document.querySelector("#midi-adapter-instances");
+const midiAdaptersMessage = document.querySelector("#midi-adapters-message");
 const gpioForm = document.querySelector("#gpio-form");
 const gpioPins = document.querySelector("#gpio-pins");
 const gpioActiveLow = document.querySelector("#gpio-active-low");
@@ -48,6 +51,7 @@ let learnMode = false;
 let socket;
 let gpioConfig = null;
 let masterClockConfig = null;
+let midiAdaptersConfig = null;
 
 function renderStatus(status) {
   const displayedBpm = status.master_clock?.bpm || status.bpm;
@@ -174,6 +178,186 @@ function renderGpioConfig(config) {
 function selectedGpioPins() {
   return [...gpioPins.querySelectorAll("input[type='checkbox']:checked")]
     .map((input) => Number(input.value));
+}
+
+function renderMidiAdaptersConfig(config) {
+  midiAdaptersConfig = config;
+  midiAdapterInstances.replaceChildren();
+
+  const discoveryNote = document.createElement("p");
+  discoveryNote.className = "hint";
+  if (config.rtp_midi_available === false) {
+    discoveryNote.textContent =
+      "Install the zeroconf package for RTP-MIDI mDNS discovery and session hosting.";
+  } else {
+    const discoveredCount = (config.discovered_rtp_sessions || []).length;
+    discoveryNote.textContent =
+      `RTP-MIDI mDNS discovery active. ${discoveredCount} session(s) visible on the network.`;
+  }
+  midiAdapterInstances.appendChild(discoveryNote);
+
+  for (const instance of config.instances || []) {
+    const card = document.createElement("section");
+    card.className = "midi-adapter-card";
+    card.dataset.instanceName = instance.name;
+
+    const title = document.createElement("h3");
+    title.textContent = `${instance.name} (${instance.type})`;
+    card.appendChild(title);
+
+    const enabledLabel = document.createElement("label");
+    enabledLabel.className = "inline-field";
+    const enabledInput = document.createElement("input");
+    enabledInput.type = "checkbox";
+    enabledInput.dataset.field = "enabled";
+    enabledInput.checked = Boolean(instance.enabled);
+    enabledLabel.append(enabledInput, document.createTextNode(" Enabled"));
+    card.appendChild(enabledLabel);
+
+    if (instance.type === "usb_midi") {
+      card.appendChild(
+        createSelectField(
+          "Input port",
+          "input_port",
+          instance.available_input_ports || [],
+          "id",
+          "label",
+          instance.input_port || "",
+          "No input port",
+        ),
+      );
+      card.appendChild(
+        createSelectField(
+          "Output port",
+          "output_port",
+          instance.available_output_ports || [],
+          "id",
+          "label",
+          instance.output_port || "",
+          "No output port",
+        ),
+      );
+      const libraryOptions = [
+        { id: "", label: "No library" },
+        ...(config.available_midi_libraries || []),
+      ];
+      card.appendChild(
+        createSelectField(
+          "MIDI library",
+          "midi_library",
+          libraryOptions,
+          "id",
+          "label",
+          instance.midi_library || "",
+          "No library",
+        ),
+      );
+    } else {
+      const roleOptions = [
+        { id: "host", label: "Host session (announce via mDNS)" },
+        { id: "join", label: "Join discovered session" },
+      ];
+      card.appendChild(
+        createSelectField(
+          "Mode",
+          "role",
+          roleOptions,
+          "id",
+          "label",
+          instance.role || "host",
+          "Host session",
+        ),
+      );
+
+      const hostFields = document.createElement("div");
+      hostFields.className = "rtp-host-fields";
+      hostFields.appendChild(
+        createTextField("Session name", "session_name", instance.session_name || ""),
+      );
+      hostFields.appendChild(
+        createNumberField("UDP port", "port", instance.port ?? 5004, 1, 65535, 1),
+      );
+      card.appendChild(hostFields);
+
+      const joinFields = document.createElement("div");
+      joinFields.className = "rtp-join-fields";
+      joinFields.appendChild(
+        createSelectField(
+          "Discovered session",
+          "join_target",
+          instance.available_rtp_sessions || [],
+          "id",
+          "label",
+          instance.join_target || "",
+          "No session discovered",
+        ),
+      );
+      card.appendChild(joinFields);
+
+      const roleSelect = card.querySelector('[data-field="role"]');
+      const updateRtpVisibility = () => {
+        const isHost = roleSelect.value === "host";
+        hostFields.hidden = !isHost;
+        joinFields.hidden = isHost;
+      };
+      roleSelect.addEventListener("change", updateRtpVisibility);
+      updateRtpVisibility();
+    }
+
+    midiAdapterInstances.appendChild(card);
+  }
+}
+
+function createTextField(labelText, fieldName, value) {
+  const label = document.createElement("label");
+  label.textContent = `${labelText} `;
+  const input = document.createElement("input");
+  input.type = "text";
+  input.dataset.field = fieldName;
+  input.value = value;
+  label.appendChild(input);
+  return label;
+}
+
+function createNumberField(labelText, fieldName, value, min, max, step) {
+  const label = document.createElement("label");
+  label.textContent = `${labelText} `;
+  const input = document.createElement("input");
+  input.type = "number";
+  input.dataset.field = fieldName;
+  input.min = String(min);
+  input.max = String(max);
+  input.step = String(step);
+  input.value = String(value);
+  label.appendChild(input);
+  return label;
+}
+
+function createSelectField(labelText, fieldName, options, valueKey, labelKey, selectedValue, emptyLabel) {
+  const label = document.createElement("label");
+  label.textContent = `${labelText} `;
+  const select = document.createElement("select");
+  select.dataset.field = fieldName;
+  replaceSelectOptions(select, options, valueKey, labelKey, selectedValue, emptyLabel);
+  label.appendChild(select);
+  return label;
+}
+
+function collectMidiAdapterInstances() {
+  return [...midiAdapterInstances.querySelectorAll(".midi-adapter-card")].map((card) => {
+    const payload = { name: card.dataset.instanceName };
+    for (const element of card.querySelectorAll("[data-field]")) {
+      const field = element.dataset.field;
+      if (element.type === "checkbox") {
+        payload[field] = element.checked;
+      } else if (element.type === "number") {
+        payload[field] = Number(element.value);
+      } else {
+        payload[field] = element.value;
+      }
+    }
+    return payload;
+  });
 }
 
 function renderMasterClockConfig(config) {
@@ -359,6 +543,36 @@ configurationExit.addEventListener("click", () => {
   configurationToggle.hidden = false;
 });
 
+midiAdaptersForm.addEventListener("submit", (event) => {
+  event.preventDefault();
+  midiAdaptersMessage.textContent = "saving...";
+  fetch("/api/midi-adapters", {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({ instances: collectMidiAdapterInstances() }),
+  })
+    .then(async (response) => {
+      if (!response.ok) {
+        throw new Error(await response.text());
+      }
+      return response.json();
+    })
+    .then((config) => {
+      renderMidiAdaptersConfig(config);
+      if (config.persisted === false) {
+        midiAdaptersMessage.textContent = `saved for runtime only: ${config.persist_error}`;
+      } else {
+        midiAdaptersMessage.textContent = "saved";
+      }
+    })
+    .catch((error) => {
+      midiAdaptersMessage.textContent = `error: ${error.message}`;
+      if (midiAdaptersConfig) {
+        renderMidiAdaptersConfig(midiAdaptersConfig);
+      }
+    });
+});
+
 gpioForm.addEventListener("submit", (event) => {
   event.preventDefault();
   gpioMessage.textContent = "saving...";
@@ -475,6 +689,7 @@ configImportForm.addEventListener("submit", (event) => {
 });
 
 fetch("/api/status").then((response) => response.json()).then(renderStatus);
+fetch("/api/midi-adapters").then((response) => response.json()).then(renderMidiAdaptersConfig);
 fetch("/api/gpio").then((response) => response.json()).then(renderGpioConfig);
 fetch("/api/master-clock").then((response) => response.json()).then(renderMasterClockConfig);
 fetch("/api/osc-libraries").then((response) => response.json()).then(renderOscLibraries);

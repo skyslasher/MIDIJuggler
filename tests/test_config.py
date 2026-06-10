@@ -3,11 +3,13 @@ from pathlib import Path
 import pytest
 
 from midijuggler.config import (
+    AdapterConfig,
     MasterClockConfig,
     load_config,
     parse_config,
     save_gpio_adapter_options,
     save_master_clock_config,
+    save_midi_adapter_configs,
 )
 
 
@@ -151,6 +153,52 @@ def test_save_gpio_adapter_options_replaces_gpio_section(tmp_path: Path) -> None
     poll_line_index = saved_lines.index("poll_interval_ms = 2")
     assert saved_lines[poll_line_index + 1] == ""
     assert saved_lines[poll_line_index + 2].strip() == "[adapters.osc]"
+
+
+def test_save_midi_adapter_configs_replaces_adapter_sections(tmp_path: Path) -> None:
+    config_file = tmp_path / "config.toml"
+    config_file.write_text(
+        """
+        [adapters.usb_midi]
+        enabled = true
+        input_port = "Old In"
+        output_port = "Old Out"
+
+        [adapters.rtp_midi]
+        enabled = false
+        session_name = "Old Session"
+        port = 5004
+        """,
+        encoding="utf-8",
+    )
+
+    save_midi_adapter_configs(
+        config_file,
+        {
+            "usb_midi": AdapterConfig(
+                enabled=True,
+                options={
+                    "input_port": "MIDIJuggler In",
+                    "output_port": "MIDIJuggler Out",
+                },
+                kind="usb_midi",
+            ),
+            "rtp_remote": AdapterConfig(
+                enabled=True,
+                options={"session_name": "Remote", "port": 5005},
+                kind="rtp_midi",
+            ),
+        },
+    )
+
+    config = load_config(config_file)
+    saved_text = config_file.read_text(encoding="utf-8")
+
+    assert config.adapters["usb_midi"].options["input_port"] == "MIDIJuggler In"
+    assert config.adapters["rtp_remote"].enabled is True
+    assert config.adapters["rtp_remote"].options["port"] == 5005
+    assert "[adapters.rtp_remote]" in saved_text
+    assert 'type = "rtp_midi"' in saved_text
 
 
 def test_parse_config_reads_master_clock_input_targets() -> None:

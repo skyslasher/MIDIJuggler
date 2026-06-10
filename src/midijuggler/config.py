@@ -66,6 +66,24 @@ def load_config(path: str | Path) -> AppConfig:
     return parse_config(raw)
 
 
+def save_midi_adapter_configs(
+    path: str | Path,
+    instances: dict[str, AdapterConfig],
+) -> None:
+    """Persist editable MIDI adapter sections in a TOML config file."""
+
+    config_path = Path(path)
+    text = config_path.read_text(encoding="utf-8")
+    for instance_name, adapter in instances.items():
+        header = f"[adapters.{instance_name}]"
+        section = _format_adapter_section(instance_name, adapter)
+        text = _replace_toml_section(text, header, section)
+
+    temp_path = config_path.with_suffix(config_path.suffix + ".tmp")
+    temp_path.write_text(text, encoding="utf-8")
+    temp_path.replace(config_path)
+
+
 def save_gpio_adapter_options(path: str | Path, options: dict[str, Any]) -> None:
     """Persist the editable GPIO adapter options in a TOML config file."""
 
@@ -110,6 +128,32 @@ def _replace_toml_section(text: str, header: str, section: str) -> str:
             end += 1
         new_lines = [*lines[:start], *section.rstrip().splitlines(), "", *lines[end:]]
         return "\n".join(new_lines).rstrip() + "\n"
+
+
+def _format_adapter_section(instance_name: str, adapter: AdapterConfig) -> str:
+    kind = adapter.kind or instance_name
+    lines = [
+        f"[adapters.{instance_name}]",
+        f"enabled = {_toml_bool(adapter.enabled)}",
+    ]
+    if instance_name not in DEFAULT_ADAPTERS:
+        lines.append(f"type = {_toml_string(kind)}")
+    for key in sorted(adapter.options):
+        lines.append(f"{key} = {_format_toml_value(adapter.options[key])}")
+    return "\n".join(lines) + "\n\n"
+
+
+def _format_toml_value(value: Any) -> str:
+    if isinstance(value, bool):
+        return _toml_bool(value)
+    if isinstance(value, int):
+        return str(value)
+    if isinstance(value, float):
+        return str(value)
+    if isinstance(value, list):
+        items = ", ".join(_format_toml_value(item) for item in value)
+        return f"[{items}]"
+    return _toml_string(str(value))
 
 
 def _format_gpio_adapter_section(options: dict[str, Any]) -> str:

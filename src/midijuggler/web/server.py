@@ -18,18 +18,25 @@ from midijuggler.adapters.gpio import GpioAdapter, RASPBERRY_PI_HEADER_BCM_PINS
 from midijuggler.alsa import write_master_clock_pcm_config
 from midijuggler.clock import ClockBpmTracker
 from midijuggler.config import (
+    AdapterConfig,
     AppConfig,
     MasterClockConfig,
     parse_config,
     save_gpio_adapter_options,
     save_master_clock_config,
+    save_midi_adapter_configs,
 )
 from midijuggler.eventbus import EventBus
 from midijuggler.events import Event
 from midijuggler.midi_library import get_midi_library, list_midi_libraries
 from midijuggler.master_clock import MasterClock
+from midijuggler.rtp_midi.manager import RtpMidiManager
 from midijuggler.osc_library import get_osc_library, list_osc_libraries
-from midijuggler.system_info import list_alsa_output_devices, list_click_wavs
+from midijuggler.system_info import (
+    list_alsa_output_devices,
+    list_click_wavs,
+    list_midi_ports,
+)
 
 LOGGER = logging.getLogger(__name__)
 
@@ -44,6 +51,7 @@ class WebInterface:
         clock: ClockBpmTracker,
         master_clock: MasterClock,
         gpio_adapter: GpioAdapter | None = None,
+        rtp_midi_manager: RtpMidiManager | None = None,
         config_path: str | Path | None = None,
         alsa_config_path: str | Path | None = None,
     ) -> None:
@@ -52,6 +60,7 @@ class WebInterface:
         self.clock = clock
         self.master_clock = master_clock
         self.gpio_adapter = gpio_adapter
+        self.rtp_midi_manager = rtp_midi_manager
         self.config_path = Path(config_path) if config_path is not None else None
         self.alsa_config_path = (
             Path(alsa_config_path) if alsa_config_path is not None else None
@@ -71,6 +80,8 @@ class WebInterface:
         app.router.add_post("/api/config/import", self.import_config)
         app.router.add_get("/api/gpio", self.gpio_config)
         app.router.add_post("/api/gpio", self.set_gpio_config)
+        app.router.add_get("/api/midi-adapters", self.midi_adapters_config)
+        app.router.add_post("/api/midi-adapters", self.set_midi_adapters_config)
         app.router.add_get("/api/master-clock", self.master_clock_config)
         app.router.add_post("/api/master-clock", self.set_master_clock_config)
         app.router.add_post("/api/master-clock/tap", self.tap_master_clock)
@@ -156,6 +167,17 @@ class WebInterface:
         payload = await request.json()
         try:
             response = await self.apply_gpio_config(payload)
+        except ValueError as exc:
+            raise web.HTTPBadRequest(text=str(exc)) from exc
+        return web.json_response(response)
+
+    async def midi_adapters_config(self, request: web.Request) -> web.Response:
+        return web.json_response(self.midi_adapters_config_payload())
+
+    async def set_midi_adapters_config(self, request: web.Request) -> web.Response:
+        payload = await request.json()
+        try:
+            response = await self.apply_midi_adapters_config(payload)
         except ValueError as exc:
             raise web.HTTPBadRequest(text=str(exc)) from exc
         return web.json_response(response)
@@ -357,6 +379,94 @@ class WebInterface:
         response.update({"persisted": persisted, "persist_error": persist_error})
         return response
 
+    def midi_adapters_config_payload(self) -> dict[str, Any]:
+        available_ports = list_midi_ports()
+        port_ids = {port["id"] for port in available_ports}
+        libraries = list_midi_libraries()
+        discovered_sessions = (
+            self.rtp_midi_manager.discovered_sessions()
+            if self.rtp_midi_manager is not None
+            else []
+        )
+        return {
+            "available_ports": available_ports,
+            "available_midi_libraries": [
+                {"id": library.id, "label": library.name}
+                for library in libraries
+            ],
+            "rtp_midi_available": (
+                self.rtp_midi_manager.available if self.rtp_midi_manager is not None else False
+            ),
+            "discovered_rtp_sessions": discovered_sessions,
+            "instances": [
+                self._midi_instance_payload(name, adapter, port_ids)
+                for name, adapter in sorted(self.config.adapters.items())
+                if (adapter.kind or name) in {"usb_midi", "rtp_midi"}
+            ],
+        }
+
+    async def apply_midi_adapters_config(self, payload: dict[str, Any]) -> dict[str, Any]:
+        if not isinstance(payload, dict):
+            raise ValueError("MIDI adapter config payload must be an object")
+
+        raw_instances = payload.get("instances")
+        if not isinstance(raw_instances, list):
+            raise ValueError("MIDI adapter config requires an instances list")
+
+        updates: dict[str, AdapterConfig] = {}
+        for raw_instance in raw_instances:
+            if not isinstance(raw_instance, dict):
+                raise ValueError("each MIDI adapter instance must be an object")
+            name = str(raw_instance.get("name", "")).strip()
+            if not name:
+                raise ValueError("each MIDI adapter instance requires a name")
+            if name not in self.config.adapters:
+                raise ValueError(f"unknown MIDI adapter instance: {name}")
+
+            current = self.config.adapters[name]
+            kind = current.kind or name
+            if kind not in {"usb_midi", "rtp_midi"}:
+                raise ValueError(f"adapter {name} is not a MIDI adapter")
+
+            enabled = bool(raw_instance.get("enabled", current.enabled))
+            if kind == "usb_midi":
+                options = self._normalized_usb_midi_options(raw_instance, current.options)
+            else:
+                options = self._normalized_rtp_midi_options(
+                    raw_instance,
+                    current.options,
+                    enabled=enabled,
+                )
+
+            updated = AdapterConfig(enabled=enabled, options=options, kind=kind)
+            updates[name] = updated
+            self.config.adapters[name] = updated
+
+        persisted = False
+        persist_error = ""
+        if self.config_path is not None and updates:
+            try:
+                save_midi_adapter_configs(self.config_path, updates)
+                persisted = True
+            except OSError as exc:
+                persist_error = str(exc)
+                LOGGER.warning(
+                    "MIDI adapter config applied at runtime but could not be persisted to %s: %s",
+                    self.config_path,
+                    exc,
+                )
+        elif self.config_path is None:
+            persist_error = "no config path available"
+
+        if self.rtp_midi_manager is not None:
+            for name, updated in updates.items():
+                if updated.kind == "rtp_midi":
+                    await self.rtp_midi_manager.apply_instance(name, updated)
+
+        response = self.midi_adapters_config_payload()
+        response.update({"persisted": persisted, "persist_error": persist_error})
+        return response
+
     def master_clock_config_payload(self) -> dict[str, Any]:
         config = self.master_clock.config
         selected_outputs = set(config.output_targets)
@@ -494,6 +604,162 @@ class WebInterface:
         else:
             raise ValueError("action must be toggle, start, stop or continue")
         return self._status_payload()
+
+    def _midi_instance_payload(
+        self,
+        name: str,
+        adapter: AdapterConfig,
+        port_ids: set[str],
+    ) -> dict[str, Any]:
+        kind = adapter.kind or name
+        options = adapter.options
+        payload: dict[str, Any] = {
+            "name": name,
+            "type": kind,
+            "enabled": adapter.enabled,
+            "runtime_active": False,
+        }
+        if kind == "usb_midi":
+            input_port = str(options.get("input_port", ""))
+            output_port = str(options.get("output_port", ""))
+            payload.update(
+                {
+                    "input_port": input_port,
+                    "output_port": output_port,
+                    "midi_library": str(options.get("midi_library", "")),
+                    "available_input_ports": self._midi_port_choices(
+                        port_ids,
+                        input_port,
+                    ),
+                    "available_output_ports": self._midi_port_choices(
+                        port_ids,
+                        output_port,
+                    ),
+                }
+            )
+        else:
+            role = str(options.get("role", "host"))
+            join_target = str(options.get("join_target", ""))
+            discovered = (
+                self.rtp_midi_manager.discovered_sessions()
+                if self.rtp_midi_manager is not None
+                else []
+            )
+            payload.update(
+                {
+                    "role": role,
+                    "session_name": str(options.get("session_name", "")),
+                    "port": int(options.get("port", 5004)),
+                    "join_target": join_target,
+                    "available_rtp_sessions": self._rtp_session_choices(
+                        discovered,
+                        join_target,
+                    ),
+                }
+            )
+        return payload
+
+    def _rtp_session_choices(
+        self,
+        discovered: list[dict[str, Any]],
+        selected_target: str,
+    ) -> list[dict[str, str]]:
+        choices = [
+            {"id": session["id"], "label": session["label"]}
+            for session in discovered
+        ]
+        if selected_target and selected_target not in {choice["id"] for choice in choices}:
+            choices.append(
+                {
+                    "id": selected_target,
+                    "label": f"{selected_target} (configured)",
+                }
+            )
+        return choices
+
+    def _midi_port_choices(
+        self,
+        port_ids: set[str],
+        selected_port: str,
+    ) -> list[dict[str, str]]:
+        ports = list_midi_ports()
+        choices = list(ports)
+        if selected_port and selected_port not in port_ids:
+            choices.append(
+                {
+                    "id": selected_port,
+                    "label": f"{selected_port} (configured)",
+                    "client": "",
+                }
+            )
+        return choices
+
+    def _normalized_usb_midi_options(
+        self,
+        payload: dict[str, Any],
+        current: dict[str, Any],
+    ) -> dict[str, Any]:
+        midi_library = str(payload.get("midi_library", current.get("midi_library", ""))).strip()
+        options = {
+            "input_port": str(payload.get("input_port", current.get("input_port", ""))).strip(),
+            "output_port": str(
+                payload.get("output_port", current.get("output_port", ""))
+            ).strip(),
+        }
+        if midi_library:
+            known_libraries = {library.id for library in list_midi_libraries()}
+            if midi_library not in known_libraries:
+                raise ValueError(f"unknown MIDI library: {midi_library}")
+            options["midi_library"] = midi_library
+        return options
+
+    def _normalized_rtp_midi_options(
+        self,
+        payload: dict[str, Any],
+        current: dict[str, Any],
+        *,
+        enabled: bool,
+    ) -> dict[str, Any]:
+        from midijuggler.rtp_midi.manager import RTP_ROLES
+
+        role = str(payload.get("role", current.get("role", "host"))).strip().lower()
+        if role not in RTP_ROLES:
+            raise ValueError("rtp_midi role must be host or join")
+
+        port = int(payload.get("port", current.get("port", 5004)))
+        if not 1 <= port <= 65535:
+            raise ValueError("rtp_midi port must be between 1 and 65535")
+
+        session_name = str(
+            payload.get("session_name", current.get("session_name", ""))
+        ).strip()
+        join_target = str(payload.get("join_target", current.get("join_target", ""))).strip()
+
+        if role == "host":
+            if enabled and not session_name:
+                raise ValueError("rtp_midi session_name must not be empty in host mode")
+            return {"role": role, "session_name": session_name, "port": port}
+
+        if enabled and not join_target:
+            raise ValueError("rtp_midi join_target must be selected in join mode")
+
+        discovered_ids = {
+            session["id"]
+            for session in (
+                self.rtp_midi_manager.discovered_sessions()
+                if self.rtp_midi_manager is not None
+                else []
+            )
+        }
+        current_target = str(current.get("join_target", "")).strip()
+        if (
+            join_target
+            and join_target not in discovered_ids
+            and join_target != current_target
+        ):
+            raise ValueError(f"unknown discovered RTP-MIDI session: {join_target}")
+
+        return {"role": role, "join_target": join_target, "port": port}
 
     def _gpio_options(self) -> dict[str, Any]:
         if self.gpio_adapter is not None:

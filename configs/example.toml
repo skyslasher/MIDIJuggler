@@ -90,13 +90,15 @@ midi_library = "behringer_xtouch_mini"
 
 [adapters.rtp_midi]
 enabled = false
+role = "host"
 session_name = "MIDIJuggler"
 port = 5004
 
 [adapters.rtp_remote]
 type = "rtp_midi"
 enabled = false
-session_name = "MIDIJuggler Remote"
+role = "join"
+join_target = ""
 port = 5005
 
 [adapters.gpio]
