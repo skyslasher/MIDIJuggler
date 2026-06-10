@@ -80,6 +80,11 @@ button {
   padding: 0.7rem 1rem;
 }
 
+button[hidden],
+[hidden] {
+  display: none !important;
+}
+
 label {
   display: block;
   margin: 0.7rem 0;
@@ -155,6 +160,74 @@ legend {
 .message {
   color: #9fb5d9;
   min-height: 1.4rem;
+}
+
+.master-status {
+  display: grid;
+  gap: 0.85rem;
+}
+
+.status-row {
+  align-items: center;
+  background: #101827;
+  border: 1px solid #31405e;
+  border-radius: 12px;
+  display: flex;
+  justify-content: space-between;
+  min-height: 3rem;
+  padding: 0.75rem 0.85rem;
+}
+
+.status-label {
+  color: #cbd8ef;
+  font-weight: 700;
+  letter-spacing: 0.02em;
+}
+
+.status-pill {
+  border-radius: 999px;
+  color: #08111f;
+  font-size: 0.82rem;
+  font-weight: 800;
+  min-width: 4.2rem;
+  padding: 0.35rem 0.7rem;
+  text-align: center;
+  text-transform: uppercase;
+}
+
+.status-pill-positive {
+  background: #70e091;
+}
+
+.status-pill-negative {
+  background: #ff7b7b;
+}
+
+.time-card-grid {
+  display: grid;
+  gap: 0.75rem;
+  grid-template-columns: repeat(auto-fit, minmax(130px, 1fr));
+}
+
+.time-card {
+  background: #263757;
+  border-radius: 14px;
+  padding: 0.85rem;
+  text-align: center;
+}
+
+.time-card span {
+  color: #cbd8ef;
+  display: block;
+  font-size: 0.75rem;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+}
+
+.time-card strong {
+  display: block;
+  font-size: 1.45rem;
+  margin-top: 0.2rem;
 }
 
 .grid {

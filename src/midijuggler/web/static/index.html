@@ -21,13 +21,37 @@
 
       <section class="toolbar">
         <button id="learn-toggle" type="button">Enable learn mode</button>
+        <button id="configuration-toggle" type="button">Configuration</button>
+        <button id="configuration-exit" type="button" hidden>Exit configuration</button>
         <span id="connection-state">connecting...</span>
       </section>
 
-      <section class="grid">
+      <section id="monitor-view" class="grid">
         <article>
           <h2>Master Clock</h2>
-          <dl id="master-clock"></dl>
+          <div id="master-clock" class="master-status"></div>
+        </article>
+        <article>
+          <h2>Mappings</h2>
+          <ul id="mappings"></ul>
+        </article>
+        <article>
+          <h2>OSC Libraries</h2>
+          <ul id="osc-libraries"></ul>
+        </article>
+        <article>
+          <h2>MIDI Libraries</h2>
+          <ul id="midi-libraries"></ul>
+        </article>
+        <article>
+          <h2>Monitor</h2>
+          <ol id="events" class="events"></ol>
+        </article>
+      </section>
+
+      <section id="configuration-view" class="grid" hidden>
+        <article>
+          <h2>MIDI Master Clock</h2>
           <form id="master-clock-form">
             <label class="inline-field">
               <input id="master-enabled" type="checkbox" />
@@ -131,22 +155,6 @@
             <button type="submit">Save GPIO inputs</button>
             <p id="gpio-message" class="message"></p>
           </form>
-        </article>
-        <article>
-          <h2>Mappings</h2>
-          <ul id="mappings"></ul>
-        </article>
-        <article>
-          <h2>OSC Libraries</h2>
-          <ul id="osc-libraries"></ul>
-        </article>
-        <article>
-          <h2>MIDI Libraries</h2>
-          <ul id="midi-libraries"></ul>
-        </article>
-        <article>
-          <h2>Monitor</h2>
-          <ol id="events" class="events"></ol>
         </article>
       </section>
     </main>

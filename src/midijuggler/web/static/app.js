@@ -31,6 +31,10 @@ const oscLibraries = document.querySelector("#osc-libraries");
 const midiLibraries = document.querySelector("#midi-libraries");
 const events = document.querySelector("#events");
 const learnToggle = document.querySelector("#learn-toggle");
+const configurationToggle = document.querySelector("#configuration-toggle");
+const configurationExit = document.querySelector("#configuration-exit");
+const monitorView = document.querySelector("#monitor-view");
+const configurationView = document.querySelector("#configuration-view");
 const connectionState = document.querySelector("#connection-state");
 
 let learnMode = false;
@@ -48,19 +52,15 @@ function renderStatus(status) {
     const clock = status.master_clock;
     const params = clock.parameters || {};
     masterClock.replaceChildren();
-    for (const [label, value] of [
-      ["enabled", clock.enabled ? "yes" : "no"],
-      ["running", clock.running ? "yes" : "no"],
-      ["click", clock.click_interval],
-      ["quarter ms", params.quarter_ms?.toFixed(2) || "--"],
-      ["eighth ms", params.eighth_ms?.toFixed(2) || "--"],
-    ]) {
-      const term = document.createElement("dt");
-      term.textContent = label;
-      const detail = document.createElement("dd");
-      detail.textContent = value;
-      masterClock.append(term, detail);
-    }
+    masterClock.append(
+      statusRow("Enabled", statusPill(clock.enabled ? "yes" : "no", Boolean(clock.enabled))),
+      statusRow("Running", statusPill(clock.running ? "yes" : "no", Boolean(clock.running))),
+      statusRow("Click", statusPill(clock.click_interval || "--", Boolean(clock.click_interval))),
+      timeCards([
+        ["Quarter ms", params.quarter_ms],
+        ["Eighth ms", params.eighth_ms],
+      ]),
+    );
   }
 
   mappings.replaceChildren();
@@ -69,6 +69,39 @@ function renderStatus(status) {
     item.textContent = `${rule.id}: ${rule.source} -> ${rule.target}`;
     mappings.appendChild(item);
   }
+}
+
+function statusRow(label, valueNode) {
+  const row = document.createElement("div");
+  row.className = "status-row";
+  const name = document.createElement("span");
+  name.className = "status-label";
+  name.textContent = label;
+  row.append(name, valueNode);
+  return row;
+}
+
+function statusPill(text, isPositive) {
+  const pill = document.createElement("span");
+  pill.className = `status-pill ${isPositive ? "status-pill-positive" : "status-pill-negative"}`;
+  pill.textContent = text;
+  return pill;
+}
+
+function timeCards(values) {
+  const wrapper = document.createElement("div");
+  wrapper.className = "time-card-grid";
+  for (const [label, value] of values) {
+    const card = document.createElement("div");
+    card.className = "time-card";
+    const caption = document.createElement("span");
+    caption.textContent = label;
+    const number = document.createElement("strong");
+    number.textContent = Number.isFinite(value) ? value.toFixed(2) : "--";
+    card.append(caption, number);
+    wrapper.appendChild(card);
+  }
+  return wrapper;
 }
 
 function appendEvent(event) {
@@ -199,6 +232,20 @@ learnToggle.addEventListener("click", () => {
       body: JSON.stringify({ enabled }),
     }).then((response) => response.json()).then(renderStatus);
   }
+});
+
+configurationToggle.addEventListener("click", () => {
+  monitorView.hidden = true;
+  configurationView.hidden = false;
+  configurationToggle.hidden = true;
+  configurationExit.hidden = false;
+});
+
+configurationExit.addEventListener("click", () => {
+  configurationView.hidden = true;
+  monitorView.hidden = false;
+  configurationExit.hidden = true;
+  configurationToggle.hidden = false;
 });
 
 gpioForm.addEventListener("submit", (event) => {
