@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from importlib import resources
+from itertools import product
 from typing import Any
 import tomllib
 
@@ -110,15 +111,8 @@ def _expand_template(raw: dict[str, Any], field_name: str) -> list[OscParameter]
     if not isinstance(raw, dict):
         raise ValueError(f"{field_name} must be a table")
 
-    range_name = _required_str(raw, "range_name", f"{field_name}.range_name")
-    start = _required_int(raw, "range_start", f"{field_name}.range_start")
-    end = _required_int(raw, "range_end", f"{field_name}.range_end")
-    if start > end:
-        raise ValueError(f"{field_name}.range_start must be <= range_end")
-
     parameters: list[OscParameter] = []
-    for value in range(start, end + 1):
-        values = {range_name: value}
+    for values in _template_value_sets(raw, field_name):
         parameters.append(
             OscParameter(
                 id=_format_template(raw, "id", values, field_name),
@@ -135,6 +129,39 @@ def _expand_template(raw: dict[str, Any], field_name: str) -> list[OscParameter]
             )
         )
     return parameters
+
+
+def _template_value_sets(raw: dict[str, Any], field_name: str) -> list[dict[str, int]]:
+    ranges = raw.get("ranges")
+    if ranges is None:
+        range_name = _required_str(raw, "range_name", f"{field_name}.range_name")
+        start = _required_int(raw, "range_start", f"{field_name}.range_start")
+        end = _required_int(raw, "range_end", f"{field_name}.range_end")
+        ranges = [{"name": range_name, "start": start, "end": end}]
+
+    if not isinstance(ranges, list) or not ranges:
+        raise ValueError(f"{field_name}.ranges must be a non-empty list")
+
+    names: list[str] = []
+    value_ranges: list[range] = []
+    for index, raw_range in enumerate(ranges, start=1):
+        if not isinstance(raw_range, dict):
+            raise ValueError(f"{field_name}.ranges[{index}] must be a table")
+        name = _required_str(raw_range, "name", f"{field_name}.ranges[{index}].name")
+        start = _required_int(raw_range, "start", f"{field_name}.ranges[{index}].start")
+        end = _required_int(raw_range, "end", f"{field_name}.ranges[{index}].end")
+        if start > end:
+            raise ValueError(f"{field_name}.ranges[{index}].start must be <= end")
+        names.append(name)
+        value_ranges.append(range(start, end + 1))
+
+    if len(names) != len(set(names)):
+        raise ValueError(f"{field_name}.ranges names must be unique")
+
+    return [
+        dict(zip(names, values, strict=True))
+        for values in product(*value_ranges)
+    ]
 
 
 def _parse_parameter(raw: dict[str, Any], field_name: str) -> OscParameter:

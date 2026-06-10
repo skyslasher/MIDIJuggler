@@ -32,9 +32,9 @@ remote_host = "192.168.10.32"
 remote_port = 10023
 
 [[mappings]]
-id = "footswitch-to-x32-channel-01-mute"
+id = "footswitch-to-x32-channel-01-bus-01-send"
 source = "gpio:pin17"
-target = "x32_foh:/ch/01/mix/on"
+target = "x32_foh:/ch/01/mix/01/level"
 input_min = 0.0
 input_max = 1.0
 output_min = 0.0
@@ -43,7 +43,10 @@ invert = false
 ```
 
 The `x32_foh` prefix selects the adapter instance. The remaining part,
-`/ch/01/mix/on`, is the OSC address from the `behringer_x32` library.
+`/ch/01/mix/01/level`, is the OSC address from the `behringer_x32` library.
+
+Because MIDIJuggler is primarily intended for monitor control, channel sends
+are the largest and most important part of the packaged libraries.
 
 ## Behringer X32
 
@@ -52,7 +55,7 @@ The X32 library contains common targets for:
 - 32 input channel faders: `/ch/01/mix/fader` ... `/ch/32/mix/fader`
 - 32 input channel on switches: `/ch/01/mix/on` ... `/ch/32/mix/on`
 - 32 input channel pan parameters
-- channel-to-bus-01 send levels
+- 512 channel send levels: `/ch/01/mix/01/level` ... `/ch/32/mix/16/level`
 - 16 bus master faders and on switches
 - 8 DCA faders and on switches
 - main stereo fader and on switch
@@ -67,6 +70,7 @@ The Wing library contains common targets for:
 - 48 channel strip faders: `/ch/1/fdr` ... `/ch/48/fdr`
 - 48 channel strip mutes: `/ch/1/mute` ... `/ch/48/mute`
 - 48 channel strip pan parameters
+- 768 channel send levels: `/ch/1/send/1/lvl` ... `/ch/48/send/16/lvl`
 - 16 bus faders and mutes
 - 8 matrix faders and mutes
 - 16 DCA faders and mutes
@@ -84,3 +88,15 @@ The packaged files live in `src/midijuggler/osc_libraries/*.toml`.
 Use `[[parameters]]` for one fixed address and `[[templates]]` for repeated
 ranges such as channels or buses. Template fields support Python's string format
 syntax, for example `{channel:02d}` for X32 two-digit channel paths.
+
+For channel-send grids, templates can use multiple ranges:
+
+```toml
+[[templates]]
+id = "ch_{channel:02d}_bus_{bus:02d}_send"
+address = "/ch/{channel:02d}/mix/{bus:02d}/level"
+ranges = [
+  { name = "channel", start = 1, end = 32 },
+  { name = "bus", start = 1, end = 16 },
+]
+```

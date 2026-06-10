@@ -48,6 +48,21 @@ direction = "target"
 description = "Channel strip pan, normalized 0.0 left to 1.0 right."
 
 [[templates]]
+id = "ch_{channel}_bus_{bus}_send"
+label = "Channel {channel} Bus {bus} Send"
+address = "/ch/{channel}/send/{bus}/lvl"
+ranges = [
+  { name = "channel", start = 1, end = 48 },
+  { name = "bus", start = 1, end = 16 },
+]
+value_type = "float"
+value_min = 0.0
+value_max = 1.0
+category = "send"
+direction = "target"
+description = "Channel send level to bus {bus}, normalized 0.0 to 1.0 for monitor mixes."
+
+[[templates]]
 id = "bus_{bus}_fdr"
 label = "Bus {bus} Fader"
 address = "/bus/{bus}/fdr"

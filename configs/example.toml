@@ -86,9 +86,9 @@ output_max = 127.0
 invert = true
 
 [[mappings]]
-id = "gpio-to-x32-channel-01-on"
+id = "gpio-to-x32-channel-01-bus-01-send"
 source = "gpio:pin27"
-target = "x32_foh:/ch/01/mix/on"
+target = "x32_foh:/ch/01/mix/01/level"
 input_min = 0.0
 input_max = 1.0
 output_min = 0.0
@@ -96,9 +96,9 @@ output_max = 1.0
 invert = false
 
 [[mappings]]
-id = "gpio-to-wing-channel-1-mute"
+id = "gpio-to-wing-channel-1-bus-1-send"
 source = "gpio:pin22"
-target = "wing_foh:/ch/1/mute"
+target = "wing_foh:/ch/1/send/1/lvl"
 input_min = 0.0
 input_max = 1.0
 output_min = 0.0
