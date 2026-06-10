@@ -20,6 +20,7 @@ class RtpMidiManager:
         self._discovery = RtpMidiDiscovery()
         self._announcers: dict[str, RtpMidiAnnouncer] = {}
         self._instances: dict[str, AdapterConfig] = {}
+        self._zeroconf: Any | None = None
 
     @property
     def available(self) -> bool:
@@ -29,12 +30,33 @@ class RtpMidiManager:
         return [session.as_dict() for session in self._discovery.sessions()]
 
     async def start(self) -> None:
-        await self._discovery.start()
+        if not zeroconf_available():
+            LOGGER.info("zeroconf is not installed; RTP-MIDI manager is inactive")
+            return
+
+        if self._zeroconf is not None:
+            return
+
+        from zeroconf.asyncio import AsyncZeroconf
+
+        try:
+            self._zeroconf = AsyncZeroconf()
+        except OSError:
+            LOGGER.exception(
+                "failed to open mDNS socket for RTP-MIDI; "
+                "check Avahi port 5353 sharing (disallow-other-stacks=no)"
+            )
+            return
+
+        await self._discovery.start(self._zeroconf)
 
     async def stop(self) -> None:
         for instance_name in list(self._announcers):
             await self._stop_announcer(instance_name)
         await self._discovery.stop()
+        if self._zeroconf is not None:
+            await self._zeroconf.async_close()
+            self._zeroconf = None
         self._instances.clear()
 
     async def apply_instance(self, instance_name: str, config: AdapterConfig) -> None:
@@ -54,7 +76,14 @@ class RtpMidiManager:
                     instance_name,
                 )
                 return
-            announcer = RtpMidiAnnouncer(session_name, port)
+            if self._zeroconf is None:
+                LOGGER.warning(
+                    "RTP-MIDI adapter %s cannot host session %s because mDNS is unavailable",
+                    instance_name,
+                    session_name,
+                )
+                return
+            announcer = RtpMidiAnnouncer(session_name, port, self._zeroconf)
             await announcer.start()
             self._announcers[instance_name] = announcer
             return

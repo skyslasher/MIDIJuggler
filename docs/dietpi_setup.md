@@ -172,8 +172,12 @@ adapter is enabled in host mode:
 
 ```text
 started RTP-MIDI mDNS discovery
-announced RTP-MIDI session MIDIJuggler on UDP port 5004
+announced RTP-MIDI session MIDIJuggler as MIDIJuggler._apple-midi._udp.local. on MIDIJuggler.local. UDP 5004
+discovered RTP-MIDI session MyMac at MyMac.local.:5004
 ```
+
+Make sure the RTP-MIDI adapter is actually enabled in the web UI or
+`config.toml`; disabled adapters are not started and do not announce sessions.
 
 ```bash
 journalctl -u midijuggler.service -f

@@ -9,7 +9,11 @@ from midijuggler.eventbus import EventBus
 from midijuggler.master_clock import MasterClock
 from midijuggler.rtp_midi.discovery import (
     APPLE_MIDI_SERVICE_TYPE,
+    RtpMidiDiscovery,
     RtpMidiSession,
+    _RtpMidiServiceListener,
+    build_apple_midi_service_name,
+    local_mdns_server_name,
     parse_rtp_session_name,
     rtp_session_id,
 )
@@ -24,6 +28,42 @@ def test_parse_rtp_session_name_strips_service_suffix() -> None:
 
 def test_rtp_session_id_is_stable() -> None:
     assert rtp_session_id("Studio", "pi.local.", 5004) == "pi.local.:5004:Studio"
+
+
+def test_build_apple_midi_service_name_uses_service_type_suffix() -> None:
+    assert (
+        build_apple_midi_service_name("MIDIJuggler")
+        == f"MIDIJuggler.{APPLE_MIDI_SERVICE_TYPE}"
+    )
+
+
+def test_local_mdns_server_name_ends_with_local() -> None:
+    assert local_mdns_server_name().endswith(".local.")
+
+
+def test_service_listener_uses_sync_get_service_info() -> None:
+    discovery = RtpMidiDiscovery()
+    listener = _RtpMidiServiceListener(discovery)
+    service_name = f"Studio@{local_mdns_server_name().removesuffix('.')}.{APPLE_MIDI_SERVICE_TYPE}"
+
+    class FakeInfo:
+        server = "pi.local."
+        port = 5004
+        addresses = [b"\xc0\xa8\x01\n"]
+
+    class FakeZeroconf:
+        def get_service_info(self, type_: str, name: str, timeout: int = 3000):
+            assert type_ == APPLE_MIDI_SERVICE_TYPE
+            assert name == service_name
+            assert timeout == 3000
+            return FakeInfo()
+
+    listener.add_service(FakeZeroconf(), APPLE_MIDI_SERVICE_TYPE, service_name)
+
+    sessions = discovery.sessions()
+    assert len(sessions) == 1
+    assert sessions[0].name == "Studio"
+    assert sessions[0].port == 5004
 
 
 def test_rtp_session_as_dict_includes_label() -> None:
@@ -48,7 +88,13 @@ def test_rtp_midi_manager_hosts_enabled_instance(monkeypatch) -> None:
     announcer.stop = AsyncMock()
     monkeypatch.setattr(
         "midijuggler.rtp_midi.manager.RtpMidiAnnouncer",
-        lambda session_name, port: announcer,
+        lambda session_name, port, zeroconf: announcer,
+    )
+    shared_zeroconf = MagicMock()
+    shared_zeroconf.async_close = AsyncMock()
+    monkeypatch.setattr(
+        "zeroconf.asyncio.AsyncZeroconf",
+        lambda: shared_zeroconf,
     )
     discovery = MagicMock()
     discovery.start = AsyncMock()
