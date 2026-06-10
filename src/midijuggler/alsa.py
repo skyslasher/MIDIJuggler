@@ -66,6 +66,7 @@ def write_master_clock_dmix_config(path: str | Path, slave_pcm: str) -> None:
 
 
 def _render_dmix_pcm(slave_pcm: str, pcm_name: str) -> str:
+    slave_pcm = _dmix_slave_pcm(slave_pcm)
     return (
         f"pcm.{pcm_name} {{\n"
         "    type dmix\n"
@@ -93,6 +94,19 @@ def _render_alias_pcm(slave_pcm: str, pcm_name: str) -> str:
 
 def _is_hardware_pcm(device: str) -> bool:
     return device.startswith("hw:") or device.startswith("plughw:")
+
+
+def _dmix_slave_pcm(device: str) -> str:
+    """Return a dmix-compatible slave PCM.
+
+    ALSA dmix can only connect directly to the hw plugin. User-facing device
+    lists often prefer plughw for format conversion, but plughw cannot be the
+    dmix slave.
+    """
+
+    if device.startswith("plughw:"):
+        return "hw:" + device.removeprefix("plughw:")
+    return device
 
 
 def _alsa_string(value: str) -> str:

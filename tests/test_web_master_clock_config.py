@@ -130,7 +130,7 @@ def test_apply_master_clock_config_updates_alsa_dmix_config(tmp_path: Path) -> N
     )
 
     assert result["alsa_config_error"] == ""
-    assert 'pcm "plughw:1,0"' in (tmp_path / "asoundrc").read_text(encoding="utf-8")
+    assert 'pcm "hw:1,0"' in (tmp_path / "asoundrc").read_text(encoding="utf-8")
 
 
 def test_apply_master_clock_config_keeps_runtime_change_when_persisting_fails(

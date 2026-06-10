@@ -129,6 +129,12 @@ class ClickPlayer:
 
         if process.returncode:
             message = stderr.decode(errors="replace").strip() if stderr else ""
+            if "Device or resource busy" in message:
+                LOGGER.debug(
+                    "click playback skipped because audio device is busy: %s",
+                    message,
+                )
+                return
             LOGGER.warning(
                 "click playback command exited with status %s%s",
                 process.returncode,

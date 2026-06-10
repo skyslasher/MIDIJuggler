@@ -76,4 +76,4 @@ def test_service_writes_master_clock_alsa_config(tmp_path) -> None:
 
     asoundrc = tmp_path / "asoundrc"
     assert asoundrc.exists()
-    assert 'pcm "plughw:1,0"' in asoundrc.read_text(encoding="utf-8")
+    assert 'pcm "hw:1,0"' in asoundrc.read_text(encoding="utf-8")

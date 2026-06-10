@@ -19,7 +19,7 @@ def test_render_master_clock_dmix_points_to_selected_slave() -> None:
     config = render_master_clock_dmix("plughw:1,0")
 
     assert "pcm.master_clock" in config
-    assert 'pcm "plughw:1,0"' in config
+    assert 'pcm "hw:1,0"' in config
     assert "type dmix" in config
 
 

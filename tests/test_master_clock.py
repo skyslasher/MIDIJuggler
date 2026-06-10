@@ -41,6 +41,13 @@ class FakeFailedProcess:
         return b"", b"aplay: audio open error: Permission denied\n"
 
 
+class FakeBusyProcess:
+    returncode = 1
+
+    async def communicate(self) -> tuple[bytes, bytes]:
+        return b"", b"aplay: audio open error: Device or resource busy\n"
+
+
 def test_bpm_to_parameters_exposes_millisecond_values() -> None:
     parameters = bpm_to_parameters(120.0)
 
@@ -62,6 +69,17 @@ def test_click_player_logs_nonzero_aplay_exit(caplog) -> None:
 
     assert "click playback command exited with status 1" in caplog.text
     assert "Permission denied" in caplog.text
+
+
+def test_click_player_does_not_warn_for_busy_audio_device(caplog) -> None:
+    async def scenario() -> None:
+        player = ClickPlayer("/tmp/click.wav")
+        with caplog.at_level(logging.WARNING, logger="midijuggler.master_clock"):
+            await player._wait_for_process(FakeBusyProcess())  # type: ignore[arg-type]
+
+    asyncio.run(scenario())
+
+    assert "Device or resource busy" not in caplog.text
 
 
 def test_master_clock_outputs_midi_ticks_and_clicks() -> None:
