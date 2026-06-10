@@ -10,7 +10,7 @@ This initial scaffold includes:
 - async event bus with in-memory event history
 - MIDI clock BPM tracker
 - mapping engine with linear scaling and inversion
-- adapter stubs for OSC, USB MIDI, RTP-MIDI and GPIO
+- GPIO footswitch input adapter plus stubs for OSC, USB MIDI and RTP-MIDI
 - TOML configuration loader and example configuration
 - DietPi setup notes and a systemd service template
 - PC817 optocoupler circuit for protected 5 V footswitch polling
@@ -29,8 +29,21 @@ midijuggler --config configs/example.toml
 Open <http://127.0.0.1:8080> to view the web interface.
 
 The hardware-facing adapters are intentionally stubs in this baseline. They
-define the lifecycle and routing boundaries that concrete OSC, MIDI, RTP-MIDI
-and GPIO implementations can fill in later.
+define the lifecycle and routing boundaries that concrete OSC, MIDI and RTP-MIDI
+implementations can fill in later. GPIO footswitch input is implemented via
+polling configured BCM GPIO numbers.
+
+GPIO inputs are configured with a pin list. The number of entries controls the
+number of inputs:
+
+```toml
+[adapters.gpio]
+enabled = true
+pins = [17, 27, 22]
+active_low = true
+bounce_ms = 25
+poll_interval_ms = 5
+```
 
 Hardware notes:
 

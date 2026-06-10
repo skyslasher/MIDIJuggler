@@ -19,8 +19,12 @@ port = 5004
 
 [adapters.gpio]
 enabled = true
+# The number of GPIO inputs is the number of entries in this list.
+# BCM numbering is used, matching Raspberry Pi GPIO labels.
 pins = [17, 27, 22]
+active_low = true
 bounce_ms = 25
+poll_interval_ms = 5
 
 [[mappings]]
 id = "gpio-footswitch-to-midi-cc"

@@ -23,6 +23,7 @@ sudo apt install -y libasound2-dev alsa-utils
 sudo useradd --system --home /opt/midijuggler --shell /usr/sbin/nologin midijuggler
 sudo mkdir -p /opt/midijuggler /etc/midijuggler
 sudo chown midijuggler:midijuggler /opt/midijuggler
+sudo usermod -aG gpio midijuggler
 
 sudo -u midijuggler git clone https://github.com/your-org/midijuggler.git /opt/midijuggler/app
 sudo -u midijuggler python3 -m venv /opt/midijuggler/venv
@@ -34,6 +35,18 @@ sudo cp /opt/midijuggler/app/configs/example.toml /etc/midijuggler/config.toml
 Adjust `/etc/midijuggler/config.toml` for local ports, MIDI devices and GPIO
 pins. On a production Pi, restrict the web host or firewall access if the device
 is on an untrusted network.
+
+GPIO inputs use BCM numbering. The number of configured inputs is the number of
+entries in `pins`:
+
+```toml
+[adapters.gpio]
+enabled = true
+pins = [17, 27, 22]
+active_low = true
+bounce_ms = 25
+poll_interval_ms = 5
+```
 
 For protected GPIO footswitch wiring with 5 V polling voltage, see
 [`gpio_optocoupler_footswitch.md`](gpio_optocoupler_footswitch.md).

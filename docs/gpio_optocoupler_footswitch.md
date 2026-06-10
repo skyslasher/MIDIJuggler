@@ -135,8 +135,11 @@ configuration uses:
 ```toml
 [adapters.gpio]
 enabled = true
+# The number of inputs is controlled by the number of configured BCM GPIO pins.
 pins = [17, 27, 22]
+active_low = true
 bounce_ms = 25
+poll_interval_ms = 5
 ```
 
 If long cables are used, add optional hardware filtering:
