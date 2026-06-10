@@ -234,6 +234,8 @@ def test_join_mode_excludes_locally_hosted_rtp_sessions(monkeypatch) -> None:
     join_choices = payload["instances"][0]["available_rtp_sessions"]
 
     assert [choice["id"] for choice in join_choices] == [remote_id]
+    assert [session["id"] for session in payload["joinable_rtp_sessions"]] == [remote_id]
+    assert local_id in payload["hosted_rtp_session_ids"]
 
 
 def test_apply_midi_adapters_config_rejects_unknown_instance() -> None:

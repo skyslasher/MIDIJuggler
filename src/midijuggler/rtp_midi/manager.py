@@ -87,6 +87,36 @@ class RtpMidiManager:
             )
         return hosted_ids
 
+    def _hosted_session_signatures(self) -> set[tuple[str, int]]:
+        signatures: set[tuple[str, int]] = set()
+        for instance_name, config in self._instances.items():
+            if instance_name not in self._announcers:
+                continue
+            if not config.enabled:
+                continue
+            if str(config.options.get("role", "host")) != "host":
+                continue
+            session_name = str(config.options.get("session_name", "")).strip()
+            if not session_name:
+                continue
+            signatures.add((session_name.lower(), int(config.options.get("port", 5004))))
+        return signatures
+
+    def joinable_sessions(self) -> list[dict[str, Any]]:
+        if self._discovery is None:
+            return []
+
+        hosted_ids = self.hosted_session_ids()
+        hosted_signatures = self._hosted_session_signatures()
+        joinable: list[dict[str, Any]] = []
+        for session in self._discovery.sessions():
+            if session.id in hosted_ids:
+                continue
+            if (session.name.lower(), session.port) in hosted_signatures:
+                continue
+            joinable.append(session.as_dict())
+        return joinable
+
     async def start(self) -> None:
         if self._backend != "none":
             return

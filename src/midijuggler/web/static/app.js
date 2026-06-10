@@ -181,15 +181,22 @@ function selectedGpioPins() {
     .map((input) => Number(input.value));
 }
 
-function mergeRtpSessionChoices(config, instance) {
-  const merged = new Map();
-  for (const session of config.discovered_rtp_sessions || []) {
-    merged.set(session.id, session);
+function joinRtpSessionChoices(config, instance) {
+  const choices = new Map();
+  for (const session of config.joinable_rtp_sessions || []) {
+    choices.set(session.id, session);
   }
   for (const session of instance?.available_rtp_sessions || []) {
-    merged.set(session.id, session);
+    if ((config.hosted_rtp_session_ids || []).includes(session.id)) {
+      continue;
+    }
+    choices.set(session.id, session);
   }
-  return [...merged.values()];
+  return [...choices.values()];
+}
+
+function joinSelectEmptyLabel(choices) {
+  return choices.length === 0 ? "No remote session discovered" : null;
 }
 
 function updateRtpDiscoveryNote(config) {
@@ -203,28 +210,29 @@ function updateRtpDiscoveryNote(config) {
     return;
   }
   const discoveredCount = (config.discovered_rtp_sessions || []).length;
+  const joinableCount = (config.joinable_rtp_sessions || []).length;
   note.textContent =
     `RTP-MIDI discovery active (${config.rtp_midi_backend || "none"}). ` +
-    `${discoveredCount} session(s) on the network.`;
+    `${discoveredCount} session(s) on the network, ${joinableCount} available to join.`;
 }
 
 function refreshRtpJoinSelects(config) {
   for (const card of midiAdapterInstances.querySelectorAll(".midi-adapter-card")) {
     const roleSelect = card.querySelector('[data-field="role"]');
     const joinSelect = card.querySelector('[data-field="join_target"]');
-    if (!roleSelect || !joinSelect || roleSelect.value !== "join") {
+    if (!roleSelect || !joinSelect || roleSelect.value.trim().toLowerCase() !== "join") {
       continue;
     }
     const instanceName = card.dataset.instanceName;
     const instance = (config.instances || []).find((item) => item.name === instanceName);
-    const choices = mergeRtpSessionChoices(config, instance);
+    const choices = joinRtpSessionChoices(config, instance);
     replaceSelectOptions(
       joinSelect,
       choices,
       "id",
       "label",
       joinSelect.value,
-      "No remote session discovered",
+      joinSelectEmptyLabel(choices),
     );
   }
   updateRtpDiscoveryNote(config);
@@ -311,17 +319,15 @@ function renderMidiAdaptersConfig(config) {
         { id: "host", label: "Host session (announce via mDNS)" },
         { id: "join", label: "Join discovered session" },
       ];
-      card.appendChild(
-        createSelectField(
-          "Mode",
-          "role",
-          roleOptions,
-          "id",
-          "label",
-          instance.role || "host",
-          "Host session",
-        ),
+      const modeField = createSelectField(
+        "Mode",
+        "role",
+        roleOptions,
+        "id",
+        "label",
+        String(instance.role || "host").toLowerCase(),
       );
+      card.appendChild(modeField);
 
       const hostFields = document.createElement("div");
       hostFields.className = "rtp-host-fields";
@@ -335,29 +341,38 @@ function renderMidiAdaptersConfig(config) {
 
       const joinFields = document.createElement("div");
       joinFields.className = "rtp-join-fields";
+      const joinChoices = joinRtpSessionChoices(config, instance);
       const joinSelect = createSelectField(
         "Discovered session",
         "join_target",
-        mergeRtpSessionChoices(config, instance),
+        joinChoices,
         "id",
         "label",
         instance.join_target || "",
-        "No remote session discovered",
+        joinSelectEmptyLabel(joinChoices),
       );
       joinFields.appendChild(joinSelect);
       card.appendChild(joinFields);
 
-      const roleSelect = card.querySelector('[data-field="role"]');
+      const roleSelect = modeField.querySelector("select");
       const updateRtpVisibility = () => {
-        const isHost = roleSelect.value === "host";
-        hostFields.hidden = !isHost;
-        joinFields.hidden = isHost;
-        if (!isHost) {
-          fetchMidiAdaptersConfig().then((freshConfig) => {
-            midiAdaptersConfig = freshConfig;
-            refreshRtpJoinSelects(freshConfig);
-          });
+        const isJoin = roleSelect.value.trim().toLowerCase() === "join";
+        hostFields.hidden = isJoin;
+        joinFields.hidden = !isJoin;
+        card.dataset.joinRefreshGeneration = String(
+          Number(card.dataset.joinRefreshGeneration || 0) + 1,
+        );
+        if (!isJoin) {
+          return;
         }
+        const refreshGeneration = card.dataset.joinRefreshGeneration;
+        fetchMidiAdaptersConfig().then((freshConfig) => {
+          if (card.dataset.joinRefreshGeneration !== refreshGeneration) {
+            return;
+          }
+          midiAdaptersConfig = freshConfig;
+          refreshRtpJoinSelects(freshConfig);
+        });
       };
       roleSelect.addEventListener("change", updateRtpVisibility);
       updateRtpVisibility();
@@ -494,10 +509,12 @@ function selectedAdapterTargets(container) {
 
 function replaceSelectOptions(select, options, valueKey, labelKey, selectedValue, emptyLabel) {
   select.replaceChildren();
-  const emptyOption = document.createElement("option");
-  emptyOption.value = "";
-  emptyOption.textContent = emptyLabel;
-  select.appendChild(emptyOption);
+  if (emptyLabel != null && emptyLabel !== "") {
+    const emptyOption = document.createElement("option");
+    emptyOption.value = "";
+    emptyOption.textContent = emptyLabel;
+    select.appendChild(emptyOption);
+  }
 
   for (const option of options) {
     if (option[valueKey] === "") {

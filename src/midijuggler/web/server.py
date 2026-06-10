@@ -401,6 +401,16 @@ class WebInterface:
                 self.rtp_midi_manager.backend if self.rtp_midi_manager is not None else "none"
             ),
             "discovered_rtp_sessions": discovered_sessions,
+            "joinable_rtp_sessions": (
+                self.rtp_midi_manager.joinable_sessions()
+                if self.rtp_midi_manager is not None
+                else []
+            ),
+            "hosted_rtp_session_ids": (
+                sorted(self.rtp_midi_manager.hosted_session_ids())
+                if self.rtp_midi_manager is not None
+                else []
+            ),
             "instances": [
                 self._midi_instance_payload(name, adapter, port_ids)
                 for name, adapter in sorted(self.config.adapters.items())
@@ -644,18 +654,11 @@ class WebInterface:
         else:
             role = str(options.get("role", "host"))
             join_target = str(options.get("join_target", ""))
-            discovered = (
-                self.rtp_midi_manager.discovered_sessions()
+            joinable = (
+                self.rtp_midi_manager.joinable_sessions()
                 if self.rtp_midi_manager is not None
                 else []
             )
-            if role == "join" and self.rtp_midi_manager is not None:
-                hosted_ids = self.rtp_midi_manager.hosted_session_ids()
-                discovered = [
-                    session
-                    for session in discovered
-                    if session["id"] not in hosted_ids
-                ]
             payload.update(
                 {
                     "role": role,
@@ -663,7 +666,7 @@ class WebInterface:
                     "port": int(options.get("port", 5004)),
                     "join_target": join_target,
                     "available_rtp_sessions": self._rtp_session_choices(
-                        discovered,
+                        joinable,
                         join_target,
                     ),
                 }

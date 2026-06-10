@@ -211,6 +211,38 @@ def test_rtp_midi_manager_hosts_enabled_instance_with_zeroconf(monkeypatch) -> N
     asyncio.run(exercise())
 
 
+def test_joinable_sessions_exclude_local_host() -> None:
+    manager = RtpMidiManager()
+    local_host = local_mdns_server_name()
+    local_id = rtp_session_id("MIDIJuggler", local_host, 5004)
+    remote_id = rtp_session_id("MacSession", "MacBook.local.", 5004)
+    manager._discovery = RtpMidiDiscovery()
+    manager._discovery._sessions = {
+        local_id: RtpMidiSession(
+            id=local_id,
+            name="MIDIJuggler",
+            host=local_host,
+            port=5004,
+        ),
+        remote_id: RtpMidiSession(
+            id=remote_id,
+            name="MacSession",
+            host="MacBook.local.",
+            port=5004,
+        ),
+    }
+    manager._instances["rtp_midi"] = AdapterConfig(
+        enabled=True,
+        kind="rtp_midi",
+        options={"role": "host", "session_name": "MIDIJuggler", "port": 5004},
+    )
+    manager._announcers["rtp_midi"] = object()
+
+    joinable = manager.joinable_sessions()
+
+    assert [session["id"] for session in joinable] == [remote_id]
+
+
 def test_hosted_session_ids_tracks_active_host_instances() -> None:
     manager = RtpMidiManager()
     manager._instances["rtp_midi"] = AdapterConfig(
