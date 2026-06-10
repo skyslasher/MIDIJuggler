@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import asyncio
 import json
+import logging
 import mimetypes
 from importlib import resources
 from pathlib import Path
@@ -19,6 +20,8 @@ from midijuggler.events import Event
 from midijuggler.midi_library import get_midi_library, list_midi_libraries
 from midijuggler.master_clock import MasterClock
 from midijuggler.osc_library import get_osc_library, list_osc_libraries
+
+LOGGER = logging.getLogger(__name__)
 
 
 class WebInterface:
@@ -233,6 +236,8 @@ class WebInterface:
         if not isinstance(payload, dict):
             raise ValueError("GPIO config payload must be an object")
         options = self._normalized_gpio_options(payload)
+        persisted = False
+        persist_error = ""
 
         if self.gpio_adapter is not None:
             await self.gpio_adapter.configure_options(options)
@@ -241,9 +246,22 @@ class WebInterface:
             self.config.adapters["gpio"].options.update(options)
 
         if self.config_path is not None:
-            save_gpio_adapter_options(self.config_path, options)
+            try:
+                save_gpio_adapter_options(self.config_path, options)
+                persisted = True
+            except OSError as exc:
+                persist_error = str(exc)
+                LOGGER.warning(
+                    "GPIO config applied at runtime but could not be persisted to %s: %s",
+                    self.config_path,
+                    exc,
+                )
+        else:
+            persist_error = "no config path available"
 
-        return self.gpio_config_payload()
+        response = self.gpio_config_payload()
+        response.update({"persisted": persisted, "persist_error": persist_error})
+        return response
 
     def _gpio_options(self) -> dict[str, Any]:
         if self.gpio_adapter is not None:

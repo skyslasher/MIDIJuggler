@@ -33,11 +33,16 @@ sudo -u midijuggler python3 -m venv /opt/midijuggler/venv
 sudo -u midijuggler /opt/midijuggler/venv/bin/python -m pip install -U pip
 sudo -u midijuggler /opt/midijuggler/venv/bin/python -m pip install -e /opt/midijuggler/app
 sudo cp /opt/midijuggler/app/configs/example.toml /etc/midijuggler/config.toml
+sudo chown -R midijuggler:midijuggler /etc/midijuggler
 ```
 
 Adjust `/etc/midijuggler/config.toml` for local ports, MIDI devices and GPIO
 pins. On a production Pi, restrict the web host or firewall access if the device
 is on an untrusted network.
+
+The service user must own `/etc/midijuggler` if configuration changes should be
+persisted from the web interface. If not, runtime changes still apply but are
+lost on restart.
 
 GPIO inputs use BCM numbering. The number of configured inputs is the number of
 entries in `pins`:

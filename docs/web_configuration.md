@@ -23,6 +23,18 @@ The form also exposes:
 Saving updates the running GPIO adapter and persists the `[adapters.gpio]`
 section in the active TOML configuration file.
 
+For persistence, the service user needs write access to the configuration
+directory, because MIDIJuggler writes a temporary file next to the active config
+before replacing it:
+
+```bash
+sudo chown -R midijuggler:midijuggler /etc/midijuggler
+sudo systemctl restart midijuggler.service
+```
+
+If the service cannot write the config file, the GPIO change is still applied at
+runtime and the web UI reports that it was not persisted.
+
 The HTTP API is:
 
 ```text

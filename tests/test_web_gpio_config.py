@@ -88,6 +88,49 @@ def test_apply_gpio_config_persists_gpio_section(tmp_path: Path) -> None:
     assert saved.adapters["gpio"].options["active_low"] is False
 
 
+def test_apply_gpio_config_keeps_runtime_change_when_persisting_fails(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    config_file = tmp_path / "config.toml"
+    config_file.write_text(
+        """
+        [adapters.gpio]
+        enabled = true
+        pins = [17]
+        """,
+        encoding="utf-8",
+    )
+    config = load_config(config_file)
+    interface = WebInterface(
+        config,
+        EventBus(),
+        ClockBpmTracker(),
+        MasterClock(config.master_clock, EventBus()),
+        config_path=config_file,
+    )
+
+    def deny_persist(path: str | Path, options: dict[str, object]) -> None:
+        raise PermissionError(13, "Permission denied", f"{path}.tmp")
+
+    monkeypatch.setattr("midijuggler.web.server.save_gpio_adapter_options", deny_persist)
+
+    result = asyncio.run(
+        interface.apply_gpio_config(
+            {
+                "pins": [22],
+                "active_low": True,
+                "bounce_ms": 25,
+                "poll_interval_ms": 5,
+            }
+        )
+    )
+
+    assert result["persisted"] is False
+    assert "Permission denied" in result["persist_error"]
+    assert config.adapters["gpio"].options["pins"] == [22]
+
+
 def test_apply_gpio_config_rejects_unsupported_pins() -> None:
     config = parse_config({"adapters": {"gpio": {"enabled": True, "pins": [17]}}})
     interface = WebInterface(

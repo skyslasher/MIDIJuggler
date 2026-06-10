@@ -160,7 +160,11 @@ gpioForm.addEventListener("submit", (event) => {
     })
     .then((config) => {
       renderGpioConfig(config);
-      gpioMessage.textContent = "saved";
+      if (config.persisted === false) {
+        gpioMessage.textContent = `saved for runtime only: ${config.persist_error}`;
+      } else {
+        gpioMessage.textContent = "saved";
+      }
     })
     .catch((error) => {
       gpioMessage.textContent = `error: ${error.message}`;
