@@ -15,16 +15,24 @@ from midijuggler.config import AppConfig
 from midijuggler.eventbus import EventBus
 from midijuggler.events import Event
 from midijuggler.midi_library import get_midi_library, list_midi_libraries
+from midijuggler.master_clock import MasterClock
 from midijuggler.osc_library import get_osc_library, list_osc_libraries
 
 
 class WebInterface:
     """HTTP API, static UI and WebSocket event monitor."""
 
-    def __init__(self, config: AppConfig, bus: EventBus, clock: ClockBpmTracker) -> None:
+    def __init__(
+        self,
+        config: AppConfig,
+        bus: EventBus,
+        clock: ClockBpmTracker,
+        master_clock: MasterClock,
+    ) -> None:
         self.config = config
         self.bus = bus
         self.clock = clock
+        self.master_clock = master_clock
         self.learn_mode = False
         self._websockets: set[web.WebSocketResponse] = set()
         self.bus.subscribe("*", self._broadcast_event)
@@ -163,6 +171,14 @@ class WebInterface:
     def _status_payload(self) -> dict[str, Any]:
         return {
             "bpm": self.clock.bpm,
+            "master_clock": {
+                "enabled": self.config.master_clock.enabled,
+                "bpm": self.master_clock.bpm,
+                "running": self.master_clock.running,
+                "position_ticks": self.master_clock.position_ticks,
+                "click_interval": self.master_clock.click_interval,
+                "parameters": self.master_clock.parameters.as_controls(),
+            },
             "learn_mode": self.learn_mode,
             "mappings": [rule.__dict__ for rule in self.config.mappings],
             "adapters": {

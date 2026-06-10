@@ -48,6 +48,98 @@ class MidiClockEvent(Event):
 
 
 @dataclass(frozen=True)
+class MidiMessageEvent(Event):
+    """Raw-ish MIDI message exchanged with MIDI-capable adapters."""
+
+    status: int = 0
+    data: tuple[int, ...] = ()
+    target: str = ""
+    direction: str = "input"
+
+    def as_dict(self) -> dict[str, Any]:
+        payload = super().as_dict()
+        payload.update(
+            {
+                "status": self.status,
+                "data": list(self.data),
+                "target": self.target,
+                "direction": self.direction,
+            }
+        )
+        return payload
+
+
+@dataclass(frozen=True)
+class OscMessageEvent(Event):
+    """OSC message exchanged with OSC-capable adapters."""
+
+    address: str = ""
+    arguments: tuple[Any, ...] = ()
+    target: str = ""
+    direction: str = "input"
+
+    def as_dict(self) -> dict[str, Any]:
+        payload = super().as_dict()
+        payload.update(
+            {
+                "address": self.address,
+                "arguments": list(self.arguments),
+                "target": self.target,
+                "direction": self.direction,
+            }
+        )
+        return payload
+
+
+@dataclass(frozen=True)
+class MasterClockCommandEvent(Event):
+    """Control command for the MIDI master clock."""
+
+    command: str = ""
+    value: Any = None
+
+    def as_dict(self) -> dict[str, Any]:
+        payload = super().as_dict()
+        payload.update({"command": self.command, "value": self.value})
+        return payload
+
+
+@dataclass(frozen=True)
+class MasterClockStateEvent(Event):
+    """Published when master clock state changes."""
+
+    bpm: float = 0.0
+    running: bool = False
+    position_ticks: int = 0
+    click_interval: str = "quarter"
+
+    def as_dict(self) -> dict[str, Any]:
+        payload = super().as_dict()
+        payload.update(
+            {
+                "bpm": self.bpm,
+                "running": self.running,
+                "position_ticks": self.position_ticks,
+                "click_interval": self.click_interval,
+            }
+        )
+        return payload
+
+
+@dataclass(frozen=True)
+class ClickEvent(Event):
+    """Published when the master clock triggers an audio click."""
+
+    interval: str = "quarter"
+    position_ticks: int = 0
+
+    def as_dict(self) -> dict[str, Any]:
+        payload = super().as_dict()
+        payload.update({"interval": self.interval, "position_ticks": self.position_ticks})
+        return payload
+
+
+@dataclass(frozen=True)
 class BpmChangedEvent(Event):
     """Published when the MIDI clock tracker has a new BPM estimate."""
 

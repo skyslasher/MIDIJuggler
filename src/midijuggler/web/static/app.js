@@ -1,4 +1,5 @@
 const bpm = document.querySelector("#bpm");
+const masterClock = document.querySelector("#master-clock");
 const mappings = document.querySelector("#mappings");
 const oscLibraries = document.querySelector("#osc-libraries");
 const midiLibraries = document.querySelector("#midi-libraries");
@@ -10,9 +11,29 @@ let learnMode = false;
 let socket;
 
 function renderStatus(status) {
-  bpm.textContent = status.bpm ? status.bpm.toFixed(1) : "--";
+  const displayedBpm = status.master_clock?.bpm || status.bpm;
+  bpm.textContent = displayedBpm ? displayedBpm.toFixed(1) : "--";
   learnMode = Boolean(status.learn_mode);
   learnToggle.textContent = learnMode ? "Disable learn mode" : "Enable learn mode";
+
+  if (status.master_clock) {
+    const clock = status.master_clock;
+    const params = clock.parameters || {};
+    masterClock.replaceChildren();
+    for (const [label, value] of [
+      ["enabled", clock.enabled ? "yes" : "no"],
+      ["running", clock.running ? "yes" : "no"],
+      ["click", clock.click_interval],
+      ["quarter ms", params.quarter_ms?.toFixed(2) || "--"],
+      ["eighth ms", params.eighth_ms?.toFixed(2) || "--"],
+    ]) {
+      const term = document.createElement("dt");
+      term.textContent = label;
+      const detail = document.createElement("dd");
+      detail.textContent = value;
+      masterClock.append(term, detail);
+    }
+  }
 
   mappings.replaceChildren();
   for (const rule of status.mappings || []) {

@@ -2,6 +2,34 @@
 host = "0.0.0.0"
 port = 8080
 
+[master_clock]
+enabled = true
+bpm = 120.0
+bpm_min = 40.0
+bpm_max = 240.0
+auto_start = false
+output_targets = ["usb_midi", "rtp_midi"]
+send_transport = true
+
+# Remote control:
+# OSC: /midijuggler/clock/bpm 128.5
+# OSC: /midijuggler/clock/click_interval "quarter"
+bpm_osc_address = "/midijuggler/clock/bpm"
+click_interval_osc_address = "/midijuggler/clock/click_interval"
+
+# MIDI CC pair for 14-bit BPM control on channel 1.
+bpm_msb_cc = 20
+bpm_lsb_cc = 21
+click_interval_cc = 22
+midi_channel = 1
+
+# Optional audio click via ALSA/aplay and a USB sound card.
+click_enabled = false
+click_wav = "/etc/midijuggler/click.wav"
+click_interval = "quarter"
+click_command = "aplay"
+click_audio_device = ""
+
 [adapters.osc]
 enabled = true
 listen_host = "0.0.0.0"
@@ -137,4 +165,14 @@ input_min = 0.0
 input_max = 127.0
 output_min = 0.0
 output_max = 1.0
+invert = false
+
+[[mappings]]
+id = "clock-eighth-ms-to-delay-time"
+source = "clock:eighth_ms"
+target = "osc:/fx/delay/time_ms"
+input_min = 50.0
+input_max = 1000.0
+output_min = 50.0
+output_max = 1000.0
 invert = false

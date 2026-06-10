@@ -9,6 +9,12 @@ def test_parse_config_reads_web_adapters_and_mappings() -> None:
     config = parse_config(
         {
             "web": {"host": "127.0.0.1", "port": 9090},
+            "master_clock": {
+                "enabled": True,
+                "bpm": 118.5,
+                "output_targets": ["usb_midi", "rtp_midi"],
+                "click_interval": "eighth",
+            },
             "adapters": {"gpio": {"enabled": True, "pins": [17]}},
             "mappings": [
                 {
@@ -23,6 +29,10 @@ def test_parse_config_reads_web_adapters_and_mappings() -> None:
 
     assert config.web.host == "127.0.0.1"
     assert config.web.port == 9090
+    assert config.master_clock.enabled is True
+    assert config.master_clock.bpm == 118.5
+    assert config.master_clock.output_targets == ["usb_midi", "rtp_midi"]
+    assert config.master_clock.click_interval == "eighth"
     assert config.adapters["gpio"].enabled is True
     assert config.adapters["gpio"].kind == "gpio"
     assert config.adapters["gpio"].options["pins"] == [17]
@@ -94,6 +104,11 @@ def test_load_config_reads_toml_file(tmp_path: Path) -> None:
 def test_parse_config_rejects_incomplete_mapping() -> None:
     with pytest.raises(ValueError, match="missing required fields"):
         parse_config({"mappings": [{"id": "broken", "source": "gpio:pin17"}]})
+
+
+def test_parse_config_rejects_invalid_master_clock_interval() -> None:
+    with pytest.raises(ValueError, match="click_interval"):
+        parse_config({"master_clock": {"click_interval": "triplet"}})
 
 
 def test_parse_config_rejects_unknown_adapter_instance_without_type() -> None:

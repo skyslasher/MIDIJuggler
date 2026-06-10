@@ -7,7 +7,7 @@ from abc import ABC
 
 from midijuggler.config import AdapterConfig
 from midijuggler.eventbus import EventBus
-from midijuggler.events import AdapterStatusEvent, MappedEvent
+from midijuggler.events import AdapterStatusEvent, MappedEvent, MidiMessageEvent
 
 LOGGER = logging.getLogger(__name__)
 
@@ -53,3 +53,8 @@ class Adapter(ABC):
         """
 
         LOGGER.info("%s stub received mapped event: %s", self.name, event.as_dict())
+
+    async def send_midi_message(self, event: MidiMessageEvent) -> None:
+        """Send a MIDI message to a MIDI-capable adapter."""
+
+        LOGGER.info("%s stub received MIDI message: %s", self.name, event.as_dict())

@@ -17,6 +17,9 @@ Optional packages that are commonly useful for later adapter work:
 sudo apt install -y libasound2-dev alsa-utils
 ```
 
+`alsa-utils` provides `aplay`, which MIDIJuggler can use for the optional
+master-clock click output through a USB sound card.
+
 ## Install
 
 ```bash
@@ -50,6 +53,10 @@ poll_interval_ms = 5
 
 For protected GPIO footswitch wiring with 5 V polling voltage, see
 [`gpio_optocoupler_footswitch.md`](gpio_optocoupler_footswitch.md).
+
+For MIDI master clock and click configuration, see
+[`master_clock.md`](master_clock.md). Use `aplay -l` on the Pi to find the ALSA
+device name for `master_clock.click_audio_device`, for example `plughw:1,0`.
 
 ## systemd
 

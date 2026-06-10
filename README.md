@@ -8,7 +8,7 @@ This initial scaffold includes:
 
 - `aiohttp` web server with monitor, BPM display and learn-mode controls
 - async event bus with in-memory event history
-- MIDI clock BPM tracker
+- MIDI clock BPM tracker and MIDI master clock
 - mapping engine with linear scaling and inversion
 - OSC mapping libraries for Behringer X32 and Behringer Wing
 - MIDI mapping libraries for Behringer X-Touch Mini and PreSonus FaderPort 8/16
@@ -75,5 +75,6 @@ Hardware notes:
 
 - [DietPi setup](docs/dietpi_setup.md)
 - [GPIO footswitch input with PC817 optocoupler](docs/gpio_optocoupler_footswitch.md)
+- [MIDI master clock](docs/master_clock.md)
 - [MIDI mapping libraries](docs/midi_mapping_libraries.md)
 - [OSC mapping libraries](docs/osc_mapping_libraries.md)

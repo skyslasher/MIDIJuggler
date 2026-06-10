@@ -11,7 +11,16 @@ from midijuggler.adapters.base import Adapter
 from midijuggler.clock import ClockBpmTracker
 from midijuggler.config import AppConfig, load_config
 from midijuggler.eventbus import EventBus
-from midijuggler.events import BpmChangedEvent, ControlEvent, MidiClockEvent, MappedEvent
+from midijuggler.events import (
+    BpmChangedEvent,
+    ControlEvent,
+    MasterClockCommandEvent,
+    MidiClockEvent,
+    MidiMessageEvent,
+    MappedEvent,
+    OscMessageEvent,
+)
+from midijuggler.master_clock import MasterClock
 from midijuggler.mapping import MappingEngine
 from midijuggler.web.server import WebInterface, run_web_server, stop_web_server
 
@@ -25,19 +34,24 @@ class MIDIJugglerService:
         self.config = config
         self.bus = EventBus()
         self.clock = ClockBpmTracker()
+        self.master_clock = MasterClock(config.master_clock, self.bus)
         self.mapping = MappingEngine(config.mappings)
         self.adapters = build_adapters(config.adapters, self.bus)
-        self.web = WebInterface(config, self.bus, self.clock)
+        self.web = WebInterface(config, self.bus, self.clock, self.master_clock)
         self._runner = None
 
         self.bus.subscribe(MidiClockEvent, self._track_clock)
         self.bus.subscribe(ControlEvent, self._map_control)
         self.bus.subscribe(MappedEvent, self._route_mapped_event)
+        self.bus.subscribe(MidiMessageEvent, self._handle_midi_message)
+        self.bus.subscribe(OscMessageEvent, self._handle_osc_message)
+        self.bus.subscribe(MasterClockCommandEvent, self._handle_master_clock_command)
 
     async def start(self) -> None:
         LOGGER.info("starting MIDIJuggler")
         for adapter in self.adapters:
             await adapter.start()
+        await self.master_clock.start()
         self._runner = await run_web_server(self.web)
         LOGGER.info(
             "web interface listening on http://%s:%s",
@@ -50,6 +64,7 @@ class MIDIJugglerService:
         if self._runner is not None:
             await stop_web_server(self._runner)
             self._runner = None
+        await self.master_clock.stop()
         for adapter in reversed(self.adapters):
             await adapter.stop()
 
@@ -74,6 +89,27 @@ class MIDIJugglerService:
             LOGGER.warning("no enabled adapter for target %s", event.target)
             return
         await adapter.send(event)
+
+    async def _handle_midi_message(self, event: MidiMessageEvent) -> None:
+        if event.direction == "input" and self.config.master_clock.enabled:
+            await self.master_clock.handle_midi_message(event)
+            return
+
+        if event.direction != "output":
+            return
+        adapter = self._adapter_for_target(event.target)
+        if adapter is None:
+            LOGGER.warning("no enabled adapter for MIDI target %s", event.target)
+            return
+        await adapter.send_midi_message(event)
+
+    async def _handle_osc_message(self, event: OscMessageEvent) -> None:
+        if event.direction == "input" and self.config.master_clock.enabled:
+            await self.master_clock.handle_osc_message(event)
+
+    async def _handle_master_clock_command(self, event: MasterClockCommandEvent) -> None:
+        if self.config.master_clock.enabled:
+            await self.master_clock.handle_command(event)
 
     def _adapter_for_target(self, target: str) -> Adapter | None:
         adapter_name = target.split(":", 1)[0]

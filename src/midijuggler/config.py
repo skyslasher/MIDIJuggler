@@ -24,9 +24,32 @@ class AdapterConfig:
 
 
 @dataclass(frozen=True)
+class MasterClockConfig:
+    enabled: bool = False
+    bpm: float = 120.0
+    bpm_min: float = 20.0
+    bpm_max: float = 300.0
+    auto_start: bool = False
+    output_targets: list[str] = field(default_factory=list)
+    send_transport: bool = True
+    bpm_osc_address: str = "/midijuggler/clock/bpm"
+    click_interval_osc_address: str = "/midijuggler/clock/click_interval"
+    bpm_msb_cc: int = 20
+    bpm_lsb_cc: int = 21
+    click_interval_cc: int = 22
+    midi_channel: int = 1
+    click_enabled: bool = False
+    click_wav: str = ""
+    click_interval: str = "quarter"
+    click_command: str = "aplay"
+    click_audio_device: str = ""
+
+
+@dataclass(frozen=True)
 class AppConfig:
     web: WebConfig = field(default_factory=WebConfig)
     adapters: dict[str, AdapterConfig] = field(default_factory=dict)
+    master_clock: MasterClockConfig = field(default_factory=MasterClockConfig)
     mappings: list[MappingRule] = field(default_factory=list)
 
 
@@ -49,13 +72,63 @@ def parse_config(raw: dict[str, Any]) -> AppConfig:
     )
 
     adapters = _parse_adapters(raw.get("adapters", {}))
+    master_clock = _parse_master_clock(raw.get("master_clock", {}))
 
     mappings = [
         _parse_mapping(index, mapping_raw)
         for index, mapping_raw in enumerate(raw.get("mappings", []), start=1)
     ]
 
-    return AppConfig(web=web, adapters=adapters, mappings=mappings)
+    return AppConfig(web=web, adapters=adapters, master_clock=master_clock, mappings=mappings)
+
+
+def _parse_master_clock(raw: Any) -> MasterClockConfig:
+    if raw is None:
+        raw = {}
+    if not isinstance(raw, dict):
+        raise ValueError("master_clock must be a table")
+
+    bpm_min = _as_float(raw.get("bpm_min", 20.0), "master_clock.bpm_min")
+    bpm_max = _as_float(raw.get("bpm_max", 300.0), "master_clock.bpm_max")
+    bpm = _as_float(raw.get("bpm", 120.0), "master_clock.bpm")
+    if bpm_min <= 0 or bpm_max <= 0 or bpm_min >= bpm_max:
+        raise ValueError("master_clock bpm_min/bpm_max must be positive and ordered")
+    if not bpm_min <= bpm <= bpm_max:
+        raise ValueError("master_clock.bpm must be inside bpm_min/bpm_max")
+
+    output_targets = raw.get("output_targets", [])
+    if not isinstance(output_targets, list):
+        raise ValueError("master_clock.output_targets must be a list")
+
+    click_interval = str(raw.get("click_interval", "quarter"))
+    if click_interval not in {"eighth", "quarter", "half", "whole"}:
+        raise ValueError("master_clock.click_interval must be eighth, quarter, half or whole")
+
+    return MasterClockConfig(
+        enabled=bool(raw.get("enabled", False)),
+        bpm=bpm,
+        bpm_min=bpm_min,
+        bpm_max=bpm_max,
+        auto_start=bool(raw.get("auto_start", False)),
+        output_targets=[str(target) for target in output_targets],
+        send_transport=bool(raw.get("send_transport", True)),
+        bpm_osc_address=str(raw.get("bpm_osc_address", "/midijuggler/clock/bpm")),
+        click_interval_osc_address=str(
+            raw.get("click_interval_osc_address", "/midijuggler/clock/click_interval")
+        ),
+        bpm_msb_cc=_as_int(raw.get("bpm_msb_cc", 20), "master_clock.bpm_msb_cc"),
+        bpm_lsb_cc=_as_int(raw.get("bpm_lsb_cc", 21), "master_clock.bpm_lsb_cc"),
+        click_interval_cc=_as_int(
+            raw.get("click_interval_cc", 22),
+            "master_clock.click_interval_cc",
+        ),
+        midi_channel=_as_int(raw.get("midi_channel", 1), "master_clock.midi_channel"),
+        click_enabled=bool(raw.get("click_enabled", False)),
+        click_wav=str(raw.get("click_wav", "")),
+        click_interval=click_interval,
+        click_command=str(raw.get("click_command", "aplay")),
+        click_audio_device=str(raw.get("click_audio_device", "")),
+    )
 
 
 def _parse_adapters(raw: Any) -> dict[str, AdapterConfig]:
