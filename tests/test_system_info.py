@@ -13,8 +13,7 @@ def test_parse_aplay_devices_returns_plughw_ids() -> None:
     )
 
     assert devices == [
-        {"id": "", "label": "default", "mode": "alias"},
-        {"id": "default", "label": "default (software/mixed)", "mode": "alias"},
+        {"id": "", "label": "default (software/mixed)", "mode": "alias"},
         {
             "id": "plughw:0,0",
             "label": "Headphones / bcm2835 Headphones (plughw:0,0)",

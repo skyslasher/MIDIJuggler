@@ -204,7 +204,7 @@ function renderMasterClockConfig(config) {
     "id",
     "label",
     config.click_audio_device || "",
-    "default",
+    "default (software/mixed)",
   );
 
   masterOutputTargets.replaceChildren();

@@ -43,7 +43,7 @@ def test_master_clock_config_payload_lists_midi_output_targets() -> None:
     assert "click_command" not in payload
     assert payload["available_audio_devices"][0] == {
         "id": "",
-        "label": "default",
+        "label": "default (software/mixed)",
         "mode": "alias",
     }
     assert [
