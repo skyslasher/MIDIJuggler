@@ -1,7 +1,5 @@
 """Adapter factories for MIDIJuggler inputs and outputs."""
 
-from typing import TYPE_CHECKING
-
 from midijuggler.adapters.base import Adapter
 from midijuggler.adapters.gpio import GpioAdapter
 from midijuggler.adapters.osc import OscAdapter
@@ -9,9 +7,7 @@ from midijuggler.adapters.rtp_midi import RtpMidiAdapter
 from midijuggler.adapters.usb_midi import UsbMidiAdapter
 from midijuggler.config import AdapterConfig
 from midijuggler.eventbus import EventBus
-
-if TYPE_CHECKING:
-    from midijuggler.rtp_midi.manager import RtpMidiManager
+from midijuggler.rtp_midi.manager import RtpMidiManager
 
 ADAPTER_CLASSES = {
     "osc": OscAdapter,
