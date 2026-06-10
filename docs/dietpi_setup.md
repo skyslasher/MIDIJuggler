@@ -28,7 +28,7 @@ sudo mkdir -p /opt/midijuggler /etc/midijuggler
 sudo chown midijuggler:midijuggler /opt/midijuggler
 sudo usermod -aG gpio midijuggler
 
-sudo -u midijuggler git clone https://github.com/your-org/midijuggler.git /opt/midijuggler/app
+sudo -u midijuggler git clone https://github.com/skyslasher/midijuggler.git /opt/midijuggler/app
 sudo -u midijuggler python3 -m venv /opt/midijuggler/venv
 sudo -u midijuggler /opt/midijuggler/venv/bin/python -m pip install -U pip
 sudo -u midijuggler /opt/midijuggler/venv/bin/python -m pip install -e /opt/midijuggler/app
