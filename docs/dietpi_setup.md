@@ -26,7 +26,7 @@ master-clock click output through a USB sound card.
 sudo useradd --system --home /opt/midijuggler --shell /usr/sbin/nologin midijuggler
 sudo mkdir -p /opt/midijuggler /etc/midijuggler
 sudo chown midijuggler:midijuggler /opt/midijuggler
-sudo usermod -aG gpio midijuggler
+sudo usermod -aG gpio,audio midijuggler
 
 sudo -u midijuggler git clone https://github.com/skyslasher/midijuggler.git /opt/midijuggler/app
 sudo -u midijuggler python3 -m venv /opt/midijuggler/venv
@@ -59,9 +59,9 @@ poll_interval_ms = 5
 MIDIJuggler accepts BCM numbers here. On newer Raspberry Pi kernels, the
 deprecated sysfs GPIO interface may internally use global GPIO numbers with a
 `gpiochip` base offset; MIDIJuggler resolves that offset at startup.
-The systemd template also sets `SupplementaryGroups=gpio`. After changing group
-membership or the unit file, run `sudo systemctl daemon-reload` and restart the
-service so systemd picks up the new permissions.
+The systemd template also sets `SupplementaryGroups=gpio audio`. After changing
+group membership or the unit file, run `sudo systemctl daemon-reload` and
+restart the service so systemd picks up the new permissions.
 
 For protected GPIO footswitch wiring with 5 V polling voltage, see
 [`gpio_optocoupler_footswitch.md`](gpio_optocoupler_footswitch.md).
@@ -69,6 +69,9 @@ For protected GPIO footswitch wiring with 5 V polling voltage, see
 For MIDI master clock and click configuration, see
 [`master_clock.md`](master_clock.md). Use `aplay -l` on the Pi to find the ALSA
 device name for `master_clock.click_audio_device`, for example `plughw:1,0`.
+If `sudo -u midijuggler aplay /etc/midijuggler/click1.wav` reports
+`audio open error: Permission denied`, verify that `midijuggler` is in the
+`audio` group and restart the service.
 
 ## systemd
 

@@ -1,4 +1,5 @@
 import asyncio
+import logging
 
 import pytest
 
@@ -10,6 +11,7 @@ from midijuggler.master_clock import (
     MIDI_STOP,
     MIDI_TIMING_CLOCK,
     MasterClock,
+    ClickPlayer,
     bpm_to_parameters,
 )
 
@@ -22,6 +24,13 @@ class FakeClickPlayer:
         self.plays += 1
 
 
+class FakeFailedProcess:
+    returncode = 1
+
+    async def communicate(self) -> tuple[bytes, bytes]:
+        return b"", b"aplay: audio open error: Permission denied\n"
+
+
 def test_bpm_to_parameters_exposes_millisecond_values() -> None:
     parameters = bpm_to_parameters(120.0)
 
@@ -31,6 +40,18 @@ def test_bpm_to_parameters_exposes_millisecond_values() -> None:
     assert parameters.whole_ms == pytest.approx(2000.0)
     assert parameters.ppqn_tick_ms == pytest.approx(500.0 / 24.0)
     assert parameters.bar_4_4_ms == pytest.approx(2000.0)
+
+
+def test_click_player_logs_nonzero_aplay_exit(caplog) -> None:
+    async def scenario() -> None:
+        player = ClickPlayer("/tmp/click.wav")
+        with caplog.at_level(logging.WARNING, logger="midijuggler.master_clock"):
+            await player._wait_for_process(FakeFailedProcess())  # type: ignore[arg-type]
+
+    asyncio.run(scenario())
+
+    assert "click playback command exited with status 1" in caplog.text
+    assert "Permission denied" in caplog.text
 
 
 def test_master_clock_outputs_midi_ticks_and_clicks() -> None:

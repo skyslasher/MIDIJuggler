@@ -108,7 +108,7 @@ class ClickPlayer:
             process = await asyncio.create_subprocess_exec(
                 *command,
                 stdout=asyncio.subprocess.DEVNULL,
-                stderr=asyncio.subprocess.DEVNULL,
+                stderr=asyncio.subprocess.PIPE,
             )
         except OSError:
             LOGGER.exception("failed to start click playback command")
@@ -117,8 +117,19 @@ class ClickPlayer:
         asyncio.create_task(self._wait_for_process(process), name="click-playback")
 
     async def _wait_for_process(self, process: asyncio.subprocess.Process) -> None:
-        with contextlib.suppress(Exception):
-            await process.wait()
+        try:
+            _, stderr = await process.communicate()
+        except Exception:
+            LOGGER.exception("click playback command failed while waiting")
+            return
+
+        if process.returncode:
+            message = stderr.decode(errors="replace").strip() if stderr else ""
+            LOGGER.warning(
+                "click playback command exited with status %s%s",
+                process.returncode,
+                f": {message}" if message else "",
+            )
 
 
 class MasterClockRemote:
