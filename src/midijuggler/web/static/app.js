@@ -221,6 +221,9 @@ function replaceSelectOptions(select, options, valueKey, labelKey, selectedValue
   select.appendChild(emptyOption);
 
   for (const option of options) {
+    if (option[valueKey] === "") {
+      continue;
+    }
     const element = document.createElement("option");
     element.value = option[valueKey];
     element.textContent = option[labelKey];
