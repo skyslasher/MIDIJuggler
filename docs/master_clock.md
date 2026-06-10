@@ -86,10 +86,21 @@ Click WAV files are discovered from `/etc/midijuggler/*.wav`. Playback always
 uses `aplay`.
 
 MIDIJuggler writes an ALSA config next to the active TOML config, usually
-`/etc/midijuggler/asoundrc`, defining a dmix PCM named `master_clock`. The master
+`/etc/midijuggler/asoundrc`, defining a PCM named `master_clock`. The master
 clock always plays clicks through `aplay -D master_clock`; changing the audio
-device in the web UI rewrites the dmix slave to point at the selected ALSA
-device.
+device in the web UI rewrites that generated PCM.
+
+MIDIJuggler uses two ALSA strategies:
+
+- hardware PCMs such as `hw:1,0` or `plughw:1,0`: generate `pcm.master_clock`
+  as `type dmix`, with the selected hardware PCM as the dmix slave
+- software PCMs such as `default`, `dmix`, `plug`, route plugins, or custom
+  channel mappings: generate `pcm.master_clock` as a `plug` alias to the
+  selected PCM
+
+This avoids ALSA's `dmix plugin can be only connected to hw plugin` error while
+still allowing custom softdevices, for example routing to selected channels on
+a 5.1 sound card.
 
 Click playback is triggered in the background, so a click WAV that is longer
 than the configured click interval does not block the master clock from

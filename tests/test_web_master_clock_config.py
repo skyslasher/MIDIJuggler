@@ -41,7 +41,11 @@ def test_master_clock_config_payload_lists_midi_output_targets() -> None:
     assert payload["enabled"] is True
     assert payload["bpm"] == 120.0
     assert "click_command" not in payload
-    assert payload["available_audio_devices"][0] == {"id": "", "label": "default"}
+    assert payload["available_audio_devices"][0] == {
+        "id": "",
+        "label": "default",
+        "mode": "alias",
+    }
     assert [
         (target["name"], target["type"], target["selected"])
         for target in payload["available_output_targets"]

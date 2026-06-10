@@ -8,7 +8,10 @@ import subprocess
 
 
 def parse_aplay_devices(output: str) -> list[dict[str, str]]:
-    devices: list[dict[str, str]] = [{"id": "", "label": "default"}]
+    devices: list[dict[str, str]] = [
+        {"id": "", "label": "default", "mode": "alias"},
+        {"id": "default", "label": "default (software/mixed)", "mode": "alias"},
+    ]
     pattern = re.compile(
         r"card\s+(?P<card>\d+):\s*(?P<card_name>[^\[]+).*"
         r"device\s+(?P<device>\d+):\s*(?P<device_name>[^\[]+)"
@@ -25,6 +28,7 @@ def parse_aplay_devices(output: str) -> list[dict[str, str]]:
             {
                 "id": f"plughw:{card},{device}",
                 "label": f"{card_name} / {device_name} (plughw:{card},{device})",
+                "mode": "dmix",
             }
         )
     return devices
@@ -40,7 +44,7 @@ def list_alsa_output_devices() -> list[dict[str, str]]:
             timeout=2.0,
         )
     except (OSError, subprocess.TimeoutExpired):
-        return [{"id": "", "label": "default"}]
+        return [{"id": "", "label": "default", "mode": "alias"}]
     return parse_aplay_devices(result.stdout)
 
 

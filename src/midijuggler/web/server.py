@@ -15,7 +15,7 @@ from typing import Any
 from aiohttp import WSMsgType, web
 
 from midijuggler.adapters.gpio import GpioAdapter, RASPBERRY_PI_HEADER_BCM_PINS
-from midijuggler.alsa import write_master_clock_dmix_config
+from midijuggler.alsa import write_master_clock_pcm_config
 from midijuggler.clock import ClockBpmTracker
 from midijuggler.config import (
     AppConfig,
@@ -402,7 +402,7 @@ class WebInterface:
         alsa_config_error = ""
         if self.alsa_config_path is not None:
             try:
-                write_master_clock_dmix_config(
+                write_master_clock_pcm_config(
                     self.alsa_config_path,
                     config.click_audio_device,
                 )

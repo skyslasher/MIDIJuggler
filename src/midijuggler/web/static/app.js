@@ -242,7 +242,7 @@ function replaceSelectOptions(select, options, valueKey, labelKey, selectedValue
     }
     const element = document.createElement("option");
     element.value = option[valueKey];
-    element.textContent = option[labelKey];
+    element.textContent = option.mode ? `${option[labelKey]} [${option.mode}]` : option[labelKey];
     if (element.value === selectedValue) {
       element.selected = true;
     }

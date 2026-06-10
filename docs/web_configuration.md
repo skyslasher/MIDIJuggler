@@ -111,7 +111,9 @@ persisted.
 devices discovered through `aplay -l`, and WAV files found in
 `/etc/midijuggler/*.wav`.
 The selected ALSA device is used as the slave for a generated dmix PCM named
-`master_clock`; the click player always uses `aplay -D master_clock`.
+`master_clock` when it is a hardware PCM. If the selected target is already a
+software PCM, `master_clock` is generated as a plug alias instead. The click
+player always uses `aplay -D master_clock`.
 
 ## Configuration import/export
 
