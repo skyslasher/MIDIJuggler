@@ -1,0 +1,10 @@
+# Install on the Pi as /etc/sudoers.d/midijuggler (chmod 0440, visudo -c).
+# Allows the midijuggler service user to restart itself and change the hostname
+# from the web configuration page without a password.
+#
+#   sudo cp systemd/midijuggler-sudoers.example /etc/sudoers.d/midijuggler
+#   sudo chmod 0440 /etc/sudoers.d/midijuggler
+#   sudo visudo -c
+
+midijuggler ALL=(root) NOPASSWD: /opt/midijuggler/app/scripts/set-hostname.sh
+midijuggler ALL=(root) NOPASSWD: /opt/midijuggler/app/scripts/restart-midijuggler.sh

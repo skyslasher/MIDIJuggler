@@ -300,3 +300,29 @@ View logs with:
 ```bash
 journalctl -u midijuggler.service -f
 ```
+
+### Stage system controls (hostname and restart)
+
+The web configuration page exposes **Stage system** controls for headless boxes on
+stage:
+
+- **Hostname** — shown in the header as `MIDIJuggler - <hostname>` and applied with
+  `hostnamectl`. The helper script also updates `127.0.1.1` in `/etc/hosts` and
+  restarts `avahi-daemon` so the new name is announced on mDNS immediately.
+  Hosted RTP-MIDI sessions are re-announced by MIDIJuggler after the change.
+- **Restart MIDIJuggler service** — restarts the systemd unit without power cycling
+  the Pi when something is stuck.
+
+These actions run helper scripts as root through passwordless `sudo`. Install the
+sudoers snippet and make the scripts executable after `git pull`:
+
+```bash
+sudo chmod +x /opt/midijuggler/app/scripts/set-hostname.sh
+sudo chmod +x /opt/midijuggler/app/scripts/restart-midijuggler.sh
+sudo cp /opt/midijuggler/app/systemd/midijuggler-sudoers.example /etc/sudoers.d/midijuggler
+sudo chmod 0440 /etc/sudoers.d/midijuggler
+sudo visudo -c
+```
+
+Without the sudoers file the fields stay visible but disabled; hostname and
+restart still work from the shell as root.

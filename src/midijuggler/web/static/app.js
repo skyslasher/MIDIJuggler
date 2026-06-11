@@ -81,6 +81,12 @@ const configurationToggle = document.querySelector("#configuration-toggle");
 const configurationExit = document.querySelector("#configuration-exit");
 const monitorView = document.querySelector("#monitor-view");
 const configurationView = document.querySelector("#configuration-view");
+const appTitle = document.querySelector("#app-title");
+const systemHostnameInput = document.querySelector("#system-hostname");
+const systemHostnameSave = document.querySelector("#system-hostname-save");
+const systemHostnameMessage = document.querySelector("#system-hostname-message");
+const systemRestartButton = document.querySelector("#system-restart");
+const systemRestartMessage = document.querySelector("#system-restart-message");
 const connectionState = document.querySelector("#connection-state");
 
 let learnMode = false;
@@ -99,7 +105,47 @@ let adapterLibraryConfig = {};
 const monitorLibraryCache = { midi: {}, osc: {} };
 const adapterConnectionStatus = {};
 
+function updateAppTitle(hostname) {
+  if (!appTitle) {
+    return;
+  }
+  const normalized = String(hostname || "").trim();
+  appTitle.textContent = normalized ? `MIDIJuggler - ${normalized}` : "MIDIJuggler";
+}
+
+function renderSystemConfig(config) {
+  if (systemHostnameInput && document.activeElement !== systemHostnameInput) {
+    systemHostnameInput.value = config.hostname || "";
+  }
+  if (systemHostnameSave) {
+    systemHostnameSave.disabled = config.can_set_hostname === false;
+  }
+  if (systemRestartButton) {
+    systemRestartButton.disabled = config.can_restart_service === false;
+  }
+  if (systemHostnameMessage && config.can_set_hostname === false) {
+    systemHostnameMessage.textContent =
+      "Hostname changes require sudo permissions on this system.";
+  }
+}
+
+function loadSystemConfig() {
+  return fetch("/api/system")
+    .then(async (response) => {
+      if (!response.ok) {
+        throw new Error(await response.text());
+      }
+      return response.json();
+    })
+    .then((config) => {
+      renderSystemConfig(config);
+      updateAppTitle(config.hostname);
+      return config;
+    });
+}
+
 function renderStatus(status) {
+  updateAppTitle(status.hostname);
   const displayedBpm = status.master_clock?.bpm || status.bpm;
   bpm.textContent = displayedBpm ? displayedBpm.toFixed(1) : "--";
   learnMode = Boolean(status.learn_mode);
@@ -2584,6 +2630,60 @@ configurationToggle.addEventListener("click", () => {
   configurationView.hidden = false;
   configurationToggle.hidden = true;
   configurationExit.hidden = false;
+  loadSystemConfig().catch((error) => {
+    if (systemHostnameMessage) {
+      systemHostnameMessage.textContent = `error: ${error.message}`;
+    }
+  });
+});
+
+systemHostnameSave?.addEventListener("click", () => {
+  if (!systemHostnameInput) {
+    return;
+  }
+  systemHostnameMessage.textContent = "saving...";
+  fetch("/api/system/hostname", {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({ hostname: systemHostnameInput.value }),
+  })
+    .then(async (response) => {
+      if (!response.ok) {
+        throw new Error(await response.text());
+      }
+      return response.json();
+    })
+    .then((result) => {
+      updateAppTitle(result.hostname);
+      systemHostnameMessage.textContent = result.mdns_refreshed
+        ? "hostname saved; mDNS announcements refreshed"
+        : "hostname saved";
+      return loadSystemConfig();
+    })
+    .catch((error) => {
+      systemHostnameMessage.textContent = `error: ${error.message}`;
+    });
+});
+
+systemRestartButton?.addEventListener("click", () => {
+  if (!window.confirm("Restart MIDIJuggler now? The web UI will disconnect briefly.")) {
+    return;
+  }
+  systemRestartMessage.textContent = "restarting...";
+  fetch("/api/system/restart", { method: "POST" })
+    .then(async (response) => {
+      if (!response.ok) {
+        throw new Error(await response.text());
+      }
+      return response.json();
+    })
+    .then(() => {
+      systemRestartMessage.textContent = "restart requested; reconnecting...";
+      connectionState.textContent = "restarting service...";
+    })
+    .catch((error) => {
+      systemRestartMessage.textContent = `error: ${error.message}`;
+    });
 });
 
 configurationExit.addEventListener("click", () => {

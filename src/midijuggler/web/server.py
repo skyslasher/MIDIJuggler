@@ -65,6 +65,14 @@ from midijuggler.osc.desk_protocol import (
 )
 from midijuggler.osc.discovery import discover_desks
 from midijuggler.osc_library import get_osc_library, list_osc_libraries
+from midijuggler.system_hostname import (
+    apply_hostname,
+    can_restart_service,
+    can_set_hostname,
+    get_hostname,
+    restart_service,
+    validate_hostname,
+)
 from midijuggler.system_info import (
     list_alsa_output_devices,
     list_click_wavs,
@@ -122,6 +130,9 @@ class WebInterface:
         app.router.add_get("/", self.index)
         app.router.add_get("/static/{filename}", self.static_asset)
         app.router.add_get("/api/status", self.status)
+        app.router.add_get("/api/system", self.system_config)
+        app.router.add_post("/api/system/hostname", self.set_system_hostname)
+        app.router.add_post("/api/system/restart", self.restart_service_endpoint)
         app.router.add_get("/api/config/export", self.export_config)
         app.router.add_post("/api/config/import", self.import_config)
         app.router.add_get("/api/gpio", self.gpio_config)
@@ -167,6 +178,68 @@ class WebInterface:
 
     async def status(self, request: web.Request) -> web.Response:
         return web.json_response(self._status_payload())
+
+    def system_config_payload(self) -> dict[str, Any]:
+        return {
+            "hostname": get_hostname(),
+        }
+
+    async def system_config(self, request: web.Request) -> web.Response:
+        can_set, can_restart = await asyncio.gather(
+            can_set_hostname(),
+            can_restart_service(),
+        )
+        payload = self.system_config_payload()
+        payload["can_set_hostname"] = can_set
+        payload["can_restart_service"] = can_restart
+        return web.json_response(payload)
+
+    async def set_system_hostname(self, request: web.Request) -> web.Response:
+        payload = await request.json()
+        hostname = str(payload.get("hostname", ""))
+        try:
+            validate_hostname(hostname)
+        except ValueError as exc:
+            return web.Response(text=str(exc), status=400)
+
+        try:
+            new_hostname = await apply_hostname(hostname)
+        except OSError as exc:
+            LOGGER.warning("failed to set hostname: %s", exc)
+            return web.Response(text=str(exc), status=503)
+
+        if self.rtp_midi_manager is not None:
+            try:
+                await self.rtp_midi_manager.refresh_announcements()
+            except Exception:
+                LOGGER.exception("failed to refresh RTP-MIDI announcements")
+
+        await self._broadcast_payload(
+            {"type": "status", "payload": self._status_payload()}
+        )
+        return web.json_response(
+            {
+                "hostname": new_hostname,
+                "mdns_refreshed": self.rtp_midi_manager is not None,
+            }
+        )
+
+    async def restart_service_endpoint(self, request: web.Request) -> web.Response:
+        if not await can_restart_service():
+            return web.Response(
+                text="service restart is not permitted on this system",
+                status=503,
+            )
+
+        async def _delayed_restart() -> None:
+            await asyncio.sleep(0.3)
+            try:
+                await restart_service()
+            except OSError as exc:
+                LOGGER.error("failed to restart MIDIJuggler service: %s", exc)
+
+        asyncio.create_task(_delayed_restart())
+        return web.json_response({"restarting": True})
 
     async def export_config(self, request: web.Request) -> web.Response:
         try:
@@ -512,6 +585,7 @@ class WebInterface:
 
     def _status_payload(self) -> dict[str, Any]:
         return {
+            "hostname": get_hostname(),
             "bpm": self.clock.bpm,
             "master_clock": {
                 "enabled": self.master_clock.config.enabled,

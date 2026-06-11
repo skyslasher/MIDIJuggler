@@ -252,6 +252,15 @@ class RtpMidiManager:
         self._instances.pop(instance_name, None)
         await self._stop_announcer(instance_name)
 
+    async def refresh_announcements(self) -> None:
+        """Re-announce hosted RTP-MIDI sessions after hostname or mDNS changes."""
+
+        instances = dict(self._instances)
+        for instance_name in list(self._announcers):
+            await self._stop_announcer(instance_name)
+        for instance_name, config in instances.items():
+            await self.apply_instance(instance_name, config)
+
     async def _stop_announcer(self, instance_name: str) -> None:
         announcer = self._announcers.pop(instance_name, None)
         if announcer is not None:

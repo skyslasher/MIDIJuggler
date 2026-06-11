@@ -10,7 +10,7 @@
     <main>
       <header>
         <div>
-          <h1>MIDIJuggler</h1>
+          <h1 id="app-title">MIDIJuggler</h1>
           <p>OSC, MIDI, RTP-MIDI and GPIO routing monitor</p>
         </div>
         <div class="header-clock">
@@ -89,6 +89,18 @@
       </section>
 
       <section id="configuration-view" class="grid" hidden>
+        <article>
+          <h2>Stage system</h2>
+          <p class="hint">Identify this box on the network and recover without power cycling.</p>
+          <label>
+            Hostname
+            <input id="system-hostname" type="text" autocomplete="off" spellcheck="false" />
+          </label>
+          <button type="button" id="system-hostname-save">Save hostname</button>
+          <p id="system-hostname-message" class="message"></p>
+          <button type="button" id="system-restart" class="danger-button">Restart MIDIJuggler service</button>
+          <p id="system-restart-message" class="message"></p>
+        </article>
         <article class="midi-device-panel">
           <h2>OSC</h2>
           <p class="hint">Desk libraries (X32/Wing) use the same local and remote OSC port and renew subscriptions every 9 seconds.</p>
