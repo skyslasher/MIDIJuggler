@@ -258,6 +258,54 @@ def test_apply_osc_adapters_config_persists_sections(tmp_path: Path) -> None:
     assert 'listen_host = "127.0.0.1"' in saved_text
 
 
+def test_apply_osc_adapters_config_can_delete_default_osc_instance(tmp_path: Path) -> None:
+    config_file = tmp_path / "config.toml"
+    config_file.write_text(
+        """
+        [adapters.osc]
+        enabled = true
+        listen_port = 9000
+        """,
+        encoding="utf-8",
+    )
+    config = load_config(config_file)
+    interface = WebInterface(
+        config,
+        EventBus(),
+        ClockBpmTracker(),
+        MasterClock(config.master_clock, EventBus()),
+        config_path=config_file,
+    )
+
+    async def delete_default_osc() -> dict:
+        return await interface.apply_osc_adapters_config(
+            {
+                "instances": [],
+                "deleted": ["osc"],
+            }
+        )
+
+    result = asyncio.run(delete_default_osc())
+
+    assert result["instances"] == []
+    assert "osc" not in interface.config.adapters
+    assert "[adapters.osc]" not in config_file.read_text(encoding="utf-8")
+
+
+def test_osc_adapters_config_hides_implicit_default_osc_instance() -> None:
+    config = parse_config({"adapters": {}})
+    interface = WebInterface(
+        config,
+        EventBus(),
+        ClockBpmTracker(),
+        MasterClock(config.master_clock, EventBus()),
+    )
+
+    payload = interface.osc_adapters_config_payload()
+
+    assert payload["instances"] == []
+
+
 def test_apply_osc_adapters_config_can_add_and_delete_instances(tmp_path: Path) -> None:
     config_file = tmp_path / "config.toml"
     config_file.write_text(

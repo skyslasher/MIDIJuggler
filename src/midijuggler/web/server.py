@@ -485,6 +485,14 @@ class WebInterface:
             },
         }
 
+    def _should_list_osc_instance(self, name: str, adapter: AdapterConfig) -> bool:
+        kind = adapter.kind or name
+        if kind != "osc":
+            return False
+        if name != "osc":
+            return True
+        return adapter.enabled or bool(adapter.options)
+
     def _osc_instances_payload(self) -> list[dict[str, Any]]:
         return [
             {
@@ -904,7 +912,7 @@ class WebInterface:
             "instances": [
                 self._osc_instance_payload(name, adapter)
                 for name, adapter in sorted(self.config.adapters.items())
-                if (adapter.kind or name) == "osc"
+                if self._should_list_osc_instance(name, adapter)
             ],
         }
 
@@ -925,8 +933,6 @@ class WebInterface:
             name = str(raw_name).strip()
             if not name:
                 continue
-            if name in DEFAULT_ADAPTERS:
-                raise ValueError(f"cannot delete default adapter instance: {name}")
             if name not in self.config.adapters:
                 raise ValueError(f"unknown OSC adapter instance: {name}")
             adapter_kind = self.config.adapters[name].kind or name
@@ -935,6 +941,9 @@ class WebInterface:
             deleted_names.append(name)
 
         for name in deleted_names:
+            adapter = self.osc_adapters.pop(name, None)
+            if adapter is not None and adapter.running:
+                await adapter.stop()
             self.config.adapters.pop(name, None)
 
         updates: dict[str, AdapterConfig] = {}
@@ -959,10 +968,6 @@ class WebInterface:
 
             if name not in self.config.adapters:
                 _validate_adapter_instance_name(name)
-                if name in DEFAULT_ADAPTERS:
-                    raise ValueError(
-                        f"cannot create reserved adapter instance name: {name}"
-                    )
                 kind = str(raw_instance.get("type", "osc")).strip()
                 if kind != "osc":
                     raise ValueError(f"adapter {name} must use type 'osc', not {kind!r}")

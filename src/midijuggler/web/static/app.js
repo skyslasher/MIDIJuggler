@@ -39,7 +39,8 @@ const midiAdaptersRefresh = document.querySelector("#midi-adapters-refresh");
 const midiMessage = document.querySelector("#midi-message");
 const rtpMidiMessage = document.querySelector("#rtp-midi-message");
 const DEFAULT_MIDI_ADAPTER_NAMES = new Set(["midi", "rtp_midi"]);
-const DEFAULT_OSC_ADAPTER_NAMES = new Set(["osc"]);
+const DEFAULT_OSC_INSTANCE_NAMES = new Set(["osc"]);
+const PROTECTED_DELETE_MESSAGE = "Default instances cannot be deleted";
 const DESK_MODE_OPTIONS = [
   { id: "", label: "None" },
   { id: "x32", label: "X32" },
@@ -667,13 +668,15 @@ function createMidiAdapterCard(instance, config, options = {}) {
   deleteButton.type = "button";
   deleteButton.className = "midi-adapter-delete";
   deleteButton.textContent = "Delete";
-  if (!isNew && DEFAULT_MIDI_ADAPTER_NAMES.has(instance.name)) {
-    deleteButton.disabled = true;
-    deleteButton.title = "Default instances cannot be deleted";
-  }
-  deleteButton.addEventListener("click", () => {
-    deleteMidiAdapterCard(card, instance.type);
-  });
+  wireAdapterDeleteButton(
+    deleteButton,
+    card,
+    () => deleteMidiAdapterCard(card, instance.type),
+    {
+      protectedDelete: !isNew && DEFAULT_MIDI_ADAPTER_NAMES.has(instance.name),
+      panelMessage: panelMessageForMidiKind(instance.type),
+    },
+  );
   actions.appendChild(deleteButton);
   header.appendChild(actions);
   card.appendChild(header);
@@ -889,6 +892,21 @@ function attachMidiAdapterCardControls(card) {
 
   card.dataset.savedState = midiAdapterCardStateSignature(card);
   updateMidiAdapterCardDirtyState(card);
+}
+
+function wireAdapterDeleteButton(deleteButton, card, onDelete, options = {}) {
+  const { protectedDelete = false, panelMessage = null } = options;
+  if (protectedDelete) {
+    deleteButton.title = PROTECTED_DELETE_MESSAGE;
+    deleteButton.addEventListener("click", () => {
+      showMidiAdapterCardMessage(card, PROTECTED_DELETE_MESSAGE, { autoHide: true });
+      if (panelMessage) {
+        panelMessage.textContent = PROTECTED_DELETE_MESSAGE;
+      }
+    });
+    return;
+  }
+  deleteButton.addEventListener("click", onDelete);
 }
 
 function confirmMidiAdapterDelete(card) {
@@ -1162,7 +1180,7 @@ function createOscAdapterCard(instance, config, options = {}) {
   header.className = "midi-adapter-card-header";
 
   header.appendChild(
-    createAdapterNameField(instance, DEFAULT_OSC_ADAPTER_NAMES, { isNew }),
+    createAdapterNameField(instance, DEFAULT_OSC_INSTANCE_NAMES, { isNew }),
   );
 
   const actions = document.createElement("div");
@@ -1179,12 +1197,8 @@ function createOscAdapterCard(instance, config, options = {}) {
   deleteButton.type = "button";
   deleteButton.className = "midi-adapter-delete";
   deleteButton.textContent = "Delete";
-  if (!isNew && DEFAULT_OSC_ADAPTER_NAMES.has(instance.name)) {
-    deleteButton.disabled = true;
-    deleteButton.title = "Default instances cannot be deleted";
-  }
-  deleteButton.addEventListener("click", () => {
-    deleteOscAdapterCard(card);
+  wireAdapterDeleteButton(deleteButton, card, () => deleteOscAdapterCard(card), {
+    panelMessage: oscMessage,
   });
   actions.appendChild(deleteButton);
   header.appendChild(actions);
