@@ -38,7 +38,7 @@ def test_encode_midi_target_message_control_change_led_ring() -> None:
     status, data = encode_midi_target_message(parameter, 5)
 
     assert status == 0xB0
-    assert data == (9, 5)
+    assert data == (1, 5)
 
 
 def test_resolve_midi_target_parameter_uses_adapter_library() -> None:

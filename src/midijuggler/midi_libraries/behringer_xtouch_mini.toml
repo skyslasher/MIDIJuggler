@@ -30,7 +30,7 @@ range_name = "encoder"
 range_start = 1
 range_end = 8
 derived = [
-  { name = "cc_number", source = "encoder", offset = 8 },
+  { name = "cc_number", source = "encoder", offset = 10 },
 ]
 message_type = "control_change"
 value_type = "relative"
@@ -40,7 +40,7 @@ category = "encoder"
 direction = "source"
 midi_channel = 1
 number = "{cc_number}"
-description = "Layer B endless encoder {encoder} turn, intended for relative CC mapping."
+description = "Layer B endless encoder {encoder} turn on CC 11-18, intended for relative CC mapping."
 
 [[templates]]
 id = "layer_a_encoder_{encoder}_push"
@@ -173,8 +173,8 @@ value_max = 127
 category = "fader"
 direction = "source"
 midi_channel = 1
-number = 126
-description = "Layer A 60 mm fader."
+number = 9
+description = "Layer A 60 mm master fader on CC 9."
 
 [[parameters]]
 id = "layer_b_fader"
@@ -187,18 +187,35 @@ value_max = 127
 category = "fader"
 direction = "source"
 midi_channel = 1
-number = 127
-description = "Layer B 60 mm fader."
+number = 10
+description = "Layer B 60 mm master fader on CC 10."
 
 [[templates]]
-id = "encoder_{encoder}_led_ring"
-label = "Encoder {encoder} LED Ring"
-address = "xtouch-mini://feedback/encoder/{encoder}/led_ring"
+id = "layer_a_encoder_{encoder}_led_ring"
+label = "Layer A Encoder {encoder} LED Ring"
+address = "xtouch-mini://layer_a/feedback/encoder/{encoder}/led_ring"
+range_name = "encoder"
+range_start = 1
+range_end = 8
+message_type = "control_change"
+value_type = "int"
+value_min = 0
+value_max = 28
+category = "feedback"
+direction = "target"
+midi_channel = 1
+number = "{encoder}"
+description = "Layer A encoder {encoder} LED ring on CC 1-8. 0 off, 1-13 position, 14-26 blinking position, 27 all on, 28 all blinking."
+
+[[templates]]
+id = "layer_b_encoder_{encoder}_led_ring"
+label = "Layer B Encoder {encoder} LED Ring"
+address = "xtouch-mini://layer_b/feedback/encoder/{encoder}/led_ring"
 range_name = "encoder"
 range_start = 1
 range_end = 8
 derived = [
-  { name = "cc_number", source = "encoder", offset = 8 },
+  { name = "cc_number", source = "encoder", offset = 10 },
 ]
 message_type = "control_change"
 value_type = "int"
@@ -208,7 +225,24 @@ category = "feedback"
 direction = "target"
 midi_channel = 1
 number = "{cc_number}"
-description = "Remote-control encoder {encoder} LED ring. 0 off, 1-13 position, 14-26 blinking position, 27 all on, 28 all blinking."
+description = "Layer B encoder {encoder} LED ring on CC 11-18. 0 off, 1-13 position, 14-26 blinking position, 27 all on, 28 all blinking."
+
+[[templates]]
+id = "encoder_{encoder}_led_ring"
+label = "Encoder {encoder} LED Ring"
+address = "xtouch-mini://feedback/encoder/{encoder}/led_ring"
+range_name = "encoder"
+range_start = 1
+range_end = 8
+message_type = "control_change"
+value_type = "int"
+value_min = 0
+value_max = 28
+category = "feedback"
+direction = "target"
+midi_channel = 1
+number = "{encoder}"
+description = "Alias for Layer A encoder {encoder} LED ring on CC 1-8."
 
 [[templates]]
 id = "button_{button}_led"

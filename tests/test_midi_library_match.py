@@ -15,10 +15,23 @@ def test_xtouch_mini_matches_control_change_and_note() -> None:
     assert encoder_turn[0].control_id == "layer_a_encoder_1_turn"
     assert encoder_turn[0].value == 64.0
 
-    fader = index.match(0xB0, (126, 100))
+    fader = index.match(0xB0, (9, 100))
     assert len(fader) == 1
     assert fader[0].control_id == "layer_a_fader"
     assert fader[0].value == 100.0
+
+    layer_b_fader = index.match(0xB0, (10, 55))
+    assert len(layer_b_fader) == 1
+    assert layer_b_fader[0].control_id == "layer_b_fader"
+
+    layer_b_encoder = index.match(0xB0, (11, 42))
+    assert len(layer_b_encoder) == 1
+    assert layer_b_encoder[0].control_id == "layer_b_encoder_1_turn"
+    assert layer_b_encoder[0].value == 42.0
+
+    layer_b_encoder_8 = index.match(0xB0, (18, 3))
+    assert len(layer_b_encoder_8) == 1
+    assert layer_b_encoder_8[0].control_id == "layer_b_encoder_8_turn"
 
     button_press = index.match(0x90, (8, 127))
     assert len(button_press) == 1

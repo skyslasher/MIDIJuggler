@@ -39,6 +39,8 @@ layer_a_fader
 layer_b_encoder_1_turn
 layer_b_top_button_1
 layer_b_fader
+layer_a_encoder_1_led_ring
+layer_b_encoder_1_led_ring
 encoder_1_led_ring
 button_1_led
 select_layer_a
@@ -51,16 +53,18 @@ The X-Touch Mini is user-programmable with the Behringer X-Touch Editor. This
 library uses a predictable layout that is suitable for MIDIJuggler mappings:
 
 - Layer A encoder turns: CC 1-8
-- Layer B encoder turns: CC 9-16
+- Layer A master fader: CC 9
+- Layer B master fader: CC 10
+- Layer B encoder turns: CC 11-18
 - Layer A encoder pushes: notes 0-7
 - Layer B encoder pushes: notes 24-31
 - Layer A top/bottom buttons: notes 8-15 and 16-23
 - Layer B top/bottom buttons: notes 32-39 and 40-47
-- Layer A/B fader: CC 126 and CC 127
 
 Feedback targets follow the documented X-Touch Mini receive behavior:
 
-- LED rings: CC 9-16, values 0-28
+- Layer A LED rings: CC 1-8, values 0-28
+- Layer B LED rings: CC 11-18, values 0-28
 - Button LEDs: notes 0-15, value 0 off, 1 on, 2 blinking
 - Layer selection: program change 0 for Layer A, 1 for Layer B
 - Mode selection: CC 127 value 0 for Standard Mode, 1 for MC Mode
