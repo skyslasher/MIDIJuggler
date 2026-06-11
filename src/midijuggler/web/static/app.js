@@ -97,6 +97,7 @@ let oscAdaptersConfig = null;
 let monitorDisplayMode = monitorDisplayModeSelect?.value || "library";
 let adapterLibraryConfig = {};
 const monitorLibraryCache = { midi: {}, osc: {} };
+const adapterConnectionStatus = {};
 
 function renderStatus(status) {
   const displayedBpm = status.master_clock?.bpm || status.bpm;
@@ -141,6 +142,7 @@ function renderStatus(status) {
   }
 
   preloadMonitorLibraries(status);
+  applyAdapterRuntimeConnectionsFromStatus(status.adapters || {});
 }
 
 function renderLearnState(learn) {
@@ -438,6 +440,139 @@ function adapterOscLibraryId(adapterName) {
   return (adapterLibraryConfig[adapterName]?.osc_library || "").trim();
 }
 
+function normalizeAdapterConnection(connection) {
+  if (!connection) {
+    return null;
+  }
+  return {
+    phase: String(connection.connection_phase || connection.phase || "").trim(),
+    detail: String(connection.detail || "").trim(),
+    status: String(connection.status || "").trim(),
+  };
+}
+
+function adapterConnectionBadgeText(connection) {
+  const normalized = normalizeAdapterConnection(connection);
+  if (!normalized) {
+    return "";
+  }
+  const { phase, detail } = normalized;
+  switch (phase) {
+    case "connected":
+      return "Connected";
+    case "waiting":
+      return "Waiting";
+    case "reconnecting":
+      return "Reconnecting";
+    case "stopped":
+      return "Stopped";
+    case "unavailable":
+      return "Unavailable";
+    case "idle":
+      return "Idle";
+    case "started":
+      if (detail.includes("unavailable")) {
+        return "Unavailable";
+      }
+      if (detail.includes("listening on")) {
+        return "Connected";
+      }
+      return "Active";
+    default:
+      if (detail.includes("waiting for input")) {
+        return "Waiting";
+      }
+      if (detail.includes("reconnecting input")) {
+        return "Reconnecting";
+      }
+      if (detail.includes("listening on")) {
+        return "Connected";
+      }
+      if (detail.includes("stopped")) {
+        return "Stopped";
+      }
+      return normalized.status === "stopped" ? "Stopped" : "";
+  }
+}
+
+function adapterConnectionBadgeClass(connection) {
+  const normalized = normalizeAdapterConnection(connection);
+  if (!normalized) {
+    return "adapter-status-unknown";
+  }
+  const label = adapterConnectionBadgeText(connection);
+  switch (label) {
+    case "Connected":
+    case "Active":
+      return "adapter-status-connected";
+    case "Waiting":
+      return "adapter-status-waiting";
+    case "Reconnecting":
+      return "adapter-status-reconnecting";
+    case "Stopped":
+      return "adapter-status-stopped";
+    case "Unavailable":
+      return "adapter-status-unavailable";
+    case "Idle":
+      return "adapter-status-idle";
+    default:
+      return "adapter-status-unknown";
+  }
+}
+
+function setAdapterConnectionStatus(adapterName, connection) {
+  const normalized = normalizeAdapterConnection(connection);
+  if (!adapterName || !normalized?.detail) {
+    return;
+  }
+  adapterConnectionStatus[adapterName] = normalized;
+  updateAdapterConnectionBadges();
+}
+
+function applyAdapterRuntimeConnectionsFromStatus(adapters) {
+  for (const [name, adapter] of Object.entries(adapters)) {
+    if (adapter.runtime_connection) {
+      setAdapterConnectionStatus(name, adapter.runtime_connection);
+    }
+  }
+}
+
+function applyAdapterRuntimeConnectionsFromConfig(instances) {
+  for (const instance of instances || []) {
+    if (instance.runtime_connection) {
+      setAdapterConnectionStatus(instance.name, instance.runtime_connection);
+    }
+  }
+}
+
+function updateAdapterConnectionBadges() {
+  for (const card of document.querySelectorAll(".midi-adapter-card")) {
+    const badge = card.querySelector(".adapter-status-badge");
+    if (!badge) {
+      continue;
+    }
+    const adapterName = card.dataset.instanceName;
+    const connection = adapterConnectionStatus[adapterName];
+    const label = adapterConnectionBadgeText(connection);
+    if (!label) {
+      badge.hidden = true;
+      continue;
+    }
+    badge.hidden = false;
+    badge.textContent = label;
+    badge.title = connection.detail;
+    badge.className = `adapter-status-badge ${adapterConnectionBadgeClass(connection)}`;
+  }
+}
+
+function handleAdapterStatusEvent(event) {
+  setAdapterConnectionStatus(event.adapter || event.source, {
+    connection_phase: event.connection_phase,
+    detail: event.detail,
+    status: event.status,
+  });
+}
+
 async function preloadMonitorLibraries(status) {
   adapterLibraryConfig = {};
   const midiLibraryIds = new Set();
@@ -559,6 +694,19 @@ function formatMidiMessageManual(event) {
 }
 
 function formatMonitorEventLine(event, time) {
+  if (event.kind === "AdapterStatusEvent") {
+    const adapterName = event.adapter || event.source;
+    const label = adapterConnectionBadgeText({
+      connection_phase: event.connection_phase,
+      detail: event.detail,
+      status: event.status,
+    });
+    if (label) {
+      return `[${time}] Status ${adapterName} ${label} — ${event.detail}`;
+    }
+    return `[${time}] Status ${adapterName} — ${event.detail}`;
+  }
+
   if (event.kind === "GpioEvent") {
     const suffix = event.initial ? " (initial)" : "";
     return `[${time}] GPIO pin ${event.pin} ${event.control} = ${event.value}${suffix}`;
@@ -1357,9 +1505,22 @@ function createMidiAdapterCard(instance, config, options = {}) {
   const header = document.createElement("div");
   header.className = "midi-adapter-card-header";
 
-  header.appendChild(
+  const headerMain = document.createElement("div");
+  headerMain.className = "midi-adapter-card-header-main";
+
+  headerMain.appendChild(
     createAdapterNameField(instance, DEFAULT_MIDI_ADAPTER_NAMES, { isNew }),
   );
+
+  const statusBadge = document.createElement("span");
+  statusBadge.className = "adapter-status-badge adapter-status-unknown";
+  statusBadge.hidden = true;
+  headerMain.appendChild(statusBadge);
+  header.appendChild(headerMain);
+
+  if (instance.runtime_connection) {
+    setAdapterConnectionStatus(instance.name, instance.runtime_connection);
+  }
 
   const actions = document.createElement("div");
   actions.className = "midi-adapter-card-actions";
@@ -1756,10 +1917,13 @@ function renderMidiAdapterSection(kind, config) {
   if (kind === "rtp_midi") {
     updateRtpDiscoveryNote(config);
   }
+
+  updateAdapterConnectionBadges();
 }
 
 function renderMidiAdaptersConfig(config) {
   midiAdaptersConfig = config;
+  applyAdapterRuntimeConnectionsFromConfig(config.instances);
   renderMidiAdapterSection("midi", config);
   renderMidiAdapterSection("rtp_midi", config);
 }
@@ -2348,6 +2512,9 @@ function connect() {
       renderStatus(data.payload);
     }
     if (data.type === "event") {
+      if (data.payload?.kind === "AdapterStatusEvent") {
+        handleAdapterStatusEvent(data.payload);
+      }
       appendEvent(data.payload);
       if (data.payload.kind === "BpmChangedEvent") {
         bpm.textContent = data.payload.bpm.toFixed(1);

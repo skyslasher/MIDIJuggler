@@ -1,5 +1,6 @@
 import asyncio
 from pathlib import Path
+from typing import Any
 
 import pytest
 
@@ -9,6 +10,7 @@ from midijuggler.eventbus import EventBus
 from midijuggler.master_clock import MasterClock
 from midijuggler.rtp_midi.discovery import RtpMidiSession, local_mdns_server_name, rtp_session_id
 from midijuggler.rtp_midi.manager import RtpMidiManager
+from midijuggler.events import AdapterStatusEvent
 from midijuggler.web.server import WebInterface
 
 
@@ -511,3 +513,43 @@ def test_apply_midi_adapters_config_rejects_default_rename() -> None:
                 }
             )
         )
+
+
+def test_web_interface_exposes_cached_adapter_runtime_status() -> None:
+    async def scenario() -> tuple[dict[str, Any], dict[str, Any]]:
+        config = parse_config(
+            {
+                "adapters": {
+                    "midi": {
+                        "enabled": True,
+                        "input_port": "MIDIJuggler In",
+                    }
+                }
+            }
+        )
+        interface = WebInterface(
+            config,
+            EventBus(),
+            ClockBpmTracker(),
+            MasterClock(config.master_clock, EventBus()),
+        )
+        await interface._broadcast_event(
+            AdapterStatusEvent(
+                source="midi",
+                adapter="midi",
+                status="started",
+                detail="MIDI adapter waiting for input MIDIJuggler In",
+                connection_phase="waiting",
+            )
+        )
+        return interface._status_payload(), interface.midi_adapters_config_payload()
+
+    status_payload, midi_payload = asyncio.run(scenario())
+
+    runtime = {
+        "status": "started",
+        "detail": "MIDI adapter waiting for input MIDIJuggler In",
+        "connection_phase": "waiting",
+    }
+    assert status_payload["adapters"]["midi"]["runtime_connection"] == runtime
+    assert midi_payload["instances"][0]["runtime_connection"] == runtime

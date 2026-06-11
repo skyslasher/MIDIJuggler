@@ -216,6 +216,58 @@ legend {
   margin-bottom: 0.6rem;
 }
 
+.midi-adapter-card-header-main {
+  align-items: center;
+  display: flex;
+  flex: 1;
+  flex-wrap: wrap;
+  gap: 0.6rem;
+  min-width: 0;
+}
+
+.adapter-status-badge {
+  border-radius: 999px;
+  font-size: 0.75rem;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  line-height: 1;
+  padding: 0.35rem 0.65rem;
+  text-transform: uppercase;
+  white-space: nowrap;
+}
+
+.adapter-status-connected {
+  background: rgb(44 125 74 / 35%);
+  color: #8fe0a8;
+  outline: 1px solid rgb(88 176 118 / 55%);
+}
+
+.adapter-status-waiting {
+  background: rgb(176 132 44 / 28%);
+  color: #f0cc7d;
+  outline: 1px solid rgb(214 166 72 / 45%);
+}
+
+.adapter-status-reconnecting {
+  background: rgb(176 98 44 / 28%);
+  color: #f0b07d;
+  outline: 1px solid rgb(214 132 72 / 45%);
+}
+
+.adapter-status-stopped,
+.adapter-status-idle,
+.adapter-status-unknown {
+  background: rgb(92 104 128 / 28%);
+  color: #b8c4dc;
+  outline: 1px solid rgb(120 132 156 / 40%);
+}
+
+.adapter-status-unavailable {
+  background: rgb(176 64 64 / 28%);
+  color: #f0a0a0;
+  outline: 1px solid rgb(214 96 96 / 45%);
+}
+
 .midi-adapter-card-header h3 {
   font-size: 1rem;
   margin: 0;

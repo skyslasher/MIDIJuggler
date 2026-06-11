@@ -38,7 +38,7 @@ from midijuggler.config import (
     save_osc_adapter_configs,
 )
 from midijuggler.eventbus import EventBus
-from midijuggler.events import Event, MidiMessageEvent
+from midijuggler.events import AdapterStatusEvent, Event, MidiMessageEvent
 from midijuggler.learn import (
     LearnController,
     lookup_osc_target_ranges,
@@ -113,6 +113,7 @@ class WebInterface:
         )
         self._tap_times: list[float] = []
         self._websockets: set[web.WebSocketResponse] = set()
+        self._adapter_runtime_status: dict[str, dict[str, str]] = {}
         self.bus.subscribe("*", self._broadcast_event)
 
     def create_app(self) -> web.Application:
@@ -486,6 +487,12 @@ class WebInterface:
         return response
 
     async def _broadcast_event(self, event: Event) -> None:
+        if isinstance(event, AdapterStatusEvent):
+            self._adapter_runtime_status[event.adapter] = {
+                "status": event.status,
+                "detail": event.detail,
+                "connection_phase": event.connection_phase,
+            }
         await self._broadcast_payload({"type": "event", "payload": event.as_dict()})
 
     async def _broadcast_payload(self, payload: dict[str, Any]) -> None:
@@ -519,14 +526,27 @@ class WebInterface:
             "osc_instances": self._osc_instances_payload(),
             "mappings": [rule.__dict__ for rule in self.config.mappings],
             "adapters": {
-                name: {
-                    "type": adapter.kind or name,
-                    "enabled": adapter.enabled,
-                    "options": adapter.options,
-                }
+                name: self._adapter_status_entry(name, adapter)
                 for name, adapter in self.config.adapters.items()
             },
         }
+
+    def _adapter_runtime_connection(self, name: str) -> dict[str, str] | None:
+        cached = self._adapter_runtime_status.get(name)
+        if not cached:
+            return None
+        return dict(cached)
+
+    def _adapter_status_entry(self, name: str, adapter: AdapterConfig) -> dict[str, Any]:
+        entry: dict[str, Any] = {
+            "type": adapter.kind or name,
+            "enabled": adapter.enabled,
+            "options": adapter.options,
+        }
+        runtime_connection = self._adapter_runtime_connection(name)
+        if runtime_connection is not None:
+            entry["runtime_connection"] = runtime_connection
+        return entry
 
     def _parse_midi_test_message(self, payload: dict[str, Any]) -> tuple[int, tuple[int, ...]]:
         if "status" not in payload:
@@ -1457,6 +1477,9 @@ class WebInterface:
             "enabled": adapter.enabled,
             "runtime_active": runtime_adapter is not None and runtime_adapter.running,
         }
+        runtime_connection = self._adapter_runtime_connection(name)
+        if runtime_connection is not None:
+            payload["runtime_connection"] = runtime_connection
         if kind == "midi":
             input_port = str(options.get("input_port", ""))
             output_port = str(options.get("output_port", ""))

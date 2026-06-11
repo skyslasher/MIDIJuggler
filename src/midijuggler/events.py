@@ -202,10 +202,16 @@ class AdapterStatusEvent(Event):
     adapter: str = ""
     status: str = ""
     detail: str = ""
+    connection_phase: str = ""
 
     def as_dict(self) -> dict[str, Any]:
         payload = super().as_dict()
         payload.update(
-            {"adapter": self.adapter, "status": self.status, "detail": self.detail}
+            {
+                "adapter": self.adapter,
+                "status": self.status,
+                "detail": self.detail,
+                "connection_phase": self.connection_phase,
+            }
         )
         return payload

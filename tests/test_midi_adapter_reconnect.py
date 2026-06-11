@@ -167,10 +167,13 @@ def test_publish_connection_status_avoids_duplicate_events() -> None:
         statuses: list[str] = []
 
         bus = EventBus()
-        bus.subscribe(
-            AdapterStatusEvent,
-            lambda event: statuses.append(event.detail),
-        )
+        phases: list[str] = []
+
+        def capture(event: AdapterStatusEvent) -> None:
+            statuses.append(event.detail)
+            phases.append(event.connection_phase)
+
+        bus.subscribe(AdapterStatusEvent, capture)
 
         adapter = MidiAdapter(
             "xtouch",
@@ -186,11 +189,12 @@ def test_publish_connection_status_avoids_duplicate_events() -> None:
         await adapter._publish_connection_status("waiting", force=True)
         await adapter._publish_connection_status("waiting")
         await adapter._publish_connection_status("reconnecting")
-        return statuses
+        return statuses, phases
 
-    statuses = asyncio.run(scenario())
+    statuses, phases = asyncio.run(scenario())
 
     assert statuses == [
         "MIDI adapter waiting for input X-TOUCH MINI MIDI 1",
         "MIDI adapter reconnecting input X-TOUCH MINI MIDI 1",
     ]
+    assert phases == ["waiting", "reconnecting"]

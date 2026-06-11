@@ -63,6 +63,7 @@ class MidiAdapter(Adapter):
                     adapter=self.name,
                     status="started",
                     detail="MIDI adapter active without configured ALSA ports",
+                    connection_phase="idle",
                 )
             )
             return
@@ -82,6 +83,7 @@ class MidiAdapter(Adapter):
                     adapter=self.name,
                     status="started",
                     detail="MIDI input unavailable: install alsa-utils (aseqdump)",
+                    connection_phase="unavailable",
                 )
             )
             return
@@ -127,6 +129,7 @@ class MidiAdapter(Adapter):
                 adapter=self.name,
                 status="stopped",
                 detail="MIDI adapter stopped",
+                connection_phase="stopped",
             )
         )
 
@@ -227,6 +230,7 @@ class MidiAdapter(Adapter):
                 adapter=self.name,
                 status="started",
                 detail=detail,
+                connection_phase=phase,
             )
         )
 
