@@ -245,16 +245,13 @@ class MidiAdapter(Adapter):
     def _resolve_output_address(self) -> str | None:
         output_port = str(self.config.options.get("output_port", "")).strip()
         input_port = str(self.config.options.get("input_port", "")).strip()
+        if not output_port and not input_port:
+            return None
 
-        if output_port:
-            address = resolve_midi_output_port_address(output_port)
-            if address is not None:
-                return address
-
-        if input_port:
-            return resolve_midi_output_port_address(input_port)
-
-        return None
+        return resolve_midi_output_port_address(
+            output_port,
+            input_port_name=input_port or None,
+        )
 
     async def send_midi_message(self, event: MidiMessageEvent) -> None:
         output_address = self._resolve_output_address()
@@ -284,15 +281,23 @@ class MidiAdapter(Adapter):
                 f"MIDI adapter {self.name} has no output_port configured for sending"
             )
 
-        await self._emit_midi_output(
-            output_address,
-            MidiMessageEvent(
-                source=self.name,
-                status=status,
-                data=data,
-                direction="output",
-            ),
-        )
+        try:
+            await self._emit_midi_output(
+                output_address,
+                MidiMessageEvent(
+                    source=self.name,
+                    status=status,
+                    data=data,
+                    direction="output",
+                ),
+            )
+        except OSError as exc:
+            input_port = str(self.config.options.get("input_port", "")).strip()
+            raise OSError(
+                f"{exc} (resolved output address {output_address!r} "
+                f"from output_port={self.config.options.get('output_port', '')!r}, "
+                f"input_port={input_port!r})"
+            ) from exc
 
     async def _emit_midi_output(
         self,

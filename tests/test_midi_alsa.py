@@ -63,6 +63,65 @@ def test_resolve_midi_port_addresses_use_readable_and_writable_lists(monkeypatch
     )
 
     assert resolve_midi_input_port_address("X-TOUCH MINI") == "24:0"
-    assert resolve_midi_output_port_address("X-TOUCH MINI") == "24:1"
+    assert resolve_midi_output_port_address(
+        "X-TOUCH MINI",
+        input_port_name="X-TOUCH MINI",
+    ) == "24:1"
     assert resolve_midi_port_address("X-TOUCH MINI") == "24:1"
     assert resolve_midi_input_port_address("missing") is None
+
+
+def test_resolve_midi_output_prefers_input_client_over_wrong_output(monkeypatch) -> None:
+    monkeypatch.setattr(
+        "midijuggler.system_info.list_midi_input_ports",
+        lambda: parse_aconnect_ports(
+            """
+            client 24: 'X-TOUCHMINI' [type=kernel]
+                0 'X-TOUCH MINI'
+            """
+        ),
+    )
+    monkeypatch.setattr(
+        "midijuggler.system_info.list_midi_output_ports",
+        lambda: parse_aconnect_ports(
+            """
+            client 20: 'MIDIJuggler' [type=user]
+                0 'MIDIJuggler In'
+            client 24: 'X-TOUCHMINI' [type=kernel]
+                1 'X-TOUCH MINI'
+            """
+        ),
+    )
+
+    assert resolve_midi_output_port_address(
+        "MIDIJuggler In",
+        input_port_name="X-TOUCH MINI",
+    ) == "24:1"
+
+
+def test_resolve_midi_output_falls_back_to_input_address_for_duplex_devices(
+    monkeypatch,
+) -> None:
+    monkeypatch.setattr(
+        "midijuggler.system_info.list_midi_input_ports",
+        lambda: parse_aconnect_ports(
+            """
+            client 24: 'X-TOUCHMINI' [type=kernel]
+                0 'X-TOUCH MINI'
+            """
+        ),
+    )
+    monkeypatch.setattr(
+        "midijuggler.system_info.list_midi_output_ports",
+        lambda: parse_aconnect_ports(
+            """
+            client 20: 'MIDIJuggler' [type=user]
+                0 'MIDIJuggler In'
+            """
+        ),
+    )
+
+    assert resolve_midi_output_port_address(
+        "MIDIJuggler In",
+        input_port_name="X-TOUCH MINI",
+    ) == "24:0"

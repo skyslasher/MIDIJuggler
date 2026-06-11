@@ -91,22 +91,107 @@ def parse_aconnect_ports(output: str) -> list[dict[str, str]]:
     return ports
 
 
-def _resolve_port_address(port_name: str, ports: list[dict[str, str]]) -> str | None:
+def _find_port_matches(port_name: str, ports: list[dict[str, str]]) -> list[dict[str, str]]:
     normalized = port_name.strip()
     if not normalized:
-        return None
+        return []
 
     if _ADDRESS_PATTERN.match(normalized):
-        if any(port["address"] == normalized for port in ports):
-            return normalized
+        return [port for port in ports if port["address"] == normalized]
+
+    return [port for port in ports if port["id"] == normalized]
+
+
+def _input_client_id(input_port_name: str | None) -> tuple[str | None, str | None]:
+    if not input_port_name or not input_port_name.strip():
+        return None, None
+
+    input_address = resolve_midi_input_port_address(input_port_name)
+    if input_address is None:
+        return None, None
+
+    client_id, _, port_index = input_address.partition(":")
+    return client_id or None, port_index or None
+
+
+def _ports_on_client(
+    ports: list[dict[str, str]],
+    client_id: str,
+) -> list[dict[str, str]]:
+    prefix = f"{client_id}:"
+    return [port for port in ports if port["address"].startswith(prefix)]
+
+
+def _pick_output_on_client(
+    ports: list[dict[str, str]],
+    *,
+    preferred_name: str = "",
+    input_port_index: str | None = None,
+) -> dict[str, str] | None:
+    if not ports:
         return None
 
-    matches = [port for port in ports if port["id"] == normalized]
-    if len(matches) == 1:
-        return matches[0]["address"]
-    if len(matches) > 1:
-        return matches[0]["address"]
-    return None
+    if preferred_name:
+        named = [port for port in ports if port["id"] == preferred_name]
+        if len(named) == 1:
+            return named[0]
+
+    if input_port_index is not None:
+        for port in ports:
+            if port["address"].split(":", 1)[1] == input_port_index:
+                return port
+
+    if len(ports) == 1:
+        return ports[0]
+
+    non_app = [
+        port
+        for port in ports
+        if "midijuggler" not in port["client"].casefold()
+    ]
+    if len(non_app) == 1:
+        return non_app[0]
+    if non_app:
+        return non_app[0]
+
+    return ports[0]
+
+
+def _pick_preferred_port(
+    matches: list[dict[str, str]],
+    *,
+    input_client_id: str | None = None,
+) -> dict[str, str] | None:
+    if not matches:
+        return None
+
+    if input_client_id:
+        same_client = _ports_on_client(matches, input_client_id)
+        if same_client:
+            return same_client[0]
+
+    non_app = [
+        port
+        for port in matches
+        if "midijuggler" not in port["client"].casefold()
+    ]
+    if non_app:
+        return non_app[0]
+
+    return matches[0]
+
+
+def _resolve_port_address(
+    port_name: str,
+    ports: list[dict[str, str]],
+    *,
+    input_client_id: str | None = None,
+) -> str | None:
+    matches = _find_port_matches(port_name, ports)
+    preferred = _pick_preferred_port(matches, input_client_id=input_client_id)
+    if preferred is None:
+        return None
+    return preferred["address"]
 
 
 def resolve_midi_input_port_address(port_name: str) -> str | None:
@@ -115,10 +200,52 @@ def resolve_midi_input_port_address(port_name: str) -> str | None:
     return _resolve_port_address(port_name, list_midi_input_ports())
 
 
-def resolve_midi_output_port_address(port_name: str) -> str | None:
+def resolve_midi_output_port_address(
+    port_name: str,
+    *,
+    input_port_name: str | None = None,
+) -> str | None:
     """Resolve a configured writable ALSA port label to a client:port address."""
 
-    return _resolve_port_address(port_name, list_midi_output_ports())
+    output_ports = list_midi_output_ports()
+    input_client_id, input_port_index = _input_client_id(input_port_name)
+    normalized_output = port_name.strip()
+
+    if input_client_id:
+        same_client_ports = _ports_on_client(output_ports, input_client_id)
+        preferred = _pick_output_on_client(
+            same_client_ports,
+            preferred_name=normalized_output,
+            input_port_index=input_port_index,
+        )
+        if preferred is not None:
+            return preferred["address"]
+
+    if normalized_output:
+        address = _resolve_port_address(
+            normalized_output,
+            output_ports,
+            input_client_id=input_client_id,
+        )
+        if address is not None and (
+            input_client_id is None or address.startswith(f"{input_client_id}:")
+        ):
+            return address
+
+    if input_port_name and input_port_name.strip():
+        address = _resolve_port_address(
+            input_port_name,
+            output_ports,
+            input_client_id=input_client_id,
+        )
+        if address is not None:
+            return address
+
+        input_address = resolve_midi_input_port_address(input_port_name)
+        if input_address is not None:
+            return input_address
+
+    return None
 
 
 def resolve_midi_port_address(port_name: str) -> str | None:
