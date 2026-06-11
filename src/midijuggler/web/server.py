@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+import contextlib
 import json
 import logging
 import mimetypes
@@ -14,6 +15,7 @@ from typing import Any
 
 from aiohttp import WSMsgType, web
 
+from midijuggler.adapters.base import Adapter
 from midijuggler.adapters.gpio import GpioAdapter, RASPBERRY_PI_HEADER_BCM_PINS
 from midijuggler.adapters.midi import MidiAdapter
 from midijuggler.adapters.osc import OscAdapter
@@ -73,6 +75,7 @@ class WebInterface:
         osc_adapters: dict[str, OscAdapter] | None = None,
         mapping_engine: MappingEngine | None = None,
         rtp_midi_manager: RtpMidiManager | None = None,
+        runtime_adapters: list[Adapter] | None = None,
         config_path: str | Path | None = None,
         alsa_config_path: str | Path | None = None,
     ) -> None:
@@ -85,6 +88,7 @@ class WebInterface:
         self.osc_adapters = osc_adapters or {}
         self.mapping_engine = mapping_engine
         self.rtp_midi_manager = rtp_midi_manager
+        self._runtime_adapters = runtime_adapters
         self.learn = LearnController()
         self.config_path = Path(config_path) if config_path is not None else None
         self.alsa_config_path = (
@@ -691,6 +695,51 @@ class WebInterface:
         self.config.adapters.pop(old_name)
         return kind
 
+    def _register_runtime_adapter(self, adapter: Adapter) -> None:
+        if self._runtime_adapters is None:
+            return
+        if adapter not in self._runtime_adapters:
+            self._runtime_adapters.append(adapter)
+
+    def _unregister_runtime_adapter(self, adapter: Adapter) -> None:
+        if self._runtime_adapters is None:
+            return
+        with contextlib.suppress(ValueError):
+            self._runtime_adapters.remove(adapter)
+
+    async def _apply_osc_runtime_adapter(self, name: str, updated: AdapterConfig) -> None:
+        adapter = self.osc_adapters.get(name)
+        if adapter is None:
+            if not updated.enabled:
+                return
+            adapter = OscAdapter(name=name, config=updated, bus=self.bus)
+            self.osc_adapters[name] = adapter
+            try:
+                await adapter.start()
+            except OSError as exc:
+                self.osc_adapters.pop(name, None)
+                raise ValueError(str(exc)) from exc
+            self._register_runtime_adapter(adapter)
+            return
+
+        if updated.enabled:
+            try:
+                if adapter.running:
+                    await adapter.reload(updated)
+                else:
+                    adapter.config = updated
+                    adapter._apply_options(updated.options)  # noqa: SLF001
+                    await adapter.start()
+            except OSError as exc:
+                raise ValueError(str(exc)) from exc
+            self._register_runtime_adapter(adapter)
+            return
+
+        if adapter.running:
+            await adapter.stop()
+        adapter.config = updated
+        adapter._apply_options(updated.options)  # noqa: SLF001
+
     async def _rename_runtime_adapter(self, old_name: str, new_name: str, kind: str) -> None:
         if kind == "midi":
             adapter = self.midi_adapters.pop(old_name, None)
@@ -942,8 +991,10 @@ class WebInterface:
 
         for name in deleted_names:
             adapter = self.osc_adapters.pop(name, None)
-            if adapter is not None and adapter.running:
-                await adapter.stop()
+            if adapter is not None:
+                if adapter.running:
+                    await adapter.stop()
+                self._unregister_runtime_adapter(adapter)
             self.config.adapters.pop(name, None)
 
         updates: dict[str, AdapterConfig] = {}
@@ -1016,12 +1067,7 @@ class WebInterface:
             await self._rename_runtime_adapter(old_name, new_name, kind)
 
         for name, updated in updates.items():
-            adapter = self.osc_adapters.get(name)
-            if adapter is not None:
-                try:
-                    await adapter.reload(updated)
-                except OSError as exc:
-                    raise ValueError(str(exc)) from exc
+            await self._apply_osc_runtime_adapter(name, updated)
 
         response = self.osc_adapters_config_payload()
         response.update({"persisted": persisted, "persist_error": persist_error})

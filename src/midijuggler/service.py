@@ -71,6 +71,7 @@ class MIDIJugglerService:
             osc_adapters=self._osc_adapters(),
             mapping_engine=self.mapping,
             rtp_midi_manager=self.rtp_midi_manager,
+            runtime_adapters=self.adapters,
             config_path=self.config_path,
             alsa_config_path=self.alsa_config_path,
         )

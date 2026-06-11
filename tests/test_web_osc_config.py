@@ -1,4 +1,5 @@
 import asyncio
+import socket
 from pathlib import Path
 
 import pytest
@@ -306,6 +307,98 @@ def test_osc_adapters_config_hides_implicit_default_osc_instance() -> None:
     assert payload["instances"] == []
 
 
+def _free_udp_port() -> int:
+    with socket.socket(socket.AF_INET, socket.SOCK_DGRAM) as sock:
+        sock.bind(("127.0.0.1", 0))
+        return sock.getsockname()[1]
+
+
+def test_apply_osc_adapters_config_starts_new_enabled_instance() -> None:
+    listen_port = _free_udp_port()
+    runtime_adapters = []
+    config = parse_config({"adapters": {}})
+    interface = WebInterface(
+        config,
+        EventBus(),
+        ClockBpmTracker(),
+        MasterClock(config.master_clock, EventBus()),
+        runtime_adapters=runtime_adapters,
+    )
+
+    result = asyncio.run(
+        interface.apply_osc_adapters_config(
+            {
+                "instances": [
+                    {
+                        "name": "wing_foh",
+                        "enabled": True,
+                        "desk_mode": "wing",
+                        "listen_host": "127.0.0.1",
+                        "osc_port": listen_port,
+                        "remote_host": "192.168.10.48",
+                    }
+                ]
+            }
+        )
+    )
+
+    wing = next(instance for instance in result["instances"] if instance["name"] == "wing_foh")
+
+    assert wing["runtime_active"] is True
+    assert interface.osc_adapters["wing_foh"].running
+    assert len(runtime_adapters) == 1
+
+
+def test_apply_osc_adapters_config_stops_disabled_instance() -> None:
+    async def scenario() -> tuple[dict, WebInterface]:
+        listen_port = _free_udp_port()
+        runtime_adapters = []
+        config = parse_config({"adapters": {}})
+        interface = WebInterface(
+            config,
+            EventBus(),
+            ClockBpmTracker(),
+            MasterClock(config.master_clock, EventBus()),
+            runtime_adapters=runtime_adapters,
+        )
+
+        await interface.apply_osc_adapters_config(
+            {
+                "instances": [
+                    {
+                        "name": "wing_foh",
+                        "enabled": True,
+                        "desk_mode": "wing",
+                        "listen_host": "127.0.0.1",
+                        "osc_port": listen_port,
+                        "remote_host": "192.168.10.48",
+                    }
+                ]
+            }
+        )
+        result = await interface.apply_osc_adapters_config(
+            {
+                "instances": [
+                    {
+                        "name": "wing_foh",
+                        "enabled": False,
+                        "desk_mode": "wing",
+                        "listen_host": "127.0.0.1",
+                        "osc_port": listen_port,
+                        "remote_host": "192.168.10.48",
+                    }
+                ]
+            }
+        )
+        return result, interface
+
+    result, interface = asyncio.run(scenario())
+    wing = next(instance for instance in result["instances"] if instance["name"] == "wing_foh")
+
+    assert wing["runtime_active"] is False
+    assert not interface.osc_adapters["wing_foh"].running
+
+
 def test_apply_osc_adapters_config_can_add_and_delete_instances(tmp_path: Path) -> None:
     config_file = tmp_path / "config.toml"
     config_file.write_text(
@@ -325,8 +418,8 @@ def test_apply_osc_adapters_config_can_add_and_delete_instances(tmp_path: Path) 
         config_path=config_file,
     )
 
-    asyncio.run(
-        interface.apply_osc_adapters_config(
+    async def add_and_delete_desk_b() -> None:
+        await interface.apply_osc_adapters_config(
             {
                 "instances": [
                     {
@@ -342,17 +435,14 @@ def test_apply_osc_adapters_config_can_add_and_delete_instances(tmp_path: Path) 
                 ]
             }
         )
-    )
-    assert "desk_b" in load_config(config_file).adapters
-
-    asyncio.run(
-        interface.apply_osc_adapters_config(
+        await interface.apply_osc_adapters_config(
             {
                 "instances": [],
                 "deleted": ["desk_b"],
             }
         )
-    )
+
+    asyncio.run(add_and_delete_desk_b())
 
     reloaded = load_config(config_file)
     assert "desk_b" not in reloaded.adapters
