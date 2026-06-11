@@ -1,5 +1,4 @@
 import asyncio
-from unittest.mock import AsyncMock
 
 import pytest
 
@@ -20,15 +19,6 @@ def test_is_sequencer_port_address() -> None:
     assert not is_sequencer_port_address("hw:1,0,0")
 
 
-def test_send_midi_message_to_port_requires_aseqsend_for_sequencer_addresses(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    monkeypatch.setattr("midijuggler.midi.output.shutil.which", lambda _: None)
-
-    with pytest.raises(OSError, match="aseqsend is required"):
-        asyncio.run(send_midi_message_to_port("20:0", 0x90, (60, 100)))
-
-
 def test_format_aseqsend_args_encodes_status_and_data() -> None:
     assert format_aseqsend_args("24:1", 0x90, (60, 100)) == [
         "aseqsend",
@@ -38,51 +28,14 @@ def test_format_aseqsend_args_encodes_status_and_data() -> None:
     ]
 
 
-def test_send_midi_message_to_port_prefers_aseqsend(monkeypatch: pytest.MonkeyPatch) -> None:
-    def which(command: str) -> str | None:
-        if command == "aseqsend":
-            return "/usr/bin/aseqsend"
-        if command == "amidi":
-            return "/usr/bin/amidi"
-        return None
+def test_send_midi_message_to_port_uses_mido(monkeypatch: pytest.MonkeyPatch) -> None:
+    sent: list[tuple[str, int, tuple[int, ...]]] = []
 
-    monkeypatch.setattr("midijuggler.midi.output.shutil.which", which)
+    def fake_send(port_name: str, status: int, data: tuple[int, ...]) -> None:
+        sent.append((port_name, status, data))
 
-    process = AsyncMock()
-    process.stderr.read = AsyncMock(return_value=b"")
-    process.wait = AsyncMock(return_value=0)
-    captured: list[list[str]] = []
+    monkeypatch.setattr("midijuggler.midi.mido_io.send_mido_message", fake_send)
 
-    async def fake_exec(*args, **_kwargs):
-        captured.append(list(args))
-        return process
+    asyncio.run(send_midi_message_to_port("X-TOUCH MINI MIDI 1", 0x90, (60, 100)))
 
-    monkeypatch.setattr(asyncio, "create_subprocess_exec", fake_exec)
-
-    asyncio.run(send_midi_message_to_port("24:1", 0x90, (60, 100)))
-
-    assert captured == [["aseqsend", "-p", "24:1", "90 3C 64"]]
-
-
-def test_send_midi_message_to_port_invokes_amidi(monkeypatch: pytest.MonkeyPatch) -> None:
-    def which(command: str) -> str | None:
-        if command == "aseqsend":
-            return None
-        if command == "amidi":
-            return "/usr/bin/amidi"
-        return None
-
-    monkeypatch.setattr("midijuggler.midi.output.shutil.which", which)
-
-    process = AsyncMock()
-    process.stderr.read = AsyncMock(return_value=b"")
-    process.wait = AsyncMock(return_value=0)
-
-    async def fake_exec(*_args, **_kwargs):
-        return process
-
-    monkeypatch.setattr(asyncio, "create_subprocess_exec", fake_exec)
-
-    asyncio.run(send_midi_message_to_port("hw:1,0,0", 0x90, (60, 100)))
-
-    assert process.wait.await_count == 1
+    assert sent == [("X-TOUCH MINI MIDI 1", 0x90, (60, 100))]

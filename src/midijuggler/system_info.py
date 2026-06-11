@@ -91,27 +91,56 @@ def parse_aconnect_ports(output: str) -> list[dict[str, str]]:
     return ports
 
 
+def _port_open_name(port: dict[str, str]) -> str:
+    return port.get("mido_name") or port["address"]
+
+
 def _find_port_matches(port_name: str, ports: list[dict[str, str]]) -> list[dict[str, str]]:
     normalized = port_name.strip()
     if not normalized:
         return []
 
     if _ADDRESS_PATTERN.match(normalized):
-        return [port for port in ports if port["address"] == normalized]
+        return [
+            port
+            for port in ports
+            if port["address"] == normalized or port.get("mido_name") == normalized
+        ]
 
-    return [port for port in ports if port["id"] == normalized]
+    exact = [port for port in ports if port["id"] == normalized]
+    if exact:
+        return exact
+
+    return [
+        port
+        for port in ports
+        if normalized in port.get("mido_name", port["id"])
+        or normalized in port["id"]
+        or normalized in port.get("label", "")
+    ]
 
 
 def _input_client_id(input_port_name: str | None) -> tuple[str | None, str | None]:
     if not input_port_name or not input_port_name.strip():
         return None, None
 
+    matches = _find_port_matches(input_port_name.strip(), list_midi_input_ports())
+    if matches:
+        port = matches[0]
+        address = _port_open_name(port)
+        if _ADDRESS_PATTERN.match(address):
+            client_id, _, port_index = address.partition(":")
+            return client_id or None, port_index or None
+        return port.get("client") or None, None
+
     input_address = resolve_midi_input_port_address(input_port_name)
     if input_address is None:
         return None, None
 
-    client_id, _, port_index = input_address.partition(":")
-    return client_id or None, port_index or None
+    if _ADDRESS_PATTERN.match(input_address):
+        client_id, _, port_index = input_address.partition(":")
+        return client_id or None, port_index or None
+    return input_address.split()[0] if " " in input_address else input_address, None
 
 
 def _ports_on_client(
@@ -119,7 +148,15 @@ def _ports_on_client(
     client_id: str,
 ) -> list[dict[str, str]]:
     prefix = f"{client_id}:"
-    return [port for port in ports if port["address"].startswith(prefix)]
+    same_address_prefix = [port for port in ports if port["address"].startswith(prefix)]
+    if same_address_prefix:
+        return same_address_prefix
+    return [
+        port
+        for port in ports
+        if port.get("client") == client_id
+        or _port_open_name(port).startswith(f"{client_id} ")
+    ]
 
 
 def _pick_output_on_client(
@@ -135,7 +172,9 @@ def _pick_output_on_client(
     candidates = list(ports)
     if input_address and len(candidates) > 1:
         without_input = [
-            port for port in candidates if port["address"] != input_address
+            port
+            for port in candidates
+            if _port_open_name(port) != input_address and port["address"] != input_address
         ]
         if without_input:
             candidates = without_input
@@ -204,11 +243,11 @@ def _resolve_port_address(
     preferred = _pick_preferred_port(matches, input_client_id=input_client_id)
     if preferred is None:
         return None
-    return preferred["address"]
+    return _port_open_name(preferred)
 
 
 def resolve_midi_input_port_address(port_name: str) -> str | None:
-    """Resolve a configured readable ALSA port label to a client:port address."""
+    """Resolve a configured MIDI input port label to a backend open name."""
 
     return _resolve_port_address(port_name, list_midi_input_ports())
 
@@ -218,7 +257,7 @@ def resolve_midi_output_port_address(
     *,
     input_port_name: str | None = None,
 ) -> str | None:
-    """Resolve a configured writable ALSA port label to a client:port address."""
+    """Resolve a configured writable MIDI port label to a backend open name."""
 
     output_ports = list_midi_output_ports()
     input_client_id, input_port_index = _input_client_id(input_port_name)
@@ -247,7 +286,9 @@ def resolve_midi_output_port_address(
             input_client_id=input_client_id,
         )
         if address is not None and (
-            input_client_id is None or address.startswith(f"{input_client_id}:")
+            input_client_id is None
+            or address.startswith(f"{input_client_id}:")
+            or address.startswith(f"{input_client_id} ")
         ):
             return address
 
@@ -285,15 +326,31 @@ def _aconnect_list(*args: str) -> str:
     return result.stdout
 
 
-def list_midi_input_ports() -> list[dict[str, str]]:
-    """List readable ALSA sequencer ports suitable for MIDI input."""
+def _list_mido_ports(*, inputs: bool) -> list[dict[str, str]] | None:
+    try:
+        from midijuggler.midi.mido_io import list_mido_port_entries, mido_available
+    except ImportError:
+        return None
+    if not mido_available():
+        return None
+    return list_mido_port_entries(inputs=inputs)
 
+
+def list_midi_input_ports() -> list[dict[str, str]]:
+    """List readable MIDI input ports."""
+
+    mido_ports = _list_mido_ports(inputs=True)
+    if mido_ports is not None:
+        return mido_ports
     return parse_aconnect_ports(_aconnect_list("-i"))
 
 
 def list_midi_output_ports() -> list[dict[str, str]]:
-    """List writable ALSA sequencer ports suitable for MIDI output."""
+    """List writable MIDI output ports."""
 
+    mido_ports = _list_mido_ports(inputs=False)
+    if mido_ports is not None:
+        return mido_ports
     return parse_aconnect_ports(_aconnect_list("-o"))
 
 

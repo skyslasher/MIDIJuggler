@@ -26,9 +26,7 @@ def test_midi_adapter_publishes_control_events_for_library_matches() -> None:
         adapter.running = True
         adapter._source_index = adapter._load_source_index()
 
-        await adapter._handle_input_line(
-            " 24:0   Control change          0, controller 1, value 42"
-        )
+        await adapter._handle_input_message(0xB0, (1, 42))
         return controls, messages
 
     controls, messages = asyncio.run(scenario())
@@ -55,9 +53,7 @@ def test_midi_adapter_publishes_raw_control_without_library() -> None:
         adapter.running = True
         adapter._source_index = None
 
-        await adapter._handle_input_line(
-            " 24:0   Control change          0, controller 7, value 55"
-        )
+        await adapter._handle_input_message(0xB0, (7, 55))
         return controls
 
     controls = asyncio.run(scenario())

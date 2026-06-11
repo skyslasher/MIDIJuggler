@@ -14,8 +14,12 @@ sudo apt install -y git python3 python3-venv python3-pip
 Packages for master-clock click output through a USB sound card:
 
 ```bash
-sudo apt install -y libasound2-dev alsa-utils avahi-daemon avahi-utils
+sudo apt install -y build-essential libasound2-dev alsa-utils avahi-daemon avahi-utils
 ```
+
+`build-essential` provides `gcc`, which is required to build `python-rtmidi` (MIDI) and
+`pyalsaaudio` (optional click audio) when piwheels has no ready-made wheel for your
+Python version.
 
 `avahi-utils` provides `avahi-publish-service` and `avahi-browse`, which MIDIJuggler
 prefers on the Pi for RTP-MIDI mDNS instead of opening a second mDNS stack through
@@ -29,30 +33,39 @@ RTP-MIDI on the Pi uses `avahi-utils` by default. The Python `rtp` extra
 (`zeroconf`) is optional fallback software and mainly useful for development on
 macOS or PCs.
 
-On the Pi, install the app into the service venv with the ALSA extra (recommended
-path — works from any directory):
+After `git pull` in `/opt/midijuggler/app`, install the app into the service venv.
+USB MIDI needs only the `midi` extra; add `alsa` only when you use the low-latency
+click player via `pyalsaaudio` (otherwise `aplay` is enough):
 
 ```bash
-sudo -u midijuggler /opt/midijuggler/venv/bin/python -m pip install -e "/opt/midijuggler/app[alsa]"
+sudo -u midijuggler /opt/midijuggler/venv/bin/python -m pip install -e "/opt/midijuggler/app[midi]"
 ```
+
+With click audio via `pyalsaaudio`:
+
+```bash
+sudo -u midijuggler /opt/midijuggler/venv/bin/python -m pip install -e "/opt/midijuggler/app[alsa,midi]"
+```
+
+USB MIDI adapters use `mido` with `python-rtmidi` (the `midi` extra).
 
 Add the `rtp` extra only if you want the `python-zeroconf` fallback:
 
 ```bash
-sudo -u midijuggler /opt/midijuggler/venv/bin/python -m pip install -e "/opt/midijuggler/app[alsa,rtp]"
+sudo -u midijuggler /opt/midijuggler/venv/bin/python -m pip install -e "/opt/midijuggler/app[alsa,midi,rtp]"
 ```
 
 Equivalent when run from the app directory:
 
 ```bash
 cd /opt/midijuggler/app
-sudo -u midijuggler /opt/midijuggler/venv/bin/python -m pip install -e ".[alsa,rtp]"
+sudo -u midijuggler /opt/midijuggler/venv/bin/python -m pip install -e ".[alsa,midi,rtp]"
 ```
 
 Local development on a Mac or PC uses the same extras from the repository root:
 
 ```bash
-pip install -e ".[alsa,rtp]"
+pip install -e ".[alsa,midi,rtp]"
 ```
 
 ## Install

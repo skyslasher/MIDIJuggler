@@ -47,10 +47,7 @@ def test_start_supervises_input_even_when_port_missing(monkeypatch) -> None:
         "midijuggler.adapters.midi.resolve_midi_input_port_address",
         lambda _name: None,
     )
-    monkeypatch.setattr(
-        "midijuggler.adapters.midi.shutil.which",
-        lambda _name: "/usr/bin/aseqdump",
-    )
+    monkeypatch.setattr("midijuggler.adapters.midi.mido_available", lambda: True)
 
     async def scenario() -> MidiAdapter:
         adapter = MidiAdapter(
@@ -97,7 +94,7 @@ def test_input_loop_waits_then_connects(monkeypatch) -> None:
         fake_resolve,
     )
     monkeypatch.setattr(
-        "midijuggler.adapters.midi.MidiAdapter._run_input_process",
+        "midijuggler.adapters.midi.MidiAdapter._run_mido_input",
         fake_run,
     )
     monkeypatch.setattr("midijuggler.adapters.midi.asyncio.sleep", fake_sleep)
@@ -140,7 +137,7 @@ def test_input_loop_reconnects_after_process_exit(monkeypatch) -> None:
         sleeps.append(seconds)
 
     monkeypatch.setattr(
-        "midijuggler.adapters.midi.MidiAdapter._run_input_process",
+        "midijuggler.adapters.midi.MidiAdapter._run_mido_input",
         fake_run,
     )
     monkeypatch.setattr("midijuggler.adapters.midi.asyncio.sleep", fake_sleep)

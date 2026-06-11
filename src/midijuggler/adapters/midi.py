@@ -1,11 +1,11 @@
-"""MIDI adapter using the ALSA sequencer on Linux."""
+"""MIDI adapter using mido/python-rtmidi on Linux."""
 
 from __future__ import annotations
 
 import asyncio
 import contextlib
 import logging
-import shutil
+import time
 
 from midijuggler.adapters.base import Adapter, MIDI_TIMING_CLOCK
 from midijuggler.config import AdapterConfig
@@ -16,7 +16,15 @@ from midijuggler.events import (
     MidiClockEvent,
     MidiMessageEvent,
 )
-from midijuggler.midi.alsa import parse_aseqdump_line
+from midijuggler.midi.mido_io import (
+    MidoUnavailableError,
+    close_mido_port,
+    is_mido_port_listed,
+    mido_available,
+    mido_message_to_status_data,
+    open_mido_input,
+    poll_mido_input,
+)
 from midijuggler.midi.output import send_midi_message_to_port
 from midijuggler.midi.library_match import (
     MidiSourceIndex,
@@ -43,7 +51,7 @@ class MidiAdapter(Adapter):
         self._input_address: str | None = None
         self._output_address: str | None = None
         self._input_task: asyncio.Task[None] | None = None
-        self._input_process: asyncio.subprocess.Process | None = None
+        self._input_port: object | None = None
         self._source_index: MidiSourceIndex | None = None
         self._last_connection_detail: str | None = None
 
@@ -70,9 +78,9 @@ class MidiAdapter(Adapter):
 
         self._refresh_port_addresses()
 
-        if has_input and shutil.which("aseqdump") is None:
+        if has_input and not mido_available():
             LOGGER.error(
-                "MIDI adapter %s needs aseqdump from alsa-utils to read input port %s",
+                "MIDI adapter %s needs mido and python-rtmidi to read input port %s",
                 self.name,
                 input_port,
             )
@@ -82,7 +90,10 @@ class MidiAdapter(Adapter):
                     source=self.name,
                     adapter=self.name,
                     status="started",
-                    detail="MIDI input unavailable: install alsa-utils (aseqdump)",
+                    detail=(
+                        "MIDI input unavailable: install midijuggler[midi] "
+                        "(mido and python-rtmidi)"
+                    ),
                     connection_phase="unavailable",
                 )
             )
@@ -98,7 +109,7 @@ class MidiAdapter(Adapter):
         await self._publish_connection_status("started", force=True)
 
     async def reload(self, config: AdapterConfig) -> None:
-        """Restart ALSA listeners after a configuration change."""
+        """Restart MIDI listeners after a configuration change."""
 
         self.config = config
         if not self.running:
@@ -114,12 +125,9 @@ class MidiAdapter(Adapter):
                 await self._input_task
             self._input_task = None
 
-        if self._input_process is not None:
-            if self._input_process.returncode is None:
-                self._input_process.terminate()
-                with contextlib.suppress(ProcessLookupError):
-                    await asyncio.wait_for(self._input_process.wait(), timeout=1.0)
-            self._input_process = None
+        if self._input_port is not None:
+            await asyncio.to_thread(close_mido_port, self._input_port)
+            self._input_port = None
 
         self._source_index = None
         self._last_connection_detail = None
@@ -151,7 +159,7 @@ class MidiAdapter(Adapter):
         return build_source_index(library, resolve_library_port(self.config))
 
     def _refresh_port_addresses(self) -> None:
-        """Re-resolve ALSA client:port addresses from configured port labels."""
+        """Re-resolve MIDI port names from configured port labels."""
 
         input_port = str(self.config.options.get("input_port", "")).strip()
         output_port = str(self.config.options.get("output_port", "")).strip()
@@ -242,11 +250,21 @@ class MidiAdapter(Adapter):
                 await asyncio.sleep(PORT_WAIT_INTERVAL_SECONDS)
                 continue
 
-            await self._publish_connection_status("connected")
             try:
-                await self._run_input_process(self._input_address)
+                await self._run_mido_input(self._input_address)
             except asyncio.CancelledError:
                 raise
+            except MidoUnavailableError:
+                LOGGER.error("MIDI adapter %s cannot use mido backend", self.name)
+                self.running = False
+                raise
+            except OSError:
+                LOGGER.warning(
+                    "MIDI adapter %s could not open input %s",
+                    self.name,
+                    self._input_address,
+                    exc_info=True,
+                )
             except Exception:
                 LOGGER.exception(
                     "MIDI adapter %s input loop failed for %s",
@@ -257,42 +275,45 @@ class MidiAdapter(Adapter):
                 await self._publish_connection_status("reconnecting")
                 await asyncio.sleep(INPUT_RECONNECT_DELAY_SECONDS)
 
-    async def _run_input_process(self, address: str) -> None:
-        self._input_process = await asyncio.create_subprocess_exec(
-            "aseqdump",
-            "-p",
-            address,
-            stdout=asyncio.subprocess.PIPE,
-            stderr=asyncio.subprocess.PIPE,
-        )
-        assert self._input_process.stdout is not None
+    async def _run_mido_input(self, port_name: str) -> None:
+        port = await asyncio.to_thread(open_mido_input, port_name)
+        self._input_port = port
+        await self._publish_connection_status("connected")
+        last_presence_check = time.monotonic()
+        try:
+            while self.running:
+                now = time.monotonic()
+                if now - last_presence_check >= PORT_WAIT_INTERVAL_SECONDS:
+                    listed = await asyncio.to_thread(
+                        is_mido_port_listed,
+                        port_name,
+                        inputs=True,
+                    )
+                    if not listed:
+                        LOGGER.warning(
+                            "MIDI adapter %s input port %r disappeared",
+                            self.name,
+                            port_name,
+                        )
+                        break
+                    last_presence_check = now
 
-        while self.running:
-            line = await self._input_process.stdout.readline()
-            if not line:
-                break
-            await self._handle_input_line(line.decode("utf-8", errors="replace"))
+                message = await asyncio.to_thread(poll_mido_input, port, 0.05)
+                if message is None:
+                    await asyncio.sleep(0.002)
+                    continue
 
-        stderr_bytes = b""
-        if self._input_process.stderr is not None:
-            stderr_bytes = await self._input_process.stderr.read()
-        return_code = await self._input_process.wait()
-        self._input_process = None
-        if return_code not in {0, None} and self.running:
-            stderr = stderr_bytes.decode("utf-8", errors="replace").strip()
-            LOGGER.warning(
-                "MIDI adapter %s aseqdump exited with code %s%s",
-                self.name,
-                return_code,
-                f": {stderr}" if stderr else "",
-            )
+                parsed = mido_message_to_status_data(message)
+                if parsed is None:
+                    continue
+                status, data = parsed
+                await self._handle_input_message(status, data)
+        finally:
+            await asyncio.to_thread(close_mido_port, port)
+            if self._input_port is port:
+                self._input_port = None
 
-    async def _handle_input_line(self, line: str) -> None:
-        parsed = parse_aseqdump_line(line)
-        if parsed is None:
-            return
-
-        status, data = parsed
+    async def _handle_input_message(self, status: int, data: tuple[int, ...]) -> None:
         if status == MIDI_TIMING_CLOCK:
             await self.bus.publish(MidiClockEvent(source=self.name))
             return
@@ -346,7 +367,7 @@ class MidiAdapter(Adapter):
             input_port = str(self.config.options.get("input_port", "")).strip()
             if output_port or input_port:
                 raise OSError(
-                    f"MIDI adapter {self.name} cannot resolve a writable ALSA output port "
+                    f"MIDI adapter {self.name} cannot resolve a writable MIDI output port "
                     f"for {output_port or input_port!r}; re-select the output port in the web UI"
                 )
             raise OSError(
