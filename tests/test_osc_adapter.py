@@ -152,6 +152,91 @@ def test_osc_adapter_sends_xremote_keepalive_to_desk() -> None:
     assert arguments == ()
 
 
+def test_osc_adapter_reload_keeps_socket_when_bind_unchanged() -> None:
+    async def scenario() -> tuple[Any, Any, bool, str]:
+        listen_port = _free_udp_port()
+        adapter = OscAdapter(
+            name="wing_foh",
+            config=AdapterConfig(
+                enabled=True,
+                kind="osc",
+                options={
+                    "listen_host": "127.0.0.1",
+                    "osc_port": listen_port,
+                    "remote_host": "192.168.1.48",
+                    "osc_library": "behringer_wing",
+                },
+            ),
+            bus=EventBus(),
+        )
+
+        await adapter.start()
+        old_transport = adapter._transport  # noqa: SLF001
+        await adapter.reload(
+            AdapterConfig(
+                enabled=True,
+                kind="osc",
+                options={
+                    "listen_host": "127.0.0.1",
+                    "osc_port": listen_port,
+                    "remote_host": "192.168.1.50",
+                    "osc_library": "behringer_wing",
+                },
+            )
+        )
+        return old_transport, adapter._transport, adapter.running, adapter._remote_host  # noqa: SLF001
+
+    old_transport, new_transport, running, remote_host = asyncio.run(scenario())
+
+    assert running
+    assert old_transport is new_transport
+    assert remote_host == "192.168.1.50"
+
+
+def test_osc_adapter_reload_rebinds_when_listen_port_changes() -> None:
+    async def scenario() -> tuple[Any, Any]:
+        first_port = _free_udp_port()
+        second_port = _free_udp_port()
+        while second_port == first_port:
+            second_port = _free_udp_port()
+
+        adapter = OscAdapter(
+            name="osc",
+            config=AdapterConfig(
+                enabled=True,
+                kind="osc",
+                options={
+                    "listen_host": "127.0.0.1",
+                    "listen_port": first_port,
+                    "remote_host": "",
+                    "remote_port": 0,
+                },
+            ),
+            bus=EventBus(),
+        )
+
+        await adapter.start()
+        old_transport = adapter._transport  # noqa: SLF001
+        await adapter.reload(
+            AdapterConfig(
+                enabled=True,
+                kind="osc",
+                options={
+                    "listen_host": "127.0.0.1",
+                    "listen_port": second_port,
+                    "remote_host": "",
+                    "remote_port": 0,
+                },
+            )
+        )
+        return old_transport, adapter._transport
+
+    old_transport, new_transport = asyncio.run(scenario())
+
+    assert old_transport is not new_transport
+    assert new_transport is not None
+
+
 def test_osc_adapter_proxy_forwards_client_and_desk_messages() -> None:
     async def scenario() -> tuple[list[tuple[bytes, tuple[str, int]]], int]:
         sent: list[tuple[bytes, tuple[str, int]]] = []

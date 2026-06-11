@@ -4,7 +4,9 @@ from __future__ import annotations
 
 import asyncio
 import contextlib
+import errno
 import logging
+import socket
 import time
 from typing import Any
 
@@ -58,15 +60,28 @@ class OscAdapter(Adapter):
         self._prune_proxy_clients()
         return len(self._proxy_clients)
 
+    def _bind_address(self) -> tuple[str, int]:
+        bind_port = self._listen_port if self._listen_port > 0 else 0
+        return (self._listen_host, bind_port)
+
     async def start(self) -> None:
         self._apply_options(self.config.options)
 
         loop = asyncio.get_running_loop()
-        bind_port = self._listen_port if self._listen_port > 0 else 0
-        self._transport, self._protocol = await loop.create_datagram_endpoint(
-            lambda: _OscDatagramProtocol(self),
-            local_addr=(self._listen_host, bind_port),
-        )
+        bind_host, bind_port = self._bind_address()
+        try:
+            sock = _create_datagram_socket(bind_host, bind_port)
+            self._transport, self._protocol = await loop.create_datagram_endpoint(
+                lambda: _OscDatagramProtocol(self),
+                sock=sock,
+            )
+        except OSError as exc:
+            if exc.errno in {errno.EADDRINUSE, errno.EACCES, errno.EADDRNOTAVAIL}:
+                raise OSError(
+                    exc.errno,
+                    f"cannot bind OSC adapter {self.name} to {bind_host}:{bind_port}: {exc}",
+                ) from exc
+            raise
 
         detail_parts = []
         if self._listen_port > 0:
@@ -84,14 +99,7 @@ class OscAdapter(Adapter):
             detail = "OSC adapter " + ", ".join(detail_parts)
 
         self.running = True
-        if self._desk_protocol is not None and self._remote_host and self._remote_port > 0:
-            await self._send_desk_keepalive()
-            if self._desk_sync_on_connect:
-                await self._desk_sync()
-            self._keepalive_task = asyncio.create_task(
-                self._keepalive_loop(),
-                name=f"osc-keepalive-{self.name}",
-            )
+        await self._start_desk_session()
 
         await self.bus.publish(
             AdapterStatusEvent(
@@ -103,24 +111,27 @@ class OscAdapter(Adapter):
         )
 
     async def reload(self, config: AdapterConfig) -> None:
+        previous_bind = self._bind_address() if self.running else None
         self.config = config
+        self._apply_options(config.options)
         if not self.running:
-            self._apply_options(config.options)
+            return
+        if previous_bind == self._bind_address():
+            await self._restart_desk_session()
             return
         await self.stop()
         await self.start()
 
     async def stop(self) -> None:
         self.running = False
-        if self._keepalive_task is not None:
-            self._keepalive_task.cancel()
-            with contextlib.suppress(asyncio.CancelledError):
-                await self._keepalive_task
-            self._keepalive_task = None
+        await self._stop_desk_session()
 
         self._proxy_clients.clear()
         if self._transport is not None:
-            self._transport.close()
+            transport = self._transport
+            transport.close()
+            with contextlib.suppress(Exception):
+                await transport.wait_closed()
             self._transport = None
             self._protocol = None
 
@@ -204,6 +215,28 @@ class OscAdapter(Adapter):
             )
         )
 
+    async def _start_desk_session(self) -> None:
+        if self._desk_protocol is None or not self._remote_host or self._remote_port <= 0:
+            return
+        await self._send_desk_keepalive()
+        if self._desk_sync_on_connect:
+            await self._desk_sync()
+        self._keepalive_task = asyncio.create_task(
+            self._keepalive_loop(),
+            name=f"osc-keepalive-{self.name}",
+        )
+
+    async def _stop_desk_session(self) -> None:
+        if self._keepalive_task is not None:
+            self._keepalive_task.cancel()
+            with contextlib.suppress(asyncio.CancelledError):
+                await self._keepalive_task
+            self._keepalive_task = None
+
+    async def _restart_desk_session(self) -> None:
+        await self._stop_desk_session()
+        await self._start_desk_session()
+
     async def _keepalive_loop(self) -> None:
         interval = self._desk_protocol.keepalive_interval if self._desk_protocol else 9.0
         try:
@@ -273,6 +306,16 @@ class _OscDatagramProtocol(asyncio.DatagramProtocol):
 
     def datagram_received(self, data: bytes, addr: tuple[str, int]) -> None:
         asyncio.create_task(self._adapter.handle_datagram(data, addr))
+
+
+def _create_datagram_socket(host: str, port: int) -> socket.socket:
+    sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+    sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+    with contextlib.suppress(OSError):
+        sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEPORT, 1)
+    sock.bind((host, port))
+    sock.setblocking(False)
+    return sock
 
 
 def _target_address(adapter_name: str, target: str) -> str | None:

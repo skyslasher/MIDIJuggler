@@ -1,6 +1,8 @@
 import asyncio
 from pathlib import Path
 
+import pytest
+
 from midijuggler.clock import ClockBpmTracker
 from midijuggler.config import load_config, parse_config
 from midijuggler.eventbus import EventBus
@@ -101,6 +103,58 @@ def test_apply_osc_adapters_config_normalizes_desk_ports(tmp_path: Path) -> None
     assert wing["desk_proxy_mode"] is True
     assert wing["desk_sync_on_connect"] is True
     assert saved.adapters["wing_foh"].options["desk_proxy_mode"] is True
+
+
+def test_apply_osc_adapters_config_rejects_duplicate_listen_ports() -> None:
+    config = parse_config(
+        {
+            "adapters": {
+                "osc": {
+                    "enabled": True,
+                    "listen_port": 9000,
+                },
+                "wing_foh": {
+                    "type": "osc",
+                    "enabled": True,
+                    "listen_port": 2223,
+                    "remote_host": "192.168.10.48",
+                    "remote_port": 2223,
+                    "osc_library": "behringer_wing",
+                },
+                "wing_mon": {
+                    "type": "osc",
+                    "enabled": False,
+                    "listen_port": 2223,
+                    "remote_host": "192.168.10.48",
+                    "remote_port": 2223,
+                    "osc_library": "behringer_wing",
+                },
+            }
+        }
+    )
+    interface = WebInterface(
+        config,
+        EventBus(),
+        ClockBpmTracker(),
+        MasterClock(config.master_clock, EventBus()),
+    )
+
+    with pytest.raises(ValueError, match="OSC listen port 2223"):
+        asyncio.run(
+            interface.apply_osc_adapters_config(
+                {
+                    "instances": [
+                        {
+                            "name": "wing_mon",
+                            "enabled": True,
+                            "osc_port": 2223,
+                            "remote_host": "192.168.10.48",
+                            "osc_library": "behringer_wing",
+                        }
+                    ]
+                }
+            )
+        )
 
 
 def test_apply_osc_adapters_config_persists_sections(tmp_path: Path) -> None:

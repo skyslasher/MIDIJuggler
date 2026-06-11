@@ -564,6 +564,25 @@ class WebInterface:
             options["osc_library"] = osc_library
         return apply_desk_options(options)
 
+    def _validate_osc_listen_ports(self) -> None:
+        port_users: dict[int, str] = {}
+        for name, adapter in self.config.adapters.items():
+            if not adapter.enabled:
+                continue
+            kind = adapter.kind or name
+            if kind != "osc":
+                continue
+            options = apply_desk_options(dict(adapter.options))
+            listen_port = int(options.get("listen_port", 0))
+            if listen_port <= 0:
+                continue
+            existing = port_users.get(listen_port)
+            if existing is not None:
+                raise ValueError(
+                    f"OSC listen port {listen_port} is already used by adapter {existing!r}"
+                )
+            port_users[listen_port] = name
+
     async def discover_osc_desks(self, request: web.Request) -> web.Response:
         protocol = request.query.get("protocol", "all").strip().lower()
         if protocol in {"", "all"}:
@@ -950,6 +969,8 @@ class WebInterface:
             updates[name] = updated
             self.config.adapters[name] = updated
 
+        self._validate_osc_listen_ports()
+
         removed_names = [*deleted_names]
         for old_name in renamed_from:
             if old_name not in removed_names:
@@ -980,7 +1001,10 @@ class WebInterface:
         for name, updated in updates.items():
             adapter = self.osc_adapters.get(name)
             if adapter is not None:
-                await adapter.reload(updated)
+                try:
+                    await adapter.reload(updated)
+                except OSError as exc:
+                    raise ValueError(str(exc)) from exc
 
         response = self.osc_adapters_config_payload()
         response.update({"persisted": persisted, "persist_error": persist_error})
