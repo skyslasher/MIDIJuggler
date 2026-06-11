@@ -69,6 +69,136 @@ def test_send_osc_adapter_test_message_publishes_output_event() -> None:
     assert output_event.arguments == (pytest.approx(0.5),)
 
 
+def test_send_osc_adapter_test_message_resolves_library_parameter() -> None:
+    async def scenario() -> tuple[dict[str, object], OscMessageEvent | None]:
+        listen_port = _free_udp_port()
+        bus = EventBus()
+        events: list[OscMessageEvent] = []
+        bus.subscribe(OscMessageEvent, lambda event: events.append(event))
+
+        adapter_config = AdapterConfig(
+            enabled=True,
+            kind="osc",
+            options={
+                "osc_port": listen_port,
+                "listen_host": "127.0.0.1",
+                "remote_host": "127.0.0.1",
+                "osc_library": "behringer_wing",
+            },
+        )
+        adapter = OscAdapter(
+            name="wing_foh",
+            config=adapter_config,
+            bus=bus,
+        )
+        await adapter.start()
+
+        config = parse_config(
+            {
+                "adapters": {
+                    "wing_foh": {
+                        "enabled": True,
+                        "type": "osc",
+                        **adapter_config.options,
+                    }
+                }
+            }
+        )
+        interface = WebInterface(
+            config,
+            bus,
+            ClockBpmTracker(),
+            MasterClock(config.master_clock, bus),
+            osc_adapters={"wing_foh": adapter},
+        )
+
+        result = await interface.send_osc_adapter_test_message(
+            {
+                "name": "wing_foh",
+                "parameter_id": "ch_1_fdr",
+                "value": 0.75,
+            }
+        )
+        await adapter.stop()
+        output_event = next(
+            (event for event in events if event.direction == "output"),
+            None,
+        )
+        return result, output_event
+
+    result, output_event = asyncio.run(scenario())
+
+    assert result["ok"] is True
+    assert result["parameter_id"] == "ch_1_fdr"
+    assert result["parameter_label"] == "Channel 1 Fader"
+    assert result["address"] == "/ch/1/fdr"
+    assert result["arguments"] == [pytest.approx(0.75)]
+    assert output_event is not None
+    assert output_event.address == "/ch/1/fdr"
+    assert output_event.arguments == (pytest.approx(0.75),)
+
+
+def test_send_midi_adapter_test_message_resolves_library_parameter(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    async def scenario() -> tuple[dict[str, object], AsyncMock]:
+        bus = EventBus()
+        adapter = MidiAdapter(
+            name="xtouch_mini",
+            config=AdapterConfig(
+                enabled=True,
+                kind="midi",
+                options={
+                    "output_port": "X-Touch Mini",
+                    "midi_library": "behringer_xtouch_mini",
+                },
+            ),
+            bus=bus,
+        )
+        adapter.running = True
+        send_mock = AsyncMock()
+        monkeypatch.setattr(adapter, "send_test_message", send_mock)
+
+        config = parse_config(
+            {
+                "adapters": {
+                    "xtouch_mini": {
+                        "enabled": True,
+                        "type": "midi",
+                        "output_port": "X-Touch Mini",
+                        "midi_library": "behringer_xtouch_mini",
+                    }
+                }
+            }
+        )
+        interface = WebInterface(
+            config,
+            bus,
+            ClockBpmTracker(),
+            MasterClock(config.master_clock, bus),
+            midi_adapters={"xtouch_mini": adapter},
+        )
+
+        result = await interface.send_midi_adapter_test_message(
+            {
+                "kind": "midi",
+                "name": "xtouch_mini",
+                "parameter_id": "button_1_led",
+                "value": 1,
+            }
+        )
+        return result, send_mock
+
+    result, send_mock = asyncio.run(scenario())
+
+    assert result["ok"] is True
+    assert result["parameter_id"] == "button_1_led"
+    assert result["parameter_label"] == "Button 1 LED"
+    assert result["status"] == 0x90
+    assert result["data"] == [0, 1]
+    send_mock.assert_awaited_once_with(0x90, (0, 1))
+
+
 def test_send_midi_adapter_test_message_uses_adapter_output(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:

@@ -39,9 +39,21 @@ from midijuggler.config import (
 )
 from midijuggler.eventbus import EventBus
 from midijuggler.events import Event, MidiMessageEvent
-from midijuggler.learn import LearnController, resolve_monitor_source, upsert_mapping_rule
+from midijuggler.learn import (
+    LearnController,
+    lookup_osc_target_ranges,
+    resolve_monitor_source,
+    resolve_osc_target_address,
+    upsert_mapping_rule,
+)
+from midijuggler.osc_library import get_osc_library
 from midijuggler.mapping import MappingEngine
-from midijuggler.midi_library import list_midi_libraries
+from midijuggler.midi.target_encode import (
+    encode_midi_target_message,
+    lookup_midi_target_ranges,
+    resolve_midi_target_parameter,
+)
+from midijuggler.midi_library import get_midi_library, list_midi_libraries
 from midijuggler.master_clock import MasterClock
 from midijuggler.rtp_midi.manager import RtpMidiManager
 from midijuggler.osc.desk_protocol import (
@@ -578,26 +590,89 @@ class WebInterface:
         if not adapter.running:
             raise OSError(f"{kind} adapter {name} is not running")
 
-        status, data = self._parse_midi_test_message(payload)
+        parameter_id = str(payload.get("parameter_id", "")).strip()
+        parameter_label = ""
+        if parameter_id:
+            if kind != "midi":
+                raise ValueError("parameter_id is only supported for midi adapters")
+            parameter = resolve_midi_target_parameter(self.config, name, parameter_id)
+            value_min, value_max = lookup_midi_target_ranges(
+                self.config,
+                name,
+                parameter_id,
+            )
+            if "value" not in payload:
+                raise ValueError("value is required when parameter_id is set")
+            value = float(payload["value"])
+            if value < value_min or value > value_max:
+                raise ValueError(
+                    f"value must be between {value_min} and {value_max} for {parameter.label}"
+                )
+            status, data = encode_midi_target_message(parameter, value)
+            parameter_label = parameter.label
+        else:
+            status, data = self._parse_midi_test_message(payload)
+
         await adapter.send_test_message(status, data)
-        return {
+        response: dict[str, Any] = {
             "ok": True,
             "name": name,
             "kind": kind,
             "status": status,
             "data": list(data),
         }
+        if parameter_id:
+            response["parameter_id"] = parameter_id
+            response["parameter_label"] = parameter_label
+        return response
+
+    def _resolve_osc_library_test_message(
+        self,
+        name: str,
+        parameter_id: str,
+        payload: dict[str, Any],
+    ) -> tuple[str, list[Any], str]:
+        address = resolve_osc_target_address(self.config, name, parameter_id)
+        value_min, value_max = lookup_osc_target_ranges(self.config, name, parameter_id)
+
+        adapter = self.config.adapters.get(name)
+        if adapter is None:
+            raise ValueError(f"unknown OSC adapter instance: {name}")
+
+        library_id = str(adapter.options.get("osc_library", "")).strip()
+        library = get_osc_library(library_id)
+        parameter = next(
+            (entry for entry in library.parameters if entry.id == parameter_id),
+            None,
+        )
+        if parameter is None:
+            raise ValueError(
+                f"unknown OSC parameter {parameter_id!r} in library {library_id!r}"
+            )
+
+        if "value" not in payload:
+            raise ValueError("value is required when parameter_id is set")
+
+        value = float(payload["value"])
+        if value < value_min or value > value_max:
+            raise ValueError(
+                f"value must be between {value_min} and {value_max} for {parameter.label}"
+            )
+
+        if parameter.value_type == "int":
+            arguments: list[Any] = [int(round(value))]
+        else:
+            arguments = [float(value)]
+
+        return address, arguments, parameter.label
 
     async def send_osc_adapter_test_message(self, payload: dict[str, Any]) -> dict[str, Any]:
         if not isinstance(payload, dict):
             raise ValueError("OSC test payload must be an object")
 
         name = str(payload.get("name", "")).strip()
-        address = str(payload.get("address", "")).strip()
         if not name:
             raise ValueError("name is required")
-        if not address:
-            raise ValueError("address is required")
 
         adapter = self.osc_adapters.get(name)
         if adapter is None:
@@ -605,14 +680,31 @@ class WebInterface:
         if not adapter.running:
             raise OSError(f"OSC adapter {name} is not running")
 
-        arguments = self._parse_osc_test_arguments(payload)
+        parameter_id = str(payload.get("parameter_id", "")).strip()
+        parameter_label = ""
+        if parameter_id:
+            address, arguments, parameter_label = self._resolve_osc_library_test_message(
+                name,
+                parameter_id,
+                payload,
+            )
+        else:
+            address = str(payload.get("address", "")).strip()
+            if not address:
+                raise ValueError("address or parameter_id is required")
+            arguments = self._parse_osc_test_arguments(payload)
+
         await adapter.send_test_message(address, arguments)
-        return {
+        response: dict[str, Any] = {
             "ok": True,
             "name": name,
             "address": address,
             "arguments": arguments,
         }
+        if parameter_id:
+            response["parameter_id"] = parameter_id
+            response["parameter_label"] = parameter_label
+        return response
 
     def _should_list_osc_instance(self, name: str, adapter: AdapterConfig) -> bool:
         kind = adapter.kind or name
