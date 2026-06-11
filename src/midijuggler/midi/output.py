@@ -27,10 +27,13 @@ def is_sequencer_port_address(port_address: str) -> bool:
     return bool(_SEQUENCER_ADDRESS_PATTERN.match(port_address.strip()))
 
 
+def format_aseqsend_hex_string(status: int, data: tuple[int, ...]) -> str:
+    message_bytes = [status & 0xFF, *[byte & 0x7F for byte in data]]
+    return " ".join(f"{byte:02X}" for byte in message_bytes)
+
+
 def format_aseqsend_args(port_address: str, status: int, data: tuple[int, ...]) -> list[str]:
-    args = ["aseqsend", "-p", port_address, hex(status)]
-    args.extend(hex(byte) for byte in data)
-    return args
+    return ["aseqsend", "-p", port_address, format_aseqsend_hex_string(status, data)]
 
 
 async def _run_sender(command: list[str]) -> None:
@@ -62,7 +65,7 @@ async def send_midi_message_to_port(
             )
         command = format_aseqsend_args(port_address, status, data)
         await _run_sender(command)
-        LOGGER.debug("sent MIDI %s to %s via aseqsend", " ".join(command[3:]), port_address)
+        LOGGER.debug("sent MIDI %s to %s via aseqsend", command[3], port_address)
         return
 
     if shutil.which("amidi") is None:

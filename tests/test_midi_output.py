@@ -34,9 +34,7 @@ def test_format_aseqsend_args_encodes_status_and_data() -> None:
         "aseqsend",
         "-p",
         "24:1",
-        "0x90",
-        "0x3c",
-        "0x64",
+        "90 3C 64",
     ]
 
 
@@ -63,7 +61,7 @@ def test_send_midi_message_to_port_prefers_aseqsend(monkeypatch: pytest.MonkeyPa
 
     asyncio.run(send_midi_message_to_port("24:1", 0x90, (60, 100)))
 
-    assert captured == [["aseqsend", "-p", "24:1", "0x90", "0x3c", "0x64"]]
+    assert captured == [["aseqsend", "-p", "24:1", "90 3C 64"]]
 
 
 def test_send_midi_message_to_port_invokes_amidi(monkeypatch: pytest.MonkeyPatch) -> None:
