@@ -6,12 +6,27 @@ import pytest
 from midijuggler.midi.output import (
     format_amidi_hex,
     format_aseqsend_args,
+    is_sequencer_port_address,
     send_midi_message_to_port,
 )
 
 
 def test_format_amidi_hex_encodes_status_and_data() -> None:
     assert format_amidi_hex(0xB0, (1, 64)) == "b0 01 40"
+
+
+def test_is_sequencer_port_address() -> None:
+    assert is_sequencer_port_address("20:0")
+    assert not is_sequencer_port_address("hw:1,0,0")
+
+
+def test_send_midi_message_to_port_requires_aseqsend_for_sequencer_addresses(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr("midijuggler.midi.output.shutil.which", lambda _: None)
+
+    with pytest.raises(OSError, match="aseqsend is required"):
+        asyncio.run(send_midi_message_to_port("20:0", 0x90, (60, 100)))
 
 
 def test_format_aseqsend_args_encodes_status_and_data() -> None:
@@ -70,6 +85,6 @@ def test_send_midi_message_to_port_invokes_amidi(monkeypatch: pytest.MonkeyPatch
 
     monkeypatch.setattr(asyncio, "create_subprocess_exec", fake_exec)
 
-    asyncio.run(send_midi_message_to_port("128:0", 0x90, (60, 100)))
+    asyncio.run(send_midi_message_to_port("hw:1,0,0", 0x90, (60, 100)))
 
     assert process.wait.await_count == 1

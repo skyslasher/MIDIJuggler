@@ -127,26 +127,39 @@ def _pick_output_on_client(
     *,
     preferred_name: str = "",
     input_port_index: str | None = None,
+    input_address: str | None = None,
 ) -> dict[str, str] | None:
     if not ports:
         return None
 
+    candidates = list(ports)
+    if input_address and len(candidates) > 1:
+        without_input = [
+            port for port in candidates if port["address"] != input_address
+        ]
+        if without_input:
+            candidates = without_input
+
     if preferred_name:
-        named = [port for port in ports if port["id"] == preferred_name]
+        named = [port for port in candidates if port["id"] == preferred_name]
         if len(named) == 1:
             return named[0]
 
-    if input_port_index is not None:
-        for port in ports:
-            if port["address"].split(":", 1)[1] == input_port_index:
-                return port
+    if input_port_index is not None and len(candidates) > 1:
+        different_index = [
+            port
+            for port in candidates
+            if port["address"].split(":", 1)[1] != input_port_index
+        ]
+        if different_index:
+            candidates = different_index
 
-    if len(ports) == 1:
-        return ports[0]
+    if len(candidates) == 1:
+        return candidates[0]
 
     non_app = [
         port
-        for port in ports
+        for port in candidates
         if "midijuggler" not in port["client"].casefold()
     ]
     if len(non_app) == 1:
@@ -154,7 +167,7 @@ def _pick_output_on_client(
     if non_app:
         return non_app[0]
 
-    return ports[0]
+    return candidates[0]
 
 
 def _pick_preferred_port(
@@ -209,6 +222,11 @@ def resolve_midi_output_port_address(
 
     output_ports = list_midi_output_ports()
     input_client_id, input_port_index = _input_client_id(input_port_name)
+    input_address = (
+        resolve_midi_input_port_address(input_port_name)
+        if input_port_name and input_port_name.strip()
+        else None
+    )
     normalized_output = port_name.strip()
 
     if input_client_id:
@@ -217,6 +235,7 @@ def resolve_midi_output_port_address(
             same_client_ports,
             preferred_name=normalized_output,
             input_port_index=input_port_index,
+            input_address=input_address,
         )
         if preferred is not None:
             return preferred["address"]
@@ -240,10 +259,6 @@ def resolve_midi_output_port_address(
         )
         if address is not None:
             return address
-
-        input_address = resolve_midi_input_port_address(input_port_name)
-        if input_address is not None:
-            return input_address
 
     return None
 

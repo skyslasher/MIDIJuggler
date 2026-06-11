@@ -4,9 +4,12 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import re
 import shutil
 
 LOGGER = logging.getLogger(__name__)
+
+_SEQUENCER_ADDRESS_PATTERN = re.compile(r"^\d+:\d+$")
 
 
 def midi_message_bytes(status: int, data: tuple[int, ...]) -> bytes:
@@ -18,6 +21,10 @@ def midi_message_bytes(status: int, data: tuple[int, ...]) -> bytes:
 
 def format_amidi_hex(status: int, data: tuple[int, ...]) -> str:
     return " ".join(f"{byte:02x}" for byte in midi_message_bytes(status, data))
+
+
+def is_sequencer_port_address(port_address: str) -> bool:
+    return bool(_SEQUENCER_ADDRESS_PATTERN.match(port_address.strip()))
 
 
 def format_aseqsend_args(port_address: str, status: int, data: tuple[int, ...]) -> list[str]:
@@ -47,22 +54,19 @@ async def send_midi_message_to_port(
     if not port_address.strip():
         raise OSError("no ALSA output port configured")
 
-    aseqsend = shutil.which("aseqsend")
-    if aseqsend is not None:
-        command = format_aseqsend_args(port_address, status, data)
-        try:
-            await _run_sender(command)
-            LOGGER.debug("sent MIDI %s to %s via aseqsend", " ".join(command[3:]), port_address)
-            return
-        except OSError as exc:
-            LOGGER.warning(
-                "aseqsend failed for %s (%s); falling back to amidi",
-                port_address,
-                exc,
+    if is_sequencer_port_address(port_address):
+        if shutil.which("aseqsend") is None:
+            raise OSError(
+                f"aseqsend is required to send to ALSA sequencer port {port_address!r}; "
+                "install alsa-utils. amidi cannot open client:port sequencer addresses."
             )
+        command = format_aseqsend_args(port_address, status, data)
+        await _run_sender(command)
+        LOGGER.debug("sent MIDI %s to %s via aseqsend", " ".join(command[3:]), port_address)
+        return
 
     if shutil.which("amidi") is None:
-        raise OSError("aseqsend or amidi from alsa-utils is required for MIDI output")
+        raise OSError("amidi from alsa-utils is required for raw MIDI hardware ports")
 
     hex_string = format_amidi_hex(status, data)
     await _run_sender(["amidi", "-p", port_address, "-S", hex_string])

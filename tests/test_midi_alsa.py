@@ -99,7 +99,7 @@ def test_resolve_midi_output_prefers_input_client_over_wrong_output(monkeypatch)
     ) == "24:1"
 
 
-def test_resolve_midi_output_falls_back_to_input_address_for_duplex_devices(
+def test_resolve_midi_output_requires_writable_port_on_input_client(
     monkeypatch,
 ) -> None:
     monkeypatch.setattr(
@@ -121,7 +121,39 @@ def test_resolve_midi_output_falls_back_to_input_address_for_duplex_devices(
         ),
     )
 
+    assert (
+        resolve_midi_output_port_address(
+            "MIDIJuggler In",
+            input_port_name="X-TOUCH MINI",
+        )
+        is None
+    )
+
+
+def test_resolve_midi_output_prefers_different_port_index_on_same_client(
+    monkeypatch,
+) -> None:
+    monkeypatch.setattr(
+        "midijuggler.system_info.list_midi_input_ports",
+        lambda: parse_aconnect_ports(
+            """
+            client 20: 'X-TOUCHMINI' [type=kernel]
+                0 'X-TOUCH MINI MIDI 1'
+            """
+        ),
+    )
+    monkeypatch.setattr(
+        "midijuggler.system_info.list_midi_output_ports",
+        lambda: parse_aconnect_ports(
+            """
+            client 20: 'X-TOUCHMINI' [type=kernel]
+                0 'X-TOUCH MINI MIDI 1'
+                1 'X-TOUCH MINI MIDI 1'
+            """
+        ),
+    )
+
     assert resolve_midi_output_port_address(
-        "MIDIJuggler In",
-        input_port_name="X-TOUCH MINI",
-    ) == "24:0"
+        "",
+        input_port_name="X-TOUCH MINI MIDI 1",
+    ) == "20:1"
