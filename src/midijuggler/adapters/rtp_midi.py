@@ -8,7 +8,9 @@ from typing import TYPE_CHECKING
 from midijuggler.adapters.base import Adapter
 from midijuggler.config import AdapterConfig
 from midijuggler.eventbus import EventBus
-from midijuggler.events import AdapterStatusEvent
+from midijuggler.events import AdapterStatusEvent, MidiMessageEvent
+from midijuggler.midi.output import send_midi_message_to_port
+from midijuggler.system_info import resolve_midi_port_address
 
 if TYPE_CHECKING:
     from midijuggler.rtp_midi.manager import RtpMidiManager
@@ -68,3 +70,54 @@ class RtpMidiAdapter(Adapter):
                 f"RTP-MIDI listen-only session {session_name or 'unnamed'} on UDP {port}"
             )
         return f"RTP-MIDI host session {session_name or 'unnamed'} on UDP {port}"
+
+    def _resolve_output_address(self) -> str | None:
+        output_port = str(self.config.options.get("output_port", "")).strip()
+        if not output_port:
+            return None
+        return resolve_midi_port_address(output_port)
+
+    async def send_midi_message(self, event: MidiMessageEvent) -> None:
+        output_address = self._resolve_output_address()
+        if output_address is None:
+            LOGGER.warning(
+                "RTP-MIDI adapter %s has no output_port configured; dropped %s",
+                self.name,
+                event.as_dict(),
+            )
+            return
+
+        await self._emit_midi_output(output_address, event)
+
+    async def send_test_message(self, status: int, data: tuple[int, ...]) -> None:
+        output_address = self._resolve_output_address()
+        if output_address is None:
+            raise OSError(
+                f"RTP-MIDI adapter {self.name} has no output_port configured for sending"
+            )
+
+        await self._emit_midi_output(
+            output_address,
+            MidiMessageEvent(
+                source=self.name,
+                status=status,
+                data=data,
+                direction="output",
+            ),
+        )
+
+    async def _emit_midi_output(
+        self,
+        output_address: str,
+        event: MidiMessageEvent,
+    ) -> None:
+        await send_midi_message_to_port(output_address, event.status, event.data)
+        await self.bus.publish(
+            MidiMessageEvent(
+                source=self.name,
+                status=event.status,
+                data=event.data,
+                target=event.target,
+                direction="output",
+            )
+        )

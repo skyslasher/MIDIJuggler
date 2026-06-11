@@ -608,6 +608,174 @@ function defaultRtpMidiInstanceTemplate() {
   };
 }
 
+const MIDI_TEST_PRESETS = {
+  note_on: "Note On",
+  note_off: "Note Off",
+  control_change: "Control Change",
+};
+
+function buildMidiTestMessage(preset, channel, number, value) {
+  const channelIndex = Math.max(0, Math.min(15, Number(channel) - 1));
+  const dataNumber = Math.max(0, Math.min(127, Number(number)));
+  const dataValue = Math.max(0, Math.min(127, Number(value)));
+
+  if (preset === "note_on") {
+    return { status: 0x90 | channelIndex, data: [dataNumber, dataValue] };
+  }
+  if (preset === "note_off") {
+    return { status: 0x80 | channelIndex, data: [dataNumber, dataValue] };
+  }
+  return { status: 0xb0 | channelIndex, data: [dataNumber, dataValue] };
+}
+
+function showAdapterTestMessage(card, text, { autoHide = false } = {}) {
+  const message = card.querySelector(".adapter-test-message");
+  if (!message) {
+    return;
+  }
+  message.textContent = text;
+  if (!text || !autoHide) {
+    return;
+  }
+  window.setTimeout(() => {
+    if (message.textContent === text) {
+      message.textContent = "";
+    }
+  }, 3000);
+}
+
+function sendAdapterTestMessage(card, kind) {
+  if (card.dataset.isNew === "true") {
+    showAdapterTestMessage(card, "save the instance before sending tests");
+    return;
+  }
+
+  const name = card.dataset.instanceName;
+  showAdapterTestMessage(card, "sending...");
+
+  let request;
+  if (kind === "osc") {
+    const address = card.querySelector('[data-test-field="osc_address"]')?.value.trim() || "";
+    const value = Number(card.querySelector('[data-test-field="osc_value"]')?.value || 0);
+    request = fetch("/api/osc-adapters/test-send", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ name, address, value }),
+    });
+  } else {
+    const preset =
+      card.querySelector('[data-test-field="midi_preset"]')?.value || "control_change";
+    const channel = Number(card.querySelector('[data-test-field="midi_channel"]')?.value || 1);
+    const number = Number(card.querySelector('[data-test-field="midi_number"]')?.value || 0);
+    const value = Number(card.querySelector('[data-test-field="midi_value"]')?.value || 0);
+    const message = buildMidiTestMessage(preset, channel, number, value);
+    request = fetch("/api/midi-adapters/test-send", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({
+        kind,
+        name,
+        status: message.status,
+        data: message.data,
+      }),
+    });
+  }
+
+  request
+    .then(async (response) => {
+      if (!response.ok) {
+        throw new Error(await response.text());
+      }
+      return response.json();
+    })
+    .then(() => {
+      showAdapterTestMessage(card, "sent", { autoHide: true });
+    })
+    .catch((error) => {
+      showAdapterTestMessage(card, `error: ${error.message}`);
+    });
+}
+
+function createAdapterTestSendSection(kind, instance) {
+  const fieldset = document.createElement("fieldset");
+  fieldset.className = "adapter-test-send";
+
+  const legend = document.createElement("legend");
+  legend.textContent = "Send test";
+  fieldset.appendChild(legend);
+
+  const hint = document.createElement("p");
+  hint.className = "hint";
+  if (kind === "osc") {
+    hint.textContent =
+      "Sends one OSC message to the configured remote host. Output appears in the monitor.";
+  } else if (kind === "rtp_midi") {
+    hint.textContent =
+      "Sends one MIDI message to the configured ALSA output port. Use this when RTP peers connect to a local ALSA port.";
+  } else {
+    hint.textContent =
+      "Sends one MIDI message to the configured output port. Output appears in the monitor.";
+  }
+  fieldset.appendChild(hint);
+
+  if (kind === "osc") {
+    const addressField = createTextField(
+      "Address",
+      "osc_address",
+      instance.desk_mode === "wing" ? "/ch/1/fdr~~~" : "/ch/01/mix/01/level",
+    );
+    addressField.querySelector("input").dataset.testField = "osc_address";
+    delete addressField.querySelector("input").dataset.field;
+    fieldset.appendChild(addressField);
+
+    const valueField = createNumberField("Value", "osc_value", 0.5, -1000000, 1000000, 0.01);
+    valueField.querySelector("input").dataset.testField = "osc_value";
+    delete valueField.querySelector("input").dataset.field;
+    fieldset.appendChild(valueField);
+  } else {
+    const presetLabel = document.createElement("label");
+    presetLabel.textContent = "Message ";
+    const presetSelect = document.createElement("select");
+    presetSelect.dataset.testField = "midi_preset";
+    for (const [id, label] of Object.entries(MIDI_TEST_PRESETS)) {
+      presetSelect.appendChild(new Option(label, id));
+    }
+    presetSelect.value = "control_change";
+    presetLabel.appendChild(presetSelect);
+    fieldset.appendChild(presetLabel);
+
+    fieldset.appendChild(
+      createTestNumberField("Channel", "midi_channel", 1, 1, 16, 1),
+    );
+    fieldset.appendChild(
+      createTestNumberField("Number", "midi_number", 1, 0, 127, 1),
+    );
+    fieldset.appendChild(
+      createTestNumberField("Value", "midi_value", 64, 0, 127, 1),
+    );
+  }
+
+  const message = document.createElement("p");
+  message.className = "adapter-test-message message";
+  fieldset.appendChild(message);
+
+  const sendButton = document.createElement("button");
+  sendButton.type = "button";
+  sendButton.textContent = "Send test";
+  sendButton.addEventListener("click", () => sendAdapterTestMessage(fieldset.closest(".midi-adapter-card"), kind));
+  fieldset.appendChild(sendButton);
+
+  return fieldset;
+}
+
+function createTestNumberField(labelText, fieldName, value, min, max, step) {
+  const label = createNumberField(labelText, fieldName, value, min, max, step);
+  const input = label.querySelector("input");
+  input.dataset.testField = fieldName;
+  delete input.dataset.field;
+  return label;
+}
+
 function createAdapterNameField(instance, defaultNames, { isNew = false } = {}) {
   const field = createTextField(
     "Instance name",
@@ -769,6 +937,18 @@ function createMidiAdapterCard(instance, config, options = {}) {
   joinFields.appendChild(joinSelect);
   card.appendChild(joinFields);
 
+  card.appendChild(
+    createSelectField(
+      "Test output port",
+      "output_port",
+      instance.available_output_ports || [],
+      "id",
+      "label",
+      instance.output_port || "",
+      "No output port",
+    ),
+  );
+
   const roleSelect = modeField.querySelector("select");
   const updateRtpVisibility = () => {
     const role = roleSelect.value.trim().toLowerCase();
@@ -795,6 +975,7 @@ function createMidiAdapterCard(instance, config, options = {}) {
   updateRtpVisibility();
   }
 
+  card.appendChild(createAdapterTestSendSection(instance.type, instance));
   attachMidiAdapterCardControls(card);
   return card;
 }
@@ -1356,6 +1537,7 @@ function createOscAdapterCard(instance, config, options = {}) {
     portField.dataset.userEdited = "true";
   });
 
+  card.appendChild(createAdapterTestSendSection("osc", instance));
   attachMidiAdapterCardControls(card);
   updateOscCardDeskMode(card);
   return card;

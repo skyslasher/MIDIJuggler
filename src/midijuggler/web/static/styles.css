@@ -254,6 +254,34 @@ legend {
   opacity: 0.55;
 }
 
+.adapter-test-send {
+  border: 1px solid #2b3752;
+  border-radius: 12px;
+  margin-top: 0.75rem;
+  padding: 0.75rem 1rem;
+}
+
+.adapter-test-send legend {
+  padding: 0 0.35rem;
+}
+
+.adapter-test-send .hint {
+  margin-bottom: 0.75rem;
+}
+
+.adapter-test-send label {
+  display: block;
+  margin-bottom: 0.5rem;
+}
+
+.adapter-test-send button {
+  margin-top: 0.5rem;
+}
+
+.adapter-test-message {
+  min-height: 1.25rem;
+}
+
 .midi-adapter-card .inline-field {
   margin-top: 0;
 }

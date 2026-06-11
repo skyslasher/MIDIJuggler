@@ -19,6 +19,7 @@ from midijuggler.adapters.base import Adapter
 from midijuggler.adapters.gpio import GpioAdapter, RASPBERRY_PI_HEADER_BCM_PINS
 from midijuggler.adapters.midi import MidiAdapter
 from midijuggler.adapters.osc import OscAdapter
+from midijuggler.adapters.rtp_midi import RtpMidiAdapter
 from midijuggler.alsa import write_master_clock_pcm_config
 from midijuggler.clock import ClockBpmTracker
 from midijuggler.config import (
@@ -37,7 +38,7 @@ from midijuggler.config import (
     save_osc_adapter_configs,
 )
 from midijuggler.eventbus import EventBus
-from midijuggler.events import Event
+from midijuggler.events import Event, MidiMessageEvent
 from midijuggler.learn import LearnController, resolve_monitor_source, upsert_mapping_rule
 from midijuggler.mapping import MappingEngine
 from midijuggler.midi_library import list_midi_libraries
@@ -72,6 +73,7 @@ class WebInterface:
         master_clock: MasterClock,
         gpio_adapter: GpioAdapter | None = None,
         midi_adapters: dict[str, MidiAdapter] | None = None,
+        rtp_midi_adapters: dict[str, RtpMidiAdapter] | None = None,
         osc_adapters: dict[str, OscAdapter] | None = None,
         mapping_engine: MappingEngine | None = None,
         rtp_midi_manager: RtpMidiManager | None = None,
@@ -85,6 +87,7 @@ class WebInterface:
         self.master_clock = master_clock
         self.gpio_adapter = gpio_adapter
         self.midi_adapters = midi_adapters or {}
+        self.rtp_midi_adapters = rtp_midi_adapters or {}
         self.osc_adapters = osc_adapters or {}
         self.mapping_engine = mapping_engine
         self.rtp_midi_manager = rtp_midi_manager
@@ -110,9 +113,11 @@ class WebInterface:
         app.router.add_post("/api/gpio", self.set_gpio_config)
         app.router.add_get("/api/midi-adapters", self.midi_adapters_config)
         app.router.add_post("/api/midi-adapters", self.set_midi_adapters_config)
+        app.router.add_post("/api/midi-adapters/test-send", self.test_send_midi_adapter)
         app.router.add_get("/api/osc-adapters", self.osc_adapters_config)
         app.router.add_get("/api/osc-adapters/discover", self.discover_osc_desks)
         app.router.add_post("/api/osc-adapters", self.set_osc_adapters_config)
+        app.router.add_post("/api/osc-adapters/test-send", self.test_send_osc_adapter)
         app.router.add_get("/api/master-clock", self.master_clock_config)
         app.router.add_post("/api/master-clock", self.set_master_clock_config)
         app.router.add_post("/api/master-clock/tap", self.tap_master_clock)
@@ -213,6 +218,26 @@ class WebInterface:
         try:
             response = await self.apply_midi_adapters_config(payload)
         except ValueError as exc:
+            raise web.HTTPBadRequest(text=str(exc)) from exc
+        return web.json_response(response)
+
+    async def test_send_midi_adapter(self, request: web.Request) -> web.Response:
+        payload = await request.json()
+        try:
+            response = await self.send_midi_adapter_test_message(payload)
+        except ValueError as exc:
+            raise web.HTTPBadRequest(text=str(exc)) from exc
+        except OSError as exc:
+            raise web.HTTPBadRequest(text=str(exc)) from exc
+        return web.json_response(response)
+
+    async def test_send_osc_adapter(self, request: web.Request) -> web.Response:
+        payload = await request.json()
+        try:
+            response = await self.send_osc_adapter_test_message(payload)
+        except ValueError as exc:
+            raise web.HTTPBadRequest(text=str(exc)) from exc
+        except OSError as exc:
             raise web.HTTPBadRequest(text=str(exc)) from exc
         return web.json_response(response)
 
@@ -487,6 +512,106 @@ class WebInterface:
                 }
                 for name, adapter in self.config.adapters.items()
             },
+        }
+
+    def _parse_midi_test_message(self, payload: dict[str, Any]) -> tuple[int, tuple[int, ...]]:
+        if "status" not in payload:
+            raise ValueError("MIDI test message requires status")
+
+        status = int(payload["status"])
+        raw_data = payload.get("data", [])
+        if not isinstance(raw_data, list):
+            raise ValueError("data must be a list of MIDI bytes")
+
+        if not 0 <= status <= 255:
+            raise ValueError("status must be between 0 and 255")
+
+        data: list[int] = []
+        for index, raw_byte in enumerate(raw_data):
+            byte = int(raw_byte)
+            if not 0 <= byte <= 127:
+                raise ValueError(f"data[{index}] must be between 0 and 127")
+            data.append(byte)
+
+        return status, tuple(data)
+
+    def _parse_osc_test_arguments(self, payload: dict[str, Any]) -> list[Any]:
+        if "arguments" in payload:
+            raw_arguments = payload.get("arguments")
+            if not isinstance(raw_arguments, list):
+                raise ValueError("arguments must be a list")
+            return raw_arguments
+
+        if "value" not in payload:
+            return []
+
+        value = payload["value"]
+        if isinstance(value, bool):
+            return [value]
+        if isinstance(value, int):
+            return [value]
+        if isinstance(value, float):
+            return [value]
+        if isinstance(value, str):
+            return [value]
+        raise ValueError("value must be a number, string, or boolean")
+
+    async def send_midi_adapter_test_message(self, payload: dict[str, Any]) -> dict[str, Any]:
+        if not isinstance(payload, dict):
+            raise ValueError("MIDI test payload must be an object")
+
+        kind = str(payload.get("kind", "midi")).strip().lower()
+        if kind not in {"midi", "rtp_midi"}:
+            raise ValueError("kind must be midi or rtp_midi")
+
+        name = str(payload.get("name", "")).strip()
+        if not name:
+            raise ValueError("name is required")
+
+        adapter = (
+            self.midi_adapters.get(name)
+            if kind == "midi"
+            else self.rtp_midi_adapters.get(name)
+        )
+        if adapter is None:
+            raise ValueError(f"unknown {kind} adapter instance: {name}")
+        if not adapter.running:
+            raise OSError(f"{kind} adapter {name} is not running")
+
+        status, data = self._parse_midi_test_message(payload)
+        await adapter.send_test_message(status, data)
+        return {
+            "ok": True,
+            "name": name,
+            "kind": kind,
+            "status": status,
+            "data": list(data),
+        }
+
+    async def send_osc_adapter_test_message(self, payload: dict[str, Any]) -> dict[str, Any]:
+        if not isinstance(payload, dict):
+            raise ValueError("OSC test payload must be an object")
+
+        name = str(payload.get("name", "")).strip()
+        address = str(payload.get("address", "")).strip()
+        if not name:
+            raise ValueError("name is required")
+        if not address:
+            raise ValueError("address is required")
+
+        adapter = self.osc_adapters.get(name)
+        if adapter is None:
+            raise ValueError(f"unknown OSC adapter instance: {name}")
+        if not adapter.running:
+            raise OSError(f"OSC adapter {name} is not running")
+
+        arguments = self._parse_osc_test_arguments(payload)
+        await adapter.send_test_message(address, arguments)
+        return {
+            "ok": True,
+            "name": name,
+            "address": address,
+            "arguments": arguments,
         }
 
     def _should_list_osc_instance(self, name: str, adapter: AdapterConfig) -> bool:
@@ -1219,11 +1344,16 @@ class WebInterface:
     ) -> dict[str, Any]:
         kind = adapter.kind or name
         options = adapter.options
+        runtime_adapter = (
+            self.midi_adapters.get(name)
+            if kind == "midi"
+            else self.rtp_midi_adapters.get(name)
+        )
         payload: dict[str, Any] = {
             "name": name,
             "type": kind,
             "enabled": adapter.enabled,
-            "runtime_active": False,
+            "runtime_active": runtime_adapter is not None and runtime_adapter.running,
         }
         if kind == "midi":
             input_port = str(options.get("input_port", ""))
@@ -1251,12 +1381,18 @@ class WebInterface:
                 if self.rtp_midi_manager is not None
                 else []
             )
+            output_port = str(options.get("output_port", ""))
             payload.update(
                 {
                     "role": role,
                     "session_name": str(options.get("session_name", "")),
                     "port": int(options.get("port", 5004)),
                     "join_target": join_target,
+                    "output_port": output_port,
+                    "available_output_ports": self._midi_port_choices(
+                        port_ids,
+                        output_port,
+                    ),
                     "available_rtp_sessions": self._rtp_session_choices(
                         joinable,
                         join_target,
@@ -1340,13 +1476,21 @@ class WebInterface:
             payload.get("session_name", current.get("session_name", ""))
         ).strip()
         join_target = str(payload.get("join_target", current.get("join_target", ""))).strip()
+        output_port = str(
+            payload.get("output_port", current.get("output_port", ""))
+        ).strip()
 
         if role in {"host", "listen"}:
             if enabled and not session_name:
                 raise ValueError(
                     "rtp_midi session_name must not be empty in host or listen mode"
                 )
-            return {"role": role, "session_name": session_name, "port": port}
+            return {
+                "role": role,
+                "session_name": session_name,
+                "port": port,
+                "output_port": output_port,
+            }
 
         if enabled and not join_target:
             raise ValueError("rtp_midi join_target must be selected in join mode")
@@ -1367,7 +1511,12 @@ class WebInterface:
         ):
             raise ValueError(f"unknown discovered RTP-MIDI session: {join_target}")
 
-        return {"role": role, "join_target": join_target, "port": port}
+        return {
+            "role": role,
+            "join_target": join_target,
+            "port": port,
+            "output_port": output_port,
+        }
 
     def _gpio_options(self) -> dict[str, Any]:
         if self.gpio_adapter is not None:

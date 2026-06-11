@@ -188,6 +188,28 @@ class OscAdapter(Adapter):
                     )
                 )
 
+    async def send_test_message(self, address: str, arguments: list[Any]) -> None:
+        normalized_address = address.strip()
+        if not normalized_address.startswith("/"):
+            raise ValueError("OSC address must start with /")
+        if self._transport is None or not self.running:
+            raise OSError(f"OSC adapter {self.name} is not running")
+        if not self._remote_host or self._remote_port <= 0:
+            raise OSError(
+                f"OSC adapter {self.name} has no remote_host/remote_port configured"
+            )
+
+        payload = encode_message(normalized_address, arguments)
+        self._transport.sendto(payload, (self._remote_host, self._remote_port))
+        await self.bus.publish(
+            OscMessageEvent(
+                source=self.name,
+                address=normalized_address,
+                arguments=tuple(arguments),
+                direction="output",
+            )
+        )
+
     async def send(self, event: MappedEvent) -> None:
         address = _target_address(self.name, event.target)
         if address is None:
