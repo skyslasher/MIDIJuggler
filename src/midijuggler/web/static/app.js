@@ -117,15 +117,8 @@ function renderSystemConfig(config) {
   if (systemHostnameInput && document.activeElement !== systemHostnameInput) {
     systemHostnameInput.value = config.hostname || "";
   }
-  if (systemHostnameSave) {
-    systemHostnameSave.disabled = config.can_set_hostname === false;
-  }
-  if (systemRestartButton) {
-    systemRestartButton.disabled = config.can_restart_service === false;
-  }
-  if (systemHostnameMessage && config.can_set_hostname === false) {
-    systemHostnameMessage.textContent =
-      "Hostname changes require sudo permissions on this system.";
+  if (systemHostnameMessage) {
+    systemHostnameMessage.textContent = config.capability_message || "";
   }
 }
 
@@ -2655,9 +2648,13 @@ systemHostnameSave?.addEventListener("click", () => {
     })
     .then((result) => {
       updateAppTitle(result.hostname);
-      systemHostnameMessage.textContent = result.mdns_refreshed
-        ? "hostname saved; mDNS announcements refreshed"
-        : "hostname saved";
+      if (!result.changed) {
+        systemHostnameMessage.textContent = "hostname unchanged";
+      } else if (result.mdns_refreshed) {
+        systemHostnameMessage.textContent = "hostname saved; mDNS announcements refreshed";
+      } else {
+        systemHostnameMessage.textContent = "hostname saved";
+      }
       return loadSystemConfig();
     })
     .catch((error) => {

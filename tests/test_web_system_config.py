@@ -34,6 +34,10 @@ def test_system_config_endpoint_reports_hostname(
         "midijuggler.web.server.can_restart_service",
         AsyncMock(return_value=False),
     )
+    monkeypatch.setattr(
+        "midijuggler.web.server.capability_message",
+        AsyncMock(return_value="sudoers not configured"),
+    )
 
     async def scenario() -> dict:
         app = web_interface.create_app()
@@ -59,8 +63,12 @@ def test_set_system_hostname_refreshes_mdns(
         {"refresh_announcements": refresh},
     )()
     monkeypatch.setattr(
+        "midijuggler.web.server.can_set_hostname",
+        AsyncMock(return_value=True),
+    )
+    monkeypatch.setattr(
         "midijuggler.web.server.apply_hostname",
-        AsyncMock(return_value="stage-pi"),
+        AsyncMock(return_value=("stage-pi", True)),
     )
 
     async def scenario() -> dict:

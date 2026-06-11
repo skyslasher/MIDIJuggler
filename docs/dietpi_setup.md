@@ -289,6 +289,10 @@ sudo systemctl enable --now midijuggler.service
 sudo systemctl status midijuggler.service
 ```
 
+The unit must **not** set `NoNewPrivileges=true`; that blocks the passwordless
+`sudo` helpers used for hostname changes and service restart from the web UI.
+After updating the unit file, run `daemon-reload` and restart the service.
+
 The web interface listens on the configured host and port, for example:
 
 ```text
@@ -324,5 +328,15 @@ sudo chmod 0440 /etc/sudoers.d/midijuggler
 sudo visudo -c
 ```
 
-Without the sudoers file the fields stay visible but disabled; hostname and
-restart still work from the shell as root.
+Without the sudoers file the configuration page shows a hint explaining what is
+missing; hostname and restart still work from the shell as root.
+
+Verify from the Pi as the service user:
+
+```bash
+sudo -u midijuggler sudo -n -l
+sudo -u midijuggler sudo -n /opt/midijuggler/app/scripts/restart-midijuggler.sh
+```
+
+The first command should list both helper scripts. The second restarts
+MIDIJuggler immediately (only use for testing).

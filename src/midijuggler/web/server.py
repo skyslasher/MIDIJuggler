@@ -69,8 +69,10 @@ from midijuggler.system_hostname import (
     apply_hostname,
     can_restart_service,
     can_set_hostname,
+    capability_message,
     get_hostname,
     restart_service,
+    system_diagnostics,
     validate_hostname,
 )
 from midijuggler.system_info import (
@@ -185,32 +187,44 @@ class WebInterface:
         }
 
     async def system_config(self, request: web.Request) -> web.Response:
-        can_set, can_restart = await asyncio.gather(
+        can_set, can_restart, message = await asyncio.gather(
             can_set_hostname(),
             can_restart_service(),
+            capability_message(),
         )
         payload = self.system_config_payload()
         payload["can_set_hostname"] = can_set
         payload["can_restart_service"] = can_restart
+        payload["capability_message"] = message
+        payload.update(system_diagnostics())
         return web.json_response(payload)
 
     async def set_system_hostname(self, request: web.Request) -> web.Response:
         payload = await request.json()
         hostname = str(payload.get("hostname", ""))
+        LOGGER.info("hostname change requested: %r", hostname)
         try:
             validate_hostname(hostname)
         except ValueError as exc:
             return web.Response(text=str(exc), status=400)
 
+        if not await can_set_hostname():
+            message = await capability_message()
+            detail = message or "hostname changes are not permitted on this system"
+            LOGGER.warning("hostname change blocked: %s", detail)
+            return web.Response(text=detail, status=503)
+
         try:
-            new_hostname = await apply_hostname(hostname)
+            new_hostname, changed = await apply_hostname(hostname)
         except OSError as exc:
             LOGGER.warning("failed to set hostname: %s", exc)
             return web.Response(text=str(exc), status=503)
 
-        if self.rtp_midi_manager is not None:
+        mdns_refreshed = False
+        if changed and self.rtp_midi_manager is not None:
             try:
                 await self.rtp_midi_manager.refresh_announcements()
+                mdns_refreshed = True
             except Exception:
                 LOGGER.exception("failed to refresh RTP-MIDI announcements")
 
@@ -220,16 +234,18 @@ class WebInterface:
         return web.json_response(
             {
                 "hostname": new_hostname,
-                "mdns_refreshed": self.rtp_midi_manager is not None,
+                "changed": changed,
+                "mdns_refreshed": mdns_refreshed,
             }
         )
 
     async def restart_service_endpoint(self, request: web.Request) -> web.Response:
+        LOGGER.info("service restart requested from web UI")
         if not await can_restart_service():
-            return web.Response(
-                text="service restart is not permitted on this system",
-                status=503,
-            )
+            message = await capability_message()
+            detail = message or "service restart is not permitted on this system"
+            LOGGER.warning("service restart blocked: %s", detail)
+            return web.Response(text=detail, status=503)
 
         async def _delayed_restart() -> None:
             await asyncio.sleep(0.3)
