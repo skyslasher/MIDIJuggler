@@ -119,6 +119,40 @@ def test_osc_adapter_sends_mapped_events_to_remote() -> None:
     assert b"/ch/01/mix/01/level" in data
 
 
+def test_osc_adapter_sends_wing_subscription_keepalive_to_desk() -> None:
+    async def scenario() -> tuple[str, tuple[Any, ...], tuple[str, int]]:
+        sent: list[tuple[bytes, tuple[str, int]]] = []
+
+        class FakeTransport:
+            def sendto(self, data: bytes, addr: tuple[str, int]) -> None:
+                sent.append((data, addr))
+
+        adapter = OscAdapter(
+            name="wing_foh",
+            config=AdapterConfig(
+                enabled=True,
+                kind="osc",
+                options={
+                    "osc_port": 2223,
+                    "remote_host": "192.168.1.48",
+                    "osc_library": "behringer_wing",
+                },
+            ),
+            bus=EventBus(),
+        )
+        adapter._transport = FakeTransport()  # noqa: SLF001
+        await adapter._send_desk_keepalive()  # noqa: SLF001
+
+        address, arguments = decode_messages(sent[0][0])[0]
+        return address, arguments, sent[0][1]
+
+    address, arguments, target = asyncio.run(scenario())
+
+    assert address == "/%2223/*s~"
+    assert arguments == ()
+    assert target == ("192.168.1.48", 2223)
+
+
 def test_osc_adapter_sends_xremote_keepalive_to_desk() -> None:
     async def scenario() -> tuple[str, tuple[Any, ...]]:
         sent: list[tuple[bytes, tuple[str, int]]] = []

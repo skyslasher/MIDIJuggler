@@ -23,6 +23,7 @@ from midijuggler.osc.desk_protocol import (
     DeskProtocol,
     apply_desk_options,
     desk_protocol_for_library,
+    desk_subscribe_address,
     sync_query_addresses,
 )
 from midijuggler.osc.protocol import decode_messages, encode_message
@@ -253,8 +254,16 @@ class OscAdapter(Adapter):
             return
         if self._transport is None:
             return
-        payload = encode_message(self._desk_protocol.keepalive_address, [])
+        address = desk_subscribe_address(self._desk_protocol, self._listen_port)
+        payload = encode_message(address, [])
         self._transport.sendto(payload, (self._remote_host, self._remote_port))
+        LOGGER.debug(
+            "OSC adapter %s sent desk subscription %s to %s:%s",
+            self.name,
+            address,
+            self._remote_host,
+            self._remote_port,
+        )
 
     async def _desk_sync(self) -> None:
         if self._desk_protocol is None or not self._remote_host or self._remote_port <= 0:

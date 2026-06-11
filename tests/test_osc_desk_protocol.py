@@ -4,9 +4,11 @@ from midijuggler.osc.desk_protocol import (
     apply_desk_options,
     desk_mode_for_library,
     desk_protocol_for_library,
+    desk_subscribe_address,
     osc_library_for_desk_mode,
     sync_query_addresses,
 )
+from midijuggler.osc.protocol import decode_messages, encode_message
 
 
 def test_apply_desk_options_couples_ports_for_x32() -> None:
@@ -69,9 +71,28 @@ def test_osc_library_for_desk_mode_rejects_unknown_values() -> None:
         osc_library_for_desk_mode("dm3")
 
 
+def test_desk_subscribe_address_for_wing_uses_event_subscription() -> None:
+    wing = desk_protocol_for_library("behringer_wing")
+
+    assert wing is not None
+    assert wing.keepalive_address == "/*s~"
+    assert desk_subscribe_address(wing, 2223) == "/%2223/*s~"
+    assert desk_subscribe_address(wing, 0) == "/*s~"
+
+
+def test_decode_wing_fader_feedback_message() -> None:
+    payload = encode_message("/ch/1/fdr~~~", ["-oo", 0.0, -144.0])
+    address, arguments = decode_messages(payload)[0]
+
+    assert address == "/ch/1/fdr~~~"
+    assert arguments[0] == "-oo"
+    assert arguments[1] == pytest.approx(0.0)
+    assert arguments[2] == pytest.approx(-144.0)
+
+
 def test_desk_protocol_for_library_returns_keepalive_command() -> None:
     wing = desk_protocol_for_library("behringer_wing")
 
     assert wing is not None
-    assert wing.keepalive_address == "/*s"
+    assert wing.keepalive_address == "/*s~"
     assert wing.default_port == 2223

@@ -39,7 +39,7 @@ DESK_PROTOCOLS: dict[str, DeskProtocol] = {
         library_id="behringer_wing",
         protocol_id="wing",
         default_port=2223,
-        keepalive_address="/*s",
+        keepalive_address="/*s~",
     ),
 }
 
@@ -66,6 +66,16 @@ def osc_library_for_desk_mode(desk_mode: str) -> str:
 
 def desk_mode_for_library(library_id: str) -> str:
     return LIBRARY_TO_DESK_MODE.get(library_id.strip(), "")
+
+
+def desk_subscribe_address(desk: DeskProtocol, listen_port: int = 0) -> str:
+    """Return the OSC address used to subscribe to unsolicited desk feedback."""
+
+    if desk.protocol_id == "wing":
+        if listen_port > 0:
+            return f"/%{listen_port}/*s~"
+        return desk.keepalive_address
+    return desk.keepalive_address
 
 
 def apply_desk_options(options: dict[str, Any]) -> dict[str, Any]:
