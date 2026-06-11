@@ -41,7 +41,13 @@ from midijuggler.mapping import MappingEngine
 from midijuggler.midi_library import list_midi_libraries
 from midijuggler.master_clock import MasterClock
 from midijuggler.rtp_midi.manager import RtpMidiManager
-from midijuggler.osc.desk_protocol import apply_desk_options, is_desk_library
+from midijuggler.osc.desk_protocol import (
+    apply_desk_options,
+    desk_mode_for_library,
+    desk_protocol_for_library,
+    is_desk_library,
+    osc_library_for_desk_mode,
+)
 from midijuggler.osc.discovery import discover_desks
 from midijuggler.osc_library import get_osc_library, list_osc_libraries
 from midijuggler.system_info import (
@@ -492,6 +498,7 @@ class WebInterface:
     def _osc_instance_payload(self, name: str, adapter: AdapterConfig) -> dict[str, Any]:
         options = apply_desk_options(dict(adapter.options))
         osc_library = str(options.get("osc_library", ""))
+        desk_mode = str(options.get("desk_mode", "")) or desk_mode_for_library(osc_library)
         runtime_adapter = self.osc_adapters.get(name)
         return {
             "name": name,
@@ -504,7 +511,7 @@ class WebInterface:
             "remote_port": int(options.get("remote_port", 0)),
             "osc_port": int(options.get("osc_port", options.get("listen_port", 9000))),
             "osc_library": osc_library,
-            "desk_mode": str(options.get("desk_mode", "")),
+            "desk_mode": desk_mode,
             "desk_sync_on_connect": bool(options.get("desk_sync_on_connect", False)),
             "desk_proxy_mode": bool(options.get("desk_proxy_mode", False)),
             "proxy_client_count": (
@@ -519,16 +526,21 @@ class WebInterface:
         payload: dict[str, Any],
         current: dict[str, Any],
     ) -> dict[str, Any]:
-        osc_library = str(payload.get("osc_library", current.get("osc_library", ""))).strip()
+        if "desk_mode" in payload:
+            osc_library = osc_library_for_desk_mode(str(payload.get("desk_mode", "")))
+        else:
+            osc_library = str(payload.get("osc_library", current.get("osc_library", ""))).strip()
         desk_mode = is_desk_library(osc_library)
 
         if desk_mode:
+            desk = desk_protocol_for_library(osc_library)
+            default_port = desk.default_port if desk is not None else 9000
             osc_port = int(
                 payload.get(
                     "osc_port",
                     payload.get(
                         "listen_port",
-                        current.get("osc_port", current.get("listen_port", 9000)),
+                        current.get("osc_port", current.get("listen_port", default_port)),
                     ),
                 )
             )

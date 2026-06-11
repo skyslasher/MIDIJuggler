@@ -40,9 +40,18 @@ const midiMessage = document.querySelector("#midi-message");
 const rtpMidiMessage = document.querySelector("#rtp-midi-message");
 const DEFAULT_MIDI_ADAPTER_NAMES = new Set(["midi", "rtp_midi"]);
 const DEFAULT_OSC_ADAPTER_NAMES = new Set(["osc"]);
+const DESK_MODE_OPTIONS = [
+  { id: "", label: "None" },
+  { id: "x32", label: "X32" },
+  { id: "wing", label: "Wing" },
+];
+const DESK_MODE_TO_LIBRARY = {
+  x32: "behringer_x32",
+  wing: "behringer_wing",
+};
 const DESK_OSC_LIBRARIES = {
-  behringer_x32: { label: "Behringer X32", defaultPort: 10023, proxy: false },
-  behringer_wing: { label: "Behringer Wing", defaultPort: 2223, proxy: true },
+  behringer_x32: { deskMode: "x32", label: "X32", defaultPort: 10023, proxy: false },
+  behringer_wing: { deskMode: "wing", label: "Wing", defaultPort: 2223, proxy: true },
 };
 
 const gpioForm = document.querySelector("#gpio-form");
@@ -1032,30 +1041,59 @@ function defaultOscInstanceTemplate() {
     remote_host: "",
     remote_port: 0,
     osc_port: 9000,
+    desk_mode: "",
     osc_library: "",
     desk_sync_on_connect: false,
     desk_proxy_mode: false,
   };
 }
 
-function isDeskOscLibrary(libraryId) {
-  return Boolean(DESK_OSC_LIBRARIES[libraryId]);
+function deskModeFromInstance(instance) {
+  if (instance.desk_mode) {
+    return instance.desk_mode;
+  }
+  if (instance.osc_library === "behringer_x32") {
+    return "x32";
+  }
+  if (instance.osc_library === "behringer_wing") {
+    return "wing";
+  }
+  return "";
 }
 
-function deskOscDefaultPort(libraryId) {
+function deskModeToLibraryId(deskMode) {
+  return DESK_MODE_TO_LIBRARY[deskMode] || "";
+}
+
+function isDeskOscMode(deskMode) {
+  return Boolean(deskModeToLibraryId(deskMode));
+}
+
+function deskOscDefaultPort(deskMode) {
+  const libraryId = deskModeToLibraryId(deskMode);
   return DESK_OSC_LIBRARIES[libraryId]?.defaultPort ?? 9000;
 }
 
+function syncOscLibraryFromDeskMode(card) {
+  const deskMode = card.querySelector('[data-field="desk_mode"]')?.value || "";
+  const libraryField = card.querySelector('[data-field="osc_library"]');
+  if (libraryField) {
+    libraryField.value = deskModeToLibraryId(deskMode);
+  }
+}
+
 function updateOscCardDeskMode(card) {
-  const libraryId = card.querySelector('[data-field="osc_library"]')?.value || "";
-  const deskMode = isDeskOscLibrary(libraryId);
+  syncOscLibraryFromDeskMode(card);
+  const deskMode = card.querySelector('[data-field="desk_mode"]')?.value || "";
+  const deskModeActive = isDeskOscMode(deskMode);
+  const libraryId = deskModeToLibraryId(deskMode);
   const deskInfo = DESK_OSC_LIBRARIES[libraryId];
 
   for (const element of card.querySelectorAll("[data-osc-generic]")) {
-    element.hidden = deskMode;
+    element.hidden = deskModeActive;
   }
   for (const element of card.querySelectorAll("[data-osc-desk]")) {
-    element.hidden = !deskMode;
+    element.hidden = !deskModeActive;
   }
 
   const proxyField = card.querySelector('[data-field="desk_proxy_mode"]');
@@ -1068,16 +1106,16 @@ function updateOscCardDeskMode(card) {
     }
   }
 
-  if (deskMode) {
+  if (deskModeActive) {
     const portField = card.querySelector('[data-field="osc_port"]');
     if (portField && (!portField.value || portField.dataset.userEdited !== "true")) {
-      portField.value = String(deskOscDefaultPort(libraryId));
+      portField.value = String(deskOscDefaultPort(deskMode));
     }
   }
 
   const deskHint = card.querySelector(".osc-desk-hint");
   if (deskHint) {
-    if (!deskMode) {
+    if (!deskModeActive) {
       deskHint.textContent = "";
       deskHint.hidden = true;
     } else if (deskInfo?.proxy && card.querySelector('[data-field="desk_proxy_mode"]')?.checked) {
@@ -1097,9 +1135,9 @@ function applyDiscoveredDeskToCard(card, device) {
   if (hostField) {
     hostField.value = device.ip;
   }
-  const libraryField = card.querySelector('[data-field="osc_library"]');
-  if (libraryField && !libraryField.value) {
-    libraryField.value = device.protocol === "wing" ? "behringer_wing" : "behringer_x32";
+  const deskModeField = card.querySelector('[data-field="desk_mode"]');
+  if (deskModeField && !deskModeField.value) {
+    deskModeField.value = device.protocol === "wing" ? "wing" : "x32";
     updateOscCardDeskMode(card);
   }
   const portField = card.querySelector('[data-field="osc_port"]');
@@ -1176,6 +1214,24 @@ function createOscAdapterCard(instance, config, options = {}) {
   enabledInput.checked = Boolean(instance.enabled);
   enabledLabel.append(enabledInput, document.createTextNode(" Enabled"));
   card.appendChild(enabledLabel);
+
+  card.appendChild(
+    createSelectField(
+      "Desk mode",
+      "desk_mode",
+      DESK_MODE_OPTIONS,
+      "id",
+      "label",
+      deskModeFromInstance(instance),
+      "None",
+    ),
+  );
+
+  const hiddenLibraryField = document.createElement("input");
+  hiddenLibraryField.type = "hidden";
+  hiddenLibraryField.dataset.field = "osc_library";
+  hiddenLibraryField.value = instance.osc_library || deskModeToLibraryId(deskModeFromInstance(instance));
+  card.appendChild(hiddenLibraryField);
 
   card.appendChild(
     createTextField("Listen host", "listen_host", instance.listen_host || "0.0.0.0"),
@@ -1258,22 +1314,6 @@ function createOscAdapterCard(instance, config, options = {}) {
   remoteHostField.appendChild(discoverRow);
   card.appendChild(remoteHostField);
 
-  const libraryOptions = [
-    { id: "", label: "No library" },
-    ...(config.available_osc_libraries || []),
-  ];
-  card.appendChild(
-    createSelectField(
-      "OSC library",
-      "osc_library",
-      libraryOptions,
-      "id",
-      "label",
-      instance.osc_library || "",
-      "No library",
-    ),
-  );
-
   const syncLabel = document.createElement("label");
   syncLabel.className = "inline-field";
   syncLabel.dataset.oscDesk = "true";
@@ -1294,8 +1334,8 @@ function createOscAdapterCard(instance, config, options = {}) {
   proxyLabel.append(proxyInput, document.createTextNode(" Proxy mode (Wing)"));
   card.appendChild(proxyLabel);
 
-  const librarySelect = card.querySelector('[data-field="osc_library"]');
-  librarySelect?.addEventListener("change", () => updateOscCardDeskMode(card));
+  const deskModeSelect = card.querySelector('[data-field="desk_mode"]');
+  deskModeSelect?.addEventListener("change", () => updateOscCardDeskMode(card));
   proxyInput.addEventListener("change", () => updateOscCardDeskMode(card));
   const portField = card.querySelector('[data-field="osc_port"]');
   portField?.addEventListener("input", () => {

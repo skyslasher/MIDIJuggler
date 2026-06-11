@@ -105,6 +105,50 @@ def test_apply_osc_adapters_config_normalizes_desk_ports(tmp_path: Path) -> None
     assert saved.adapters["wing_foh"].options["desk_proxy_mode"] is True
 
 
+def test_apply_osc_adapters_config_accepts_desk_mode_selection(tmp_path: Path) -> None:
+    config_file = tmp_path / "config.toml"
+    config_file.write_text(
+        """
+        [adapters.osc]
+        enabled = true
+        listen_port = 9000
+        """,
+        encoding="utf-8",
+    )
+    config = load_config(config_file)
+    interface = WebInterface(
+        config,
+        EventBus(),
+        ClockBpmTracker(),
+        MasterClock(config.master_clock, EventBus()),
+        config_path=config_file,
+    )
+
+    result = asyncio.run(
+        interface.apply_osc_adapters_config(
+            {
+                "instances": [
+                    {
+                        "name": "wing_foh",
+                        "enabled": True,
+                        "desk_mode": "wing",
+                        "remote_host": "192.168.10.48",
+                        "desk_proxy_mode": True,
+                    }
+                ]
+            }
+        )
+    )
+
+    wing = next(instance for instance in result["instances"] if instance["name"] == "wing_foh")
+    saved = load_config(config_file)
+
+    assert wing["desk_mode"] == "wing"
+    assert wing["osc_library"] == "behringer_wing"
+    assert wing["listen_port"] == 2223
+    assert saved.adapters["wing_foh"].options["osc_library"] == "behringer_wing"
+
+
 def test_apply_osc_adapters_config_rejects_duplicate_listen_ports() -> None:
     config = parse_config(
         {

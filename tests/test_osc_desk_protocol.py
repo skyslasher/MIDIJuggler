@@ -2,7 +2,9 @@ import pytest
 
 from midijuggler.osc.desk_protocol import (
     apply_desk_options,
+    desk_mode_for_library,
     desk_protocol_for_library,
+    osc_library_for_desk_mode,
     sync_query_addresses,
 )
 
@@ -53,6 +55,18 @@ def test_sync_query_addresses_returns_unique_library_addresses() -> None:
 
     assert "/ch/01/mix/fader" in addresses
     assert len(addresses) == len(set(addresses))
+
+
+def test_osc_library_for_desk_mode_maps_protocol_ids() -> None:
+    assert osc_library_for_desk_mode("x32") == "behringer_x32"
+    assert osc_library_for_desk_mode("wing") == "behringer_wing"
+    assert osc_library_for_desk_mode("") == ""
+    assert desk_mode_for_library("behringer_wing") == "wing"
+
+
+def test_osc_library_for_desk_mode_rejects_unknown_values() -> None:
+    with pytest.raises(ValueError, match="desk_mode must be"):
+        osc_library_for_desk_mode("dm3")
 
 
 def test_desk_protocol_for_library_returns_keepalive_command() -> None:

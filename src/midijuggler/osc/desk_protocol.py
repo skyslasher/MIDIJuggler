@@ -8,6 +8,13 @@ from typing import Any
 from midijuggler.osc_library import get_osc_library
 
 DESK_LIBRARY_IDS = frozenset({"behringer_x32", "behringer_wing"})
+DESK_MODE_TO_LIBRARY: dict[str, str] = {
+    "x32": "behringer_x32",
+    "wing": "behringer_wing",
+}
+LIBRARY_TO_DESK_MODE: dict[str, str] = {
+    library_id: desk_mode for desk_mode, library_id in DESK_MODE_TO_LIBRARY.items()
+}
 
 
 @dataclass(frozen=True)
@@ -46,6 +53,19 @@ def desk_protocol_for_library(library_id: str) -> DeskProtocol | None:
 
 def is_desk_library(library_id: str) -> bool:
     return library_id.strip() in DESK_LIBRARY_IDS
+
+
+def osc_library_for_desk_mode(desk_mode: str) -> str:
+    normalized = desk_mode.strip().lower()
+    if normalized in {"", "none"}:
+        return ""
+    if normalized not in DESK_MODE_TO_LIBRARY:
+        raise ValueError("desk_mode must be x32, wing, or empty")
+    return DESK_MODE_TO_LIBRARY[normalized]
+
+
+def desk_mode_for_library(library_id: str) -> str:
+    return LIBRARY_TO_DESK_MODE.get(library_id.strip(), "")
 
 
 def apply_desk_options(options: dict[str, Any]) -> dict[str, Any]:
