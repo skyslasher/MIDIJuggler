@@ -14,12 +14,16 @@ sudo apt install -y git python3 python3-venv python3-pip
 Packages for master-clock click output through a USB sound card:
 
 ```bash
-sudo apt install -y build-essential libasound2-dev alsa-utils avahi-daemon avahi-utils
+sudo apt install -y build-essential pkg-config libasound2-dev python3.13-dev alsa-utils avahi-daemon avahi-utils
 ```
 
-`build-essential` provides `gcc`, which is required to build `python-rtmidi` (MIDI) and
-`pyalsaaudio` (optional click audio) when piwheels has no ready-made wheel for your
-Python version.
+`build-essential` provides `gcc`/`g++`, which is required to build `python-rtmidi` (MIDI)
+and `pyalsaaudio` (optional click audio) when piwheels has no ready-made wheel for your
+Python version. `pkg-config` and `libasound2-dev` are required so the `python-rtmidi`
+build can find ALSA. `python3.13-dev` provides `Python.h` and the pkg-config entry for
+your Python version (`Python dependency not found` during the `python-rtmidi` build
+otherwise). If your system uses another Python 3.x release, install the matching
+`python3-dev` / `python3.X-dev` package instead.
 
 `avahi-utils` provides `avahi-publish-service` and `avahi-browse`, which MIDIJuggler
 prefers on the Pi for RTP-MIDI mDNS instead of opening a second mDNS stack through
@@ -66,6 +70,28 @@ Local development on a Mac or PC uses the same extras from the repository root:
 
 ```bash
 pip install -e ".[alsa,midi,rtp]"
+```
+
+### Troubleshooting `python-rtmidi` on Python 3.13
+
+If `pip install ...[midi]` fails with `Python dependency not found`, install the
+Python headers and verify pkg-config can see them:
+
+```bash
+sudo apt install -y python3.13-dev
+pkg-config --cflags python-3.13
+```
+
+The second command should print an include path containing `Python.h`.
+
+If the sdist build from PyPI still fails, install `python-rtmidi` from the
+upstream git repository (better Python 3.13 support), then install the app:
+
+```bash
+sudo -u midijuggler /opt/midijuggler/venv/bin/python -m pip install "git+https://github.com/SpotlightKid/python-rtmidi.git"
+sudo -u midijuggler /opt/midijuggler/venv/bin/python -m pip install mido
+sudo -u midijuggler /opt/midijuggler/venv/bin/python -m pip install -e "/opt/midijuggler/app"
+sudo systemctl restart midijuggler.service
 ```
 
 ## Install
