@@ -25,7 +25,10 @@ from midijuggler.midi.library_match import (
     resolve_library_port,
 )
 from midijuggler.midi_library import get_midi_library
-from midijuggler.system_info import resolve_midi_port_address
+from midijuggler.system_info import (
+    resolve_midi_input_port_address,
+    resolve_midi_output_port_address,
+)
 
 LOGGER = logging.getLogger(__name__)
 
@@ -46,10 +49,10 @@ class MidiAdapter(Adapter):
         input_port = str(self.config.options.get("input_port", "")).strip()
         output_port = str(self.config.options.get("output_port", "")).strip()
         self._input_address = (
-            resolve_midi_port_address(input_port) if input_port else None
+            resolve_midi_input_port_address(input_port) if input_port else None
         )
         self._output_address = (
-            resolve_midi_port_address(output_port) if output_port else None
+            self._resolve_output_address() if output_port or input_port else None
         )
 
         if input_port and self._input_address is None:
@@ -241,9 +244,17 @@ class MidiAdapter(Adapter):
 
     def _resolve_output_address(self) -> str | None:
         output_port = str(self.config.options.get("output_port", "")).strip()
+        input_port = str(self.config.options.get("input_port", "")).strip()
+
         if output_port:
-            return resolve_midi_port_address(output_port)
-        return self._output_address
+            address = resolve_midi_output_port_address(output_port)
+            if address is not None:
+                return address
+
+        if input_port:
+            return resolve_midi_output_port_address(input_port)
+
+        return None
 
     async def send_midi_message(self, event: MidiMessageEvent) -> None:
         output_address = self._resolve_output_address()
@@ -262,6 +273,13 @@ class MidiAdapter(Adapter):
     async def send_test_message(self, status: int, data: tuple[int, ...]) -> None:
         output_address = self._resolve_output_address()
         if output_address is None:
+            output_port = str(self.config.options.get("output_port", "")).strip()
+            input_port = str(self.config.options.get("input_port", "")).strip()
+            if output_port or input_port:
+                raise OSError(
+                    f"MIDI adapter {self.name} cannot resolve a writable ALSA output port "
+                    f"for {output_port or input_port!r}; re-select the output port in the web UI"
+                )
             raise OSError(
                 f"MIDI adapter {self.name} has no output_port configured for sending"
             )

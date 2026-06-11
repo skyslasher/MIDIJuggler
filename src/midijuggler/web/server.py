@@ -68,6 +68,8 @@ from midijuggler.osc_library import get_osc_library, list_osc_libraries
 from midijuggler.system_info import (
     list_alsa_output_devices,
     list_click_wavs,
+    list_midi_input_ports,
+    list_midi_output_ports,
     list_midi_ports,
 )
 
@@ -979,8 +981,8 @@ class WebInterface:
                 await self.rtp_midi_manager.apply_instance(new_name, config)
 
     def midi_adapters_config_payload(self) -> dict[str, Any]:
-        available_ports = list_midi_ports()
-        port_ids = {port["id"] for port in available_ports}
+        available_input_ports = list_midi_input_ports()
+        available_output_ports = list_midi_output_ports()
         libraries = list_midi_libraries()
         discovered_sessions = (
             self.rtp_midi_manager.discovered_sessions()
@@ -988,7 +990,9 @@ class WebInterface:
             else []
         )
         return {
-            "available_ports": available_ports,
+            "available_ports": list_midi_ports(),
+            "available_input_ports": available_input_ports,
+            "available_output_ports": available_output_ports,
             "available_midi_libraries": [
                 {"id": library.id, "label": library.name}
                 for library in libraries
@@ -1011,7 +1015,12 @@ class WebInterface:
                 else []
             ),
             "instances": [
-                self._midi_instance_payload(name, adapter, port_ids)
+                self._midi_instance_payload(
+                    name,
+                    adapter,
+                    available_input_ports,
+                    available_output_ports,
+                )
                 for name, adapter in sorted(self.config.adapters.items())
                 if (adapter.kind or name) in {"midi", "rtp_midi"}
             ],
@@ -1432,7 +1441,8 @@ class WebInterface:
         self,
         name: str,
         adapter: AdapterConfig,
-        port_ids: set[str],
+        available_input_ports: list[dict[str, str]],
+        available_output_ports: list[dict[str, str]],
     ) -> dict[str, Any]:
         kind = adapter.kind or name
         options = adapter.options
@@ -1456,11 +1466,11 @@ class WebInterface:
                     "output_port": output_port,
                     "midi_library": str(options.get("midi_library", "")),
                     "available_input_ports": self._midi_port_choices(
-                        port_ids,
+                        available_input_ports,
                         input_port,
                     ),
                     "available_output_ports": self._midi_port_choices(
-                        port_ids,
+                        available_output_ports,
                         output_port,
                     ),
                 }
@@ -1482,7 +1492,7 @@ class WebInterface:
                     "join_target": join_target,
                     "output_port": output_port,
                     "available_output_ports": self._midi_port_choices(
-                        port_ids,
+                        available_output_ports,
                         output_port,
                     ),
                     "available_rtp_sessions": self._rtp_session_choices(
@@ -1513,10 +1523,10 @@ class WebInterface:
 
     def _midi_port_choices(
         self,
-        port_ids: set[str],
+        ports: list[dict[str, str]],
         selected_port: str,
     ) -> list[dict[str, str]]:
-        ports = list_midi_ports()
+        port_ids = {port["id"] for port in ports}
         choices = list(ports)
         if selected_port and selected_port not in port_ids:
             choices.append(

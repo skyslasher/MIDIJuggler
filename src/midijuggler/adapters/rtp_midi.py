@@ -10,7 +10,7 @@ from midijuggler.config import AdapterConfig
 from midijuggler.eventbus import EventBus
 from midijuggler.events import AdapterStatusEvent, MidiMessageEvent
 from midijuggler.midi.output import send_midi_message_to_port
-from midijuggler.system_info import resolve_midi_port_address
+from midijuggler.system_info import resolve_midi_output_port_address
 
 if TYPE_CHECKING:
     from midijuggler.rtp_midi.manager import RtpMidiManager
@@ -75,7 +75,7 @@ class RtpMidiAdapter(Adapter):
         output_port = str(self.config.options.get("output_port", "")).strip()
         if not output_port:
             return None
-        return resolve_midi_port_address(output_port)
+        return resolve_midi_output_port_address(output_port)
 
     async def send_midi_message(self, event: MidiMessageEvent) -> None:
         output_address = self._resolve_output_address()

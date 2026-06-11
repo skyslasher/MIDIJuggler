@@ -27,7 +27,7 @@ def test_parse_aplay_devices_returns_plughw_ids() -> None:
     ]
 
 
-def test_parse_aconnect_ports_returns_unique_port_names() -> None:
+def test_parse_aconnect_ports_returns_all_client_addresses() -> None:
     ports = parse_aconnect_ports(
         """
         client 0: 'System' [type=kernel]
@@ -44,16 +44,34 @@ def test_parse_aconnect_ports_returns_unique_port_names() -> None:
         {
             "id": "MIDIJuggler In",
             "address": "20:0",
-            "label": "MIDIJuggler / MIDIJuggler In",
+            "label": "MIDIJuggler / MIDIJuggler In (20:0)",
             "client": "MIDIJuggler",
         },
         {
             "id": "MIDIJuggler Out",
             "address": "20:1",
-            "label": "MIDIJuggler / MIDIJuggler Out",
+            "label": "MIDIJuggler / MIDIJuggler Out (20:1)",
+            "client": "MIDIJuggler",
+        },
+        {
+            "id": "MIDIJuggler In",
+            "address": "21:0",
+            "label": "MIDIJuggler / MIDIJuggler In (21:0)",
             "client": "MIDIJuggler",
         },
     ]
+
+
+def test_parse_aconnect_ports_keeps_same_name_on_different_addresses() -> None:
+    ports = parse_aconnect_ports(
+        """
+        client 24: 'X-TOUCHMINI' [type=kernel]
+            0 'X-TOUCH MINI'
+            1 'X-TOUCH MINI'
+        """
+    )
+
+    assert [port["address"] for port in ports] == ["24:0", "24:1"]
 
 
 def test_list_click_wavs_finds_wav_files(tmp_path: Path) -> None:

@@ -306,6 +306,8 @@ def test_hosted_session_ids_tracks_active_host_instances() -> None:
 
 
 def test_midi_payload_includes_rtp_discovery_fields(monkeypatch) -> None:
+    monkeypatch.setattr("midijuggler.web.server.list_midi_input_ports", lambda: [])
+    monkeypatch.setattr("midijuggler.web.server.list_midi_output_ports", lambda: [])
     monkeypatch.setattr("midijuggler.web.server.list_midi_ports", lambda: [])
     manager = RtpMidiManager()
     manager._discovery = RtpMidiDiscovery()

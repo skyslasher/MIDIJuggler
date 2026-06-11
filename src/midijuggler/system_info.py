@@ -48,6 +48,7 @@ def list_alsa_output_devices() -> list[dict[str, str]]:
 
 
 _IGNORED_MIDI_CLIENTS = {"System", "Midi Through"}
+_ADDRESS_PATTERN = re.compile(r"^\d+:\d+$")
 
 
 def parse_aconnect_ports(output: str) -> list[dict[str, str]]:
@@ -73,15 +74,16 @@ def parse_aconnect_ports(output: str) -> list[dict[str, str]]:
             continue
 
         port_index = port_match.group(1)
-        port_name = port_match.group(2)
-        if port_name in seen:
+        port_name = port_match.group(2).strip()
+        address = f"{current_client_id}:{port_index}"
+        if address in seen:
             continue
-        seen.add(port_name)
+        seen.add(address)
         ports.append(
             {
                 "id": port_name,
-                "address": f"{current_client_id}:{port_index}",
-                "label": f"{current_client} / {port_name}",
+                "address": address,
+                "label": f"{current_client} / {port_name} ({address})",
                 "client": current_client,
             }
         )
@@ -89,23 +91,48 @@ def parse_aconnect_ports(output: str) -> list[dict[str, str]]:
     return ports
 
 
-def resolve_midi_port_address(port_name: str) -> str | None:
-    """Resolve a configured ALSA port label to a client:port address."""
-
+def _resolve_port_address(port_name: str, ports: list[dict[str, str]]) -> str | None:
     normalized = port_name.strip()
     if not normalized:
         return None
 
-    for port in parse_aconnect_ports(_aconnect_list_output()):
-        if port["id"] == normalized:
-            return port["address"]
+    if _ADDRESS_PATTERN.match(normalized):
+        if any(port["address"] == normalized for port in ports):
+            return normalized
+        return None
+
+    matches = [port for port in ports if port["id"] == normalized]
+    if len(matches) == 1:
+        return matches[0]["address"]
+    if len(matches) > 1:
+        return matches[0]["address"]
     return None
 
 
-def _aconnect_list_output() -> str:
+def resolve_midi_input_port_address(port_name: str) -> str | None:
+    """Resolve a configured readable ALSA port label to a client:port address."""
+
+    return _resolve_port_address(port_name, list_midi_input_ports())
+
+
+def resolve_midi_output_port_address(port_name: str) -> str | None:
+    """Resolve a configured writable ALSA port label to a client:port address."""
+
+    return _resolve_port_address(port_name, list_midi_output_ports())
+
+
+def resolve_midi_port_address(port_name: str) -> str | None:
+    """Resolve a configured ALSA port label to a client:port address."""
+
+    return resolve_midi_output_port_address(port_name) or resolve_midi_input_port_address(
+        port_name
+    )
+
+
+def _aconnect_list(*args: str) -> str:
     try:
         result = subprocess.run(
-            ["aconnect", "-l"],
+            ["aconnect", *args],
             capture_output=True,
             check=False,
             text=True,
@@ -116,18 +143,22 @@ def _aconnect_list_output() -> str:
     return result.stdout
 
 
+def list_midi_input_ports() -> list[dict[str, str]]:
+    """List readable ALSA sequencer ports suitable for MIDI input."""
+
+    return parse_aconnect_ports(_aconnect_list("-i"))
+
+
+def list_midi_output_ports() -> list[dict[str, str]]:
+    """List writable ALSA sequencer ports suitable for MIDI output."""
+
+    return parse_aconnect_ports(_aconnect_list("-o"))
+
+
 def list_midi_ports() -> list[dict[str, str]]:
-    try:
-        result = subprocess.run(
-            ["aconnect", "-l"],
-            capture_output=True,
-            check=False,
-            text=True,
-            timeout=2.0,
-        )
-    except (OSError, subprocess.TimeoutExpired):
-        return []
-    return parse_aconnect_ports(result.stdout)
+    """List all ALSA sequencer ports with their current connection status."""
+
+    return parse_aconnect_ports(_aconnect_list("-l"))
 
 
 def list_click_wavs(directory: str | Path = "/etc/midijuggler") -> list[dict[str, str]]:

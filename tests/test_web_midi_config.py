@@ -12,13 +12,20 @@ from midijuggler.rtp_midi.manager import RtpMidiManager
 from midijuggler.web.server import WebInterface
 
 
+def _mock_midi_ports(monkeypatch: pytest.MonkeyPatch, ports: list[dict[str, str]]) -> None:
+    monkeypatch.setattr("midijuggler.web.server.list_midi_ports", lambda: ports)
+    monkeypatch.setattr("midijuggler.web.server.list_midi_input_ports", lambda: ports)
+    monkeypatch.setattr("midijuggler.web.server.list_midi_output_ports", lambda: ports)
+
+
 def test_midi_adapters_config_payload_lists_instances(monkeypatch) -> None:
-    monkeypatch.setattr(
-        "midijuggler.web.server.list_midi_ports",
-        lambda: [
+    _mock_midi_ports(
+        monkeypatch,
+        [
             {
                 "id": "MIDIJuggler In",
-                "label": "MIDIJuggler / MIDIJuggler In",
+                "address": "20:0",
+                "label": "MIDIJuggler / MIDIJuggler In (20:0)",
                 "client": "MIDIJuggler",
             }
         ],
@@ -77,7 +84,7 @@ def test_midi_adapters_config_payload_lists_instances(monkeypatch) -> None:
 
 
 def test_apply_midi_adapters_config_persists_sections(tmp_path: Path, monkeypatch) -> None:
-    monkeypatch.setattr("midijuggler.web.server.list_midi_ports", lambda: [])
+    _mock_midi_ports(monkeypatch, [])
     config_file = tmp_path / "config.toml"
     config_file.write_text(
         """
@@ -136,7 +143,7 @@ def test_apply_midi_adapters_config_persists_sections(tmp_path: Path, monkeypatc
 
 
 def test_apply_midi_adapters_config_persists_listen_mode(tmp_path: Path, monkeypatch) -> None:
-    monkeypatch.setattr("midijuggler.web.server.list_midi_ports", lambda: [])
+    _mock_midi_ports(monkeypatch, [])
     config_file = tmp_path / "config.toml"
     config_file.write_text(
         """
@@ -185,7 +192,7 @@ def test_apply_midi_adapters_config_keeps_runtime_change_when_persisting_fails(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    monkeypatch.setattr("midijuggler.web.server.list_midi_ports", lambda: [])
+    _mock_midi_ports(monkeypatch, [])
     config_file = tmp_path / "config.toml"
     config_file.write_text(
         """
@@ -231,7 +238,7 @@ def test_apply_midi_adapters_config_keeps_runtime_change_when_persisting_fails(
 
 
 def test_join_mode_excludes_locally_hosted_rtp_sessions(monkeypatch) -> None:
-    monkeypatch.setattr("midijuggler.web.server.list_midi_ports", lambda: [])
+    _mock_midi_ports(monkeypatch, [])
     manager = RtpMidiManager()
     local_host = local_mdns_server_name()
     local_id = rtp_session_id("MIDIJuggler", local_host, 5004)
@@ -294,7 +301,7 @@ def test_join_mode_excludes_locally_hosted_rtp_sessions(monkeypatch) -> None:
 
 
 def test_apply_midi_adapters_config_creates_midi_instance(tmp_path: Path, monkeypatch) -> None:
-    monkeypatch.setattr("midijuggler.web.server.list_midi_ports", lambda: [])
+    _mock_midi_ports(monkeypatch, [])
     config_file = tmp_path / "config.toml"
     config_file.write_text(
         """
@@ -342,7 +349,7 @@ def test_apply_midi_adapters_config_deletes_additional_instance(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    monkeypatch.setattr("midijuggler.web.server.list_midi_ports", lambda: [])
+    _mock_midi_ports(monkeypatch, [])
     config_file = tmp_path / "config.toml"
     config_file.write_text(
         """
@@ -430,7 +437,7 @@ def test_apply_midi_adapters_config_rejects_unknown_instance() -> None:
 
 
 def test_apply_midi_adapters_config_can_rename_instance(tmp_path: Path, monkeypatch) -> None:
-    monkeypatch.setattr("midijuggler.web.server.list_midi_ports", lambda: [])
+    _mock_midi_ports(monkeypatch, [])
     config_file = tmp_path / "config.toml"
     config_file.write_text(
         """
