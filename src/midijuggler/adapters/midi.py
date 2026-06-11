@@ -31,6 +31,8 @@ from midijuggler.system_info import (
 )
 
 LOGGER = logging.getLogger(__name__)
+PORT_WAIT_INTERVAL_SECONDS = 2.0
+INPUT_RECONNECT_DELAY_SECONDS = 1.0
 
 
 class MidiAdapter(Adapter):
@@ -43,32 +45,18 @@ class MidiAdapter(Adapter):
         self._input_task: asyncio.Task[None] | None = None
         self._input_process: asyncio.subprocess.Process | None = None
         self._source_index: MidiSourceIndex | None = None
+        self._last_connection_detail: str | None = None
 
     async def start(self) -> None:
         self._source_index = self._load_source_index()
+        self._last_connection_detail = None
         input_port = str(self.config.options.get("input_port", "")).strip()
         output_port = str(self.config.options.get("output_port", "")).strip()
-        self._input_address = (
-            resolve_midi_input_port_address(input_port) if input_port else None
-        )
-        self._output_address = (
-            self._resolve_output_address() if output_port or input_port else None
-        )
+        has_input = bool(input_port)
+        has_output = bool(output_port or input_port)
 
-        if input_port and self._input_address is None:
-            LOGGER.warning(
-                "MIDI adapter %s cannot resolve input port %r; is the device connected?",
-                self.name,
-                input_port,
-            )
-        if output_port and self._output_address is None:
-            LOGGER.warning(
-                "MIDI adapter %s cannot resolve output port %r; is the device connected?",
-                self.name,
-                output_port,
-            )
-
-        if self._input_address is None and self._output_address is None:
+        if not has_input and not has_output:
+            self.running = True
             await self.bus.publish(
                 AdapterStatusEvent(
                     source=self.name,
@@ -77,15 +65,17 @@ class MidiAdapter(Adapter):
                     detail="MIDI adapter active without configured ALSA ports",
                 )
             )
-            self.running = True
             return
 
-        if self._input_address is not None and shutil.which("aseqdump") is None:
+        self._refresh_port_addresses()
+
+        if has_input and shutil.which("aseqdump") is None:
             LOGGER.error(
                 "MIDI adapter %s needs aseqdump from alsa-utils to read input port %s",
                 self.name,
                 input_port,
             )
+            self.running = True
             await self.bus.publish(
                 AdapterStatusEvent(
                     source=self.name,
@@ -94,29 +84,16 @@ class MidiAdapter(Adapter):
                     detail="MIDI input unavailable: install alsa-utils (aseqdump)",
                 )
             )
-            self.running = True
             return
 
         self.running = True
-        if self._input_address is not None:
+        if has_input:
             self._input_task = asyncio.create_task(
                 self._input_loop(),
                 name=f"midi-input-{self.name}",
             )
 
-        detail_parts = []
-        if self._input_address is not None:
-            detail_parts.append(f"input {input_port} ({self._input_address})")
-        if self._output_address is not None:
-            detail_parts.append(f"output {output_port} ({self._output_address})")
-        await self.bus.publish(
-            AdapterStatusEvent(
-                source=self.name,
-                adapter=self.name,
-                status="started",
-                detail="MIDI adapter listening on " + ", ".join(detail_parts),
-            )
-        )
+        await self._publish_connection_status("started", force=True)
 
     async def reload(self, config: AdapterConfig) -> None:
         """Restart ALSA listeners after a configuration change."""
@@ -143,6 +120,7 @@ class MidiAdapter(Adapter):
             self._input_process = None
 
         self._source_index = None
+        self._last_connection_detail = None
         await self.bus.publish(
             AdapterStatusEvent(
                 source=self.name,
@@ -169,9 +147,98 @@ class MidiAdapter(Adapter):
 
         return build_source_index(library, resolve_library_port(self.config))
 
+    def _refresh_port_addresses(self) -> None:
+        """Re-resolve ALSA client:port addresses from configured port labels."""
+
+        input_port = str(self.config.options.get("input_port", "")).strip()
+        output_port = str(self.config.options.get("output_port", "")).strip()
+        previous_input = self._input_address
+        self._input_address = (
+            resolve_midi_input_port_address(input_port) if input_port else None
+        )
+        self._output_address = (
+            self._resolve_output_address() if output_port or input_port else None
+        )
+
+        if previous_input and self._input_address and previous_input != self._input_address:
+            LOGGER.info(
+                "MIDI adapter %s input port %r moved from %s to %s",
+                self.name,
+                input_port,
+                previous_input,
+                self._input_address,
+            )
+        elif input_port and self._input_address is None and previous_input is not None:
+            LOGGER.warning(
+                "MIDI adapter %s lost input port %r (was %s)",
+                self.name,
+                input_port,
+                previous_input,
+            )
+        elif input_port and self._input_address is None and previous_input is None:
+            LOGGER.debug(
+                "MIDI adapter %s still waiting for input port %r",
+                self.name,
+                input_port,
+            )
+
+    def _connection_detail(self, phase: str) -> str:
+        input_port = str(self.config.options.get("input_port", "")).strip()
+        output_port = str(self.config.options.get("output_port", "")).strip()
+
+        if phase == "waiting" and input_port:
+            return f"MIDI adapter waiting for input {input_port}"
+        if phase == "reconnecting" and input_port:
+            return f"MIDI adapter reconnecting input {input_port}"
+
+        parts: list[str] = []
+        if input_port:
+            if self._input_address:
+                parts.append(f"input {input_port} ({self._input_address})")
+            else:
+                parts.append(f"input {input_port} (unavailable)")
+        if output_port:
+            if self._output_address:
+                parts.append(f"output {output_port} ({self._output_address})")
+            else:
+                parts.append(f"output {output_port} (unavailable)")
+        elif (
+            input_port
+            and self._output_address
+            and self._output_address != self._input_address
+        ):
+            parts.append(f"output {input_port} ({self._output_address})")
+
+        if not parts:
+            return "MIDI adapter active without configured ALSA ports"
+        prefix = "MIDI adapter listening on"
+        if phase in {"waiting", "reconnecting"}:
+            prefix = "MIDI adapter active on"
+        return prefix + " " + ", ".join(parts)
+
+    async def _publish_connection_status(self, phase: str, *, force: bool = False) -> None:
+        detail = self._connection_detail(phase)
+        if not force and detail == self._last_connection_detail:
+            return
+        self._last_connection_detail = detail
+        await self.bus.publish(
+            AdapterStatusEvent(
+                source=self.name,
+                adapter=self.name,
+                status="started",
+                detail=detail,
+            )
+        )
+
     async def _input_loop(self) -> None:
-        assert self._input_address is not None
         while self.running:
+            self._refresh_port_addresses()
+            if self._input_address is None:
+                await self._publish_connection_status("waiting")
+                await asyncio.sleep(PORT_WAIT_INTERVAL_SECONDS)
+                continue
+
+            await self._publish_connection_status("connected")
             try:
                 await self._run_input_process(self._input_address)
             except asyncio.CancelledError:
@@ -183,7 +250,8 @@ class MidiAdapter(Adapter):
                     self._input_address,
                 )
             if self.running:
-                await asyncio.sleep(1.0)
+                await self._publish_connection_status("reconnecting")
+                await asyncio.sleep(INPUT_RECONNECT_DELAY_SECONDS)
 
     async def _run_input_process(self, address: str) -> None:
         self._input_process = await asyncio.create_subprocess_exec(
