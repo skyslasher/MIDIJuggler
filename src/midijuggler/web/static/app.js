@@ -66,6 +66,7 @@ const oscLibraries = document.querySelector("#osc-libraries");
 const midiLibraries = document.querySelector("#midi-libraries");
 const events = document.querySelector("#events");
 const showClockTicks = document.querySelector("#show-clock-ticks");
+const monitorDisplayModeSelect = document.querySelector("#monitor-display-mode");
 const learnToggle = document.querySelector("#learn-toggle");
 const learnPanel = document.querySelector("#learn-panel");
 const learnStatus = document.querySelector("#learn-status");
@@ -93,6 +94,9 @@ let gpioConfig = null;
 let masterClockConfig = null;
 let midiAdaptersConfig = null;
 let oscAdaptersConfig = null;
+let monitorDisplayMode = monitorDisplayModeSelect?.value || "library";
+let adapterLibraryConfig = {};
+const monitorLibraryCache = { midi: {}, osc: {} };
 
 function renderStatus(status) {
   const displayedBpm = status.master_clock?.bpm || status.bpm;
@@ -135,6 +139,8 @@ function renderStatus(status) {
     item.textContent = `${rule.id}: ${rule.source} -> ${rule.target}`;
     mappings.appendChild(item);
   }
+
+  preloadMonitorLibraries(status);
 }
 
 function renderLearnState(learn) {
@@ -424,15 +430,203 @@ function selectMonitorEvent(event, item) {
     });
 }
 
+function adapterMidiLibraryId(adapterName) {
+  return (adapterLibraryConfig[adapterName]?.midi_library || "").trim();
+}
+
+function adapterOscLibraryId(adapterName) {
+  return (adapterLibraryConfig[adapterName]?.osc_library || "").trim();
+}
+
+async function preloadMonitorLibraries(status) {
+  adapterLibraryConfig = {};
+  const midiLibraryIds = new Set();
+  const oscLibraryIds = new Set();
+
+  for (const [name, adapter] of Object.entries(status.adapters || {})) {
+    const options = adapter.options || {};
+    const midiLibrary = String(options.midi_library || "").trim();
+    const oscLibrary = String(options.osc_library || "").trim();
+    adapterLibraryConfig[name] = { midi_library: midiLibrary, osc_library: oscLibrary };
+    if (midiLibrary) {
+      midiLibraryIds.add(midiLibrary);
+    }
+    if (oscLibrary) {
+      oscLibraryIds.add(oscLibrary);
+    }
+  }
+
+  await Promise.all([
+    ...[...midiLibraryIds].map((libraryId) => loadMonitorMidiLibrary(libraryId)),
+    ...[...oscLibraryIds].map((libraryId) => loadMonitorOscLibrary(libraryId)),
+  ]);
+  refreshMonitorDisplay();
+}
+
+async function loadMonitorMidiLibrary(libraryId) {
+  if (!libraryId || monitorLibraryCache.midi[libraryId]) {
+    return;
+  }
+  const response = await fetch(`/api/midi-libraries/${encodeURIComponent(libraryId)}`);
+  if (!response.ok) {
+    return;
+  }
+  monitorLibraryCache.midi[libraryId] = await response.json();
+}
+
+async function loadMonitorOscLibrary(libraryId) {
+  if (!libraryId || monitorLibraryCache.osc[libraryId]) {
+    return;
+  }
+  const response = await fetch(`/api/osc-libraries/${encodeURIComponent(libraryId)}`);
+  if (!response.ok) {
+    return;
+  }
+  monitorLibraryCache.osc[libraryId] = await response.json();
+}
+
+function lookupMidiSourceLabel(adapterName, controlId) {
+  const libraryId = adapterMidiLibraryId(adapterName);
+  if (!libraryId) {
+    return null;
+  }
+  const library = monitorLibraryCache.midi[libraryId];
+  const parameter = (library?.parameters || []).find(
+    (entry) => entry.id === controlId && entry.direction === "source",
+  );
+  return parameter?.label || null;
+}
+
+function lookupMidiTargetLabel(adapterName, controlId) {
+  const libraryId = adapterMidiLibraryId(adapterName);
+  if (!libraryId) {
+    return null;
+  }
+  const library = monitorLibraryCache.midi[libraryId];
+  const parameter = (library?.parameters || []).find(
+    (entry) => entry.id === controlId && entry.direction === "target",
+  );
+  return parameter?.label || null;
+}
+
+function normalizeOscMonitorAddress(address) {
+  return String(address || "").replace(/~+$/, "");
+}
+
+function lookupOscParameterLabel(adapterName, address) {
+  const libraryId = adapterOscLibraryId(adapterName);
+  if (!libraryId) {
+    return null;
+  }
+  const library = monitorLibraryCache.osc[libraryId];
+  const normalized = normalizeOscMonitorAddress(address);
+  const parameter = (library?.parameters || []).find(
+    (entry) =>
+      entry.address === address ||
+      entry.address === normalized ||
+      normalizeOscMonitorAddress(entry.address) === normalized,
+  );
+  return parameter?.label || null;
+}
+
+function formatMidiMessageManual(event) {
+  const status = Number(event.status || 0);
+  const data = event.data || [];
+  const messageType = status & 0xf0;
+  const channel = (status & 0x0f) + 1;
+
+  if (messageType === 0x90) {
+    const velocity = Number(data[1] ?? 0);
+    if (velocity === 0) {
+      return `Note Off ch${channel} note ${data[0] ?? 0}`;
+    }
+    return `Note On ch${channel} note ${data[0] ?? 0} vel ${velocity}`;
+  }
+  if (messageType === 0x80) {
+    return `Note Off ch${channel} note ${data[0] ?? 0} vel ${data[1] ?? 0}`;
+  }
+  if (messageType === 0xb0) {
+    return `CC ch${channel} cc ${data[0] ?? 0} = ${data[1] ?? 0}`;
+  }
+  if (messageType === 0xc0) {
+    return `Program Change ch${channel} program ${data[0] ?? 0}`;
+  }
+  if (messageType === 0xe0) {
+    const value = Number(data[0] ?? 0) + (Number(data[1] ?? 0) << 7);
+    return `Pitch Bend ch${channel} value ${value}`;
+  }
+  return `status 0x${status.toString(16)} data ${JSON.stringify(data)}`;
+}
+
 function formatMonitorEventLine(event, time) {
   if (event.kind === "GpioEvent") {
     const suffix = event.initial ? " (initial)" : "";
     return `[${time}] GPIO pin ${event.pin} ${event.control} = ${event.value}${suffix}`;
   }
+
+  if (event.kind === "ControlEvent") {
+    if (monitorDisplayMode === "manual") {
+      return `[${time}] Control ${event.source}:${event.control} = ${event.value}`;
+    }
+    const label =
+      lookupMidiSourceLabel(event.source, event.control) ||
+      lookupMidiTargetLabel(event.source, event.control);
+    if (label) {
+      return `[${time}] MIDI ${event.source} ${label} (${event.control}) = ${event.value}`;
+    }
+    return `[${time}] MIDI ${event.source} ${event.control} = ${event.value}`;
+  }
+
+  if (event.kind === "MidiMessageEvent") {
+    const direction = event.direction || "input";
+    return `[${time}] MIDI ${direction} ${event.source} ${formatMidiMessageManual(event)}`;
+  }
+
   if (event.kind === "OscMessageEvent") {
+    if (monitorDisplayMode === "library") {
+      const label = lookupOscParameterLabel(event.source, event.address);
+      if (label) {
+        return `[${time}] OSC ${event.direction} ${label} (${event.address}) ${JSON.stringify(event.arguments || [])}`;
+      }
+    }
     return `[${time}] OSC ${event.direction} ${event.address} ${JSON.stringify(event.arguments || [])}`;
   }
+
   return `[${time}] ${event.kind} from ${event.source}: ${JSON.stringify(event)}`;
+}
+
+function shouldShowMonitorEvent(event) {
+  const hasMidiLibrary = Boolean(adapterMidiLibraryId(event.source));
+
+  if (
+    event.kind === "MidiMessageEvent" &&
+    event.direction === "input" &&
+    !isClockTick(event) &&
+    hasMidiLibrary
+  ) {
+    return monitorDisplayMode !== "library";
+  }
+
+  if (event.kind === "ControlEvent" && hasMidiLibrary) {
+    return monitorDisplayMode === "library";
+  }
+
+  return true;
+}
+
+function applyMonitorEventDisplay(item) {
+  const event = item.monitorEvent;
+  if (!event) {
+    return;
+  }
+  item.classList.toggle("monitor-event-hidden", !shouldShowMonitorEvent(event));
+  item.textContent = formatMonitorEventLine(event, item.monitorEventTime);
+}
+
+function refreshMonitorDisplay() {
+  for (const item of events.querySelectorAll(".monitor-event")) {
+    applyMonitorEventDisplay(item);
+  }
 }
 
 function appendEvent(event) {
@@ -442,8 +636,8 @@ function appendEvent(event) {
   const item = document.createElement("li");
   item.className = "monitor-event";
   item.monitorEvent = event;
-  const time = new Date().toLocaleTimeString();
-  item.textContent = formatMonitorEventLine(event, time);
+  item.monitorEventTime = new Date().toLocaleTimeString();
+  applyMonitorEventDisplay(item);
 
   if (learnMode && isLearnSelectableEvent(event)) {
     item.classList.add("monitor-event-selectable");
@@ -2389,6 +2583,11 @@ configImportForm.addEventListener("submit", (event) => {
     .catch((error) => {
       configImportMessage.textContent = `error: ${error.message}`;
     });
+});
+
+monitorDisplayModeSelect?.addEventListener("change", () => {
+  monitorDisplayMode = monitorDisplayModeSelect.value;
+  refreshMonitorDisplay();
 });
 
 fetch("/api/status").then((response) => response.json()).then(renderStatus);

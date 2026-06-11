@@ -431,6 +431,10 @@ article {
   margin-bottom: 0.75rem;
 }
 
+.monitor-event-hidden {
+  display: none;
+}
+
 @media (max-width: 800px) {
   header,
   .toolbar {
