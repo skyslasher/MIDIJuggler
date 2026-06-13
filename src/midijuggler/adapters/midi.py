@@ -372,6 +372,16 @@ class MidiAdapter(Adapter):
                 )
             )
 
+    def _cached_output_address(self) -> str | None:
+        if self._output_address is not None:
+            return self._output_address
+        output_port = str(self.config.options.get("output_port", "")).strip()
+        input_port = str(self.config.options.get("input_port", "")).strip()
+        if not output_port and not input_port:
+            return None
+        self._refresh_port_addresses()
+        return self._output_address
+
     def _resolve_output_address(self) -> str | None:
         output_port = str(self.config.options.get("output_port", "")).strip()
         input_port = str(self.config.options.get("input_port", "")).strip()
@@ -384,7 +394,7 @@ class MidiAdapter(Adapter):
         )
 
     async def send_midi_message(self, event: MidiMessageEvent) -> None:
-        output_address = self._resolve_output_address()
+        output_address = self._cached_output_address()
         if output_address is None:
             if event.status == MIDI_TIMING_CLOCK:
                 return
@@ -467,7 +477,7 @@ class MidiAdapter(Adapter):
         feedback_point: str | None = None,
         feedback_value: float | None = None,
     ) -> None:
-        output_address = self._resolve_output_address()
+        output_address = self._cached_output_address()
         if output_address is None:
             output_port = str(self.config.options.get("output_port", "")).strip()
             input_port = str(self.config.options.get("input_port", "")).strip()

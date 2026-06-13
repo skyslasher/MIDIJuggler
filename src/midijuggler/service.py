@@ -174,6 +174,8 @@ class MIDIJugglerService:
 
         if event.direction != "output":
             return
+        if event.source != "master_clock":
+            return
         adapter = self._adapter_for_target(event.target)
         if adapter is None:
             if event.status == MIDI_TIMING_CLOCK:

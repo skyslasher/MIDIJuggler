@@ -232,7 +232,7 @@ def test_send_midi_adapter_test_message_caches_feedback_for_refresh(
         adapter.running = True
         adapter._feedback_refresh = XTouchFeedbackRefresh(adapter, config)
         adapter._feedback_refresh.configure(config.adapters["xtouch_mini"], config)
-        monkeypatch.setattr(adapter, "_resolve_output_address", lambda: "out")
+        adapter._output_address = "out"
         monkeypatch.setattr(adapter, "_emit_midi_output", AsyncMock())
 
         interface = WebInterface(

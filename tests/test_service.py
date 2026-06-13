@@ -45,6 +45,118 @@ def test_missing_non_clock_midi_target_still_warns(caplog) -> None:
     assert "no enabled adapter for MIDI target rtp_midi" in caplog.text
 
 
+def test_handle_midi_message_ignores_adapter_originated_output() -> None:
+    async def scenario() -> int:
+        service = MIDIJugglerService(
+            parse_config(
+                {
+                    "adapters": {
+                        "xtouch_mini": {
+                            "enabled": True,
+                            "type": "midi",
+                            "output_port": "X-TOUCH MINI",
+                        }
+                    }
+                }
+            )
+        )
+        adapter = next(item for item in service.adapters if item.name == "xtouch_mini")
+        calls = 0
+
+        async def track_send(_event: MidiMessageEvent) -> None:
+            nonlocal calls
+            calls += 1
+
+        adapter.send_midi_message = track_send  # type: ignore[method-assign]
+        await service._handle_midi_message(
+            MidiMessageEvent(
+                source="xtouch_mini",
+                direction="output",
+                target="xtouch_mini:layer_a_top_button_1_led",
+                status=0x9A,
+                data=(8, 127),
+            )
+        )
+        return calls
+
+    assert asyncio.run(scenario()) == 0
+
+
+def test_handle_midi_message_routes_master_clock_output() -> None:
+    async def scenario() -> int:
+        service = MIDIJugglerService(
+            parse_config({"adapters": {"midi": {"enabled": True}}})
+        )
+        adapter = next(item for item in service.adapters if item.name == "midi")
+        calls = 0
+
+        async def track_send(_event: MidiMessageEvent) -> None:
+            nonlocal calls
+            calls += 1
+
+        adapter.send_midi_message = track_send  # type: ignore[method-assign]
+        await service._handle_midi_message(
+            MidiMessageEvent(
+                source="master_clock",
+                direction="output",
+                target="midi",
+                status=MIDI_STOP,
+            )
+        )
+        return calls
+
+    assert asyncio.run(scenario()) == 1
+
+
+def test_emit_midi_output_does_not_recurse_through_service_handler(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    async def scenario() -> int:
+        from midijuggler.midi.output import send_midi_message_to_port
+
+        config = parse_config(
+            {
+                "adapters": {
+                    "xtouch_mini": {
+                        "enabled": True,
+                        "type": "midi",
+                        "output_port": "X-TOUCH MINI",
+                    }
+                }
+            }
+        )
+        service = MIDIJugglerService(config)
+        adapter = next(item for item in service.adapters if item.name == "xtouch_mini")
+        adapter._output_address = "20:0"
+        send_calls = 0
+
+        async def track_port_send(
+            _address: str,
+            _status: int,
+            _data: tuple[int, ...],
+        ) -> None:
+            nonlocal send_calls
+            send_calls += 1
+
+        monkeypatch.setattr(
+            "midijuggler.adapters.midi.send_midi_message_to_port",
+            track_port_send,
+        )
+        await adapter._emit_midi_output(
+            "20:0",
+            MidiMessageEvent(
+                source="xtouch_mini",
+                direction="output",
+                target="xtouch_mini:layer_a_top_button_1_led",
+                status=0x9A,
+                data=(8, 127),
+            ),
+        )
+        return send_calls
+
+    assert asyncio.run(scenario()) == 1
+
+
 def test_service_filters_disabled_master_clock_output_targets() -> None:
     service = MIDIJugglerService(
         parse_config(

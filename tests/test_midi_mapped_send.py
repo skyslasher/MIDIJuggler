@@ -73,11 +73,7 @@ def test_midi_adapter_send_emits_encoded_midi_message(
             bus,
             app_config=config,
         )
-        monkeypatch.setattr(
-            adapter,
-            "_resolve_output_address",
-            lambda: "X-TOUCH MINI MIDI 1",
-        )
+        adapter._output_address = "X-TOUCH MINI MIDI 1"
         async def capture_output(address: str, event: MidiMessageEvent) -> None:
             events.append(event)
 

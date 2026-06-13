@@ -132,8 +132,8 @@ def test_midi_adapter_remembers_feedback_on_send(monkeypatch: pytest.MonkeyPatch
         EventBus(),
         app_config=config,
     )
-    monkeypatch.setattr(adapter, "_resolve_output_address", lambda: "out")
     monkeypatch.setattr(adapter, "_emit_midi_output", AsyncMock())
+    adapter._output_address = "out"
 
     async def scenario() -> None:
         adapter._feedback_refresh = XTouchFeedbackRefresh(adapter, config)
@@ -174,8 +174,8 @@ def test_send_test_message_remembers_feedback_targets(monkeypatch: pytest.Monkey
         EventBus(),
         app_config=config,
     )
-    monkeypatch.setattr(adapter, "_resolve_output_address", lambda: "out")
     monkeypatch.setattr(adapter, "_emit_midi_output", AsyncMock())
+    adapter._output_address = "out"
     adapter._feedback_refresh = XTouchFeedbackRefresh(adapter, config)
     adapter._feedback_refresh.configure(config.adapters["xtouch_mini"], config)
 
