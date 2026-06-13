@@ -53,6 +53,10 @@ from midijuggler.midi.target_encode import (
     lookup_midi_target_ranges,
     resolve_midi_target_parameter,
 )
+from midijuggler.midi.xtouch_feedback import (
+    XTOUCH_MINI_LIBRARY_ID,
+    parse_feedback_refresh_interval,
+)
 from midijuggler.midi_library import get_midi_library, list_midi_libraries
 from midijuggler.master_clock import MasterClock
 from midijuggler.rtp_midi.manager import RtpMidiManager
@@ -1707,6 +1711,9 @@ class WebInterface:
                     "input_port": input_port,
                     "output_port": output_port,
                     "midi_library": str(options.get("midi_library", "")),
+                    "feedback_refresh_interval": float(
+                        options.get("feedback_refresh_interval", 0) or 0
+                    ),
                     "available_input_ports": self._midi_port_choices(
                         available_input_ports,
                         input_port,
@@ -1797,6 +1804,18 @@ class WebInterface:
             if midi_library not in known_libraries:
                 raise ValueError(f"unknown MIDI library: {midi_library}")
             options["midi_library"] = midi_library
+        interval = parse_feedback_refresh_interval(
+            payload.get(
+                "feedback_refresh_interval",
+                current.get("feedback_refresh_interval", 0),
+            )
+        )
+        if interval > 0 and midi_library != XTOUCH_MINI_LIBRARY_ID:
+            raise ValueError(
+                "feedback_refresh_interval is only supported for behringer_xtouch_mini"
+            )
+        if midi_library == XTOUCH_MINI_LIBRARY_ID or interval > 0:
+            options["feedback_refresh_interval"] = interval
         return options
 
     def _normalized_rtp_midi_options(

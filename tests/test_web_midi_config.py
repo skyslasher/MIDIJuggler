@@ -87,6 +87,119 @@ def test_midi_adapters_config_payload_lists_instances(monkeypatch) -> None:
     assert "discovered_rtp_sessions" in payload
 
 
+def test_midi_adapters_config_payload_includes_feedback_refresh_interval(monkeypatch) -> None:
+    _mock_midi_ports(monkeypatch, [])
+    config = parse_config(
+        {
+            "adapters": {
+                "xtouch_mini": {
+                    "enabled": True,
+                    "type": "midi",
+                    "midi_library": "behringer_xtouch_mini",
+                    "feedback_refresh_interval": 1.5,
+                }
+            }
+        }
+    )
+    interface = WebInterface(
+        config,
+        EventBus(),
+        ClockBpmTracker(),
+        MasterClock(config.master_clock, EventBus()),
+    )
+
+    payload = interface.midi_adapters_config_payload()
+    instance = next(
+        item for item in payload["instances"] if item["name"] == "xtouch_mini"
+    )
+
+    assert instance["feedback_refresh_interval"] == 1.5
+
+
+def test_apply_midi_adapters_config_persists_feedback_refresh_interval(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
+    _mock_midi_ports(monkeypatch, [])
+    config_file = tmp_path / "config.toml"
+    config_file.write_text(
+        """
+        [adapters.xtouch_mini]
+        enabled = true
+        type = "midi"
+        midi_library = "behringer_xtouch_mini"
+        feedback_refresh_interval = 0
+        """,
+        encoding="utf-8",
+    )
+    config = load_config(config_file)
+    interface = WebInterface(
+        config,
+        EventBus(),
+        ClockBpmTracker(),
+        MasterClock(config.master_clock, EventBus()),
+        config_path=config_file,
+    )
+
+    result = asyncio.run(
+        interface.apply_midi_adapters_config(
+            {
+                "instances": [
+                    {
+                        "name": "xtouch_mini",
+                        "enabled": True,
+                        "midi_library": "behringer_xtouch_mini",
+                        "feedback_refresh_interval": 2.0,
+                    }
+                ]
+            }
+        )
+    )
+
+    saved = load_config(config_file)
+
+    assert result["persisted"] is True
+    assert saved.adapters["xtouch_mini"].options["feedback_refresh_interval"] == 2.0
+
+
+def test_apply_midi_adapters_config_rejects_feedback_refresh_for_other_libraries(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
+    _mock_midi_ports(monkeypatch, [])
+    config_file = tmp_path / "config.toml"
+    config_file.write_text(
+        """
+        [adapters.midi]
+        enabled = true
+        """,
+        encoding="utf-8",
+    )
+    config = load_config(config_file)
+    interface = WebInterface(
+        config,
+        EventBus(),
+        ClockBpmTracker(),
+        MasterClock(config.master_clock, EventBus()),
+        config_path=config_file,
+    )
+
+    with pytest.raises(ValueError, match="behringer_xtouch_mini"):
+        asyncio.run(
+            interface.apply_midi_adapters_config(
+                {
+                    "instances": [
+                        {
+                            "name": "midi",
+                            "enabled": True,
+                            "feedback_refresh_interval": 1.0,
+                        }
+                    ]
+                }
+            )
+        )
+
+
 def test_apply_midi_adapters_config_persists_sections(tmp_path: Path, monkeypatch) -> None:
     _mock_midi_ports(monkeypatch, [])
     config_file = tmp_path / "config.toml"

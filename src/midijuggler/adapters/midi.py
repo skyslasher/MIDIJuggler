@@ -34,6 +34,7 @@ from midijuggler.midi.library_match import (
     resolve_library_port,
 )
 from midijuggler.midi.target_encode import encode_mapped_midi_target
+from midijuggler.midi.xtouch_feedback import XTouchFeedbackRefresh, uses_xtouch_feedback_refresh
 from midijuggler.midi_library import get_midi_library
 from midijuggler.system_info import (
     resolve_midi_input_port_address,
@@ -63,6 +64,7 @@ class MidiAdapter(Adapter):
         self._input_port: object | None = None
         self._source_index: MidiSourceIndex | None = None
         self._last_connection_detail: str | None = None
+        self._feedback_refresh: XTouchFeedbackRefresh | None = None
 
     async def start(self) -> None:
         if not self.config.enabled:
@@ -129,6 +131,17 @@ class MidiAdapter(Adapter):
             )
 
         await self._publish_connection_status("started", force=True)
+        await self._start_feedback_refresh()
+
+    async def _start_feedback_refresh(self) -> None:
+        if self._feedback_refresh is not None:
+            await self._feedback_refresh.stop()
+            self._feedback_refresh = None
+        if not uses_xtouch_feedback_refresh(self.config):
+            return
+        self._feedback_refresh = XTouchFeedbackRefresh(self, self._app_config)
+        self._feedback_refresh.configure(self.config, self._app_config)
+        await self._feedback_refresh.start(self.config)
 
     async def reload(self, config: AdapterConfig) -> None:
         """Restart MIDI listeners after a configuration change."""
@@ -141,6 +154,8 @@ class MidiAdapter(Adapter):
 
     async def stop(self) -> None:
         self.running = False
+        if self._feedback_refresh is not None:
+            await self._feedback_refresh.stop()
         if self._input_task is not None:
             self._input_task.cancel()
             with contextlib.suppress(asyncio.CancelledError):
@@ -382,6 +397,31 @@ class MidiAdapter(Adapter):
 
         await self._emit_midi_output(output_address, event)
 
+    def remember_feedback_value(self, point: str, value: float) -> None:
+        if self._feedback_refresh is not None:
+            self._feedback_refresh.remember(point, value)
+
+    async def send_feedback_target(self, point: str, value: float) -> None:
+        if self._app_config is None:
+            raise ValueError(
+                f"MIDI adapter {self.name} cannot send feedback without app config"
+            )
+        status, data = encode_mapped_midi_target(
+            self._app_config,
+            self.name,
+            point,
+            value,
+        )
+        await self.send_midi_message(
+            MidiMessageEvent(
+                source=self.name,
+                status=status,
+                data=data,
+                target=f"{self.name}:{point}",
+                direction="output",
+            )
+        )
+
     async def send(self, event: MappedEvent) -> None:
         module, separator, point = event.target.partition(":")
         if not separator or module != self.name:
@@ -408,6 +448,7 @@ class MidiAdapter(Adapter):
                 event.target,
             )
             return
+        self.remember_feedback_value(point, event.value)
         await self.send_midi_message(
             MidiMessageEvent(
                 source=self.name,

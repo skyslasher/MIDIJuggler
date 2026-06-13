@@ -972,6 +972,7 @@ function defaultMidiInstanceTemplate(config) {
     input_port: "",
     output_port: "",
     midi_library: "",
+    feedback_refresh_interval: 0,
     available_input_ports: portChoices,
     available_output_ports: portChoices,
   };
@@ -1839,8 +1840,23 @@ function createMidiAdapterCard(instance, config, options = {}) {
     libraryField.querySelector("select")?.addEventListener("change", () => {
       card._midiTestLibraryCache = null;
       updateMidiTestSendSection(card);
+      updateXtouchFeedbackRefreshVisibility();
     });
     card.appendChild(libraryField);
+    const feedbackRefreshField = createNumberField(
+      "LED feedback refresh (s)",
+      "feedback_refresh_interval",
+      instance.feedback_refresh_interval ?? 0,
+      0,
+      60,
+      0.1,
+    );
+    const updateXtouchFeedbackRefreshVisibility = () => {
+      const library = (libraryField.querySelector("select")?.value || "").trim();
+      feedbackRefreshField.hidden = library !== "behringer_xtouch_mini";
+    };
+    updateXtouchFeedbackRefreshVisibility();
+    card.appendChild(feedbackRefreshField);
   } else {
   const roleOptions = [
     { id: "listen", label: "Host session" },

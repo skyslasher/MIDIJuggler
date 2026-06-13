@@ -111,6 +111,7 @@ class MidiIOModule(IOModule):
         except ValueError:
             LOGGER.warning("unsupported MIDI output data point %s", value.point_id)
             return
+        self.adapter.remember_feedback_value(value.point_id.point, value.float_value)
         await self.adapter.send_midi_message(
             MidiMessageEvent(
                 source=self.name,
