@@ -21,6 +21,8 @@ from midijuggler.alsa import (
 )
 from midijuggler.clock import ClockBpmTracker
 from midijuggler.config import AppConfig, load_config
+from midijuggler.datapoint.bridge import EventToDataPointBridge
+from midijuggler.datapoint.store import DataPointStore
 from midijuggler.eventbus import EventBus
 from midijuggler.events import (
     BpmChangedEvent,
@@ -33,10 +35,16 @@ from midijuggler.events import (
 )
 from midijuggler.master_clock import MIDI_TIMING_CLOCK, MasterClock
 from midijuggler.mapping import MappingEngine
+from midijuggler.modules.build import build_module_registry
+from midijuggler.modules.io.midi import MidiIOModule
+from midijuggler.modules.io.osc import OscIOModule
+from midijuggler.modules.io.rtp_midi import RtpMidiIOModule
 from midijuggler.rtp_midi import RtpMidiManager
 from midijuggler.web.server import WebInterface, run_web_server, stop_web_server
 
 LOGGER = logging.getLogger(__name__)
+
+IOModule = MidiIOModule | OscIOModule | RtpMidiIOModule
 
 
 class MIDIJugglerService:
@@ -47,6 +55,7 @@ class MIDIJugglerService:
         self.config_path = Path(config_path) if config_path is not None else None
         self.alsa_config_path = alsa_config_path_for_config(self.config_path)
         self.bus = EventBus()
+        self.datapoint_store = DataPointStore()
         self.clock = ClockBpmTracker()
         self.mapping = MappingEngine(config.mappings)
         self.rtp_midi_manager = RtpMidiManager()
@@ -76,6 +85,16 @@ class MIDIJugglerService:
             runtime_adapters=self.adapters,
             config_path=self.config_path,
             alsa_config_path=self.alsa_config_path,
+            datapoint_store=self.datapoint_store,
+        )
+        self.event_bridge = EventToDataPointBridge(self.datapoint_store, self.bus)
+        self.module_registry, self.io_modules = build_module_registry(
+            config,
+            self.datapoint_store,
+            self.bus,
+            self.adapters,
+            self.master_clock,
+            self.web,
         )
         self._runner = None
 
@@ -88,11 +107,13 @@ class MIDIJugglerService:
 
     async def start(self) -> None:
         LOGGER.info("starting MIDIJuggler")
+        self.event_bridge.attach()
         await self.rtp_midi_manager.start()
         LOGGER.info("RTP-MIDI status: %s", self.rtp_midi_manager.status_summary())
         for adapter in self.adapters:
             await adapter.start()
         await self.master_clock.start()
+        await self.module_registry.start_all()
         self._runner = await run_web_server(self.web)
         LOGGER.info(
             "web interface listening on http://%s:%s",
@@ -105,6 +126,7 @@ class MIDIJugglerService:
         if self._runner is not None:
             await stop_web_server(self._runner)
             self._runner = None
+        await self.module_registry.stop_all()
         await self.master_clock.stop()
         for adapter in reversed(self.adapters):
             await adapter.stop()
@@ -123,9 +145,20 @@ class MIDIJugglerService:
             await self.bus.publish(BpmChangedEvent(source="clock", bpm=bpm))
 
     async def _map_control(self, event: ControlEvent) -> None:
+        if self.config.runtime.datapoint_routing:
+            return
         await self.bus.publish_many(self.mapping.map_event(event))
 
     async def _route_mapped_event(self, event: MappedEvent) -> None:
+        if self.config.runtime.datapoint_routing:
+            adapter_name = event.target.split(":", 1)[0]
+            io_module = self.io_modules.get(adapter_name)
+            if io_module is not None:
+                await io_module.send_mapped_event(event)
+                return
+            LOGGER.warning("no data-point I/O module for target %s", event.target)
+            return
+
         adapter = self._adapter_for_target(event.target)
         if adapter is None:
             LOGGER.warning("no enabled adapter for target %s", event.target)

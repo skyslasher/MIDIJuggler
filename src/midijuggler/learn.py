@@ -174,6 +174,17 @@ def resolve_monitor_source(config: AppConfig, event: dict[str, Any]) -> LearnSou
             raise ValueError("monitor GpioEvent is missing control")
         return LearnSource(adapter=adapter_name, control=control)
 
+    if kind == "DataPointValue":
+        point_id = str(event.get("id", "")).strip()
+        if not point_id:
+            raise ValueError("monitor DataPointValue is missing id")
+        module, separator, point = point_id.partition(".")
+        if not separator:
+            raise ValueError(f"invalid data point id: {point_id!r}")
+        if module in {"clock", "mapping"}:
+            raise ValueError(f"cannot map {module} data points")
+        return LearnSource(adapter=module, control=point)
+
     raise ValueError(f"unsupported monitor event kind: {kind!r}")
 
 

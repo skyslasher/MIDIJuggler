@@ -2,6 +2,12 @@
 host = "0.0.0.0"
 port = 8080
 
+[runtime]
+# When true, routing uses the data-point store and [[connections]] instead of
+# the legacy MappingEngine/MappedEvent path. Legacy [[mappings]] are still
+# accepted and converted automatically when [[connections]] is empty.
+datapoint_routing = false
+
 [master_clock]
 enabled = true
 bpm = 120.0

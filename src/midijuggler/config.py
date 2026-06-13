@@ -8,6 +8,12 @@ from typing import Any
 import tomllib
 
 from midijuggler.mapping import MappingRule
+from midijuggler.datapoint.types import ConnectionSpec, ModifierKind
+
+
+@dataclass(frozen=True)
+class RuntimeConfig:
+    datapoint_routing: bool = False
 
 
 @dataclass(frozen=True)
@@ -50,9 +56,11 @@ class MasterClockConfig:
 @dataclass(frozen=True)
 class AppConfig:
     web: WebConfig = field(default_factory=WebConfig)
+    runtime: RuntimeConfig = field(default_factory=RuntimeConfig)
     adapters: dict[str, AdapterConfig] = field(default_factory=dict)
     master_clock: MasterClockConfig = field(default_factory=MasterClockConfig)
     mappings: list[MappingRule] = field(default_factory=list)
+    connections: list[ConnectionSpec] = field(default_factory=list)
 
 
 DEFAULT_ADAPTERS = ("osc", "midi", "rtp_midi", "gpio")
@@ -385,8 +393,20 @@ def parse_config(raw: dict[str, Any]) -> AppConfig:
         _parse_mapping(index, mapping_raw)
         for index, mapping_raw in enumerate(raw.get("mappings", []), start=1)
     ]
+    connections = [
+        _parse_connection(index, connection_raw)
+        for index, connection_raw in enumerate(raw.get("connections", []), start=1)
+    ]
+    runtime = _parse_runtime(raw.get("runtime", {}))
 
-    return AppConfig(web=web, adapters=adapters, master_clock=master_clock, mappings=mappings)
+    return AppConfig(
+        web=web,
+        runtime=runtime,
+        adapters=adapters,
+        master_clock=master_clock,
+        mappings=mappings,
+        connections=connections,
+    )
 
 
 def _parse_master_clock(raw: Any) -> MasterClockConfig:
@@ -531,6 +551,42 @@ def _parse_mapping(index: int, raw: Any) -> MappingRule:
         output_max=_as_float(raw.get("output_max", 127.0), f"mappings[{index}].output_max"),
         invert=bool(raw.get("invert", False)),
     )
+
+
+def _parse_connection(index: int, raw: Any) -> ConnectionSpec:
+    if not isinstance(raw, dict):
+        raise ValueError(f"connections[{index}] must be a table")
+
+    required = ("id", "source", "target")
+    missing = [key for key in required if not raw.get(key)]
+    if missing:
+        raise ValueError(f"connections[{index}] missing required fields: {', '.join(missing)}")
+
+    modifier = str(raw.get("modifier", ModifierKind.RANGE_MAP.value))
+    try:
+        modifier_kind = ModifierKind(modifier)
+    except ValueError as exc:
+        raise ValueError(f"connections[{index}] has unsupported modifier: {modifier}") from exc
+
+    return ConnectionSpec(
+        id=str(raw["id"]),
+        source=str(raw["source"]),
+        target=str(raw["target"]),
+        modifier=modifier_kind,
+        input_min=_as_float(raw.get("input_min", 0.0), f"connections[{index}].input_min"),
+        input_max=_as_float(raw.get("input_max", 1.0), f"connections[{index}].input_max"),
+        output_min=_as_float(raw.get("output_min", 0.0), f"connections[{index}].output_min"),
+        output_max=_as_float(raw.get("output_max", 127.0), f"connections[{index}].output_max"),
+        invert=bool(raw.get("invert", False)),
+    )
+
+
+def _parse_runtime(raw: Any) -> RuntimeConfig:
+    if raw is None:
+        raw = {}
+    if not isinstance(raw, dict):
+        raise ValueError("runtime must be a table")
+    return RuntimeConfig(datapoint_routing=bool(raw.get("datapoint_routing", False)))
 
 
 def _parse_optional_string_list(raw: Any, field_name: str) -> list[str] | None:

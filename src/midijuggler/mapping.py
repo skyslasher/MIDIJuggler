@@ -1,4 +1,8 @@
-"""Mapping engine with linear scaling and optional inversion."""
+"""Declarative mapping from one normalized source to an output target.
+
+Legacy mapping rules remain supported during the incremental migration to
+data-point connections in ``midijuggler.datapoint`` and ``midijuggler.modules``.
+"""
 
 from __future__ import annotations
 

@@ -65,6 +65,9 @@ from midijuggler.osc.desk_protocol import (
 )
 from midijuggler.osc.discovery import discover_desks
 from midijuggler.osc_library import get_osc_library, list_osc_libraries
+from midijuggler.datapoint.bridge import connections_from_legacy_mappings
+from midijuggler.datapoint.store import DataPointStore
+from midijuggler.datapoint.types import ConnectionSpec, ModifierKind, float_value
 from midijuggler.system_hostname import (
     apply_hostname,
     can_restart_service,
@@ -104,6 +107,7 @@ class WebInterface:
         runtime_adapters: list[Adapter] | None = None,
         config_path: str | Path | None = None,
         alsa_config_path: str | Path | None = None,
+        datapoint_store: DataPointStore | None = None,
     ) -> None:
         self.config = config
         self.bus = bus
@@ -116,6 +120,7 @@ class WebInterface:
         self.mapping_engine = mapping_engine
         self.rtp_midi_manager = rtp_midi_manager
         self._runtime_adapters = runtime_adapters
+        self.datapoint_store = datapoint_store
         self.learn = LearnController()
         self.config_path = Path(config_path) if config_path is not None else None
         self.alsa_config_path = (
@@ -158,6 +163,9 @@ class WebInterface:
         app.router.add_post("/api/learn/clear", self.clear_learn_source)
         app.router.add_post("/api/learn/source", self.select_learn_source)
         app.router.add_post("/api/learn/complete", self.complete_learn_mapping)
+        app.router.add_get("/api/datapoints", self.datapoints_config)
+        app.router.add_get("/api/connections", self.connections_config)
+        app.router.add_post("/api/connections", self.set_connections_config)
         app.router.add_get("/ws/monitor", self.monitor_ws)
         return app
 
@@ -177,6 +185,78 @@ class WebInterface:
 
         content_type = mimetypes.guess_type(asset_name)[0] or "application/octet-stream"
         return web.Response(body=asset.read_bytes(), content_type=content_type)
+
+    async def broadcast_datapoint_update(self, payload: dict[str, Any]) -> None:
+        await self._broadcast_payload({"type": "datapoint", "payload": payload})
+
+    def datapoints_payload(self) -> dict[str, Any]:
+        if self.datapoint_store is None:
+            return {"datapoints": [], "values": {}}
+        return {
+            "datapoints": self.datapoint_store.registry_snapshot(),
+            "values": self.datapoint_store.snapshot(),
+        }
+
+    async def datapoints_config(self, request: web.Request) -> web.Response:
+        return web.json_response(self.datapoints_payload())
+
+    def connections_payload(self) -> dict[str, Any]:
+        connections = self._effective_connections()
+        return {
+            "connections": [connection.as_dict() for connection in connections],
+            "datapoint_routing": self.config.runtime.datapoint_routing,
+        }
+
+    def _effective_connections(self) -> list[ConnectionSpec]:
+        if self.config.connections:
+            return list(self.config.connections)
+        return connections_from_legacy_mappings(self.config.mappings)
+
+    async def connections_config(self, request: web.Request) -> web.Response:
+        return web.json_response(self.connections_payload())
+
+    async def set_connections_config(self, request: web.Request) -> web.Response:
+        payload = await request.json()
+        raw_connections = payload.get("connections", [])
+        if not isinstance(raw_connections, list):
+            return web.Response(text="connections must be a list", status=400)
+
+        connections: list[ConnectionSpec] = []
+        for index, item in enumerate(raw_connections, start=1):
+            if not isinstance(item, dict):
+                return web.Response(text=f"connections[{index}] must be an object", status=400)
+            try:
+                connections.append(
+                    ConnectionSpec(
+                        id=str(item["id"]),
+                        source=str(item["source"]),
+                        target=str(item["target"]),
+                        modifier=ModifierKind(str(item.get("modifier", ModifierKind.RANGE_MAP.value))),
+                        input_min=float(item.get("input_min", 0.0)),
+                        input_max=float(item.get("input_max", 1.0)),
+                        output_min=float(item.get("output_min", 0.0)),
+                        output_max=float(item.get("output_max", 127.0)),
+                        invert=bool(item.get("invert", False)),
+                    )
+                )
+            except (KeyError, TypeError, ValueError) as exc:
+                return web.Response(text=str(exc), status=400)
+
+        object.__setattr__(self.config, "connections", connections)
+        if "datapoint_routing" in payload:
+            from midijuggler.config import RuntimeConfig
+
+            object.__setattr__(
+                self.config,
+                "runtime",
+                RuntimeConfig(datapoint_routing=bool(payload["datapoint_routing"])),
+            )
+        return web.json_response(self.connections_payload())
+
+    async def write_datapoint(self, point_id: str, value: float) -> None:
+        if self.datapoint_store is None:
+            raise ValueError("data point store is unavailable")
+        await self.datapoint_store.write(float_value(point_id, value))
 
     async def status(self, request: web.Request) -> web.Response:
         return web.json_response(self._status_payload())
@@ -462,6 +542,11 @@ class WebInterface:
         await ws.send_json({"type": "status", "payload": self._status_payload()})
         for event in self.bus.history_dicts():
             await ws.send_json({"type": "event", "payload": event})
+        if self.datapoint_store is not None:
+            for update in self.datapoint_store.history():
+                await ws.send_json(
+                    {"type": "datapoint", "payload": update.as_dict()}
+                )
 
         async for message in ws:
             if message.type == WSMsgType.TEXT:
@@ -615,6 +700,10 @@ class WebInterface:
             "learn": self.learn.state.as_dict(),
             "osc_instances": self._osc_instances_payload(),
             "mappings": [rule.__dict__ for rule in self.config.mappings],
+            "connections": [
+                connection.as_dict() for connection in self._effective_connections()
+            ],
+            "datapoint_routing": self.config.runtime.datapoint_routing,
             "adapters": {
                 name: self._adapter_status_entry(name, adapter)
                 for name, adapter in self.config.adapters.items()
