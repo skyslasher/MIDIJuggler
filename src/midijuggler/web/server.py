@@ -1225,6 +1225,39 @@ class WebInterface:
             ],
         }
 
+    async def _apply_midi_runtime_adapter(self, name: str, updated: AdapterConfig) -> None:
+        adapter = self.midi_adapters.get(name)
+        if adapter is None:
+            if not updated.enabled:
+                return
+            adapter = MidiAdapter(
+                name=name,
+                config=updated,
+                bus=self.bus,
+                app_config=self.config,
+            )
+            self.midi_adapters[name] = adapter
+            try:
+                await adapter.start()
+            except OSError as exc:
+                self.midi_adapters.pop(name, None)
+                raise ValueError(str(exc)) from exc
+            self._register_runtime_adapter(adapter)
+            return
+
+        if updated.enabled:
+            try:
+                await adapter.reload(updated)
+            except OSError as exc:
+                raise ValueError(str(exc)) from exc
+            self._register_runtime_adapter(adapter)
+            return
+
+        if adapter.running:
+            await adapter.stop()
+        adapter.config = updated
+        self._unregister_runtime_adapter(adapter)
+
     async def apply_midi_adapters_config(self, payload: dict[str, Any]) -> dict[str, Any]:
         if not isinstance(payload, dict):
             raise ValueError("MIDI adapter config payload must be an object")
@@ -1267,6 +1300,15 @@ class WebInterface:
                 deleted_rtp_names.append(name)
 
         for name in deleted_names:
+            adapter_config = self.config.adapters.get(name)
+            adapter_kind = adapter_config.kind or name if adapter_config else name
+            if adapter_kind == "midi":
+                adapter = self.midi_adapters.pop(name, None)
+                if adapter is not None:
+                    if adapter.running:
+                        await adapter.stop()
+                    self._unregister_runtime_adapter(adapter)
+                self._adapter_runtime_status.pop(name, None)
             self.config.adapters.pop(name, None)
 
         updates: dict[str, AdapterConfig] = {}
@@ -1368,9 +1410,7 @@ class WebInterface:
         for name, updated in updates.items():
             if updated.kind != "midi":
                 continue
-            adapter = self.midi_adapters.get(name)
-            if adapter is not None:
-                await adapter.reload(updated)
+            await self._apply_midi_runtime_adapter(name, updated)
 
         response = self.midi_adapters_config_payload()
         response.update({"persisted": persisted, "persist_error": persist_error})

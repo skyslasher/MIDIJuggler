@@ -1,5 +1,7 @@
 from pathlib import Path
 
+import pytest
+
 from midijuggler.system_info import list_click_wavs, parse_aconnect_ports, parse_aplay_devices
 
 
@@ -72,6 +74,35 @@ def test_parse_aconnect_ports_keeps_same_name_on_different_addresses() -> None:
     )
 
     assert [port["address"] for port in ports] == ["24:0", "24:1"]
+
+
+def test_list_midi_input_ports_falls_back_to_aconnect_when_mido_is_empty(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from midijuggler.system_info import list_midi_input_ports
+
+    monkeypatch.setattr(
+        "midijuggler.system_info._list_mido_ports",
+        lambda *, inputs: [] if inputs else [],
+    )
+    monkeypatch.setattr(
+        "midijuggler.system_info._aconnect_list",
+        lambda *args: """
+        client 24: 'X-TOUCHMINI' [type=kernel]
+            0 'X-TOUCH MINI'
+        """,
+    )
+
+    ports = list_midi_input_ports()
+
+    assert ports == [
+        {
+            "id": "X-TOUCH MINI",
+            "address": "24:0",
+            "label": "X-TOUCHMINI / X-TOUCH MINI (24:0)",
+            "client": "X-TOUCHMINI",
+        }
+    ]
 
 
 def test_list_click_wavs_finds_wav_files(tmp_path: Path) -> None:

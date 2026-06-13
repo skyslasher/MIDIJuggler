@@ -100,6 +100,8 @@ def _find_port_matches(port_name: str, ports: list[dict[str, str]]) -> list[dict
     if not normalized:
         return []
 
+    normalized_key = normalized.casefold()
+
     if _ADDRESS_PATTERN.match(normalized):
         return [
             port
@@ -107,16 +109,16 @@ def _find_port_matches(port_name: str, ports: list[dict[str, str]]) -> list[dict
             if port["address"] == normalized or port.get("mido_name") == normalized
         ]
 
-    exact = [port for port in ports if port["id"] == normalized]
+    exact = [port for port in ports if port["id"].casefold() == normalized_key]
     if exact:
         return exact
 
     return [
         port
         for port in ports
-        if normalized in port.get("mido_name", port["id"])
-        or normalized in port["id"]
-        or normalized in port.get("label", "")
+        if normalized_key in port.get("mido_name", port["id"]).casefold()
+        or normalized_key in port["id"].casefold()
+        or normalized_key in port.get("label", "").casefold()
     ]
 
 
@@ -340,7 +342,7 @@ def list_midi_input_ports() -> list[dict[str, str]]:
     """List readable MIDI input ports."""
 
     mido_ports = _list_mido_ports(inputs=True)
-    if mido_ports is not None:
+    if mido_ports:
         return mido_ports
     return parse_aconnect_ports(_aconnect_list("-i"))
 
@@ -349,7 +351,7 @@ def list_midi_output_ports() -> list[dict[str, str]]:
     """List writable MIDI output ports."""
 
     mido_ports = _list_mido_ports(inputs=False)
-    if mido_ports is not None:
+    if mido_ports:
         return mido_ports
     return parse_aconnect_ports(_aconnect_list("-o"))
 

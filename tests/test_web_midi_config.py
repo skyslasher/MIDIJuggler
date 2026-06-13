@@ -1,9 +1,11 @@
 import asyncio
 from pathlib import Path
 from typing import Any
+from unittest.mock import AsyncMock
 
 import pytest
 
+from midijuggler.adapters.midi import MidiAdapter
 from midijuggler.clock import ClockBpmTracker
 from midijuggler.config import AdapterConfig, load_config, parse_config
 from midijuggler.eventbus import EventBus
@@ -345,6 +347,119 @@ def test_apply_midi_adapters_config_creates_midi_instance(tmp_path: Path, monkey
     assert saved.adapters["stage_midi"].kind == "midi"
     assert saved.adapters["stage_midi"].options["input_port"] == "Stage In"
     assert "[adapters.stage_midi]" in config_file.read_text(encoding="utf-8")
+
+
+def test_apply_midi_adapters_config_starts_created_midi_adapter(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    _mock_midi_ports(monkeypatch, [])
+    start_mock = AsyncMock()
+    monkeypatch.setattr(MidiAdapter, "start", start_mock)
+
+    config_file = tmp_path / "config.toml"
+    config_file.write_text(
+        """
+        [adapters.midi]
+        enabled = false
+        """,
+        encoding="utf-8",
+    )
+    config = load_config(config_file)
+    interface = WebInterface(
+        config,
+        EventBus(),
+        ClockBpmTracker(),
+        MasterClock(config.master_clock, EventBus()),
+        config_path=config_file,
+        runtime_adapters=[],
+    )
+
+    asyncio.run(
+        interface.apply_midi_adapters_config(
+            {
+                "kind": "midi",
+                "instances": [
+                    {
+                        "name": "xtouch_mini",
+                        "type": "midi",
+                        "enabled": True,
+                        "input_port": "X-TOUCH MINI",
+                        "output_port": "X-TOUCH MINI",
+                        "midi_library": "behringer_xtouch_mini",
+                    }
+                ],
+            }
+        )
+    )
+
+    assert "xtouch_mini" in interface.midi_adapters
+    start_mock.assert_awaited()
+
+
+def test_apply_midi_adapters_config_stops_deleted_midi_adapter(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    _mock_midi_ports(monkeypatch, [])
+    stop_mock = AsyncMock()
+    monkeypatch.setattr(MidiAdapter, "stop", stop_mock)
+    monkeypatch.setattr(MidiAdapter, "start", AsyncMock())
+
+    config_file = tmp_path / "config.toml"
+    config_file.write_text(
+        """
+        [adapters.midi]
+        enabled = true
+
+        [adapters.stage_midi]
+        type = "midi"
+        enabled = true
+        input_port = "Stage In"
+        output_port = "Stage Out"
+        """,
+        encoding="utf-8",
+    )
+    config = load_config(config_file)
+    bus = EventBus()
+    stage_adapter = MidiAdapter(
+        "stage_midi",
+        config.adapters["stage_midi"],
+        bus,
+        app_config=config,
+    )
+    stage_adapter.running = True
+    runtime_adapters = [stage_adapter]
+    interface = WebInterface(
+        config,
+        bus,
+        ClockBpmTracker(),
+        MasterClock(config.master_clock, bus),
+        midi_adapters={"stage_midi": stage_adapter},
+        config_path=config_file,
+        runtime_adapters=runtime_adapters,
+    )
+
+    asyncio.run(
+        interface.apply_midi_adapters_config(
+            {
+                "kind": "midi",
+                "instances": [
+                    {
+                        "name": "midi",
+                        "enabled": True,
+                        "input_port": "",
+                        "output_port": "",
+                    }
+                ],
+                "deleted": ["stage_midi"],
+            }
+        )
+    )
+
+    assert "stage_midi" not in interface.midi_adapters
+    stop_mock.assert_awaited()
+    assert stage_adapter not in runtime_adapters
 
 
 def test_apply_midi_adapters_config_deletes_additional_instance(

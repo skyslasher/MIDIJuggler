@@ -65,6 +65,19 @@ class MidiAdapter(Adapter):
         self._last_connection_detail: str | None = None
 
     async def start(self) -> None:
+        if not self.config.enabled:
+            self.running = False
+            await self.bus.publish(
+                AdapterStatusEvent(
+                    source=self.name,
+                    adapter=self.name,
+                    status="stopped",
+                    detail="MIDI adapter disabled",
+                    connection_phase="idle",
+                )
+            )
+            return
+
         self._source_index = self._load_source_index()
         self._last_connection_detail = None
         input_port = str(self.config.options.get("input_port", "")).strip()
@@ -121,10 +134,10 @@ class MidiAdapter(Adapter):
         """Restart MIDI listeners after a configuration change."""
 
         self.config = config
-        if not self.running:
-            return
-        await self.stop()
-        await self.start()
+        if self.running:
+            await self.stop()
+        if config.enabled:
+            await self.start()
 
     async def stop(self) -> None:
         self.running = False
