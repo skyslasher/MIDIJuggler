@@ -7,6 +7,9 @@ and Continue messages to configured MIDI-capable adapter instances.
 ## Configuration
 
 ```toml
+[runtime]
+datapoint_routing = true
+
 [master_clock]
 enabled = true
 bpm = 120.0
@@ -14,17 +17,7 @@ bpm_min = 40.0
 bpm_max = 240.0
 auto_start = false
 output_targets = ["midi", "rtp_midi"]
-midi_input_targets = ["midi"]
-osc_input_targets = ["osc"]
 send_transport = true
-
-bpm_osc_address = "/midijuggler/clock/bpm"
-click_interval_osc_address = "/midijuggler/clock/click_interval"
-
-bpm_msb_cc = 20
-bpm_lsb_cc = 21
-click_interval_cc = 22
-midi_channel = 1
 
 click_enabled = false
 click_wav = "/etc/midijuggler/click.wav"
@@ -33,13 +26,52 @@ click_audio_device = ""
 ```
 
 `output_targets` are adapter instance names. Use MIDI and/or RTP-MIDI
-instances depending on where MIDI Clock should be sent.
+instances depending on where MIDI Clock should be sent. With
+`runtime.datapoint_routing = true`, MIDI clock output is routed through
+default `[[connections]]` from `clock.midi_*` data points to each target's
+`midi_out` input.
+
+## Remote control with data points
+
+When `runtime.datapoint_routing = true`, wire BPM and transport through
+`[[connections]]` instead of dedicated master-clock input settings:
+
+```toml
+[[connections]]
+id = "osc-bpm-to-clock"
+source = "osc:/midijuggler/clock/bpm"
+target = "clock.bpm_set"
+modifier = "passthrough"
+
+[[connections]]
+id = "midi-start-to-clock"
+source = "midi:note:1:60"
+target = "clock.start"
+modifier = "passthrough"
+```
+
+Available clock inputs include `clock.bpm_set`, `clock.bpm_up`,
+`clock.bpm_down`, `clock.start`, and `clock.stop`.
+
+## Legacy remote control
+
+When `runtime.datapoint_routing = false`, the older TOML fields still work:
+
+```toml
+midi_input_targets = ["midi"]
+osc_input_targets = ["osc"]
+bpm_osc_address = "/midijuggler/clock/bpm"
+click_interval_osc_address = "/midijuggler/clock/click_interval"
+bpm_msb_cc = 20
+bpm_lsb_cc = 21
+click_interval_cc = 22
+midi_channel = 1
+```
 
 `midi_input_targets` and `osc_input_targets` select which adapter instances may
 send master-clock transport, BPM and click-interval controls. When either key
 is omitted from the TOML file, all enabled adapter instances of that type are
-accepted for backward compatibility. When present, only the listed enabled
-instances are used.
+accepted for backward compatibility.
 
 ## Transport
 
@@ -54,7 +86,9 @@ Incoming MIDI realtime messages control the master clock:
 When transport changes and `send_transport = true`, MIDIJuggler also sends the
 corresponding realtime message to all configured `output_targets`.
 
-## BPM remote control
+## BPM remote control (legacy)
+
+When `runtime.datapoint_routing = false`:
 
 ### OSC
 

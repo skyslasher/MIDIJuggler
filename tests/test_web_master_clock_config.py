@@ -54,22 +54,9 @@ def test_master_clock_config_payload_lists_midi_output_targets() -> None:
         ("rtp_midi", "rtp_midi", False),
         ("rtp_remote", "rtp_midi", False),
     ]
-    assert payload["midi_input_targets"] is None
-    assert payload["osc_input_targets"] is None
-    assert [
-        (target["name"], target["type"], target["selected"])
-        for target in payload["available_midi_input_targets"]
-    ] == [
-        ("midi", "midi", True),
-        ("rtp_midi", "rtp_midi", False),
-        ("rtp_remote", "rtp_midi", False),
-    ]
-    assert [
-        (target["name"], target["type"], target["selected"])
-        for target in payload["available_osc_input_targets"]
-    ] == [
-        ("osc", "osc", True),
-    ]
+    assert "midi_input_targets" not in payload
+    assert "osc_input_targets" not in payload
+    assert "midi_channel" not in payload
 
 
 def test_apply_master_clock_config_persists_section(tmp_path: Path) -> None:
@@ -165,7 +152,7 @@ def test_apply_master_clock_config_keeps_runtime_change_when_persisting_fails(
         config_path=config_file,
     )
 
-    def deny_persist(path: str | Path, config: object) -> None:
+    def deny_persist(path: str | Path, config: object, **kwargs: object) -> None:
         raise PermissionError(13, "Permission denied", f"{path}.tmp")
 
     monkeypatch.setattr("midijuggler.web.server.save_master_clock_config", deny_persist)
@@ -202,7 +189,64 @@ def test_apply_master_clock_config_rejects_unknown_output_target() -> None:
         )
 
 
-def test_apply_master_clock_config_persists_input_targets(tmp_path: Path) -> None:
+def test_apply_master_clock_config_clears_legacy_inputs_with_datapoint_routing(
+    tmp_path: Path,
+) -> None:
+    config_file = tmp_path / "config.toml"
+    config_file.write_text(
+        """
+        [runtime]
+        datapoint_routing = true
+
+        [master_clock]
+        enabled = true
+        midi_input_targets = ["midi"]
+        osc_input_targets = ["osc"]
+
+        [adapters.midi]
+        enabled = true
+
+        [adapters.osc]
+        enabled = true
+        """,
+        encoding="utf-8",
+    )
+    config = load_config(config_file)
+    interface = WebInterface(
+        config,
+        EventBus(),
+        ClockBpmTracker(),
+        MasterClock(config.master_clock, EventBus()),
+        config_path=config_file,
+    )
+
+    result = asyncio.run(
+        interface.apply_master_clock_config(
+            {
+                "enabled": True,
+                "bpm": 120.0,
+                "bpm_min": 40.0,
+                "bpm_max": 240.0,
+                "output_targets": [],
+            }
+        )
+    )
+
+    saved = load_config(config_file)
+    saved_text = config_file.read_text(encoding="utf-8")
+
+    assert result["enabled"] is True
+    assert interface.master_clock.config.midi_input_targets == []
+    assert interface.master_clock.config.osc_input_targets == []
+    assert saved.master_clock.midi_input_targets is None
+    assert saved.master_clock.osc_input_targets is None
+    assert "midi_input_targets" not in saved_text
+    assert "bpm_msb_cc" not in saved_text
+
+
+def test_apply_master_clock_config_persists_input_targets_without_datapoint_routing(
+    tmp_path: Path,
+) -> None:
     config_file = tmp_path / "config.toml"
     config_file.write_text(
         """
@@ -242,8 +286,7 @@ def test_apply_master_clock_config_persists_input_targets(tmp_path: Path) -> Non
 
     saved = load_config(config_file)
 
-    assert result["midi_input_targets"] == ["midi"]
-    assert result["osc_input_targets"] == ["osc"]
+    assert result["persisted"] is True
     assert saved.master_clock.midi_input_targets == ["midi"]
     assert saved.master_clock.osc_input_targets == ["osc"]
 

@@ -1560,12 +1560,6 @@ class WebInterface:
     def master_clock_config_payload(self) -> dict[str, Any]:
         config = self.master_clock.config
         selected_outputs = set(config.output_targets)
-        selected_midi_inputs = (
-            None if config.midi_input_targets is None else set(config.midi_input_targets)
-        )
-        selected_osc_inputs = (
-            None if config.osc_input_targets is None else set(config.osc_input_targets)
-        )
         return {
             "enabled": config.enabled,
             "bpm": config.bpm,
@@ -1573,30 +1567,12 @@ class WebInterface:
             "bpm_max": config.bpm_max,
             "auto_start": config.auto_start,
             "output_targets": config.output_targets,
-            "midi_input_targets": config.midi_input_targets,
-            "osc_input_targets": config.osc_input_targets,
             "available_output_targets": self._available_adapter_targets(
                 {"midi", "rtp_midi"},
                 selected_outputs,
                 require_enabled_for_selection=True,
             ),
-            "available_midi_input_targets": self._available_adapter_targets(
-                {"midi", "rtp_midi"},
-                selected_midi_inputs,
-                require_enabled_for_selection=False,
-            ),
-            "available_osc_input_targets": self._available_adapter_targets(
-                {"osc"},
-                selected_osc_inputs,
-                require_enabled_for_selection=False,
-            ),
             "send_transport": config.send_transport,
-            "bpm_osc_address": config.bpm_osc_address,
-            "click_interval_osc_address": config.click_interval_osc_address,
-            "bpm_msb_cc": config.bpm_msb_cc,
-            "bpm_lsb_cc": config.bpm_lsb_cc,
-            "click_interval_cc": config.click_interval_cc,
-            "midi_channel": config.midi_channel,
             "click_enabled": config.click_enabled,
             "click_wav": config.click_wav,
             "click_interval": config.click_interval,
@@ -1632,7 +1608,11 @@ class WebInterface:
         persist_error = ""
         if self.config_path is not None:
             try:
-                save_master_clock_config(self.config_path, config)
+                save_master_clock_config(
+                    self.config_path,
+                    config,
+                    datapoint_routing=self.config.runtime.datapoint_routing,
+                )
                 persisted = True
             except OSError as exc:
                 persist_error = str(exc)
@@ -1931,6 +1911,7 @@ class WebInterface:
 
     def _normalized_master_clock_config(self, payload: dict[str, Any]) -> MasterClockConfig:
         current = self.master_clock.config
+        datapoint_routing = self.config.runtime.datapoint_routing
         available_targets = {
             name
             for name, adapter in self.config.adapters.items()
@@ -1944,18 +1925,50 @@ class WebInterface:
         if unknown_targets:
             raise ValueError(f"unknown MIDI clock output targets: {unknown_targets}")
 
-        midi_input_targets = self._normalized_input_targets(
-            payload,
-            "midi_input_targets",
-            current.midi_input_targets,
-            {"midi", "rtp_midi"},
-        )
-        osc_input_targets = self._normalized_input_targets(
-            payload,
-            "osc_input_targets",
-            current.osc_input_targets,
-            {"osc"},
-        )
+        if datapoint_routing:
+            midi_input_targets: list[str] | None = []
+            osc_input_targets: list[str] | None = []
+            bpm_osc_address = current.bpm_osc_address
+            click_interval_osc_address = current.click_interval_osc_address
+            bpm_msb_cc = current.bpm_msb_cc
+            bpm_lsb_cc = current.bpm_lsb_cc
+            click_interval_cc = current.click_interval_cc
+            midi_channel = current.midi_channel
+        else:
+            midi_input_targets = self._normalized_input_targets(
+                payload,
+                "midi_input_targets",
+                current.midi_input_targets,
+                {"midi", "rtp_midi"},
+            )
+            osc_input_targets = self._normalized_input_targets(
+                payload,
+                "osc_input_targets",
+                current.osc_input_targets,
+                {"osc"},
+            )
+            bpm_osc_address = str(payload.get("bpm_osc_address", current.bpm_osc_address))
+            click_interval_osc_address = str(
+                payload.get(
+                    "click_interval_osc_address",
+                    current.click_interval_osc_address,
+                )
+            )
+            bpm_msb_cc = _validate_midi_7bit(
+                payload.get("bpm_msb_cc", current.bpm_msb_cc),
+                "bpm_msb_cc",
+            )
+            bpm_lsb_cc = _validate_midi_7bit(
+                payload.get("bpm_lsb_cc", current.bpm_lsb_cc),
+                "bpm_lsb_cc",
+            )
+            click_interval_cc = _validate_midi_7bit(
+                payload.get("click_interval_cc", current.click_interval_cc),
+                "click_interval_cc",
+            )
+            midi_channel = int(payload.get("midi_channel", current.midi_channel))
+            if not 1 <= midi_channel <= 16:
+                raise ValueError("midi_channel must be between 1 and 16")
 
         click_interval = str(payload.get("click_interval", current.click_interval))
         if click_interval not in {"eighth", "quarter", "half", "whole"}:
@@ -1969,16 +1982,6 @@ class WebInterface:
         if not bpm_min <= bpm <= bpm_max:
             raise ValueError("bpm must be inside bpm_min/bpm_max")
 
-        bpm_msb_cc = _validate_midi_7bit(payload.get("bpm_msb_cc", current.bpm_msb_cc), "bpm_msb_cc")
-        bpm_lsb_cc = _validate_midi_7bit(payload.get("bpm_lsb_cc", current.bpm_lsb_cc), "bpm_lsb_cc")
-        click_interval_cc = _validate_midi_7bit(
-            payload.get("click_interval_cc", current.click_interval_cc),
-            "click_interval_cc",
-        )
-        midi_channel = int(payload.get("midi_channel", current.midi_channel))
-        if not 1 <= midi_channel <= 16:
-            raise ValueError("midi_channel must be between 1 and 16")
-
         return MasterClockConfig(
             enabled=bool(payload.get("enabled", current.enabled)),
             bpm=bpm,
@@ -1989,13 +1992,8 @@ class WebInterface:
             midi_input_targets=midi_input_targets,
             osc_input_targets=osc_input_targets,
             send_transport=bool(payload.get("send_transport", current.send_transport)),
-            bpm_osc_address=str(payload.get("bpm_osc_address", current.bpm_osc_address)),
-            click_interval_osc_address=str(
-                payload.get(
-                    "click_interval_osc_address",
-                    current.click_interval_osc_address,
-                )
-            ),
+            bpm_osc_address=bpm_osc_address,
+            click_interval_osc_address=click_interval_osc_address,
             bpm_msb_cc=bpm_msb_cc,
             bpm_lsb_cc=bpm_lsb_cc,
             click_interval_cc=click_interval_cc,

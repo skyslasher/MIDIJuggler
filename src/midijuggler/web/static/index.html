@@ -176,22 +176,6 @@
                 <input id="master-bpm-max" type="number" min="1" step="0.1" />
               </label>
               <label>
-                MIDI channel
-                <input id="master-midi-channel" type="number" min="1" max="16" step="1" />
-              </label>
-              <label>
-                BPM MSB CC
-                <input id="master-bpm-msb-cc" type="number" min="0" max="127" step="1" />
-              </label>
-              <label>
-                BPM LSB CC
-                <input id="master-bpm-lsb-cc" type="number" min="0" max="127" step="1" />
-              </label>
-              <label>
-                Click interval CC
-                <input id="master-click-cc" type="number" min="0" max="127" step="1" />
-              </label>
-              <label>
                 Click interval
                 <select id="master-click-interval">
                   <option value="eighth">Eighth</option>
@@ -205,22 +189,12 @@
               <legend>MIDI clock outputs</legend>
               <div id="master-output-targets" class="target-list"></div>
             </fieldset>
-            <fieldset>
-              <legend>MIDI control inputs</legend>
-              <div id="master-midi-input-targets" class="target-list"></div>
-            </fieldset>
-            <fieldset>
-              <legend>OSC control inputs</legend>
-              <div id="master-osc-input-targets" class="target-list"></div>
-            </fieldset>
-            <label>
-              BPM OSC address
-              <input id="master-bpm-osc" type="text" />
-            </label>
-            <label>
-              Click interval OSC address
-              <input id="master-click-osc" type="text" />
-            </label>
+            <p class="hint">
+              Route BPM and transport via Connections to
+              <code>clock.*</code> data points (for example
+              <code>clock.bpm_set</code>, <code>clock.start</code>,
+              <code>clock.stop</code>).
+            </p>
             <label class="inline-field">
               <input id="master-click-enabled" type="checkbox" />
               Audio click enabled

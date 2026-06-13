@@ -154,12 +154,17 @@ def save_gpio_adapter_options(path: str | Path, options: dict[str, Any]) -> None
     temp_path.replace(config_path)
 
 
-def save_master_clock_config(path: str | Path, config: MasterClockConfig) -> None:
+def save_master_clock_config(
+    path: str | Path,
+    config: MasterClockConfig,
+    *,
+    datapoint_routing: bool = False,
+) -> None:
     """Persist the editable master clock config in a TOML config file."""
 
     config_path = Path(path)
     text = config_path.read_text(encoding="utf-8")
-    section = _format_master_clock_section(config)
+    section = _format_master_clock_section(config, datapoint_routing=datapoint_routing)
     new_text = _replace_toml_section(text, "[master_clock]", section)
 
     temp_path = config_path.with_suffix(config_path.suffix + ".tmp")
@@ -307,9 +312,13 @@ def _format_gpio_adapter_section(options: dict[str, Any]) -> str:
     )
 
 
-def _format_master_clock_section(config: MasterClockConfig) -> str:
+def _format_master_clock_section(
+    config: MasterClockConfig,
+    *,
+    datapoint_routing: bool = False,
+) -> str:
     output_targets = ", ".join(_toml_string(target) for target in config.output_targets)
-    return (
+    section = (
         "[master_clock]\n"
         f"enabled = {_toml_bool(config.enabled)}\n"
         f"bpm = {config.bpm}\n"
@@ -317,20 +326,28 @@ def _format_master_clock_section(config: MasterClockConfig) -> str:
         f"bpm_max = {config.bpm_max}\n"
         f"auto_start = {_toml_bool(config.auto_start)}\n"
         f"output_targets = [{output_targets}]\n"
-        + _format_optional_string_list("midi_input_targets", config.midi_input_targets)
-        + _format_optional_string_list("osc_input_targets", config.osc_input_targets)
-        + f"send_transport = {_toml_bool(config.send_transport)}\n"
-        f"bpm_osc_address = {_toml_string(config.bpm_osc_address)}\n"
-        f"click_interval_osc_address = {_toml_string(config.click_interval_osc_address)}\n"
-        f"bpm_msb_cc = {config.bpm_msb_cc}\n"
-        f"bpm_lsb_cc = {config.bpm_lsb_cc}\n"
-        f"click_interval_cc = {config.click_interval_cc}\n"
-        f"midi_channel = {config.midi_channel}\n"
+    )
+    if not datapoint_routing:
+        section += (
+            _format_optional_string_list("midi_input_targets", config.midi_input_targets)
+            + _format_optional_string_list("osc_input_targets", config.osc_input_targets)
+            + f"send_transport = {_toml_bool(config.send_transport)}\n"
+            f"bpm_osc_address = {_toml_string(config.bpm_osc_address)}\n"
+            f"click_interval_osc_address = {_toml_string(config.click_interval_osc_address)}\n"
+            f"bpm_msb_cc = {config.bpm_msb_cc}\n"
+            f"bpm_lsb_cc = {config.bpm_lsb_cc}\n"
+            f"click_interval_cc = {config.click_interval_cc}\n"
+            f"midi_channel = {config.midi_channel}\n"
+        )
+    else:
+        section += f"send_transport = {_toml_bool(config.send_transport)}\n"
+    section += (
         f"click_enabled = {_toml_bool(config.click_enabled)}\n"
         f"click_wav = {_toml_string(config.click_wav)}\n"
         f"click_interval = {_toml_string(config.click_interval)}\n"
         f"click_audio_device = {_toml_string(config.click_audio_device)}\n\n"
     )
+    return section
 
 
 def _format_optional_string_list(name: str, values: list[str] | None) -> str:

@@ -15,27 +15,17 @@ bpm_min = 40.0
 bpm_max = 240.0
 auto_start = false
 output_targets = ["midi"]
-midi_input_targets = ["midi"]
-osc_input_targets = ["osc"]
 send_transport = true
-
-# Remote control:
-# OSC: /midijuggler/clock/bpm 128.5
-# OSC: /midijuggler/clock/click_interval "quarter"
-bpm_osc_address = "/midijuggler/clock/bpm"
-click_interval_osc_address = "/midijuggler/clock/click_interval"
-
-# MIDI CC pair for 14-bit BPM control on channel 1.
-bpm_msb_cc = 20
-bpm_lsb_cc = 21
-click_interval_cc = 22
-midi_channel = 1
 
 # Optional audio click via ALSA and a USB sound card (pyalsaaudio or aplay).
 click_enabled = false
 click_wav = "/etc/midijuggler/click.wav"
 click_interval = "quarter"
 click_audio_device = ""
+
+# Route clock control via [[connections]], for example:
+# source = "osc:/midijuggler/clock/bpm" -> target = "clock.bpm_set"
+# source = "midi:cc:1:64" -> target = "clock.start"
 
 [adapters.osc]
 enabled = true

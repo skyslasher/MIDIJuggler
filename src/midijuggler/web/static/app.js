@@ -9,16 +9,8 @@ const masterSendTransport = document.querySelector("#master-send-transport");
 const masterBpm = document.querySelector("#master-bpm");
 const masterBpmMin = document.querySelector("#master-bpm-min");
 const masterBpmMax = document.querySelector("#master-bpm-max");
-const masterMidiChannel = document.querySelector("#master-midi-channel");
-const masterBpmMsbCc = document.querySelector("#master-bpm-msb-cc");
-const masterBpmLsbCc = document.querySelector("#master-bpm-lsb-cc");
-const masterClickCc = document.querySelector("#master-click-cc");
 const masterClickInterval = document.querySelector("#master-click-interval");
 const masterOutputTargets = document.querySelector("#master-output-targets");
-const masterMidiInputTargets = document.querySelector("#master-midi-input-targets");
-const masterOscInputTargets = document.querySelector("#master-osc-input-targets");
-const masterBpmOsc = document.querySelector("#master-bpm-osc");
-const masterClickOsc = document.querySelector("#master-click-osc");
 const masterClickEnabled = document.querySelector("#master-click-enabled");
 const masterClickWav = document.querySelector("#master-click-wav");
 const masterClickDevice = document.querySelector("#master-click-device");
@@ -2668,13 +2660,7 @@ function renderMasterClockConfig(config) {
   masterBpm.value = config.bpm;
   masterBpmMin.value = config.bpm_min;
   masterBpmMax.value = config.bpm_max;
-  masterMidiChannel.value = config.midi_channel;
-  masterBpmMsbCc.value = config.bpm_msb_cc;
-  masterBpmLsbCc.value = config.bpm_lsb_cc;
-  masterClickCc.value = config.click_interval_cc;
   masterClickInterval.value = config.click_interval;
-  masterBpmOsc.value = config.bpm_osc_address;
-  masterClickOsc.value = config.click_interval_osc_address;
   masterClickEnabled.checked = Boolean(config.click_enabled);
   replaceSelectOptions(
     masterClickWav,
@@ -2694,8 +2680,6 @@ function renderMasterClockConfig(config) {
   );
 
   renderAdapterTargetList(masterOutputTargets, config.available_output_targets || []);
-  renderAdapterTargetList(masterMidiInputTargets, config.available_midi_input_targets || []);
-  renderAdapterTargetList(masterOscInputTargets, config.available_osc_input_targets || []);
 }
 
 function renderAdapterTargetList(container, targets) {
@@ -2718,14 +2702,6 @@ function renderAdapterTargetList(container, targets) {
 
 function selectedMasterOutputTargets() {
   return selectedAdapterTargets(masterOutputTargets);
-}
-
-function selectedMasterMidiInputTargets() {
-  return selectedAdapterTargets(masterMidiInputTargets);
-}
-
-function selectedMasterOscInputTargets() {
-  return selectedAdapterTargets(masterOscInputTargets);
 }
 
 function selectedAdapterTargets(container) {
@@ -3009,15 +2985,7 @@ masterClockForm.addEventListener("submit", (event) => {
       bpm_max: Number(masterBpmMax.value),
       auto_start: masterAutoStart.checked,
       output_targets: selectedMasterOutputTargets(),
-      midi_input_targets: selectedMasterMidiInputTargets(),
-      osc_input_targets: selectedMasterOscInputTargets(),
       send_transport: masterSendTransport.checked,
-      bpm_osc_address: masterBpmOsc.value,
-      click_interval_osc_address: masterClickOsc.value,
-      bpm_msb_cc: Number(masterBpmMsbCc.value),
-      bpm_lsb_cc: Number(masterBpmLsbCc.value),
-      click_interval_cc: Number(masterClickCc.value),
-      midi_channel: Number(masterMidiChannel.value),
       click_enabled: masterClickEnabled.checked,
       click_wav: masterClickWav.value,
       click_interval: masterClickInterval.value,
