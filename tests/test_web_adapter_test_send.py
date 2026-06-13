@@ -12,6 +12,7 @@ from midijuggler.config import AdapterConfig, parse_config
 from midijuggler.eventbus import EventBus
 from midijuggler.events import OscMessageEvent
 from midijuggler.master_clock import MasterClock
+from midijuggler.midi.xtouch_feedback import XTouchFeedbackRefresh
 from midijuggler.web.server import WebInterface
 
 
@@ -196,7 +197,65 @@ def test_send_midi_adapter_test_message_resolves_library_parameter(
     assert result["parameter_label"] == "Layer A Top Button 1 LED"
     assert result["status"] == 0x9A
     assert result["data"] == [8, 127]
-    send_mock.assert_awaited_once_with(0x9A, (8, 127))
+    send_mock.assert_awaited_once_with(
+        0x9A,
+        (8, 127),
+        feedback_point="layer_a_top_button_1_led",
+        feedback_value=1.0,
+    )
+
+
+def test_send_midi_adapter_test_message_caches_feedback_for_refresh(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    async def scenario() -> dict[str, float]:
+        bus = EventBus()
+        config = parse_config(
+            {
+                "adapters": {
+                    "xtouch_mini": {
+                        "enabled": True,
+                        "type": "midi",
+                        "output_port": "X-Touch Mini",
+                        "midi_library": "behringer_xtouch_mini",
+                        "feedback_refresh_interval": 1.0,
+                    }
+                }
+            }
+        )
+        adapter = MidiAdapter(
+            name="xtouch_mini",
+            config=config.adapters["xtouch_mini"],
+            bus=bus,
+            app_config=config,
+        )
+        adapter.running = True
+        adapter._feedback_refresh = XTouchFeedbackRefresh(adapter, config)
+        adapter._feedback_refresh.configure(config.adapters["xtouch_mini"], config)
+        monkeypatch.setattr(adapter, "_resolve_output_address", lambda: "out")
+        monkeypatch.setattr(adapter, "_emit_midi_output", AsyncMock())
+
+        interface = WebInterface(
+            config,
+            bus,
+            ClockBpmTracker(),
+            MasterClock(config.master_clock, bus),
+            midi_adapters={"xtouch_mini": adapter},
+        )
+
+        await interface.send_midi_adapter_test_message(
+            {
+                "kind": "midi",
+                "name": "xtouch_mini",
+                "parameter_id": "layer_a_top_button_1_led",
+                "value": 1,
+            }
+        )
+        return dict(adapter._feedback_refresh._cache)
+
+    cache = asyncio.run(scenario())
+
+    assert cache["layer_a_top_button_1_led"] == 1.0
 
 
 def test_send_midi_adapter_test_message_uses_adapter_output(
@@ -237,7 +296,7 @@ def test_send_midi_adapter_test_message_uses_adapter_output(
 
     send_mock = asyncio.run(scenario())
 
-    send_mock.assert_awaited_once_with(0xB0, (1, 64))
+    send_mock.assert_awaited_once_with(0xB0, (1, 64), feedback_point=None, feedback_value=None)
 
 
 def test_send_rtp_midi_adapter_test_message_requires_running_adapter() -> None:

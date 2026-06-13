@@ -459,7 +459,14 @@ class MidiAdapter(Adapter):
             )
         )
 
-    async def send_test_message(self, status: int, data: tuple[int, ...]) -> None:
+    async def send_test_message(
+        self,
+        status: int,
+        data: tuple[int, ...],
+        *,
+        feedback_point: str | None = None,
+        feedback_value: float | None = None,
+    ) -> None:
         output_address = self._resolve_output_address()
         if output_address is None:
             output_port = str(self.config.options.get("output_port", "")).strip()
@@ -490,6 +497,8 @@ class MidiAdapter(Adapter):
                 f"from output_port={self.config.options.get('output_port', '')!r}, "
                 f"input_port={input_port!r})"
             ) from exc
+        if feedback_point is not None and feedback_value is not None:
+            self.remember_feedback_value(feedback_point, feedback_value)
 
     async def _emit_midi_output(
         self,

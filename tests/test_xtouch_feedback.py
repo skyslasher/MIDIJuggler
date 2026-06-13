@@ -150,3 +150,43 @@ def test_midi_adapter_remembers_feedback_on_send(monkeypatch: pytest.MonkeyPatch
 
     assert adapter._feedback_refresh is not None
     assert adapter._feedback_refresh._cache["layer_a_top_button_1_led"] == 1.0
+
+
+def test_send_test_message_remembers_feedback_targets(monkeypatch: pytest.MonkeyPatch) -> None:
+    from midijuggler.adapters.midi import MidiAdapter
+    from midijuggler.eventbus import EventBus
+
+    config = parse_config(
+        {
+            "adapters": {
+                "xtouch_mini": {
+                    "enabled": True,
+                    "type": "midi",
+                    "midi_library": "behringer_xtouch_mini",
+                    "feedback_refresh_interval": 0.1,
+                }
+            }
+        }
+    )
+    adapter = MidiAdapter(
+        "xtouch_mini",
+        config.adapters["xtouch_mini"],
+        EventBus(),
+        app_config=config,
+    )
+    monkeypatch.setattr(adapter, "_resolve_output_address", lambda: "out")
+    monkeypatch.setattr(adapter, "_emit_midi_output", AsyncMock())
+    adapter._feedback_refresh = XTouchFeedbackRefresh(adapter, config)
+    adapter._feedback_refresh.configure(config.adapters["xtouch_mini"], config)
+
+    async def scenario() -> None:
+        await adapter.send_test_message(
+            0x9A,
+            (8, 127),
+            feedback_point="layer_a_top_button_1_led",
+            feedback_value=1.0,
+        )
+
+    asyncio.run(scenario())
+
+    assert adapter._feedback_refresh._cache["layer_a_top_button_1_led"] == 1.0

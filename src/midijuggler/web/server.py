@@ -795,6 +795,8 @@ class WebInterface:
         if not adapter.running:
             raise OSError(f"{kind} adapter {name} is not running")
 
+        feedback_point: str | None = None
+        feedback_value: float | None = None
         parameter_id = str(payload.get("parameter_id", "")).strip()
         parameter_label = ""
         if parameter_id:
@@ -808,17 +810,26 @@ class WebInterface:
             )
             if "value" not in payload:
                 raise ValueError("value is required when parameter_id is set")
-            value = float(payload["value"])
-            if value < value_min or value > value_max:
+            feedback_value = float(payload["value"])
+            if feedback_value < value_min or feedback_value > value_max:
                 raise ValueError(
                     f"value must be between {value_min} and {value_max} for {parameter.label}"
                 )
-            status, data = encode_midi_target_message(parameter, value)
+            status, data = encode_midi_target_message(parameter, feedback_value)
             parameter_label = parameter.label
+            feedback_point = parameter_id
         else:
             status, data = self._parse_midi_test_message(payload)
 
-        await adapter.send_test_message(status, data)
+        if isinstance(adapter, MidiAdapter):
+            await adapter.send_test_message(
+                status,
+                data,
+                feedback_point=feedback_point,
+                feedback_value=feedback_value,
+            )
+        else:
+            await adapter.send_test_message(status, data)
         response: dict[str, Any] = {
             "ok": True,
             "name": name,
