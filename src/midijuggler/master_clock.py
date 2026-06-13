@@ -235,6 +235,8 @@ class MasterClock:
             raise ValueError(
                 f"bpm must be between {self.config.bpm_min} and {self.config.bpm_max}"
             )
+        if abs(self.bpm - bpm) <= 1e-6:
+            return
         self.bpm = bpm
         self.config = replace(self.config, bpm=bpm)
         self.remote = MasterClockRemote(self.config)

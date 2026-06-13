@@ -11,13 +11,13 @@ from midijuggler.datapoint.types import (
     ValueType,
     float_value,
     midi_message_value,
-    trigger_value,
 )
 from midijuggler.events import MasterClockCommandEvent
 from midijuggler.master_clock import MIDI_TIMING_CLOCK, MasterClock
 from midijuggler.modules.base import GeneratorModule
 
 CLOCK_MODULE = "clock"
+BPM_EPSILON = 1e-6
 
 
 class MasterClockGenerator(GeneratorModule):
@@ -30,9 +30,18 @@ class MasterClockGenerator(GeneratorModule):
     def datapoints(self) -> list[DataPointSpec]:
         return [
             DataPointSpec(
-                id=DataPointId(CLOCK_MODULE, "bpm"),
+                id=DataPointId(CLOCK_MODULE, "bpm_set"),
                 value_type=ValueType.FLOAT,
                 direction=DataPointDirection.INPUT,
+                label="Set master clock BPM",
+                value_min=self.clock.config.bpm_min,
+                value_max=self.clock.config.bpm_max,
+                protocol="clock",
+            ),
+            DataPointSpec(
+                id=DataPointId(CLOCK_MODULE, "bpm"),
+                value_type=ValueType.FLOAT,
+                direction=DataPointDirection.OUTPUT,
                 label="Master clock BPM",
                 value_min=self.clock.config.bpm_min,
                 value_max=self.clock.config.bpm_max,
@@ -98,7 +107,7 @@ class MasterClockGenerator(GeneratorModule):
 
     async def start(self) -> None:
         await super().start()
-        for point in ("bpm", "bpm_up", "bpm_down", "start", "stop"):
+        for point in ("bpm_set", "bpm_up", "bpm_down", "start", "stop"):
             self.store.subscribe(
                 DataPointId(CLOCK_MODULE, point),
                 self._on_input,
@@ -110,9 +119,15 @@ class MasterClockGenerator(GeneratorModule):
 
     async def _on_input(self, value: DataPointValue) -> None:
         point = value.point_id.point
-        if point == "bpm" and value.float_value is not None:
+        if point == "bpm_set" and value.float_value is not None:
+            if abs(value.float_value - self.clock.bpm) <= BPM_EPSILON:
+                return
             await self.clock.handle_command(
-                MasterClockCommandEvent(source=CLOCK_MODULE, command="set_bpm", value=value.float_value)
+                MasterClockCommandEvent(
+                    source=CLOCK_MODULE,
+                    command="set_bpm",
+                    value=value.float_value,
+                )
             )
             await self._publish_outputs()
             return
@@ -139,20 +154,25 @@ class MasterClockGenerator(GeneratorModule):
             await self._publish_outputs()
             return
         if point == "start" and value.bool_value:
+            if self.clock.running:
+                return
             await self.clock.handle_command(
                 MasterClockCommandEvent(source=CLOCK_MODULE, command="start")
             )
             await self._publish_outputs()
             return
         if point == "stop" and value.bool_value:
+            if not self.clock.running:
+                return
             await self.clock.handle_command(
                 MasterClockCommandEvent(source=CLOCK_MODULE, command="stop")
             )
             await self._publish_outputs()
 
     async def publish_tick(self) -> None:
-        await self.store.write(midi_message_value(DataPointId(CLOCK_MODULE, "midi_tick"), MIDI_TIMING_CLOCK))
-        await self._publish_outputs()
+        await self.store.write(
+            midi_message_value(DataPointId(CLOCK_MODULE, "midi_tick"), MIDI_TIMING_CLOCK)
+        )
 
     async def _publish_outputs(self) -> None:
         await self.store.write(

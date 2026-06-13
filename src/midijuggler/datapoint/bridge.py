@@ -91,6 +91,9 @@ class EventToDataPointBridge:
         await self.store.write(float_value(DataPointId("clock", "bpm"), event.bpm))
 
     async def _on_control(self, event: ControlEvent) -> None:
+        if event.source == "clock" and event.control == "bpm":
+            await self.store.write(float_value(DataPointId("clock", "bpm"), event.value))
+            return
         point_id = DataPointId(module=event.source, point=event.control)
         await self.store.write(float_value(point_id, event.value))
 

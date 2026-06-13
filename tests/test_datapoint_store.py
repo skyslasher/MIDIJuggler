@@ -51,13 +51,31 @@ def test_subscribe_all_receives_updates() -> None:
     assert seen == ["osc.desk./test"]
 
 
+def test_value_write_skips_unchanged_float() -> None:
+    store = DataPointStore()
+    seen = 0
+
+    async def handler(value):
+        nonlocal seen
+        seen += 1
+
+    store.subscribe("gpio.pin17", handler)
+
+    async def scenario() -> None:
+        await store.write(float_value("gpio.pin17", 1.0))
+        await store.write(float_value("gpio.pin17", 1.0))
+
+    asyncio.run(scenario())
+    assert seen == 1
+
+
 def test_registry_snapshot_includes_specs() -> None:
     store = DataPointStore()
     store.register(
         DataPointSpec(
             id=DataPointId("clock", "bpm"),
             value_type=ValueType.FLOAT,
-            direction=DataPointDirection.INPUT,
+            direction=DataPointDirection.OUTPUT,
             label="BPM",
         )
     )

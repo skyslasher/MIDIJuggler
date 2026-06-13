@@ -76,6 +76,9 @@ class DataPointStore:
         if spec is None:
             LOGGER.debug("write to unregistered data point %s", key)
 
+        if not self._value_changed(key, value):
+            return
+
         async with self._lock:
             self._values[key] = value
             self._history.append(value)
@@ -89,8 +92,33 @@ class DataPointStore:
                 result = handler(value)
                 if inspect.isawaitable(result):
                     await result
+            except RecursionError:
+                LOGGER.error("data point handler recursion for %s", key)
+                raise
             except Exception:
                 LOGGER.exception("data point handler failed for %s", key)
+
+    def _value_changed(self, key: str, value: DataPointValue) -> bool:
+        previous = self._values.get(key)
+        if previous is None:
+            return True
+        if value.value_type != previous.value_type:
+            return True
+        if value.float_value is not None and previous.float_value is not None:
+            return abs(value.float_value - previous.float_value) > 1e-9
+        if value.bool_value is not None and previous.bool_value is not None:
+            return value.bool_value != previous.bool_value
+        if value.int_value is not None and previous.int_value is not None:
+            return value.int_value != previous.int_value
+        if value.midi_status != previous.midi_status:
+            return True
+        if value.midi_data != previous.midi_data:
+            return True
+        if value.osc_address != previous.osc_address:
+            return True
+        if value.osc_arguments != previous.osc_arguments:
+            return True
+        return False
 
     @staticmethod
     def _normalize_id(point_id: DataPointId | str) -> str:
