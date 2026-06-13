@@ -77,6 +77,7 @@ class MidiMessageEvent(Event):
     data: tuple[int, ...] = ()
     target: str = ""
     direction: str = "input"
+    feedback_refresh: bool = False
 
     def as_dict(self) -> dict[str, Any]:
         payload = super().as_dict()
@@ -86,6 +87,7 @@ class MidiMessageEvent(Event):
                 "data": list(self.data),
                 "target": self.target,
                 "direction": self.direction,
+                "feedback_refresh": self.feedback_refresh,
             }
         )
         return payload

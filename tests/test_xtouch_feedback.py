@@ -109,6 +109,51 @@ def test_refresh_loop_resends_cached_values() -> None:
     adapter.send_feedback_target.assert_any_await("layer_a_top_button_1_led", 1.0)
 
 
+def test_send_feedback_target_marks_monitor_events_as_refresh(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from midijuggler.adapters.midi import MidiAdapter
+    from midijuggler.eventbus import EventBus
+    from midijuggler.events import MidiMessageEvent
+
+    config = parse_config(
+        {
+            "adapters": {
+                "xtouch_mini": {
+                    "enabled": True,
+                    "type": "midi",
+                    "midi_library": "behringer_xtouch_mini",
+                }
+            }
+        }
+    )
+    adapter = MidiAdapter(
+        "xtouch_mini",
+        config.adapters["xtouch_mini"],
+        EventBus(),
+        app_config=config,
+    )
+    adapter._output_address = "out"
+    published: list[MidiMessageEvent] = []
+
+    async def capture_publish(event: MidiMessageEvent) -> None:
+        published.append(event)
+
+    monkeypatch.setattr(adapter.bus, "publish", capture_publish)
+    monkeypatch.setattr(
+        "midijuggler.adapters.midi.send_midi_message_to_port",
+        AsyncMock(),
+    )
+
+    async def scenario() -> None:
+        await adapter.send_feedback_target("layer_a_top_button_1_led", 1.0)
+
+    asyncio.run(scenario())
+
+    assert len(published) == 1
+    assert published[0].feedback_refresh is True
+
+
 def test_midi_adapter_remembers_feedback_on_send(monkeypatch: pytest.MonkeyPatch) -> None:
     from midijuggler.adapters.midi import MidiAdapter
     from midijuggler.eventbus import EventBus

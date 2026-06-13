@@ -429,6 +429,7 @@ class MidiAdapter(Adapter):
                 data=data,
                 target=f"{self.name}:{point}",
                 direction="output",
+                feedback_refresh=True,
             )
         )
 
@@ -523,5 +524,6 @@ class MidiAdapter(Adapter):
                 data=event.data,
                 target=event.target,
                 direction="output",
+                feedback_refresh=event.feedback_refresh,
             )
         )

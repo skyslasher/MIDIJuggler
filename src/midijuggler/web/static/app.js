@@ -66,6 +66,7 @@ const oscLibraries = document.querySelector("#osc-libraries");
 const midiLibraries = document.querySelector("#midi-libraries");
 const events = document.querySelector("#events");
 const showClockTicks = document.querySelector("#show-clock-ticks");
+const showFeedbackRefresh = document.querySelector("#show-feedback-refresh");
 const monitorDisplayModeSelect = document.querySelector("#monitor-display-mode");
 const learnToggle = document.querySelector("#learn-toggle");
 const learnPanel = document.querySelector("#learn-panel");
@@ -820,6 +821,9 @@ function appendEvent(event) {
   if (isClockTick(event) && !showClockTicks.checked) {
     return;
   }
+  if (isFeedbackRefresh(event) && !showFeedbackRefresh.checked) {
+    return;
+  }
   const item = document.createElement("li");
   item.className = "monitor-event";
   item.monitorEvent = event;
@@ -844,6 +848,10 @@ function isClockTick(event) {
     event.kind === "MidiClockEvent" ||
     (event.kind === "MidiMessageEvent" && event.status === 248)
   );
+}
+
+function isFeedbackRefresh(event) {
+  return event.kind === "MidiMessageEvent" && Boolean(event.feedback_refresh);
 }
 
 function renderOscLibraries(libraries) {
