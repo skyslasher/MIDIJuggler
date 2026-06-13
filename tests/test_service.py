@@ -166,7 +166,10 @@ def test_service_filters_disabled_master_clock_output_targets() -> None:
                     "output_targets": ["midi", "rtp_midi"],
                 },
                 "adapters": {
-                    "midi": {"enabled": True},
+                    "midi": {
+                        "enabled": True,
+                        "output_port": "MIDIJuggler Out",
+                    },
                     "rtp_midi": {"enabled": False},
                 },
             }

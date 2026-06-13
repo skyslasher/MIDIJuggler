@@ -253,22 +253,12 @@ class MIDIJugglerService:
         }
 
     def _master_clock_config(self):
-        enabled_midi_targets = {
-            adapter.name
-            for adapter in self.adapters
-            if adapter.config.enabled and adapter.config.kind in {"midi", "rtp_midi"}
-        }
-        output_targets = [
-            target
-            for target in self.config.master_clock.output_targets
-            if target in enabled_midi_targets
-        ]
-        dropped_targets = set(self.config.master_clock.output_targets) - set(output_targets)
-        if dropped_targets:
-            LOGGER.warning(
-                "ignoring disabled MIDI clock output targets: %s",
-                ", ".join(sorted(dropped_targets)),
-            )
+        from midijuggler.datapoint.clock_connections import usable_clock_output_targets
+
+        output_targets = usable_clock_output_targets(
+            self.config.master_clock.output_targets,
+            self.config.adapters,
+        )
         return replace(self.config.master_clock, output_targets=output_targets)
 
     def _write_master_clock_alsa_config(self, audio_device: str) -> None:

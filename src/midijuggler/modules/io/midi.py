@@ -105,6 +105,7 @@ class MidiIOModule(IOModule):
             self.config.connections,
             datapoint_routing=self.config.runtime.datapoint_routing,
             master_clock=self.config.master_clock,
+            adapters=self.config.adapters,
         )
         targets: list[DataPointId] = []
         for connection in connections:

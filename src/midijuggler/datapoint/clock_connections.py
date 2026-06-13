@@ -2,7 +2,12 @@
 
 from __future__ import annotations
 
+import logging
+
+from midijuggler.config import AdapterConfig
 from midijuggler.datapoint.types import ConnectionSpec, ModifierKind
+
+LOGGER = logging.getLogger(__name__)
 
 CLOCK_MIDI_OUTPUT_POINTS = (
     "midi_tick",
@@ -10,6 +15,36 @@ CLOCK_MIDI_OUTPUT_POINTS = (
     "midi_continue",
     "midi_stop",
 )
+
+
+def adapter_has_midi_output_port(adapter: AdapterConfig) -> bool:
+    kind = adapter.kind or ""
+    if kind not in {"midi", "rtp_midi"}:
+        return False
+    if not adapter.enabled:
+        return False
+    output_port = str(adapter.options.get("output_port", "")).strip()
+    input_port = str(adapter.options.get("input_port", "")).strip()
+    return bool(output_port or input_port)
+
+
+def usable_clock_output_targets(
+    configured_targets: list[str],
+    adapters: dict[str, AdapterConfig],
+) -> list[str]:
+    routable = {
+        name
+        for name, adapter in adapters.items()
+        if adapter_has_midi_output_port(adapter)
+    }
+    usable = [target for target in configured_targets if target in routable]
+    dropped = [target for target in configured_targets if target not in routable]
+    if dropped:
+        LOGGER.warning(
+            "ignoring master clock output targets without configured MIDI ports: %s",
+            ", ".join(dropped),
+        )
+    return usable
 
 
 def clock_output_connections(output_targets: list[str]) -> list[ConnectionSpec]:

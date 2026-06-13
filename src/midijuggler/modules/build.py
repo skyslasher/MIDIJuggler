@@ -55,6 +55,7 @@ def build_module_registry(
         config.connections,
         datapoint_routing=config.runtime.datapoint_routing,
         master_clock=config.master_clock,
+        adapters=config.adapters,
     )
     registry.add(ModifierGraph(store, connections))
     registry.add(MasterClockGenerator(master_clock, store))

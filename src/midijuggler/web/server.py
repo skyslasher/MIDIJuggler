@@ -217,6 +217,7 @@ class WebInterface:
             self.config.connections,
             datapoint_routing=self.config.runtime.datapoint_routing,
             master_clock=self.config.master_clock,
+            adapters=self.config.adapters,
         )
 
     async def connections_config(self, request: web.Request) -> web.Response:
