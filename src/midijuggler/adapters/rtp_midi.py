@@ -6,10 +6,11 @@ import logging
 from typing import TYPE_CHECKING
 
 from midijuggler.adapters.base import Adapter
-from midijuggler.config import AdapterConfig
+from midijuggler.config import AdapterConfig, AppConfig
 from midijuggler.eventbus import EventBus
-from midijuggler.events import AdapterStatusEvent, MidiMessageEvent
+from midijuggler.events import AdapterStatusEvent, MappedEvent, MidiMessageEvent
 from midijuggler.midi.output import send_midi_message_to_port
+from midijuggler.midi.target_encode import encode_mapped_midi_target
 from midijuggler.system_info import resolve_midi_output_port_address
 
 if TYPE_CHECKING:
@@ -27,9 +28,11 @@ class RtpMidiAdapter(Adapter):
         config: AdapterConfig,
         bus: EventBus,
         manager: RtpMidiManager | None = None,
+        app_config: AppConfig | None = None,
     ) -> None:
         super().__init__(name, config, bus)
         self.manager = manager
+        self._app_config = app_config
 
     async def start(self) -> None:
         self.running = True
@@ -88,6 +91,42 @@ class RtpMidiAdapter(Adapter):
             return
 
         await self._emit_midi_output(output_address, event)
+
+    async def send(self, event: MappedEvent) -> None:
+        module, separator, point = event.target.partition(":")
+        if not separator or module != self.name:
+            await super().send(event)
+            return
+        if self._app_config is None:
+            LOGGER.warning(
+                "RTP-MIDI adapter %s cannot send mapped event without app config: %s",
+                self.name,
+                event.target,
+            )
+            return
+        try:
+            status, data = encode_mapped_midi_target(
+                self._app_config,
+                self.name,
+                point,
+                event.value,
+            )
+        except ValueError:
+            LOGGER.warning(
+                "RTP-MIDI adapter %s cannot encode mapped target %s",
+                self.name,
+                event.target,
+            )
+            return
+        await self.send_midi_message(
+            MidiMessageEvent(
+                source=self.name,
+                status=status,
+                data=data,
+                target=event.target,
+                direction="output",
+            )
+        )
 
     async def send_test_message(self, status: int, data: tuple[int, ...]) -> None:
         output_address = self._resolve_output_address()

@@ -63,6 +63,7 @@ class MIDIJugglerService:
             config.adapters,
             self.bus,
             rtp_midi_manager=self.rtp_midi_manager,
+            app_config=config,
         )
         self._write_master_clock_alsa_config(self.config.master_clock.click_audio_device)
         self.master_clock = MasterClock(

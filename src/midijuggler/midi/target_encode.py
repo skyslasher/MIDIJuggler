@@ -86,8 +86,18 @@ def encode_midi_target_message(
         if parameter.number is None:
             raise ValueError(f"MIDI parameter {parameter.label!r} is missing note number")
         if scaled <= 0:
-            return (NOTE_OFF | channel, (parameter.number, 0))
-        return (NOTE_ON | channel, (parameter.number, min(127, scaled)))
+            velocity = (
+                parameter.note_off_velocity
+                if parameter.note_off_velocity is not None
+                else 0
+            )
+            return (NOTE_OFF | channel, (parameter.number, velocity))
+        velocity = (
+            parameter.note_on_velocity
+            if parameter.note_on_velocity is not None
+            else min(127, scaled)
+        )
+        return (NOTE_ON | channel, (parameter.number, min(127, velocity)))
 
     if parameter.message_type == "program_change":
         return (PROGRAM_CHANGE | channel, (scaled,))
@@ -114,3 +124,102 @@ def adapter_has_midi_library(adapter: AdapterConfig | None) -> bool:
     if adapter is None:
         return False
     return bool(str(adapter.options.get("midi_library", "")).strip())
+
+
+def encode_mapped_midi_target(
+    config: AppConfig,
+    adapter_name: str,
+    target_point: str,
+    value: float,
+) -> tuple[int, tuple[int, ...]]:
+    """Encode a mapped MIDI target such as ``cc:1:64`` or a library parameter id."""
+
+    try:
+        parameter = resolve_midi_target_parameter(config, adapter_name, target_point)
+    except ValueError:
+        encoded = encode_legacy_midi_target_point(target_point, value)
+        if encoded is None:
+            raise ValueError(f"unsupported MIDI target point {target_point!r}")
+        return encoded
+    return encode_midi_target_message(parameter, value)
+
+
+def encode_legacy_midi_target_point(
+    point: str,
+    value: float,
+) -> tuple[int, tuple[int, ...]] | None:
+    """Encode raw MIDI target notation used by mappings and data points."""
+
+    if point.startswith("cc:"):
+        parts = point.split(":")
+        if len(parts) != 3:
+            return None
+        channel = int(parts[1]) - 1
+        controller = int(parts[2])
+        scaled = max(0, min(127, int(round(value))))
+        return (CONTROL_CHANGE | (channel & 0x0F), (controller, scaled))
+
+    if point.startswith("note:"):
+        parts = point.split(":")
+        if len(parts) != 3:
+            return None
+        channel = int(parts[1]) - 1
+        note = int(parts[2])
+        scaled = max(0, min(127, int(round(value))))
+        if scaled <= 0:
+            return (NOTE_OFF | (channel & 0x0F), (note, 0))
+        return (NOTE_ON | (channel & 0x0F), (note, scaled))
+
+    if point.startswith("program:"):
+        parts = point.split(":")
+        if len(parts) != 3:
+            return None
+        channel = int(parts[1]) - 1
+        program = max(0, min(127, int(round(value))))
+        return (PROGRAM_CHANGE | (channel & 0x0F), (program,))
+
+    if point.startswith("pitch_bend:"):
+        parts = point.split(":")
+        if len(parts) != 2:
+            return None
+        channel = int(parts[1]) - 1
+        bend = max(0, min(16383, int(round(value))))
+        return (PITCH_BEND | (channel & 0x0F), (bend & 0x7F, (bend >> 7) & 0x7F))
+
+    if point.startswith("cc_"):
+        parts = point.split("_")
+        if len(parts) != 3:
+            return None
+        channel = max(0, int(parts[1]) - 1)
+        controller = int(parts[2])
+        scaled = max(0, min(127, int(round(value))))
+        return (CONTROL_CHANGE | (channel & 0x0F), (controller, scaled))
+
+    if point.startswith("note_"):
+        parts = point.split("_")
+        if len(parts) != 3:
+            return None
+        channel = max(0, int(parts[1]) - 1)
+        note = int(parts[2])
+        scaled = max(0, min(127, int(round(value))))
+        if scaled <= 0:
+            return (NOTE_OFF | (channel & 0x0F), (note, 0))
+        return (NOTE_ON | (channel & 0x0F), (note, scaled))
+
+    if point.startswith("program_"):
+        parts = point.split("_")
+        if len(parts) != 3:
+            return None
+        channel = max(0, int(parts[1]) - 1)
+        program = max(0, min(127, int(round(value))))
+        return (PROGRAM_CHANGE | (channel & 0x0F), (program,))
+
+    if point.startswith("pitch_bend_"):
+        channel_text = point.removeprefix("pitch_bend_")
+        if not channel_text.isdigit():
+            return None
+        channel = max(0, int(channel_text) - 1)
+        bend = max(0, min(16383, int(round(value))))
+        return (PITCH_BEND | (channel & 0x0F), (bend & 0x7F, (bend >> 7) & 0x7F))
+
+    return None

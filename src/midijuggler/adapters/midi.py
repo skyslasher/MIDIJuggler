@@ -8,7 +8,7 @@ import logging
 import time
 
 from midijuggler.adapters.base import Adapter, MIDI_TIMING_CLOCK
-from midijuggler.config import AdapterConfig
+from midijuggler.config import AdapterConfig, AppConfig
 from midijuggler.eventbus import EventBus
 from midijuggler.events import (
     AdapterStatusEvent,
@@ -26,12 +26,14 @@ from midijuggler.midi.mido_io import (
     poll_mido_input,
 )
 from midijuggler.midi.output import send_midi_message_to_port
+from midijuggler.events import MappedEvent
 from midijuggler.midi.library_match import (
     MidiSourceIndex,
     build_source_index,
     resolve_incoming_controls,
     resolve_library_port,
 )
+from midijuggler.midi.target_encode import encode_mapped_midi_target
 from midijuggler.midi_library import get_midi_library
 from midijuggler.system_info import (
     resolve_midi_input_port_address,
@@ -46,8 +48,15 @@ INPUT_RECONNECT_DELAY_SECONDS = 1.0
 class MidiAdapter(Adapter):
     protocol = "MIDI"
 
-    def __init__(self, name: str, config: AdapterConfig, bus: EventBus) -> None:
+    def __init__(
+        self,
+        name: str,
+        config: AdapterConfig,
+        bus: EventBus,
+        app_config: AppConfig | None = None,
+    ) -> None:
         super().__init__(name, config, bus)
+        self._app_config = app_config
         self._input_address: str | None = None
         self._output_address: str | None = None
         self._input_task: asyncio.Task[None] | None = None
@@ -359,6 +368,42 @@ class MidiAdapter(Adapter):
             return
 
         await self._emit_midi_output(output_address, event)
+
+    async def send(self, event: MappedEvent) -> None:
+        module, separator, point = event.target.partition(":")
+        if not separator or module != self.name:
+            await super().send(event)
+            return
+        if self._app_config is None:
+            LOGGER.warning(
+                "MIDI adapter %s cannot send mapped event without app config: %s",
+                self.name,
+                event.target,
+            )
+            return
+        try:
+            status, data = encode_mapped_midi_target(
+                self._app_config,
+                self.name,
+                point,
+                event.value,
+            )
+        except ValueError:
+            LOGGER.warning(
+                "MIDI adapter %s cannot encode mapped target %s",
+                self.name,
+                event.target,
+            )
+            return
+        await self.send_midi_message(
+            MidiMessageEvent(
+                source=self.name,
+                status=status,
+                data=data,
+                target=event.target,
+                direction="output",
+            )
+        )
 
     async def send_test_message(self, status: int, data: tuple[int, ...]) -> None:
         output_address = self._resolve_output_address()

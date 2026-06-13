@@ -6,7 +6,7 @@ import logging
 
 from midijuggler.adapters.midi import MidiAdapter
 from midijuggler.config import AppConfig
-from midijuggler.datapoint.bridge import legacy_target_to_datapoint
+from midijuggler.datapoint.bridge import connections_from_legacy_mappings, legacy_target_to_datapoint
 from midijuggler.datapoint.store import DataPointStore
 from midijuggler.datapoint.types import (
     DataPointDirection,
@@ -19,7 +19,7 @@ from midijuggler.datapoint.types import (
 from midijuggler.events import MappedEvent, MidiMessageEvent
 from midijuggler.mapping import MappingRule
 from midijuggler.midi.library_match import resolve_library_port
-from midijuggler.midi.target_encode import encode_midi_target_message, resolve_midi_target_parameter
+from midijuggler.midi.target_encode import encode_mapped_midi_target
 from midijuggler.midi_library import get_midi_library
 from midijuggler.modules.base import IOModule
 
@@ -78,6 +78,22 @@ class MidiIOModule(IOModule):
                 DataPointId(self.name, point),
                 self._on_output_value,
             )
+        for point_id in self._configured_output_targets():
+            if point_id.point in self._output_points:
+                continue
+            self._output_points.add(point_id.point)
+            self.store.subscribe(point_id, self._on_output_value)
+
+    def _configured_output_targets(self) -> list[DataPointId]:
+        connections = list(self.config.connections)
+        if not connections:
+            connections = connections_from_legacy_mappings(self.config.mappings)
+        targets: list[DataPointId] = []
+        for connection in connections:
+            parsed = DataPointId.parse(connection.target)
+            if parsed.module == self.name:
+                targets.append(parsed)
+        return targets
 
     async def stop(self) -> None:
         await super().stop()
@@ -86,14 +102,14 @@ class MidiIOModule(IOModule):
         if value.float_value is None:
             return
         try:
-            parameter = resolve_midi_target_parameter(
+            status, data = encode_mapped_midi_target(
                 self.config,
                 self.name,
                 value.point_id.point,
+                value.float_value,
             )
-            status, data = encode_midi_target_message(parameter, value.float_value)
         except ValueError:
-            await self._send_legacy_target(value)
+            LOGGER.warning("unsupported MIDI output data point %s", value.point_id)
             return
         await self.adapter.send_midi_message(
             MidiMessageEvent(
@@ -101,27 +117,6 @@ class MidiIOModule(IOModule):
                 status=status,
                 data=data,
                 target=f"{self.name}:{value.point_id.point}",
-                direction="output",
-            )
-        )
-
-    async def _send_legacy_target(self, value: DataPointValue) -> None:
-        point = value.point_id.point
-        if not point.startswith("cc_") or value.float_value is None:
-            LOGGER.warning("unsupported MIDI output data point %s", value.point_id)
-            return
-        parts = point.split("_")
-        if len(parts) != 3:
-            return
-        channel = int(parts[1])
-        controller = int(parts[2])
-        scaled = max(0, min(127, int(round(value.float_value))))
-        await self.adapter.send_midi_message(
-            MidiMessageEvent(
-                source=self.name,
-                status=0xB0 | (channel & 0x0F),
-                data=(controller, scaled),
-                target=f"{self.name}:{point}",
                 direction="output",
             )
         )

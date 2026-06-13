@@ -30,6 +30,8 @@ class MidiParameter:
     text_length: int | None = None
     sysex_template: str = ""
     description: str = ""
+    note_on_velocity: int | None = None
+    note_off_velocity: int | None = None
 
     def as_dict(self) -> dict[str, Any]:
         return {
@@ -50,6 +52,8 @@ class MidiParameter:
             "text_length": self.text_length,
             "sysex_template": self.sysex_template,
             "description": self.description,
+            "note_on_velocity": self.note_on_velocity,
+            "note_off_velocity": self.note_off_velocity,
         }
 
 
@@ -159,6 +163,16 @@ def _parse_parameter(
         text_length=_optional_int(raw.get("text_length"), f"{field_name}.text_length", values),
         sysex_template=_formatted_str(raw.get("sysex_template", ""), values),
         description=_formatted_str(raw.get("description", ""), values),
+        note_on_velocity=_optional_int(
+            raw.get("note_on_velocity"),
+            f"{field_name}.note_on_velocity",
+            values,
+        ),
+        note_off_velocity=_optional_int(
+            raw.get("note_off_velocity"),
+            f"{field_name}.note_off_velocity",
+            values,
+        ),
     )
 
 

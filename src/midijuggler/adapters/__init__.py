@@ -5,7 +5,7 @@ from midijuggler.adapters.gpio import GpioAdapter
 from midijuggler.adapters.osc import OscAdapter
 from midijuggler.adapters.rtp_midi import RtpMidiAdapter
 from midijuggler.adapters.midi import MidiAdapter
-from midijuggler.config import AdapterConfig
+from midijuggler.config import AdapterConfig, AppConfig
 from midijuggler.eventbus import EventBus
 from midijuggler.rtp_midi.manager import RtpMidiManager
 
@@ -21,6 +21,7 @@ def build_adapters(
     configs: dict[str, AdapterConfig],
     bus: EventBus,
     rtp_midi_manager: RtpMidiManager | None = None,
+    app_config: AppConfig | None = None,
 ) -> list[Adapter]:
     adapters: list[Adapter] = []
     for instance_name, config in configs.items():
@@ -36,6 +37,16 @@ def build_adapters(
                     config=config,
                     bus=bus,
                     manager=rtp_midi_manager,
+                    app_config=app_config,
+                )
+            )
+        elif kind == "midi":
+            adapters.append(
+                MidiAdapter(
+                    name=instance_name,
+                    config=config,
+                    bus=bus,
+                    app_config=app_config,
                 )
             )
         else:

@@ -26,13 +26,13 @@ def test_midi_adapter_publishes_control_events_for_library_matches() -> None:
         adapter.running = True
         adapter._source_index = adapter._load_source_index()
 
-        await adapter._handle_input_message(0xB0, (1, 42))
+        await adapter._handle_input_message(0xBA, (1, 42))
         return controls, messages
 
     controls, messages = asyncio.run(scenario())
 
     assert len(messages) == 1
-    assert messages[0].status == 0xB0
+    assert messages[0].status == 0xBA
     assert len(controls) == 1
     assert controls[0].source == "xtouch_mini"
     assert controls[0].control == "layer_a_encoder_1_turn"

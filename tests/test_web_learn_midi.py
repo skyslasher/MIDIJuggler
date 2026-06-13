@@ -33,7 +33,7 @@ def test_select_learn_source_from_monitor_midi_message() -> None:
                 "event": {
                     "kind": "MidiMessageEvent",
                     "source": "xtouch_mini",
-                    "status": 0xB0,
+                    "status": 0xBA,
                     "data": [1, 64],
                     "direction": "input",
                 }

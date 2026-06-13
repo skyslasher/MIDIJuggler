@@ -995,6 +995,187 @@ const MIDI_TEST_PRESETS = {
   control_change: "Control Change",
 };
 
+const MIDI_NOTE_NAMES = ["C", "C#", "D", "D#", "E", "F", "F#", "G", "G#", "A", "A#", "B"];
+
+const MIDI_CC_NAMES = [
+  "Bank Select MSB",
+  "Modulation Wheel",
+  "Breath Controller",
+  "Undefined",
+  "Foot Controller",
+  "Portamento Time",
+  "Data Entry MSB",
+  "Channel Volume",
+  "Balance",
+  "Undefined",
+  "Pan",
+  "Expression Controller",
+  "Effect Control 1",
+  "Effect Control 2",
+  "Undefined",
+  "Undefined",
+  "General Purpose 1",
+  "General Purpose 2",
+  "General Purpose 3",
+  "General Purpose 4",
+  "Undefined",
+  "Undefined",
+  "Undefined",
+  "Undefined",
+  "Undefined",
+  "Undefined",
+  "Undefined",
+  "Undefined",
+  "Undefined",
+  "Undefined",
+  "Undefined",
+  "Undefined",
+  "Bank Select LSB",
+  "Modulation Wheel LSB",
+  "Breath Controller LSB",
+  "Undefined",
+  "Foot Controller LSB",
+  "Portamento Time LSB",
+  "Data Entry LSB",
+  "Channel Volume LSB",
+  "Balance LSB",
+  "Undefined",
+  "Pan LSB",
+  "Expression Controller LSB",
+  "Effect Control 1 LSB",
+  "Effect Control 2 LSB",
+  "Undefined",
+  "Undefined",
+  "General Purpose 1 LSB",
+  "General Purpose 2 LSB",
+  "General Purpose 3 LSB",
+  "General Purpose 4 LSB",
+  "Undefined",
+  "Undefined",
+  "Undefined",
+  "Undefined",
+  "Undefined",
+  "Undefined",
+  "Undefined",
+  "Undefined",
+  "Undefined",
+  "Undefined",
+  "Undefined",
+  "Undefined",
+  "Sustain Pedal",
+  "Portamento On/Off",
+  "Sostenuto On/Off",
+  "Soft Pedal On/Off",
+  "Legato Footswitch",
+  "Hold 2",
+  "Sound Variation",
+  "Timbre / Harmonic Intensity",
+  "Release Time",
+  "Attack Time",
+  "Brightness",
+  "Decay Time",
+  "Vibrato Rate",
+  "Vibrato Depth",
+  "Vibrato Delay",
+  "Undefined",
+  "General Purpose 5",
+  "General Purpose 6",
+  "General Purpose 7",
+  "General Purpose 8",
+  "Portamento Control",
+  "Undefined",
+  "Undefined",
+  "Undefined",
+  "Undefined",
+  "Undefined",
+  "Undefined",
+  "Effects 1 Depth",
+  "Effects 2 Depth",
+  "Effects 3 Depth",
+  "Effects 4 Depth",
+  "Effects 5 Depth",
+  "Data Increment",
+  "Data Decrement",
+  "NRPN LSB",
+  "NRPN MSB",
+  "RPN LSB",
+  "RPN MSB",
+  "Undefined",
+  "Undefined",
+  "Undefined",
+  "Undefined",
+  "Undefined",
+  "Undefined",
+  "Undefined",
+  "Undefined",
+  "Undefined",
+  "Undefined",
+  "Undefined",
+  "Undefined",
+  "Undefined",
+  "Undefined",
+  "Undefined",
+  "Undefined",
+  "Undefined",
+  "Undefined",
+  "All Sound Off",
+  "Reset All Controllers",
+  "Local Control On/Off",
+  "All Notes Off",
+  "Omni Mode Off",
+  "Omni Mode On",
+  "Mono Mode On",
+  "Poly Mode On",
+];
+
+function midiNoteLabel(noteNumber) {
+  const octave = Math.floor(noteNumber / 12) - 1;
+  const name = MIDI_NOTE_NAMES[noteNumber % 12];
+  return `${name}${octave} (${noteNumber})`;
+}
+
+function midiCcLabel(controllerNumber) {
+  const name = MIDI_CC_NAMES[controllerNumber] || `CC ${controllerNumber}`;
+  return `${name} (${controllerNumber})`;
+}
+
+function buildMidiTestNumberOptions(preset) {
+  if (preset === "note_on" || preset === "note_off") {
+    return Array.from({ length: 128 }, (_, noteNumber) => ({
+      value: noteNumber,
+      label: midiNoteLabel(noteNumber),
+    }));
+  }
+  return Array.from({ length: 128 }, (_, controllerNumber) => ({
+    value: controllerNumber,
+    label: midiCcLabel(controllerNumber),
+  }));
+}
+
+function syncMidiTestNumberField(card) {
+  const preset =
+    card.querySelector('[data-test-field="midi_preset"]')?.value || "control_change";
+  const select = card.querySelector('[data-test-field="midi_number"]');
+  if (!select) {
+    return;
+  }
+
+  const previousValue = Number(select.value || 0);
+  const defaultValue = preset === "control_change" ? 1 : 60;
+  const options = buildMidiTestNumberOptions(preset);
+
+  select.replaceChildren();
+  for (const optionData of options) {
+    const option = document.createElement("option");
+    option.value = String(optionData.value);
+    option.textContent = optionData.label;
+    select.appendChild(option);
+  }
+
+  const hasPrevious = options.some((option) => option.value === previousValue);
+  select.value = String(hasPrevious ? previousValue : defaultValue);
+}
+
 function buildMidiTestMessage(preset, channel, number, value) {
   const channelIndex = Math.max(0, Math.min(15, Number(channel) - 1));
   const dataNumber = Math.max(0, Math.min(127, Number(number)));
@@ -1344,6 +1525,7 @@ function updateMidiTestSendSection(card) {
   if (card.dataset.instanceType !== "midi") {
     return;
   }
+  syncMidiTestNumberField(card);
   syncMidiTestSendMode(card);
 }
 
@@ -1445,6 +1627,9 @@ function createAdapterTestSendSection(kind, instance) {
       presetSelect.appendChild(new Option(label, id));
     }
     presetSelect.value = "control_change";
+    presetSelect.addEventListener("change", () => {
+      syncMidiTestNumberField(presetSelect.closest(".midi-adapter-card"));
+    });
     presetLabel.appendChild(presetSelect);
     manualPanel.appendChild(presetLabel);
 
@@ -1452,7 +1637,7 @@ function createAdapterTestSendSection(kind, instance) {
       createTestNumberField("Channel", "midi_channel", 1, 1, 16, 1),
     );
     manualPanel.appendChild(
-      createTestNumberField("Number", "midi_number", 1, 0, 127, 1),
+      createTestSelectField("Number", "midi_number", buildMidiTestNumberOptions("control_change"), 1),
     );
     manualPanel.appendChild(
       createTestNumberField("Value", "midi_value", 64, 0, 127, 1),
@@ -1499,6 +1684,24 @@ function createTestNumberField(labelText, fieldName, value, min, max, step) {
   const input = label.querySelector("input");
   input.dataset.testField = fieldName;
   delete input.dataset.field;
+  return label;
+}
+
+function createTestSelectField(labelText, fieldName, options, selectedValue) {
+  const label = document.createElement("label");
+  label.className = "inline-field";
+  label.append(document.createTextNode(`${labelText} `));
+
+  const select = document.createElement("select");
+  select.dataset.testField = fieldName;
+  for (const optionData of options) {
+    const option = document.createElement("option");
+    option.value = String(optionData.value);
+    option.textContent = optionData.label;
+    select.appendChild(option);
+  }
+  select.value = String(selectedValue);
+  label.appendChild(select);
   return label;
 }
 

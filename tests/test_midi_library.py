@@ -15,6 +15,7 @@ def test_xtouch_mini_library_contains_layers_controls_and_feedback() -> None:
     parameters = {parameter.id: parameter for parameter in library.parameters}
 
     assert parameters["layer_a_encoder_1_turn"].message_type == "control_change"
+    assert parameters["layer_a_encoder_1_turn"].midi_channel == 11
     assert parameters["layer_a_encoder_1_turn"].number == 1
     assert parameters["layer_b_encoder_8_turn"].number == 18
     assert parameters["layer_a_encoder_1_push"].number == 0
@@ -27,7 +28,9 @@ def test_xtouch_mini_library_contains_layers_controls_and_feedback() -> None:
     assert parameters["encoder_8_led_ring"].direction == "target"
     assert parameters["encoder_8_led_ring"].number == 8
     assert parameters["layer_b_encoder_8_led_ring"].number == 18
-    assert parameters["button_16_led"].value_max == 2
+    assert parameters["button_16_led"].value_max == 1
+    assert parameters["button_16_led"].note_on_velocity == 127
+    assert parameters["button_16_led"].note_off_velocity == 0
     assert parameters["select_layer_b"].message_type == "program_change"
     assert parameters["set_mc_mode"].number == 127
     assert len(library.parameters) == 110
