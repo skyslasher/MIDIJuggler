@@ -22,7 +22,7 @@ def test_master_clock_start_does_not_recursion_error() -> None:
 
     async def scenario() -> None:
         service.event_bridge.attach()
-        await service.master_clock.start()
         await service.module_registry.start_all()
+        await service.master_clock.start()
 
     asyncio.run(scenario())

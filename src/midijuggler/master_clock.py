@@ -7,7 +7,7 @@ import contextlib
 import logging
 from dataclasses import dataclass, replace
 from pathlib import Path
-from typing import Any
+from typing import Protocol
 
 from midijuggler.click_player import ClickPlayer, create_click_player
 from midijuggler.clock import MIDI_CLOCK_TICKS_PER_QUARTER
@@ -30,6 +30,11 @@ MIDI_TIMING_CLOCK = 0xF8
 MIDI_START = 0xFA
 MIDI_CONTINUE = 0xFB
 MIDI_STOP = 0xFC
+
+
+class ClockDatapointSink(Protocol):
+    async def publish_midi_message(self, status: int) -> None: ...
+
 
 CLICK_INTERVAL_TICKS = {
     "eighth": MIDI_CLOCK_TICKS_PER_QUARTER // 2,
@@ -173,6 +178,10 @@ class MasterClock:
         self.click_player = click_player or self._build_click_player(config)
         self._task: asyncio.Task[None] | None = None
         self._click_tasks: set[asyncio.Task[None]] = set()
+        self._datapoint_sink: ClockDatapointSink | None = None
+
+    def bind_datapoint_sink(self, sink: ClockDatapointSink | None) -> None:
+        self._datapoint_sink = sink
 
     @property
     def parameters(self) -> MasterClockParameters:
@@ -335,6 +344,9 @@ class MasterClock:
         return self.position_ticks % CLICK_INTERVAL_TICKS[self.click_interval] == 0
 
     async def _publish_midi_status(self, status: int) -> None:
+        if self._datapoint_sink is not None:
+            await self._datapoint_sink.publish_midi_message(status)
+            return
         targets = self.config.output_targets or [""]
         for target in targets:
             await self.bus.publish(

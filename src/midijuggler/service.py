@@ -97,6 +97,13 @@ class MIDIJugglerService:
             self.master_clock,
             self.web,
         )
+        if config.runtime.datapoint_routing:
+            from midijuggler.modules.generator.master_clock import MasterClockGenerator
+
+            for module in self.module_registry.modules():
+                if isinstance(module, MasterClockGenerator):
+                    self.master_clock.bind_datapoint_sink(module)
+                    break
         self._runner = None
 
         self.bus.subscribe(MidiClockEvent, self._track_clock)
@@ -113,8 +120,8 @@ class MIDIJugglerService:
         LOGGER.info("RTP-MIDI status: %s", self.rtp_midi_manager.status_summary())
         for adapter in self.adapters:
             await adapter.start()
-        await self.master_clock.start()
         await self.module_registry.start_all()
+        await self.master_clock.start()
         self._runner = await run_web_server(self.web)
         LOGGER.info(
             "web interface listening on http://%s:%s",

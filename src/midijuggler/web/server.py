@@ -69,7 +69,7 @@ from midijuggler.osc.desk_protocol import (
 )
 from midijuggler.osc.discovery import discover_desks
 from midijuggler.osc_library import get_osc_library, list_osc_libraries
-from midijuggler.datapoint.bridge import connections_from_legacy_mappings
+from midijuggler.datapoint.migrate import effective_connections
 from midijuggler.datapoint.store import DataPointStore
 from midijuggler.datapoint.types import ConnectionSpec, ModifierKind, float_value
 from midijuggler.system_hostname import (
@@ -212,9 +212,12 @@ class WebInterface:
         }
 
     def _effective_connections(self) -> list[ConnectionSpec]:
-        if self.config.connections:
-            return list(self.config.connections)
-        return connections_from_legacy_mappings(self.config.mappings)
+        return effective_connections(
+            self.config.mappings,
+            self.config.connections,
+            datapoint_routing=self.config.runtime.datapoint_routing,
+            master_clock=self.config.master_clock,
+        )
 
     async def connections_config(self, request: web.Request) -> web.Response:
         return web.json_response(self.connections_payload())

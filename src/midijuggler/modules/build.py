@@ -8,7 +8,7 @@ from midijuggler.adapters.midi import MidiAdapter
 from midijuggler.adapters.osc import OscAdapter
 from midijuggler.adapters.rtp_midi import RtpMidiAdapter
 from midijuggler.config import AppConfig
-from midijuggler.datapoint.bridge import connections_from_legacy_mappings
+from midijuggler.datapoint.migrate import effective_connections
 from midijuggler.datapoint.store import DataPointStore
 from midijuggler.eventbus import EventBus
 from midijuggler.master_clock import MasterClock
@@ -50,9 +50,12 @@ def build_module_registry(
             registry.add(module)
             io_modules[adapter.name] = module
 
-    connections = list(config.connections)
-    if not connections:
-        connections = connections_from_legacy_mappings(config.mappings)
+    connections = effective_connections(
+        config.mappings,
+        config.connections,
+        datapoint_routing=config.runtime.datapoint_routing,
+        master_clock=config.master_clock,
+    )
     registry.add(ModifierGraph(store, connections))
     registry.add(MasterClockGenerator(master_clock, store))
     registry.add(WebInterfaceModule(web, store))

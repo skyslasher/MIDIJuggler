@@ -25,6 +25,7 @@ class DataPointDirection(str, Enum):
 
 class ModifierKind(str, Enum):
     RANGE_MAP = "range_map"
+    PASSTHROUGH = "passthrough"
 
 
 @dataclass(frozen=True)
@@ -165,4 +166,19 @@ def midi_message_value(
         value_type=ValueType.MIDI_MESSAGE,
         midi_status=status,
         midi_data=data,
+    )
+
+
+def relay_value(value: DataPointValue, target: DataPointId | str) -> DataPointValue:
+    resolved = target if isinstance(target, DataPointId) else DataPointId.parse(target)
+    return DataPointValue(
+        point_id=resolved,
+        value_type=value.value_type,
+        float_value=value.float_value,
+        bool_value=value.bool_value,
+        int_value=value.int_value,
+        midi_status=value.midi_status,
+        midi_data=value.midi_data,
+        osc_address=value.osc_address,
+        osc_arguments=value.osc_arguments,
     )

@@ -6,7 +6,8 @@ import logging
 
 from midijuggler.adapters.midi import MidiAdapter
 from midijuggler.config import AppConfig
-from midijuggler.datapoint.bridge import connections_from_legacy_mappings, legacy_target_to_datapoint
+from midijuggler.datapoint.bridge import legacy_target_to_datapoint
+from midijuggler.datapoint.migrate import effective_connections
 from midijuggler.datapoint.store import DataPointStore
 from midijuggler.datapoint.types import (
     DataPointDirection,
@@ -24,6 +25,7 @@ from midijuggler.midi_library import get_midi_library
 from midijuggler.modules.base import IOModule
 
 LOGGER = logging.getLogger(__name__)
+MIDI_OUT_POINT = "midi_out"
 
 
 class MidiIOModule(IOModule):
@@ -69,10 +71,23 @@ class MidiIOModule(IOModule):
                     )
                     if direction == DataPointDirection.OUTPUT:
                         self._output_points.add(parameter.id)
+        specs.append(
+            DataPointSpec(
+                id=DataPointId(self.name, MIDI_OUT_POINT),
+                value_type=ValueType.MIDI_MESSAGE,
+                direction=DataPointDirection.INPUT,
+                label="MIDI output",
+                protocol="midi",
+            )
+        )
         return specs
 
     async def start(self) -> None:
         await super().start()
+        self.store.subscribe(
+            DataPointId(self.name, MIDI_OUT_POINT),
+            self._on_midi_out,
+        )
         for point in self._output_points:
             self.store.subscribe(
                 DataPointId(self.name, point),
@@ -85,9 +100,12 @@ class MidiIOModule(IOModule):
             self.store.subscribe(point_id, self._on_output_value)
 
     def _configured_output_targets(self) -> list[DataPointId]:
-        connections = list(self.config.connections)
-        if not connections:
-            connections = connections_from_legacy_mappings(self.config.mappings)
+        connections = effective_connections(
+            self.config.mappings,
+            self.config.connections,
+            datapoint_routing=self.config.runtime.datapoint_routing,
+            master_clock=self.config.master_clock,
+        )
         targets: list[DataPointId] = []
         for connection in connections:
             parsed = DataPointId.parse(connection.target)
@@ -97,6 +115,18 @@ class MidiIOModule(IOModule):
 
     async def stop(self) -> None:
         await super().stop()
+
+    async def _on_midi_out(self, value: DataPointValue) -> None:
+        if value.value_type != ValueType.MIDI_MESSAGE or value.midi_status is None:
+            return
+        await self.adapter.send_midi_message(
+            MidiMessageEvent(
+                source=self.name,
+                status=value.midi_status,
+                data=tuple(value.midi_data or ()),
+                direction="output",
+            )
+        )
 
     async def _on_output_value(self, value: DataPointValue) -> None:
         if value.float_value is None:

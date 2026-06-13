@@ -5,7 +5,15 @@ from __future__ import annotations
 import logging
 
 from midijuggler.datapoint.store import DataPointStore
-from midijuggler.datapoint.types import ConnectionSpec, DataPointId, DataPointValue, ValueType, float_value
+from midijuggler.datapoint.types import (
+    ConnectionSpec,
+    DataPointId,
+    DataPointValue,
+    ModifierKind,
+    ValueType,
+    float_value,
+    relay_value,
+)
 from midijuggler.modules.base import ModifierModule
 from midijuggler.modules.modifier.range_map import RangeMapTransform, apply_range_map
 
@@ -23,6 +31,7 @@ class ModifierGraph(ModifierModule):
         super().__init__("modifier_graph", store)
         self.connections = list(connections)
         self._source_index: dict[str, list[tuple[ConnectionSpec, RangeMapTransform]]] = {}
+        self._passthrough_index: dict[str, list[ConnectionSpec]] = {}
         self._rebuild_index()
 
     def datapoints(self) -> list:
@@ -34,7 +43,11 @@ class ModifierGraph(ModifierModule):
 
     def _rebuild_index(self) -> None:
         self._source_index.clear()
+        self._passthrough_index.clear()
         for connection in self.connections:
+            if connection.modifier == ModifierKind.PASSTHROUGH:
+                self._passthrough_index.setdefault(connection.source, []).append(connection)
+                continue
             transform = RangeMapTransform.from_connection(connection)
             self._source_index.setdefault(connection.source, []).append(
                 (connection, transform)
@@ -42,21 +55,39 @@ class ModifierGraph(ModifierModule):
 
     async def start(self) -> None:
         await super().start()
-        for source in self._source_index:
+        sources = set(self._source_index) | set(self._passthrough_index)
+        for source in sources:
             self.store.subscribe(DataPointId.parse(source), self._on_source_value)
 
     async def _on_source_value(self, value: DataPointValue) -> None:
+        key = str(value.point_id)
+        for connection in self._passthrough_index.get(key, []):
+            await self._relay_passthrough(value, connection)
         if value.value_type not in {ValueType.FLOAT, ValueType.BOOL, ValueType.INT}:
             return
         numeric = _numeric_value(value)
         if numeric is None:
             return
-        key = str(value.point_id)
         for connection, transform in self._source_index.get(key, []):
             mapped = apply_range_map(numeric, transform)
             await self.store.write(
                 float_value(DataPointId.parse(connection.target), mapped)
             )
+
+    async def _relay_passthrough(
+        self,
+        value: DataPointValue,
+        connection: ConnectionSpec,
+    ) -> None:
+        if value.value_type == ValueType.MIDI_MESSAGE:
+            if value.midi_status is None:
+                return
+            await self.store.write(
+                relay_value(value, connection.target),
+            )
+            return
+        if value.value_type in {ValueType.FLOAT, ValueType.BOOL, ValueType.INT, ValueType.TRIGGER}:
+            await self.store.write(relay_value(value, connection.target))
 
 
 def _numeric_value(value: DataPointValue) -> float | None:

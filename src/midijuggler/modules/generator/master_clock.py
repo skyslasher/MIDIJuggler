@@ -13,11 +13,23 @@ from midijuggler.datapoint.types import (
     midi_message_value,
 )
 from midijuggler.events import MasterClockCommandEvent
-from midijuggler.master_clock import MIDI_TIMING_CLOCK, MasterClock
+from midijuggler.master_clock import (
+    MIDI_CONTINUE,
+    MIDI_START,
+    MIDI_STOP,
+    MIDI_TIMING_CLOCK,
+    MasterClock,
+)
 from midijuggler.modules.base import GeneratorModule
 
 CLOCK_MODULE = "clock"
 BPM_EPSILON = 1e-6
+CLOCK_MIDI_OUTPUT_POINTS = {
+    MIDI_TIMING_CLOCK: "midi_tick",
+    MIDI_START: "midi_start",
+    MIDI_CONTINUE: "midi_continue",
+    MIDI_STOP: "midi_stop",
+}
 
 
 class MasterClockGenerator(GeneratorModule):
@@ -87,6 +99,27 @@ class MasterClockGenerator(GeneratorModule):
                 value_type=ValueType.MIDI_MESSAGE,
                 direction=DataPointDirection.OUTPUT,
                 label="MIDI timing clock tick",
+                protocol="clock",
+            ),
+            DataPointSpec(
+                id=DataPointId(CLOCK_MODULE, "midi_start"),
+                value_type=ValueType.MIDI_MESSAGE,
+                direction=DataPointDirection.OUTPUT,
+                label="MIDI transport start",
+                protocol="clock",
+            ),
+            DataPointSpec(
+                id=DataPointId(CLOCK_MODULE, "midi_continue"),
+                value_type=ValueType.MIDI_MESSAGE,
+                direction=DataPointDirection.OUTPUT,
+                label="MIDI transport continue",
+                protocol="clock",
+            ),
+            DataPointSpec(
+                id=DataPointId(CLOCK_MODULE, "midi_stop"),
+                value_type=ValueType.MIDI_MESSAGE,
+                direction=DataPointDirection.OUTPUT,
+                label="MIDI transport stop",
                 protocol="clock",
             ),
             DataPointSpec(
@@ -170,8 +203,14 @@ class MasterClockGenerator(GeneratorModule):
             await self._publish_outputs()
 
     async def publish_tick(self) -> None:
+        await self.publish_midi_message(MIDI_TIMING_CLOCK)
+
+    async def publish_midi_message(self, status: int) -> None:
+        point = CLOCK_MIDI_OUTPUT_POINTS.get(status & 0xFF)
+        if point is None:
+            return
         await self.store.write(
-            midi_message_value(DataPointId(CLOCK_MODULE, "midi_tick"), MIDI_TIMING_CLOCK)
+            midi_message_value(DataPointId(CLOCK_MODULE, point), status & 0xFF)
         )
 
     async def _publish_outputs(self) -> None:
