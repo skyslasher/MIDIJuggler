@@ -183,7 +183,7 @@ def test_send_midi_adapter_test_message_resolves_library_parameter(
             {
                 "kind": "midi",
                 "name": "xtouch_mini",
-                "parameter_id": "button_1_led",
+                "parameter_id": "layer_a_top_button_1_led",
                 "value": 1,
             }
         )
@@ -192,11 +192,11 @@ def test_send_midi_adapter_test_message_resolves_library_parameter(
     result, send_mock = asyncio.run(scenario())
 
     assert result["ok"] is True
-    assert result["parameter_id"] == "button_1_led"
-    assert result["parameter_label"] == "Button 1 LED"
+    assert result["parameter_id"] == "layer_a_top_button_1_led"
+    assert result["parameter_label"] == "Layer A Top Button 1 LED"
     assert result["status"] == 0x9A
-    assert result["data"] == [0, 127]
-    send_mock.assert_awaited_once_with(0x9A, (0, 127))
+    assert result["data"] == [8, 127]
+    send_mock.assert_awaited_once_with(0x9A, (8, 127))
 
 
 def test_send_midi_adapter_test_message_uses_adapter_output(

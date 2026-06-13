@@ -24,25 +24,25 @@ def test_encode_midi_target_message_program_change() -> None:
 
 
 def test_encode_midi_target_message_note_led() -> None:
-    parameter = _parameter("behringer_xtouch_mini", "button_1_led")
+    parameter = _parameter("behringer_xtouch_mini", "layer_a_top_button_1_led")
 
     status, data = encode_midi_target_message(parameter, 1)
 
     assert status == 0x9A
-    assert data == (0, 127)
+    assert data == (8, 127)
 
 
 def test_encode_midi_target_message_note_led_off() -> None:
-    parameter = _parameter("behringer_xtouch_mini", "button_1_led")
+    parameter = _parameter("behringer_xtouch_mini", "layer_a_top_button_1_led")
 
     status, data = encode_midi_target_message(parameter, 0)
 
     assert status == 0x8A
-    assert data == (0, 0)
+    assert data == (8, 0)
 
 
 def test_encode_midi_target_message_control_change_led_ring() -> None:
-    parameter = _parameter("behringer_xtouch_mini", "encoder_1_led_ring")
+    parameter = _parameter("behringer_xtouch_mini", "layer_a_encoder_1_led_ring")
 
     status, data = encode_midi_target_message(parameter, 5)
 

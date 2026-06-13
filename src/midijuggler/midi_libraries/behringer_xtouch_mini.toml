@@ -228,31 +228,14 @@ number = "{cc_number}"
 description = "Layer B encoder {encoder} LED ring on CC 11-18. 0 off, 1-13 position, 14-26 blinking position, 27 all on, 28 all blinking."
 
 [[templates]]
-id = "encoder_{encoder}_led_ring"
-label = "Encoder {encoder} LED Ring"
-address = "xtouch-mini://feedback/encoder/{encoder}/led_ring"
-range_name = "encoder"
-range_start = 1
-range_end = 8
-message_type = "control_change"
-value_type = "int"
-value_min = 0
-value_max = 28
-category = "feedback"
-direction = "target"
-midi_channel = 11
-number = "{encoder}"
-description = "Alias for Layer A encoder {encoder} LED ring on CC 1-8."
-
-[[templates]]
-id = "button_{button}_led"
-label = "Button {button} LED"
-address = "xtouch-mini://feedback/button/{button}/led"
+id = "layer_a_top_button_{button}_led"
+label = "Layer A Top Button {button} LED"
+address = "xtouch-mini://layer_a/feedback/top_button/{button}/led"
 range_name = "button"
 range_start = 1
-range_end = 16
+range_end = 8
 derived = [
-  { name = "note_number", source = "button", offset = -1 },
+  { name = "note_number", source = "button", offset = 7 },
 ]
 message_type = "note"
 value_type = "int"
@@ -264,7 +247,73 @@ category = "feedback"
 direction = "target"
 midi_channel = 11
 number = "{note_number}"
-description = "Button LED feedback. Logical 0 sends Note Off velocity 0, logical 1 sends Note On velocity 127."
+description = "Layer A upper-row button {button} LED. Logical 0 sends Note Off velocity 0, logical 1 sends Note On velocity 127."
+
+[[templates]]
+id = "layer_b_top_button_{button}_led"
+label = "Layer B Top Button {button} LED"
+address = "xtouch-mini://layer_b/feedback/top_button/{button}/led"
+range_name = "button"
+range_start = 1
+range_end = 8
+derived = [
+  { name = "note_number", source = "button", offset = 31 },
+]
+message_type = "note"
+value_type = "int"
+value_min = 0
+value_max = 1
+note_on_velocity = 127
+note_off_velocity = 0
+category = "feedback"
+direction = "target"
+midi_channel = 11
+number = "{note_number}"
+description = "Layer B upper-row button {button} LED. Logical 0 sends Note Off velocity 0, logical 1 sends Note On velocity 127."
+
+[[templates]]
+id = "layer_a_bottom_button_{button}_led"
+label = "Layer A Bottom Button {button} LED"
+address = "xtouch-mini://layer_a/feedback/bottom_button/{button}/led"
+range_name = "button"
+range_start = 1
+range_end = 8
+derived = [
+  { name = "note_number", source = "button", offset = 15 },
+]
+message_type = "note"
+value_type = "int"
+value_min = 0
+value_max = 1
+note_on_velocity = 127
+note_off_velocity = 0
+category = "feedback"
+direction = "target"
+midi_channel = 11
+number = "{note_number}"
+description = "Layer A lower-row button {button} LED. Logical 0 sends Note Off velocity 0, logical 1 sends Note On velocity 127."
+
+[[templates]]
+id = "layer_b_bottom_button_{button}_led"
+label = "Layer B Bottom Button {button} LED"
+address = "xtouch-mini://layer_b/feedback/bottom_button/{button}/led"
+range_name = "button"
+range_start = 1
+range_end = 8
+derived = [
+  { name = "note_number", source = "button", offset = 39 },
+]
+message_type = "note"
+value_type = "int"
+value_min = 0
+value_max = 1
+note_on_velocity = 127
+note_off_velocity = 0
+category = "feedback"
+direction = "target"
+midi_channel = 11
+number = "{note_number}"
+description = "Layer B lower-row button {button} LED. Logical 0 sends Note Off velocity 0, logical 1 sends Note On velocity 127."
 
 [[parameters]]
 id = "select_layer_a"
