@@ -70,6 +70,80 @@ def test_send_osc_adapter_test_message_publishes_output_event() -> None:
     assert output_event.arguments == (pytest.approx(0.5),)
 
 
+def test_send_osc_adapter_test_message_starts_newly_saved_instance() -> None:
+    async def scenario() -> dict[str, object]:
+        listen_port = _free_udp_port()
+        bus = EventBus()
+        config = parse_config({"adapters": {}})
+        interface = WebInterface(
+            config,
+            bus,
+            ClockBpmTracker(),
+            MasterClock(config.master_clock, bus),
+        )
+
+        await interface.apply_osc_adapters_config(
+            {
+                "instances": [
+                    {
+                        "name": "x32",
+                        "enabled": True,
+                        "desk_mode": "x32",
+                        "listen_host": "127.0.0.1",
+                        "osc_port": listen_port,
+                        "remote_host": "192.168.10.32",
+                    }
+                ]
+            }
+        )
+
+        return await interface.send_osc_adapter_test_message(
+            {
+                "name": "x32",
+                "address": "/ch/01/mix/01/level",
+                "value": 0.5,
+            }
+        )
+
+    result = asyncio.run(scenario())
+
+    assert result["ok"] is True
+    assert result["name"] == "x32"
+
+
+def test_send_osc_adapter_test_message_reports_disabled_instance() -> None:
+    config = parse_config(
+        {
+            "adapters": {
+                "x32": {
+                    "enabled": False,
+                    "type": "osc",
+                    "osc_library": "behringer_x32",
+                    "osc_port": 10023,
+                    "remote_host": "192.168.10.32",
+                }
+            }
+        }
+    )
+    interface = WebInterface(
+        config,
+        bus=EventBus(),
+        clock=ClockBpmTracker(),
+        master_clock=MasterClock(config.master_clock, EventBus()),
+    )
+
+    with pytest.raises(ValueError, match="disabled"):
+        asyncio.run(
+            interface.send_osc_adapter_test_message(
+                {
+                    "name": "x32",
+                    "address": "/ch/01/mix/01/level",
+                    "value": 0.5,
+                }
+            )
+        )
+
+
 def test_send_osc_adapter_test_message_resolves_library_parameter() -> None:
     async def scenario() -> tuple[dict[str, object], OscMessageEvent | None]:
         listen_port = _free_udp_port()

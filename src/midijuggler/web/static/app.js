@@ -1214,7 +1214,11 @@ function sendAdapterTestMessage(card, kind) {
     return;
   }
 
-  const name = card.dataset.instanceName;
+  const { name } = adapterInstanceNameFromCard(card);
+  if (!name) {
+    showAdapterTestMessage(card, "instance name is required");
+    return;
+  }
   showAdapterTestMessage(card, "sending...");
 
   let request;
@@ -2202,7 +2206,7 @@ function defaultOscInstanceTemplate() {
   return {
     name: "",
     type: "osc",
-    enabled: false,
+    enabled: true,
     listen_host: "0.0.0.0",
     listen_port: 9000,
     remote_host: "",
@@ -2641,6 +2645,10 @@ function saveOscAdapterCard(card) {
           : "saved";
       if (wasNew) {
         renderOscAdaptersConfig(config);
+        for (const savedCard of oscInstances.querySelectorAll(".midi-adapter-card")) {
+          savedCard.dataset.savedState = midiAdapterCardStateSignature(savedCard);
+          updateMidiAdapterCardDirtyState(savedCard);
+        }
         oscMessage.textContent = status;
       } else {
         card.dataset.savedState = midiAdapterCardStateSignature(card);

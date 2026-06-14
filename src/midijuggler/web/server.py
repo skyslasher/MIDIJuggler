@@ -886,6 +886,22 @@ class WebInterface:
 
         return address, arguments, parameter.label
 
+    async def _resolve_osc_runtime_adapter(self, name: str) -> OscAdapter:
+        adapter = self.osc_adapters.get(name)
+        if adapter is not None:
+            return adapter
+
+        config = self.config.adapters.get(name)
+        if config is None:
+            raise ValueError(f"unknown OSC adapter instance: {name}")
+        if not config.enabled:
+            raise ValueError(f"OSC adapter {name} is disabled; enable it before testing")
+        await self._apply_osc_runtime_adapter(name, config)
+        adapter = self.osc_adapters.get(name)
+        if adapter is None:
+            raise ValueError(f"OSC adapter {name} could not be started")
+        return adapter
+
     async def send_osc_adapter_test_message(self, payload: dict[str, Any]) -> dict[str, Any]:
         if not isinstance(payload, dict):
             raise ValueError("OSC test payload must be an object")
@@ -894,9 +910,7 @@ class WebInterface:
         if not name:
             raise ValueError("name is required")
 
-        adapter = self.osc_adapters.get(name)
-        if adapter is None:
-            raise ValueError(f"unknown OSC adapter instance: {name}")
+        adapter = await self._resolve_osc_runtime_adapter(name)
         if not adapter.running:
             raise OSError(f"OSC adapter {name} is not running")
 
