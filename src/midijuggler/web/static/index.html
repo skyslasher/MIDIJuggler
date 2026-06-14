@@ -40,17 +40,57 @@
         <article id="learn-panel" class="learn-panel" hidden>
           <h2>Learn Mode</h2>
           <p id="learn-status" class="hint"></p>
-          <div id="learn-target-fields" class="learn-target-fields" hidden>
+          <div id="learn-fields" class="learn-fields" hidden>
             <label class="stacked-field">
-              OSC adapter
-              <select id="learn-osc-adapter"></select>
+              Source data point
+              <select id="learn-source-datapoint"></select>
             </label>
             <label class="stacked-field">
-              OSC parameter
-              <select id="learn-osc-parameter"></select>
+              Target data point
+              <select id="learn-target-datapoint"></select>
             </label>
+            <label class="stacked-field">
+              Modifier
+              <select id="learn-modifier">
+                <option value="range_map">Range map</option>
+                <option value="passthrough">Passthrough</option>
+              </select>
+            </label>
+            <div id="learn-range-fields" class="learn-range-fields">
+              <label class="stacked-field">
+                Input min
+                <input id="learn-input-min" type="number" step="any" value="0" />
+              </label>
+              <label class="stacked-field">
+                Input max
+                <input id="learn-input-max" type="number" step="any" value="127" />
+              </label>
+              <label class="stacked-field">
+                Output min
+                <input id="learn-output-min" type="number" step="any" value="0" />
+              </label>
+              <label class="stacked-field">
+                Output max
+                <input id="learn-output-max" type="number" step="any" value="127" />
+              </label>
+              <label class="inline-field">
+                <input id="learn-invert" type="checkbox" />
+                Invert
+              </label>
+            </div>
+            <details id="learn-osc-quick-pick" class="learn-osc-quick-pick">
+              <summary>Quick pick OSC target from library</summary>
+              <label class="stacked-field">
+                OSC adapter
+                <select id="learn-osc-adapter"></select>
+              </label>
+              <label class="stacked-field">
+                OSC parameter
+                <select id="learn-osc-parameter"></select>
+              </label>
+            </details>
             <div class="learn-actions">
-              <button id="learn-create" type="button">Create mapping</button>
+              <button id="learn-create" type="button">Create connection</button>
               <button id="learn-clear" type="button">Clear source</button>
             </div>
             <p id="learn-message" class="message"></p>
@@ -71,7 +111,7 @@
         <article class="monitor-panel">
           <h2>Monitor</h2>
           <p id="learn-monitor-hint" class="hint learn-monitor-hint" hidden>
-            Learn mode active: click a message below to select the mapping source.
+            Learn mode active: click a monitor message to select a source data point, or use the dropdowns above.
           </p>
           <label class="inline-field monitor-filter">
             <input id="show-clock-ticks" type="checkbox" />

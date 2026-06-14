@@ -36,6 +36,7 @@ from midijuggler.events import (
 from midijuggler.master_clock import MIDI_TIMING_CLOCK, MasterClock
 from midijuggler.mapping import MappingEngine
 from midijuggler.modules.build import build_module_registry
+from midijuggler.modules.modifier.graph import ModifierGraph
 from midijuggler.modules.io.midi import MidiIOModule
 from midijuggler.modules.io.osc import OscIOModule
 from midijuggler.modules.io.rtp_midi import RtpMidiIOModule
@@ -97,6 +98,10 @@ class MIDIJugglerService:
             self.master_clock,
             self.web,
         )
+        for module in self.module_registry.modules():
+            if isinstance(module, ModifierGraph):
+                self.web.modifier_graph = module
+                break
         if config.runtime.datapoint_routing:
             from midijuggler.modules.generator.master_clock import MasterClockGenerator
 

@@ -65,7 +65,16 @@ const monitorDisplayModeSelect = document.querySelector("#monitor-display-mode")
 const learnToggle = document.querySelector("#learn-toggle");
 const learnPanel = document.querySelector("#learn-panel");
 const learnStatus = document.querySelector("#learn-status");
-const learnTargetFields = document.querySelector("#learn-target-fields");
+const learnFields = document.querySelector("#learn-fields");
+const learnSourceDatapoint = document.querySelector("#learn-source-datapoint");
+const learnTargetDatapoint = document.querySelector("#learn-target-datapoint");
+const learnModifier = document.querySelector("#learn-modifier");
+const learnRangeFields = document.querySelector("#learn-range-fields");
+const learnInputMin = document.querySelector("#learn-input-min");
+const learnInputMax = document.querySelector("#learn-input-max");
+const learnOutputMin = document.querySelector("#learn-output-min");
+const learnOutputMax = document.querySelector("#learn-output-max");
+const learnInvert = document.querySelector("#learn-invert");
 const learnOscAdapter = document.querySelector("#learn-osc-adapter");
 const learnOscParameter = document.querySelector("#learn-osc-parameter");
 const learnCreate = document.querySelector("#learn-create");
@@ -87,8 +96,11 @@ const connectionState = document.querySelector("#connection-state");
 let learnMode = false;
 let learnPhase = "idle";
 let learnSourceKey = "";
+let learnSourceDatapointId = "";
 let selectedMonitorEventItem = null;
 let learnOscInstances = [];
+let learnRegistryDatapoints = [];
+let learnMonitorDatapoints = new Map();
 let cachedOscLibrary = null;
 let socket;
 let gpioConfig = null;
@@ -143,13 +155,18 @@ function renderStatus(status) {
   learnOscInstances = status.osc_instances || [];
   learnPhase = status.learn?.phase || "idle";
   learnSourceKey = status.learn?.source || "";
+  learnSourceDatapointId = status.learn?.source_datapoint || "";
   renderLearnState(status.learn || {});
   updateMonitorLearnHint();
   highlightSelectedMonitorEvent();
-  if (status.created_mapping) {
+  if (learnMode && !learnRegistryDatapoints.length) {
+    loadLearnDatapoints();
+  }
+  if (status.created_connection || status.created_mapping) {
+    const created = status.created_connection || status.created_mapping;
     learnMessage.textContent = status.persisted === false
       ? `saved for runtime only: ${status.persist_error}`
-      : `created mapping ${status.created_mapping.id}`;
+      : `created ${status.created_connection ? "connection" : "mapping"} ${created.id}`;
   }
 
   if (status.master_clock) {
@@ -175,6 +192,11 @@ function renderStatus(status) {
     item.textContent = `${rule.id}: ${rule.source} -> ${rule.target}`;
     mappings.appendChild(item);
   }
+  for (const connection of status.connections || []) {
+    const item = document.createElement("li");
+    item.textContent = `${connection.id}: ${connection.source} -> ${connection.target} (${connection.modifier})`;
+    mappings.appendChild(item);
+  }
 
   preloadMonitorLibraries(status);
   applyAdapterRuntimeConnectionsFromStatus(status.adapters || {});
@@ -183,14 +205,17 @@ function renderStatus(status) {
 function renderLearnState(learn) {
   learnPanel.hidden = !learnMode;
   learnStatus.textContent = learn.message || "";
-  const showTargets = learnMode && learn.phase === "waiting_target";
-  learnTargetFields.hidden = !showTargets;
+  learnFields.hidden = !learnMode;
   if (!learnMode) {
     learnMessage.textContent = "";
     selectedMonitorEventItem = null;
     refreshMonitorEventLearnState();
     return;
   }
+
+  renderLearnDatapointSelects();
+  syncLearnRangeFieldsVisibility();
+  applyLearnSourceSelection(learn.source_datapoint || "");
 
   const previousAdapter = learnOscAdapter.value;
   learnOscAdapter.replaceChildren();
@@ -214,12 +239,156 @@ function renderLearnState(learn) {
   if (previousAdapter) {
     learnOscAdapter.value = previousAdapter;
   }
-  if (showTargets && learnOscAdapter.value) {
+  if (learnOscAdapter.value) {
     loadLearnOscParameters(learnOscAdapter.value);
   } else {
     learnOscParameter.replaceChildren();
   }
   refreshMonitorEventLearnState();
+}
+
+function datapointLabel(entry) {
+  const label = entry.label || entry.point || entry.id;
+  const direction = entry.direction ? ` [${entry.direction}]` : "";
+  const module = entry.module ? `${entry.module} · ` : "";
+  return `${module}${label}${direction}`;
+}
+
+function groupedDatapoints(entries, directionFilter) {
+  const groups = new Map();
+  for (const entry of entries) {
+    if (
+      directionFilter &&
+      entry.direction &&
+      entry.direction !== directionFilter &&
+      entry.direction !== "bidirectional"
+    ) {
+      continue;
+    }
+    const module = entry.module || entry.id.split(".")[0] || "other";
+    if (!groups.has(module)) {
+      groups.set(module, []);
+    }
+    groups.get(module).push(entry);
+  }
+  return [...groups.entries()].sort(([left], [right]) => left.localeCompare(right));
+}
+
+function fillDatapointSelect(select, entries, placeholderText, directionFilter) {
+  const previous = select.value;
+  select.replaceChildren();
+  const placeholder = document.createElement("option");
+  placeholder.value = "";
+  placeholder.textContent = placeholderText;
+  select.appendChild(placeholder);
+
+  for (const [module, moduleEntries] of groupedDatapoints(entries, directionFilter)) {
+    const group = document.createElement("optgroup");
+    group.label = module;
+    for (const entry of moduleEntries.sort((left, right) => left.id.localeCompare(right.id))) {
+      const option = document.createElement("option");
+      option.value = entry.id;
+      option.textContent = datapointLabel(entry);
+      option.dataset.valueMin = entry.value_min ?? "";
+      option.dataset.valueMax = entry.value_max ?? "";
+      group.appendChild(option);
+    }
+    select.appendChild(group);
+  }
+
+  const monitorEntries = [...learnMonitorDatapoints.entries()]
+    .map(([id, label]) => ({ id, label, module: "monitor", direction: "input" }))
+    .filter((entry) => !directionFilter || entry.direction === directionFilter);
+  if (monitorEntries.length) {
+    const group = document.createElement("optgroup");
+    group.label = "Monitor events";
+    for (const entry of monitorEntries.sort((left, right) => left.id.localeCompare(right.id))) {
+      const option = document.createElement("option");
+      option.value = entry.id;
+      option.textContent = entry.label;
+      group.appendChild(option);
+    }
+    select.appendChild(group);
+  }
+
+  if (previous && [...select.options].some((option) => option.value === previous)) {
+    select.value = previous;
+  }
+}
+
+function renderLearnDatapointSelects() {
+  fillDatapointSelect(
+    learnSourceDatapoint,
+    learnRegistryDatapoints,
+    "Select source data point",
+    "input",
+  );
+  fillDatapointSelect(
+    learnTargetDatapoint,
+    learnRegistryDatapoints,
+    "Select target data point",
+    "output",
+  );
+}
+
+function applyLearnSourceSelection(pointId) {
+  if (!pointId) {
+    return;
+  }
+  if ([...learnSourceDatapoint.options].some((option) => option.value === pointId)) {
+    learnSourceDatapoint.value = pointId;
+  }
+  applyLearnDatapointRanges(learnSourceDatapoint.selectedOptions[0], "input");
+}
+
+function applyLearnDatapointRanges(selectedOption, role) {
+  if (!selectedOption || !selectedOption.value) {
+    return;
+  }
+  const min = selectedOption.dataset.valueMin;
+  const max = selectedOption.dataset.valueMax;
+  if (min === "" || max === "") {
+    return;
+  }
+  if (role === "input") {
+    learnInputMin.value = min;
+    learnInputMax.value = max;
+  } else {
+    learnOutputMin.value = min;
+    learnOutputMax.value = max;
+  }
+}
+
+function syncLearnRangeFieldsVisibility() {
+  const showRanges = learnModifier.value !== "passthrough";
+  learnRangeFields.hidden = !showRanges;
+}
+
+async function loadLearnDatapoints() {
+  try {
+    const response = await fetch("/api/datapoints");
+    if (!response.ok) {
+      throw new Error(await response.text());
+    }
+    const payload = await response.json();
+    learnRegistryDatapoints = payload.datapoints || [];
+    renderLearnDatapointSelects();
+    applyLearnSourceSelection(learnSourceDatapointId);
+  } catch (error) {
+    learnMessage.textContent = `error: could not load data points (${error.message})`;
+  }
+}
+
+function rememberMonitorDatapoint(event) {
+  const pointId = eventToDatapointId(event);
+  if (!pointId) {
+    return;
+  }
+  learnMonitorDatapoints.set(pointId, monitorDatapointLabel(event, pointId));
+  if (learnMode) {
+    renderLearnDatapointSelects();
+    applyLearnSourceSelection(learnSourceDatapointId);
+  }
 }
 
 async function loadLearnOscParameters(adapterName) {
@@ -253,25 +422,72 @@ async function loadLearnOscParameters(adapterName) {
     }
     const option = document.createElement("option");
     option.value = parameter.id;
+    const point = parameter.address?.startsWith("/")
+      ? `${adapterName}.${parameter.address}`
+      : `${adapterName}.${parameter.id}`;
+    option.dataset.datapointId = point;
     option.textContent = `${parameter.label} (${parameter.address})`;
     learnOscParameter.appendChild(option);
   }
 }
 
+function selectLearnSourceDatapoint(pointId) {
+  if (!pointId) {
+    return;
+  }
+  learnMessage.textContent = "selecting source...";
+  const payload = { datapoint: pointId };
+  if (socket && socket.readyState === WebSocket.OPEN) {
+    socket.send(JSON.stringify({ type: "learn_select", ...payload }));
+    return;
+  }
+  fetch("/api/learn/source", {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify(payload),
+  })
+    .then(async (response) => {
+      if (!response.ok) {
+        throw new Error(await response.text());
+      }
+      return response.json();
+    })
+    .then(renderStatus)
+    .catch((error) => {
+      learnMessage.textContent = `error: ${error.message}`;
+    });
+}
+
 function completeLearnMapping() {
+  const sourceDatapoint = learnSourceDatapoint.value;
+  const targetDatapoint = learnTargetDatapoint.value;
   const targetAdapter = learnOscAdapter.value;
   const parameterId = learnOscParameter.value;
-  if (!targetAdapter || !parameterId) {
-    learnMessage.textContent = "error: select an OSC adapter and parameter";
+  if (!sourceDatapoint) {
+    learnMessage.textContent = "error: select a source data point";
+    return;
+  }
+  if (!targetDatapoint && (!targetAdapter || !parameterId)) {
+    learnMessage.textContent = "error: select a target data point or OSC parameter";
     return;
   }
 
   const payload = {
     type: "learn_complete",
-    target_adapter: targetAdapter,
-    parameter_id: parameterId,
+    source_datapoint: sourceDatapoint,
+    target_datapoint: targetDatapoint,
+    modifier: learnModifier.value,
+    input_min: Number(learnInputMin.value),
+    input_max: Number(learnInputMax.value),
+    output_min: Number(learnOutputMin.value),
+    output_max: Number(learnOutputMax.value),
+    invert: learnInvert.checked,
   };
-  learnMessage.textContent = "creating mapping...";
+  if (!targetDatapoint && targetAdapter && parameterId) {
+    payload.target_adapter = targetAdapter;
+    payload.parameter_id = parameterId;
+  }
+  learnMessage.textContent = "creating connection...";
 
   if (socket && socket.readyState === WebSocket.OPEN) {
     socket.send(JSON.stringify(payload));
@@ -294,7 +510,8 @@ function completeLearnMapping() {
       if (status.persisted === false) {
         learnMessage.textContent = `saved for runtime only: ${status.persist_error}`;
       } else {
-        learnMessage.textContent = `created mapping ${status.created_mapping?.id || ""}`;
+        const created = status.created_connection || status.created_mapping;
+        learnMessage.textContent = `created ${status.created_connection ? "connection" : "mapping"} ${created?.id || ""}`;
       }
     })
     .catch((error) => {
@@ -352,6 +569,10 @@ function timeCards(values) {
 }
 
 function isLearnSelectableEvent(event) {
+  if (event.kind === "DataPointValue") {
+    const module = (event.id || "").split(".")[0];
+    return module && module !== "clock" && module !== "mapping";
+  }
   if (event.kind === "GpioEvent") {
     return true;
   }
@@ -367,12 +588,43 @@ function isLearnSelectableEvent(event) {
   return false;
 }
 
+function eventToDatapointId(event) {
+  if (event.kind === "DataPointValue" && event.id) {
+    return event.id;
+  }
+  if (event.kind === "GpioEvent" || event.kind === "ControlEvent") {
+    return `${event.source}.${event.control}`;
+  }
+  if (event.kind === "OscMessageEvent" && event.address) {
+    return `${event.source}.${event.address}`;
+  }
+  if (event.kind === "MidiMessageEvent" && event.control) {
+    return `${event.source}.${event.control}`;
+  }
+  return "";
+}
+
+function monitorDatapointLabel(event, pointId) {
+  if (event.kind === "DataPointValue") {
+    return `monitor · ${pointId}`;
+  }
+  return `monitor · ${formatMonitorEventLine(event, "")}`.trim();
+}
+
 function monitorSourceKeyForEvent(event) {
+  if (event.kind === "DataPointValue" && event.id) {
+    const module = event.id.split(".")[0];
+    const point = event.id.slice(module.length + 1);
+    return `${module}:${point}`;
+  }
   if (event.kind === "GpioEvent" || event.kind === "ControlEvent") {
     return `${event.source}:${event.control}`;
   }
   if (event.kind === "OscMessageEvent") {
     return `${event.source}:${event.address}`;
+  }
+  if (event.kind === "MidiMessageEvent" && event.control) {
+    return `${event.source}:${event.control}`;
   }
   return "";
 }
@@ -385,11 +637,12 @@ function updateMonitorLearnHint() {
   if (!learnMode) {
     return;
   }
-  if (learnPhase === "waiting_target" && learnSourceKey) {
-    learnMonitorHint.textContent = `Source selected: ${learnSourceKey}. Click another message to change it, or choose an OSC target below.`;
+  if (learnPhase === "waiting_target" && (learnSourceDatapointId || learnSourceKey)) {
+    const sourceLabel = learnSourceDatapointId || learnSourceKey;
+    learnMonitorHint.textContent = `Source selected: ${sourceLabel}. Click another message to change it, or pick target data points below.`;
     return;
   }
-  learnMonitorHint.textContent = "Learn mode active: click a message below to select the mapping source.";
+  learnMonitorHint.textContent = "Learn mode active: click a monitor message to select a source data point, or use the dropdowns above.";
 }
 
 function refreshMonitorEventLearnState() {
@@ -418,9 +671,10 @@ function highlightSelectedMonitorEvent() {
     const sourceKey = event ? monitorSourceKeyForEvent(event) : "";
     const selected = Boolean(
       learnMode &&
-      learnSourceKey &&
+      (learnSourceDatapointId || learnSourceKey) &&
       (
         (sourceKey && sourceKey === learnSourceKey) ||
+        (event && eventToDatapointId(event) === learnSourceDatapointId) ||
         item === selectedMonitorEventItem
       ),
     );
@@ -818,6 +1072,9 @@ function appendEvent(event) {
   }
   if (isFeedbackRefresh(event) && !showFeedbackRefresh.checked) {
     return;
+  }
+  if (isLearnSelectableEvent(event)) {
+    rememberMonitorDatapoint(event);
   }
   const item = document.createElement("li");
   item.className = "monitor-event";
@@ -2982,6 +3239,9 @@ function connect() {
 learnToggle.addEventListener("click", () => {
   const enabled = !learnMode;
   learnMessage.textContent = "";
+  if (enabled) {
+    loadLearnDatapoints();
+  }
   if (socket && socket.readyState === WebSocket.OPEN) {
     socket.send(JSON.stringify({ type: "learn", enabled }));
   } else {
@@ -2993,10 +3253,34 @@ learnToggle.addEventListener("click", () => {
   }
 });
 
+learnSourceDatapoint.addEventListener("change", () => {
+  learnMessage.textContent = "";
+  applyLearnDatapointRanges(learnSourceDatapoint.selectedOptions[0], "input");
+  if (learnSourceDatapoint.value) {
+    selectLearnSourceDatapoint(learnSourceDatapoint.value);
+  }
+});
+
+learnTargetDatapoint.addEventListener("change", () => {
+  learnMessage.textContent = "";
+  applyLearnDatapointRanges(learnTargetDatapoint.selectedOptions[0], "output");
+});
+
+learnModifier.addEventListener("change", syncLearnRangeFieldsVisibility);
+
 learnOscAdapter.addEventListener("change", () => {
   learnMessage.textContent = "";
   if (learnOscAdapter.value) {
     loadLearnOscParameters(learnOscAdapter.value);
+  }
+});
+
+learnOscParameter.addEventListener("change", () => {
+  const selected = learnOscParameter.selectedOptions[0];
+  const pointId = selected?.dataset.datapointId || "";
+  if (pointId && [...learnTargetDatapoint.options].some((option) => option.value === pointId)) {
+    learnTargetDatapoint.value = pointId;
+    applyLearnDatapointRanges(learnTargetDatapoint.selectedOptions[0], "output");
   }
 });
 

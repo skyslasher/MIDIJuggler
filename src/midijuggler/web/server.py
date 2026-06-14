@@ -31,6 +31,7 @@ from midijuggler.config import (
     parse_config,
     save_gpio_adapter_options,
     save_mappings,
+    save_connections,
     save_master_clock_config,
     remove_midi_adapter_configs,
     remove_osc_adapter_configs,
@@ -41,13 +42,16 @@ from midijuggler.eventbus import EventBus
 from midijuggler.events import AdapterStatusEvent, Event, MidiMessageEvent
 from midijuggler.learn import (
     LearnController,
+    lookup_datapoint_ranges,
     lookup_osc_target_ranges,
     resolve_monitor_source,
     resolve_osc_target_address,
+    resolve_target_datapoint,
+    upsert_connection,
     upsert_mapping_rule,
 )
 from midijuggler.osc_library import get_osc_library
-from midijuggler.mapping import MappingEngine
+from midijuggler.mapping import MappingEngine, MappingRule
 from midijuggler.midi.target_encode import (
     encode_midi_target_message,
     lookup_midi_target_ranges,
@@ -69,9 +73,11 @@ from midijuggler.osc.desk_protocol import (
 )
 from midijuggler.osc.discovery import discover_desks, discovery_scan_networks
 from midijuggler.osc_library import get_osc_library, list_osc_libraries
+from midijuggler.datapoint.bridge import datapoint_to_legacy_source, datapoint_to_legacy_target, legacy_source_to_datapoint
 from midijuggler.datapoint.migrate import effective_connections
 from midijuggler.datapoint.store import DataPointStore
 from midijuggler.datapoint.types import ConnectionSpec, ModifierKind, float_value
+from midijuggler.modules.modifier.graph import ModifierGraph
 from midijuggler.system_hostname import (
     apply_hostname,
     can_restart_service,
@@ -112,6 +118,7 @@ class WebInterface:
         config_path: str | Path | None = None,
         alsa_config_path: str | Path | None = None,
         datapoint_store: DataPointStore | None = None,
+        modifier_graph: ModifierGraph | None = None,
     ) -> None:
         self.config = config
         self.bus = bus
@@ -125,6 +132,7 @@ class WebInterface:
         self.rtp_midi_manager = rtp_midi_manager
         self._runtime_adapters = runtime_adapters
         self.datapoint_store = datapoint_store
+        self.modifier_graph = modifier_graph
         self.learn = LearnController()
         self.config_path = Path(config_path) if config_path is not None else None
         self.alsa_config_path = (
@@ -259,6 +267,7 @@ class WebInterface:
                 "runtime",
                 RuntimeConfig(datapoint_routing=bool(payload["datapoint_routing"])),
             )
+        self._apply_runtime_connections()
         return web.json_response(self.connections_payload())
 
     async def write_datapoint(self, point_id: str, value: float) -> None:
@@ -601,7 +610,12 @@ class WebInterface:
             status.update(
                 {
                     key: result[key]
-                    for key in ("created_mapping", "persisted", "persist_error")
+                    for key in (
+                        "created_mapping",
+                        "created_connection",
+                        "persisted",
+                        "persist_error",
+                    )
                     if key in result
                 }
             )
@@ -611,46 +625,128 @@ class WebInterface:
         if not self.learn.state.enabled:
             raise ValueError("learn mode is disabled")
 
+        datapoint = str(payload.get("datapoint", "")).strip()
+        if datapoint:
+            self.learn.select_source_datapoint(datapoint)
+            return self._status_payload()
+
         event = payload.get("event")
         if not isinstance(event, dict):
-            raise ValueError("event payload is required")
+            raise ValueError("datapoint or event payload is required")
 
         source = resolve_monitor_source(self.config, event)
         self.learn.select_source(source)
         return self._status_payload()
 
     async def apply_learn_mapping(self, payload: dict[str, Any]) -> dict[str, Any]:
-        source = self.learn.state.source
-        if source is None:
+        source_datapoint = str(payload.get("source_datapoint", "")).strip()
+        if not source_datapoint and self.learn.state.source_datapoint:
+            source_datapoint = self.learn.state.source_datapoint
+        if not source_datapoint and self.learn.state.source is not None:
+            source_datapoint = legacy_source_to_datapoint(self.learn.state.source.key)
+        if not source_datapoint:
             raise ValueError("learn mode has no captured source")
 
-        target_adapter = str(payload.get("target_adapter", "")).strip()
-        parameter_id = str(payload.get("parameter_id", "")).strip()
-        if not target_adapter or not parameter_id:
-            raise ValueError("target_adapter and parameter_id are required")
-
-        rule = self.learn.build_mapping(
+        target_datapoint = resolve_target_datapoint(
             self.config,
-            source=source,
-            target_adapter=target_adapter,
-            target_parameter_id=parameter_id,
-            mapping_id=str(payload.get("id", "")).strip() or None,
+            target_datapoint=str(payload.get("target_datapoint", "")).strip(),
+            target_adapter=str(payload.get("target_adapter", "")).strip(),
+            target_parameter_id=str(payload.get("parameter_id", "")).strip(),
         )
-        updated_mappings = upsert_mapping_rule(self.config.mappings, rule)
-        self.config.mappings[:] = updated_mappings
-        if self.mapping_engine is not None:
-            self.mapping_engine.replace_rules(updated_mappings)
+
+        modifier_raw = str(payload.get("modifier", ModifierKind.RANGE_MAP.value)).strip()
+        try:
+            modifier = ModifierKind(modifier_raw)
+        except ValueError as exc:
+            raise ValueError(f"unsupported modifier: {modifier_raw!r}") from exc
+
+        input_min = float(payload.get("input_min", lookup_datapoint_ranges(
+            self.datapoint_store,
+            source_datapoint,
+            fallback=(0.0, 127.0),
+        )[0]))
+        input_max = float(payload.get("input_max", lookup_datapoint_ranges(
+            self.datapoint_store,
+            source_datapoint,
+            fallback=(0.0, 127.0),
+        )[1]))
+        output_min = float(payload.get("output_min", lookup_datapoint_ranges(
+            self.datapoint_store,
+            target_datapoint,
+            fallback=(0.0, 127.0),
+        )[0]))
+        output_max = float(payload.get("output_max", lookup_datapoint_ranges(
+            self.datapoint_store,
+            target_datapoint,
+            fallback=(0.0, 127.0),
+        )[1]))
+        invert = bool(payload.get("invert", False))
+
+        connection = self.learn.build_connection(
+            source_datapoint=source_datapoint,
+            target_datapoint=target_datapoint,
+            modifier=modifier,
+            input_min=input_min,
+            input_max=input_max,
+            output_min=output_min,
+            output_max=output_max,
+            invert=invert,
+            connection_id=str(payload.get("id", "")).strip() or None,
+        )
+
+        use_datapoint_routing = self.config.runtime.datapoint_routing
+        created_mapping: dict[str, Any] | None = None
+        updated_mappings = list(self.config.mappings)
+
+        if not use_datapoint_routing:
+            source_legacy = (
+                self.learn.state.source.key
+                if self.learn.state.source is not None
+                else datapoint_to_legacy_source(source_datapoint)
+            )
+            target_adapter = str(payload.get("target_adapter", "")).strip()
+            parameter_id = str(payload.get("parameter_id", "")).strip()
+            if target_adapter and parameter_id and self.learn.state.source is not None:
+                rule = self.learn.build_mapping(
+                    self.config,
+                    source=self.learn.state.source,
+                    target_adapter=target_adapter,
+                    target_parameter_id=parameter_id,
+                    mapping_id=str(payload.get("id", "")).strip() or None,
+                )
+            else:
+                rule = MappingRule(
+                    id=connection.id,
+                    source=source_legacy,
+                    target=datapoint_to_legacy_target(target_datapoint),
+                    input_min=input_min,
+                    input_max=input_max,
+                    output_min=output_min,
+                    output_max=output_max,
+                    invert=invert,
+                )
+            updated_mappings = upsert_mapping_rule(self.config.mappings, rule)
+            self.config.mappings[:] = updated_mappings
+            if self.mapping_engine is not None:
+                self.mapping_engine.replace_rules(updated_mappings)
+            created_mapping = rule.__dict__
+
+        updated_connections = upsert_connection(self.config.connections, connection)
+        object.__setattr__(self.config, "connections", updated_connections)
+        self._apply_runtime_connections()
 
         persisted = False
         persist_error = ""
         if self.config_path is not None:
             try:
-                save_mappings(self.config_path, updated_mappings)
+                save_connections(self.config_path, updated_connections)
+                if created_mapping is not None:
+                    save_mappings(self.config_path, updated_mappings)
                 persisted = True
             except OSError as exc:
                 persist_error = str(exc)
                 LOGGER.warning(
-                    "Learn mapping applied at runtime but could not be persisted to %s: %s",
+                    "Learn connection applied at runtime but could not be persisted to %s: %s",
                     self.config_path,
                     exc,
                 )
@@ -661,12 +757,18 @@ class WebInterface:
         response = self._status_payload()
         response.update(
             {
-                "created_mapping": rule.__dict__,
+                "created_connection": connection.as_dict(),
+                "created_mapping": created_mapping,
                 "persisted": persisted,
                 "persist_error": persist_error,
             }
         )
         return response
+
+    def _apply_runtime_connections(self) -> None:
+        if self.modifier_graph is None:
+            return
+        self.modifier_graph.replace_connections(self._effective_connections())
 
     async def _broadcast_event(self, event: Event) -> None:
         if isinstance(event, AdapterStatusEvent):

@@ -187,6 +187,66 @@ def save_mappings(path: str | Path, mappings: list[MappingRule]) -> None:
     temp_path.replace(config_path)
 
 
+def save_connections(path: str | Path, connections: list[ConnectionSpec]) -> None:
+    """Persist connection specs in a TOML config file."""
+
+    config_path = Path(path)
+    text = _remove_connection_sections(config_path.read_text(encoding="utf-8"))
+    if connections:
+        text = text.rstrip() + "\n\n" + _format_connections_section(connections)
+    else:
+        text = text.rstrip() + "\n"
+
+    temp_path = config_path.with_suffix(config_path.suffix + ".tmp")
+    temp_path.write_text(text, encoding="utf-8")
+    temp_path.replace(config_path)
+
+
+def _remove_connection_sections(text: str) -> str:
+    lines = text.splitlines()
+    kept: list[str] = []
+    index = 0
+    while index < len(lines):
+        if lines[index].strip() == "[[connections]]":
+            index += 1
+            while index < len(lines):
+                stripped = lines[index].strip()
+                if stripped == "[[connections]]":
+                    break
+                if (
+                    stripped.startswith("[")
+                    and stripped.endswith("]")
+                    and stripped != "[[connections]]"
+                ):
+                    break
+                index += 1
+            continue
+        kept.append(lines[index])
+        index += 1
+    return "\n".join(kept).rstrip() + "\n"
+
+
+def _format_connections_section(connections: list[ConnectionSpec]) -> str:
+    blocks = [_format_connection_spec(connection) for connection in connections]
+    return "\n\n".join(blocks) + "\n"
+
+
+def _format_connection_spec(connection: ConnectionSpec) -> str:
+    lines = [
+        "[[connections]]",
+        f"id = {_toml_string(connection.id)}",
+        f"source = {_toml_string(connection.source)}",
+        f"target = {_toml_string(connection.target)}",
+        f"modifier = {_toml_string(connection.modifier.value)}",
+        f"input_min = {connection.input_min}",
+        f"input_max = {connection.input_max}",
+        f"output_min = {connection.output_min}",
+        f"output_max = {connection.output_max}",
+        f"invert = {_toml_bool(connection.invert)}",
+    ]
+    return "\n".join(lines)
+
+
 def _remove_mapping_sections(text: str) -> str:
     lines = text.splitlines()
     kept: list[str] = []

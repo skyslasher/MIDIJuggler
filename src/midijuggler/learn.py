@@ -7,6 +7,9 @@ from dataclasses import dataclass
 from typing import Any
 
 from midijuggler.config import AdapterConfig, AppConfig
+from midijuggler.datapoint.bridge import legacy_source_to_datapoint, legacy_target_to_datapoint
+from midijuggler.datapoint.types import ConnectionSpec, DataPointId, ModifierKind
+from midijuggler.datapoint.store import DataPointStore
 from midijuggler.mapping import MappingRule
 from midijuggler.midi.library_match import (
     MidiSourceIndex,
@@ -33,6 +36,7 @@ class LearnState:
     enabled: bool = False
     phase: str = "idle"
     source: LearnSource | None = None
+    source_datapoint: str | None = None
     message: str = ""
 
     def as_dict(self) -> dict[str, str | bool | None]:
@@ -40,6 +44,7 @@ class LearnState:
             "enabled": self.enabled,
             "phase": self.phase,
             "source": None if self.source is None else self.source.key,
+            "source_datapoint": self.source_datapoint,
             "source_adapter": None if self.source is None else self.source.adapter,
             "source_control": None if self.source is None else self.source.control,
             "message": self.message,
@@ -61,7 +66,9 @@ class LearnController:
             self._state = LearnState(
                 enabled=True,
                 phase="waiting_source",
-                message="Click a monitor message to select the mapping source.",
+                message=(
+                    "Select a source data point from the list or click a monitor message."
+                ),
             )
         else:
             self._state = LearnState()
@@ -73,7 +80,9 @@ class LearnController:
         self._state = LearnState(
             enabled=True,
             phase="waiting_source",
-            message="Click a monitor message to select the mapping source.",
+            message=(
+                "Select a source data point from the list or click a monitor message."
+            ),
         )
         return self._state
 
@@ -81,11 +90,37 @@ class LearnController:
         if not self._state.enabled:
             raise ValueError("learn mode is disabled")
 
+        source_datapoint = legacy_source_to_datapoint(source.key)
         self._state = LearnState(
             enabled=True,
             phase="waiting_target",
             source=source,
-            message=f"Source selected: {source.key}. Select an OSC target.",
+            source_datapoint=source_datapoint,
+            message=(
+                f"Source selected: {source_datapoint}. "
+                "Select a target data point and modifier."
+            ),
+        )
+        return self._state
+
+    def select_source_datapoint(self, point_id: str) -> LearnState:
+        if not self._state.enabled:
+            raise ValueError("learn mode is disabled")
+
+        normalized = str(point_id).strip()
+        DataPointId.parse(normalized)
+        module = normalized.partition(".")[0]
+        if module in {"clock", "mapping"}:
+            raise ValueError(f"cannot map {module} data points")
+
+        self._state = LearnState(
+            enabled=True,
+            phase="waiting_target",
+            source_datapoint=normalized,
+            message=(
+                f"Source selected: {normalized}. "
+                "Select a target data point and modifier."
+            ),
         )
         return self._state
 
@@ -123,6 +158,34 @@ class LearnController:
             output_min=output_min,
             output_max=output_max,
             invert=False,
+        )
+
+    def build_connection(
+        self,
+        *,
+        source_datapoint: str,
+        target_datapoint: str,
+        modifier: ModifierKind = ModifierKind.RANGE_MAP,
+        input_min: float = 0.0,
+        input_max: float = 1.0,
+        output_min: float = 0.0,
+        output_max: float = 127.0,
+        invert: bool = False,
+        connection_id: str | None = None,
+    ) -> ConnectionSpec:
+        DataPointId.parse(source_datapoint)
+        DataPointId.parse(target_datapoint)
+        resolved_id = connection_id or make_mapping_id(source_datapoint, target_datapoint)
+        return ConnectionSpec(
+            id=resolved_id,
+            source=source_datapoint,
+            target=target_datapoint,
+            modifier=modifier,
+            input_min=input_min,
+            input_max=input_max,
+            output_min=output_min,
+            output_max=output_max,
+            invert=invert,
         )
 
 
@@ -301,3 +364,52 @@ def upsert_mapping_rule(
     updated = [existing for existing in updated if existing.id != rule.id]
     updated.append(rule)
     return updated
+
+
+def upsert_connection(
+    connections: list[ConnectionSpec],
+    connection: ConnectionSpec,
+) -> list[ConnectionSpec]:
+    """Replace an existing connection with the same source or id, otherwise append."""
+
+    updated = [
+        existing for existing in connections if existing.source != connection.source
+    ]
+    updated = [existing for existing in updated if existing.id != connection.id]
+    updated.append(connection)
+    return updated
+
+
+def resolve_target_datapoint(
+    config: AppConfig,
+    *,
+    target_datapoint: str = "",
+    target_adapter: str = "",
+    target_parameter_id: str = "",
+) -> str:
+    normalized = str(target_datapoint).strip()
+    if normalized:
+        DataPointId.parse(normalized)
+        return normalized
+
+    adapter_name = str(target_adapter).strip()
+    parameter_id = str(target_parameter_id).strip()
+    if not adapter_name or not parameter_id:
+        raise ValueError("target_datapoint or target_adapter and parameter_id are required")
+
+    target_address = resolve_osc_target_address(config, adapter_name, parameter_id)
+    return legacy_target_to_datapoint(f"{adapter_name}:{target_address}")
+
+
+def lookup_datapoint_ranges(
+    store: DataPointStore | None,
+    point_id: str,
+    *,
+    fallback: tuple[float, float] = (0.0, 127.0),
+) -> tuple[float, float]:
+    if store is None:
+        return fallback
+    spec = store.spec(point_id)
+    if spec is None or spec.value_min is None or spec.value_max is None:
+        return fallback
+    return float(spec.value_min), float(spec.value_max)

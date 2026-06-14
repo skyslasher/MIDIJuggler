@@ -3,8 +3,10 @@ from midijuggler.learn import (
     LearnController,
     LearnSource,
     resolve_monitor_source,
+    upsert_connection,
     upsert_mapping_rule,
 )
+from midijuggler.datapoint.types import ModifierKind
 from midijuggler.mapping import MappingRule
 
 
@@ -137,6 +139,52 @@ def test_upsert_mapping_rule_replaces_same_source() -> None:
     )
 
     updated = upsert_mapping_rule([existing], replacement)
+
+    assert len(updated) == 1
+    assert updated[0].id == "new"
+
+
+def test_select_source_datapoint_sets_waiting_target() -> None:
+    controller = LearnController()
+    controller.set_enabled(True)
+
+    state = controller.select_source_datapoint("gpio.pin17")
+
+    assert state.phase == "waiting_target"
+    assert state.source_datapoint == "gpio.pin17"
+
+
+def test_build_connection_uses_modifier_and_ranges() -> None:
+    controller = LearnController()
+    connection = controller.build_connection(
+        source_datapoint="gpio.pin17",
+        target_datapoint="x32_foh./ch/01/mix/01/level",
+        modifier=ModifierKind.PASSTHROUGH,
+        input_min=0.0,
+        input_max=1.0,
+        output_min=0.0,
+        output_max=1.0,
+    )
+
+    assert connection.source == "gpio.pin17"
+    assert connection.modifier == ModifierKind.PASSTHROUGH
+
+
+def test_upsert_connection_replaces_same_source() -> None:
+    from midijuggler.datapoint.types import ConnectionSpec
+
+    existing = ConnectionSpec(
+        id="old",
+        source="gpio.pin17",
+        target="x32_foh./ch/01/mix/02/level",
+    )
+    replacement = ConnectionSpec(
+        id="new",
+        source="gpio.pin17",
+        target="x32_foh./ch/01/mix/01/level",
+    )
+
+    updated = upsert_connection([existing], replacement)
 
     assert len(updated) == 1
     assert updated[0].id == "new"
