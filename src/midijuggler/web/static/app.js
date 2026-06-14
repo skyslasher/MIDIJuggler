@@ -282,6 +282,15 @@ function datapointPointName(entry) {
   return module && id.startsWith(`${module}.`) ? id.slice(module.length + 1) : id;
 }
 
+function datapointSelectLabel(entry) {
+  const technical = datapointTechnicalLabel(entry);
+  const label = String(entry.label || "").trim();
+  if (label && technical && label !== technical) {
+    return `${label} (${technical})`;
+  }
+  return label || technical || entry.id || "";
+}
+
 function isLearnStreamPointId(pointId) {
   const point = pointId.includes(".") ? pointId.split(".").slice(1).join(".") : pointId;
   return LEARN_STREAM_POINT_SUFFIXES.has(point);
@@ -390,8 +399,8 @@ function learnPointsForInstance(instance, direction) {
     }
   }
   return points.sort((left, right) => {
-    const leftLabel = left.label || datapointPointName(left) || left.id;
-    const rightLabel = right.label || datapointPointName(right) || right.id;
+    const leftLabel = datapointSelectLabel(left);
+    const rightLabel = datapointSelectLabel(right);
     return leftLabel.localeCompare(rightLabel);
   });
 }
@@ -429,7 +438,7 @@ function fillLearnPointSelect(select, instance, direction, previousPointId) {
   for (const entry of points) {
     const option = document.createElement("option");
     option.value = entry.id;
-    option.textContent = entry.label || datapointPointName(entry) || entry.id;
+    option.textContent = datapointSelectLabel(entry);
     option.dataset.valueMin = entry.value_min ?? "";
     option.dataset.valueMax = entry.value_max ?? "";
     select.appendChild(option);
@@ -685,11 +694,23 @@ async function loadLearnDatapoints() {
     }
     const payload = await response.json();
     learnRegistryDatapoints = (payload.datapoints || []).filter(isLearnSelectableDatapoint);
+    await preloadLearnMidiLibraries(learnRegistryDatapoints);
     renderLearnDatapointSelects();
     applyLearnSourceSelection(learnSourceDatapointId);
   } catch (error) {
     learnMessage.textContent = `error: could not load data points (${error.message})`;
   }
+}
+
+async function preloadLearnMidiLibraries(entries) {
+  const libraryIds = new Set();
+  for (const entry of entries) {
+    const libraryId = adapterMidiLibraryId(datapointModule(entry));
+    if (libraryId) {
+      libraryIds.add(libraryId);
+    }
+  }
+  await Promise.all([...libraryIds].map((libraryId) => loadMonitorMidiLibrary(libraryId)));
 }
 
 function rememberMonitorDatapoint(event) {
@@ -1215,6 +1236,9 @@ async function preloadMonitorLibraries(status) {
     ...[...oscLibraryIds].map((libraryId) => loadMonitorOscLibrary(libraryId)),
   ]);
   refreshMonitorDisplay();
+  if (learnMode || !mappingEditor.hidden) {
+    renderLearnDatapointSelects();
+  }
 }
 
 async function loadMonitorMidiLibrary(libraryId) {
@@ -1728,6 +1752,109 @@ function midiNoteLabel(noteNumber) {
 function midiCcLabel(controllerNumber) {
   const name = MIDI_CC_NAMES[controllerNumber] || `CC ${controllerNumber}`;
   return `${name} (${controllerNumber})`;
+}
+
+function formatMidiCcTechnical(controllerNumber) {
+  return `CC ${String(controllerNumber).padStart(2, "0")}`;
+}
+
+function formatMidiNoteTechnical(noteNumber, messageKind = "Note On") {
+  const octave = Math.floor(noteNumber / 12) - 1;
+  const name = MIDI_NOTE_NAMES[noteNumber % 12];
+  return `${messageKind} #${name}${octave}`;
+}
+
+function libraryDirectionForDatapoint(entry) {
+  if (entry.direction === "output") {
+    return "target";
+  }
+  if (entry.direction === "input") {
+    return "source";
+  }
+  return null;
+}
+
+function lookupMidiLibraryParameter(adapterName, parameterId, preferredDirection) {
+  const libraryId = adapterMidiLibraryId(adapterName);
+  if (!libraryId) {
+    return null;
+  }
+  const library = monitorLibraryCache.midi[libraryId];
+  const parameters = library?.parameters || [];
+  if (preferredDirection) {
+    const match = parameters.find(
+      (entry) => entry.id === parameterId && entry.direction === preferredDirection,
+    );
+    if (match) {
+      return match;
+    }
+  }
+  return parameters.find((entry) => entry.id === parameterId) || null;
+}
+
+function formatMidiLibraryParameterTechnical(parameter) {
+  if (!parameter || parameter.number == null) {
+    return null;
+  }
+  const number = Number(parameter.number);
+  switch (parameter.message_type) {
+    case "control_change":
+      return formatMidiCcTechnical(number);
+    case "note":
+      return formatMidiNoteTechnical(number);
+    case "program_change":
+      return `Program ${String(number).padStart(2, "0")}`;
+    case "pitch_bend":
+      return "Pitch Bend";
+    default:
+      return null;
+  }
+}
+
+function parseRawMidiPointTechnical(point) {
+  const ccMatch = point.match(/^cc_\d+_(\d+)$/);
+  if (ccMatch) {
+    return formatMidiCcTechnical(Number(ccMatch[1]));
+  }
+  const noteMatch = point.match(/^note_\d+_(\d+)$/);
+  if (noteMatch) {
+    return formatMidiNoteTechnical(Number(noteMatch[1]));
+  }
+  const programMatch = point.match(/^program_\d+_(\d+)$/);
+  if (programMatch) {
+    return `Program ${String(Number(programMatch[1])).padStart(2, "0")}`;
+  }
+  if (/^pitch_bend_\d+$/.test(point)) {
+    return "Pitch Bend";
+  }
+  return null;
+}
+
+function datapointTechnicalLabel(entry) {
+  const point = datapointPointName(entry);
+  const rawMidi = parseRawMidiPointTechnical(point);
+  if (rawMidi) {
+    return rawMidi;
+  }
+
+  const module = datapointModule(entry);
+  if (entry.protocol === "midi" || adapterMidiLibraryId(module)) {
+    const parameter = lookupMidiLibraryParameter(
+      module,
+      point,
+      libraryDirectionForDatapoint(entry),
+    );
+    const midiTechnical = formatMidiLibraryParameterTechnical(parameter);
+    if (midiTechnical) {
+      return midiTechnical;
+    }
+  }
+
+  if (point.startsWith("/")) {
+    return point;
+  }
+
+  return point;
 }
 
 function buildMidiTestNumberOptions(preset) {
