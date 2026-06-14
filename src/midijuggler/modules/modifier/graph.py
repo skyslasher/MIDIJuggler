@@ -32,6 +32,7 @@ class ModifierGraph(ModifierModule):
         self.connections = list(connections)
         self._source_index: dict[str, list[tuple[ConnectionSpec, RangeMapTransform]]] = {}
         self._passthrough_index: dict[str, list[ConnectionSpec]] = {}
+        self._subscribed_sources: set[str] = set()
         self._rebuild_index()
 
     def datapoints(self) -> list:
@@ -40,6 +41,8 @@ class ModifierGraph(ModifierModule):
     def replace_connections(self, connections: list[ConnectionSpec]) -> None:
         self.connections = list(connections)
         self._rebuild_index()
+        if self.running:
+            self._sync_subscriptions()
 
     def _rebuild_index(self) -> None:
         self._source_index.clear()
@@ -55,9 +58,15 @@ class ModifierGraph(ModifierModule):
 
     async def start(self) -> None:
         await super().start()
+        self._sync_subscriptions()
+
+    def _sync_subscriptions(self) -> None:
         sources = set(self._source_index) | set(self._passthrough_index)
-        for source in sources:
+        for source in sorted(sources):
+            if source in self._subscribed_sources:
+                continue
             self.store.subscribe(DataPointId.parse(source), self._on_source_value)
+            self._subscribed_sources.add(source)
 
     async def _on_source_value(self, value: DataPointValue) -> None:
         key = str(value.point_id)

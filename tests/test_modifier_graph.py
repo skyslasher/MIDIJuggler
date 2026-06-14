@@ -35,3 +35,37 @@ def test_modifier_graph_maps_source_to_target() -> None:
 
     asyncio.run(scenario())
     assert received == [127.0]
+
+
+def test_modifier_graph_subscribes_sources_added_at_runtime() -> None:
+    store = DataPointStore()
+    graph = ModifierGraph(store, [])
+    received: list[float] = []
+
+    async def handler(value):
+        if value.float_value is not None:
+            received.append(value.float_value)
+
+    store.subscribe("xtouch_mini.layer_a_encoder_1_led_ring", handler)
+
+    async def scenario() -> None:
+        await graph.start()
+        graph.replace_connections(
+            [
+                ConnectionSpec(
+                    id="fader-to-ring",
+                    source="x32./ch/01/mix/fader",
+                    target="xtouch_mini.layer_a_encoder_1_led_ring",
+                    input_min=0.0,
+                    input_max=1.0,
+                    output_min=0.0,
+                    output_max=28.0,
+                )
+            ]
+        )
+        await store.write(
+            float_value("x32./ch/01/mix/fader", 0.5, emit_outputs=False)
+        )
+
+    asyncio.run(scenario())
+    assert received == [14.0]
