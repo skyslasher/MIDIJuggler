@@ -368,6 +368,19 @@ legend {
   gap: 0.75rem;
 }
 
+.learn-endpoint-group {
+  border: 1px solid #31405e;
+  border-radius: 10px;
+  display: grid;
+  gap: 0.65rem;
+  padding: 0.75rem;
+}
+
+.learn-endpoint-title {
+  font-size: 0.95rem;
+  margin: 0;
+}
+
 .learn-range-fields {
   display: grid;
   gap: 0.75rem;

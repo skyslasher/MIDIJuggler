@@ -66,7 +66,9 @@ const learnToggle = document.querySelector("#learn-toggle");
 const learnPanel = document.querySelector("#learn-panel");
 const learnStatus = document.querySelector("#learn-status");
 const learnFields = document.querySelector("#learn-fields");
+const learnSourceInstance = document.querySelector("#learn-source-instance");
 const learnSourceDatapoint = document.querySelector("#learn-source-datapoint");
+const learnTargetInstance = document.querySelector("#learn-target-instance");
 const learnTargetDatapoint = document.querySelector("#learn-target-datapoint");
 const learnModifier = document.querySelector("#learn-modifier");
 const learnRangeFields = document.querySelector("#learn-range-fields");
@@ -101,6 +103,15 @@ let selectedMonitorEventItem = null;
 let learnOscInstances = [];
 let learnRegistryDatapoints = [];
 let learnMonitorDatapoints = new Map();
+const LEARN_HIDDEN_MODULES = new Set(["mapping", "modifier_graph"]);
+const LEARN_STREAM_VALUE_TYPES = new Set(["midi_message", "osc_message"]);
+const LEARN_STREAM_POINT_SUFFIXES = new Set([
+  "midi_out",
+  "midi_tick",
+  "midi_start",
+  "midi_continue",
+  "midi_stop",
+]);
 let cachedOscLibrary = null;
 let socket;
 let gpioConfig = null;
@@ -209,6 +220,7 @@ function renderLearnState(learn) {
   if (!learnMode) {
     learnMessage.textContent = "";
     selectedMonitorEventItem = null;
+    clearLearnEndpointSelects();
     refreshMonitorEventLearnState();
     return;
   }
@@ -247,98 +259,209 @@ function renderLearnState(learn) {
   refreshMonitorEventLearnState();
 }
 
-function datapointLabel(entry) {
-  const label = entry.label || entry.point || entry.id;
-  const direction = entry.direction ? ` [${entry.direction}]` : "";
-  const module = entry.module ? `${entry.module} · ` : "";
-  return `${module}${label}${direction}`;
+function datapointModule(entry) {
+  return entry.module || String(entry.id || "").split(".")[0] || "";
 }
 
-function groupedDatapoints(entries, directionFilter) {
-  const groups = new Map();
-  for (const entry of entries) {
-    if (
-      directionFilter &&
-      entry.direction &&
-      entry.direction !== directionFilter &&
-      entry.direction !== "bidirectional"
-    ) {
-      continue;
-    }
-    const module = entry.module || entry.id.split(".")[0] || "other";
-    if (!groups.has(module)) {
-      groups.set(module, []);
-    }
-    groups.get(module).push(entry);
+function datapointPointName(entry) {
+  if (entry.point) {
+    return entry.point;
   }
-  return [...groups.entries()].sort(([left], [right]) => left.localeCompare(right));
+  const module = datapointModule(entry);
+  const id = String(entry.id || "");
+  return module && id.startsWith(`${module}.`) ? id.slice(module.length + 1) : id;
 }
 
-function fillDatapointSelect(select, entries, placeholderText, directionFilter) {
-  const previous = select.value;
+function isLearnStreamPointId(pointId) {
+  const point = pointId.includes(".") ? pointId.split(".").slice(1).join(".") : pointId;
+  return LEARN_STREAM_POINT_SUFFIXES.has(point);
+}
+
+function isLearnSelectableDatapoint(entry) {
+  if (!entry?.id) {
+    return false;
+  }
+  if (LEARN_HIDDEN_MODULES.has(datapointModule(entry))) {
+    return false;
+  }
+  if (LEARN_STREAM_VALUE_TYPES.has(entry.value_type)) {
+    return false;
+  }
+  if (isLearnStreamPointId(entry.id)) {
+    return false;
+  }
+  return true;
+}
+
+function isLearnSelectableMonitorPointId(pointId) {
+  if (!pointId) {
+    return false;
+  }
+  if (LEARN_HIDDEN_MODULES.has(pointId.split(".")[0])) {
+    return false;
+  }
+  return !isLearnStreamPointId(pointId);
+}
+
+function matchesLearnDirection(entry, direction) {
+  if (!direction) {
+    return true;
+  }
+  if (!entry.direction || entry.direction === "bidirectional") {
+    return true;
+  }
+  return entry.direction === direction;
+}
+
+function filterLearnRegistryDatapoints(entries, direction) {
+  return entries.filter(
+    (entry) => isLearnSelectableDatapoint(entry) && matchesLearnDirection(entry, direction),
+  );
+}
+
+function learnInstanceLabel(module) {
+  if (module === "clock") {
+    return "Master clock";
+  }
+  if (module === "gpio") {
+    return "GPIO";
+  }
+  const adapter = adapterLibraryConfig[module];
+  if (!adapter) {
+    return module;
+  }
+  const midiLibrary = (adapter.midi_library || "").trim();
+  const oscLibrary = (adapter.osc_library || "").trim();
+  if (midiLibrary) {
+    return `${module} (${midiLibrary})`;
+  }
+  if (oscLibrary) {
+    return `${module} (${oscLibrary})`;
+  }
+  return module;
+}
+
+function learnInstancesForDirection(direction) {
+  const entries = filterLearnRegistryDatapoints(learnRegistryDatapoints, direction);
+  const modules = new Set(entries.map(datapointModule));
+  if (direction === "input") {
+    for (const pointId of learnMonitorDatapoints.keys()) {
+      if (isLearnSelectableMonitorPointId(pointId)) {
+        modules.add(pointId.split(".")[0]);
+      }
+    }
+  }
+  return [...modules]
+    .filter(Boolean)
+    .sort((left, right) => learnInstanceLabel(left).localeCompare(learnInstanceLabel(right)));
+}
+
+function learnPointsForInstance(instance, direction) {
+  if (!instance) {
+    return [];
+  }
+  const points = filterLearnRegistryDatapoints(learnRegistryDatapoints, direction)
+    .filter((entry) => datapointModule(entry) === instance);
+  if (direction === "input") {
+    for (const [pointId, label] of learnMonitorDatapoints) {
+      if (pointId.split(".")[0] !== instance || !isLearnSelectableMonitorPointId(pointId)) {
+        continue;
+      }
+      if (points.some((entry) => entry.id === pointId)) {
+        continue;
+      }
+      points.push({
+        id: pointId,
+        module: instance,
+        point: pointId.slice(instance.length + 1),
+        label,
+        direction: "input",
+      });
+    }
+  }
+  return points.sort((left, right) => {
+    const leftLabel = left.label || datapointPointName(left) || left.id;
+    const rightLabel = right.label || datapointPointName(right) || right.id;
+    return leftLabel.localeCompare(rightLabel);
+  });
+}
+
+function fillLearnInstanceSelect(select, direction, previousInstance) {
+  const instances = learnInstancesForDirection(direction);
   select.replaceChildren();
   const placeholder = document.createElement("option");
   placeholder.value = "";
-  placeholder.textContent = placeholderText;
+  placeholder.textContent = direction === "input" ? "Select source instance" : "Select target instance";
   select.appendChild(placeholder);
-
-  for (const [module, moduleEntries] of groupedDatapoints(entries, directionFilter)) {
-    const group = document.createElement("optgroup");
-    group.label = module;
-    for (const entry of moduleEntries.sort((left, right) => left.id.localeCompare(right.id))) {
-      const option = document.createElement("option");
-      option.value = entry.id;
-      option.textContent = datapointLabel(entry);
-      option.dataset.valueMin = entry.value_min ?? "";
-      option.dataset.valueMax = entry.value_max ?? "";
-      group.appendChild(option);
-    }
-    select.appendChild(group);
+  for (const instance of instances) {
+    const option = document.createElement("option");
+    option.value = instance;
+    option.textContent = learnInstanceLabel(instance);
+    select.appendChild(option);
   }
-
-  const monitorEntries = [...learnMonitorDatapoints.entries()]
-    .map(([id, label]) => ({ id, label, module: "monitor", direction: "input" }))
-    .filter((entry) => !directionFilter || entry.direction === directionFilter);
-  if (monitorEntries.length) {
-    const group = document.createElement("optgroup");
-    group.label = "Monitor events";
-    for (const entry of monitorEntries.sort((left, right) => left.id.localeCompare(right.id))) {
-      const option = document.createElement("option");
-      option.value = entry.id;
-      option.textContent = entry.label;
-      group.appendChild(option);
-    }
-    select.appendChild(group);
+  if (previousInstance && instances.includes(previousInstance)) {
+    select.value = previousInstance;
   }
+}
 
-  if (previous && [...select.options].some((option) => option.value === previous)) {
+function fillLearnPointSelect(select, instance, direction, previousPointId) {
+  const previous = previousPointId || select.value;
+  select.replaceChildren();
+  const placeholder = document.createElement("option");
+  placeholder.value = "";
+  placeholder.textContent = direction === "input" ? "Select source data point" : "Select target data point";
+  select.appendChild(placeholder);
+  select.disabled = !instance;
+  if (!instance) {
+    return;
+  }
+  const points = learnPointsForInstance(instance, direction);
+  for (const entry of points) {
+    const option = document.createElement("option");
+    option.value = entry.id;
+    option.textContent = entry.label || datapointPointName(entry) || entry.id;
+    option.dataset.valueMin = entry.value_min ?? "";
+    option.dataset.valueMax = entry.value_max ?? "";
+    select.appendChild(option);
+  }
+  if (previous && points.some((entry) => entry.id === previous)) {
     select.value = previous;
   }
 }
 
 function renderLearnDatapointSelects() {
-  fillDatapointSelect(
-    learnSourceDatapoint,
-    learnRegistryDatapoints,
-    "Select source data point",
-    "input",
-  );
-  fillDatapointSelect(
-    learnTargetDatapoint,
-    learnRegistryDatapoints,
-    "Select target data point",
-    "output",
-  );
+  const previousSourceInstance = learnSourceInstance.value;
+  const previousSourcePoint = learnSourceDatapoint.value;
+  const previousTargetInstance = learnTargetInstance.value;
+  const previousTargetPoint = learnTargetDatapoint.value;
+
+  fillLearnInstanceSelect(learnSourceInstance, "input", previousSourceInstance);
+  fillLearnInstanceSelect(learnTargetInstance, "output", previousTargetInstance);
+
+  const sourceInstance = learnSourceInstance.value;
+  const targetInstance = learnTargetInstance.value;
+  fillLearnPointSelect(learnSourceDatapoint, sourceInstance, "input", previousSourcePoint);
+  fillLearnPointSelect(learnTargetDatapoint, targetInstance, "output", previousTargetPoint);
 }
 
 function applyLearnSourceSelection(pointId) {
-  if (!pointId) {
+  if (!pointId || !isLearnSelectableMonitorPointId(pointId)) {
     return;
   }
-  if ([...learnSourceDatapoint.options].some((option) => option.value === pointId)) {
-    learnSourceDatapoint.value = pointId;
+  const instance = pointId.split(".")[0];
+  if (!learnInstancesForDirection("input").includes(instance)) {
+    return;
   }
+  learnSourceInstance.value = instance;
+  fillLearnPointSelect(learnSourceDatapoint, instance, "input", pointId);
   applyLearnDatapointRanges(learnSourceDatapoint.selectedOptions[0], "input");
+}
+
+function clearLearnEndpointSelects() {
+  learnSourceInstance.value = "";
+  learnTargetInstance.value = "";
+  fillLearnPointSelect(learnSourceDatapoint, "", "input", "");
+  fillLearnPointSelect(learnTargetDatapoint, "", "output", "");
 }
 
 function applyLearnDatapointRanges(selectedOption, role) {
@@ -371,7 +494,7 @@ async function loadLearnDatapoints() {
       throw new Error(await response.text());
     }
     const payload = await response.json();
-    learnRegistryDatapoints = payload.datapoints || [];
+    learnRegistryDatapoints = (payload.datapoints || []).filter(isLearnSelectableDatapoint);
     renderLearnDatapointSelects();
     applyLearnSourceSelection(learnSourceDatapointId);
   } catch (error) {
@@ -381,7 +504,7 @@ async function loadLearnDatapoints() {
 
 function rememberMonitorDatapoint(event) {
   const pointId = eventToDatapointId(event);
-  if (!pointId) {
+  if (!pointId || !isLearnSelectableMonitorEvent(event, pointId)) {
     return;
   }
   learnMonitorDatapoints.set(pointId, monitorDatapointLabel(event, pointId));
@@ -389,6 +512,19 @@ function rememberMonitorDatapoint(event) {
     renderLearnDatapointSelects();
     applyLearnSourceSelection(learnSourceDatapointId);
   }
+}
+
+function isLearnSelectableMonitorEvent(event, pointId) {
+  if (!isLearnSelectableMonitorPointId(pointId)) {
+    return false;
+  }
+  if (event.kind === "DataPointValue") {
+    return !LEARN_STREAM_VALUE_TYPES.has(event.value_type);
+  }
+  if (event.kind === "MidiMessageEvent" && !event.control) {
+    return false;
+  }
+  return true;
 }
 
 async function loadLearnOscParameters(adapterName) {
@@ -522,6 +658,7 @@ function completeLearnMapping() {
 function clearLearnSource() {
   learnMessage.textContent = "";
   selectedMonitorEventItem = null;
+  clearLearnEndpointSelects();
   if (socket && socket.readyState === WebSocket.OPEN) {
     socket.send(JSON.stringify({ type: "learn_clear" }));
     return;
@@ -571,7 +708,10 @@ function timeCards(values) {
 function isLearnSelectableEvent(event) {
   if (event.kind === "DataPointValue") {
     const module = (event.id || "").split(".")[0];
-    return module && module !== "clock" && module !== "mapping";
+    if (!module || module === "clock" || module === "mapping") {
+      return false;
+    }
+    return !LEARN_STREAM_VALUE_TYPES.has(event.value_type) && isLearnSelectableMonitorPointId(event.id);
   }
   if (event.kind === "GpioEvent") {
     return true;
@@ -580,7 +720,7 @@ function isLearnSelectableEvent(event) {
     return true;
   }
   if (event.kind === "MidiMessageEvent" && event.direction === "input" && !isClockTick(event)) {
-    return true;
+    return Boolean(event.control);
   }
   if (event.kind === "OscMessageEvent" && event.direction === "input" && event.address) {
     return true;
@@ -642,7 +782,7 @@ function updateMonitorLearnHint() {
     learnMonitorHint.textContent = `Source selected: ${sourceLabel}. Click another message to change it, or pick target data points below.`;
     return;
   }
-  learnMonitorHint.textContent = "Learn mode active: click a monitor message to select a source data point, or use the dropdowns above.";
+  learnMonitorHint.textContent = "Learn mode active: click a monitor message or choose source instance and data point above.";
 }
 
 function refreshMonitorEventLearnState() {
@@ -3253,6 +3393,16 @@ learnToggle.addEventListener("click", () => {
   }
 });
 
+learnSourceInstance.addEventListener("change", () => {
+  learnMessage.textContent = "";
+  fillLearnPointSelect(learnSourceDatapoint, learnSourceInstance.value, "input", "");
+});
+
+learnTargetInstance.addEventListener("change", () => {
+  learnMessage.textContent = "";
+  fillLearnPointSelect(learnTargetDatapoint, learnTargetInstance.value, "output", "");
+});
+
 learnSourceDatapoint.addEventListener("change", () => {
   learnMessage.textContent = "";
   applyLearnDatapointRanges(learnSourceDatapoint.selectedOptions[0], "input");
@@ -3278,10 +3428,13 @@ learnOscAdapter.addEventListener("change", () => {
 learnOscParameter.addEventListener("change", () => {
   const selected = learnOscParameter.selectedOptions[0];
   const pointId = selected?.dataset.datapointId || "";
-  if (pointId && [...learnTargetDatapoint.options].some((option) => option.value === pointId)) {
-    learnTargetDatapoint.value = pointId;
-    applyLearnDatapointRanges(learnTargetDatapoint.selectedOptions[0], "output");
+  if (!pointId || !isLearnSelectableMonitorPointId(pointId)) {
+    return;
   }
+  const instance = pointId.split(".")[0];
+  learnTargetInstance.value = instance;
+  fillLearnPointSelect(learnTargetDatapoint, instance, "output", pointId);
+  applyLearnDatapointRanges(learnTargetDatapoint.selectedOptions[0], "output");
 });
 
 learnCreate.addEventListener("click", completeLearnMapping);

@@ -41,14 +41,28 @@
           <h2>Learn Mode</h2>
           <p id="learn-status" class="hint"></p>
           <div id="learn-fields" class="learn-fields" hidden>
-            <label class="stacked-field">
-              Source data point
-              <select id="learn-source-datapoint"></select>
-            </label>
-            <label class="stacked-field">
-              Target data point
-              <select id="learn-target-datapoint"></select>
-            </label>
+            <div class="learn-endpoint-group">
+              <h3 class="learn-endpoint-title">Source</h3>
+              <label class="stacked-field">
+                Instance
+                <select id="learn-source-instance"></select>
+              </label>
+              <label class="stacked-field">
+                Data point
+                <select id="learn-source-datapoint" disabled></select>
+              </label>
+            </div>
+            <div class="learn-endpoint-group">
+              <h3 class="learn-endpoint-title">Target</h3>
+              <label class="stacked-field">
+                Instance
+                <select id="learn-target-instance"></select>
+              </label>
+              <label class="stacked-field">
+                Data point
+                <select id="learn-target-datapoint" disabled></select>
+              </label>
+            </div>
             <label class="stacked-field">
               Modifier
               <select id="learn-modifier">
@@ -111,7 +125,7 @@
         <article class="monitor-panel">
           <h2>Monitor</h2>
           <p id="learn-monitor-hint" class="hint learn-monitor-hint" hidden>
-            Learn mode active: click a monitor message to select a source data point, or use the dropdowns above.
+            Learn mode active: click a monitor message or choose source instance and data point above.
           </p>
           <label class="inline-field monitor-filter">
             <input id="show-clock-ticks" type="checkbox" />
