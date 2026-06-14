@@ -298,6 +298,18 @@ legend {
   margin-top: 0.35rem;
 }
 
+.osc-discover-global-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+  margin-top: 0.5rem;
+}
+
+.osc-discover-global-row select {
+  flex: 1;
+  min-width: 14rem;
+}
+
 .osc-discover-row select {
   flex: 1;
 }

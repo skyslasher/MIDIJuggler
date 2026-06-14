@@ -21,6 +21,8 @@ const configImportMessage = document.querySelector("#config-import-message");
 const oscInstances = document.querySelector("#osc-instances");
 const oscAddButton = document.querySelector("#osc-add");
 const oscDiscoverButton = document.querySelector("#osc-discover");
+const oscDiscoverGlobalSelect = document.querySelector("#osc-discover-global");
+const oscDiscoverCreateButton = document.querySelector("#osc-discover-create");
 const oscMessage = document.querySelector("#osc-message");
 const midiInstances = document.querySelector("#midi-instances");
 const rtpMidiInstances = document.querySelector("#rtp-midi-instances");
@@ -2326,7 +2328,14 @@ function applyDiscoveredDeskToCard(card, device) {
 
 function formatOscDiscoverMessage(payload, devices) {
   if (devices.length) {
-    return `discovered ${devices.length} desk(s)`;
+    const configuredCount = devices.filter((device) =>
+      configuredOscInstanceNamesForHost(device.ip).length,
+    ).length;
+    let message = `discovered ${devices.length} desk(s)`;
+    if (configuredCount) {
+      message += `; ${configuredCount} already configured`;
+    }
+    return message;
   }
   const networks = payload.networks || [];
   if (networks.length) {
@@ -2335,16 +2344,144 @@ function formatOscDiscoverMessage(payload, devices) {
   return "no desks discovered on the local network";
 }
 
-function oscDiscoverOptionLabel(device) {
-  return `${device.protocol.toUpperCase()} ${device.ip}${device.name ? ` (${device.name})` : ""}`;
+function configuredOscInstancesByRemoteHost() {
+  const hosts = new Map();
+
+  const addHost = (host, instanceName) => {
+    const normalizedHost = String(host || "").trim();
+    const normalizedName = String(instanceName || "").trim();
+    if (!normalizedHost || !normalizedName) {
+      return;
+    }
+    const names = hosts.get(normalizedHost) || [];
+    if (!names.includes(normalizedName)) {
+      names.push(normalizedName);
+      hosts.set(normalizedHost, names);
+    }
+  };
+
+  for (const instance of oscAdaptersConfig?.instances || []) {
+    addHost(instance.remote_host, instance.name);
+  }
+  for (const card of oscInstances.querySelectorAll(".midi-adapter-card")) {
+    const { name } = adapterInstanceNameFromCard(card);
+    const host = card.querySelector('[data-field="remote_host"]')?.value;
+    addHost(host, name);
+  }
+
+  return hosts;
 }
 
-function populateOscDiscoverSelect(select, devices) {
+function configuredOscInstanceNamesForHost(host) {
+  return configuredOscInstancesByRemoteHost().get(String(host || "").trim()) || [];
+}
+
+function oscDiscoverOptionLabel(device) {
+  let label = `${device.protocol.toUpperCase()} ${device.ip}${device.name ? ` (${device.name})` : ""}`;
+  const configuredInstances = configuredOscInstanceNamesForHost(device.ip);
+  if (configuredInstances.length) {
+    label += ` — configured as ${configuredInstances.join(", ")}`;
+  }
+  return label;
+}
+
+function populateOscDiscoverSelect(
+  select,
+  devices,
+  placeholder = "Choose discovered desk...",
+) {
   select.replaceChildren();
-  select.appendChild(new Option("Choose discovered desk...", ""));
+  select.appendChild(new Option(placeholder, ""));
   for (const device of devices) {
     select.appendChild(new Option(oscDiscoverOptionLabel(device), JSON.stringify(device)));
   }
+}
+
+function updateGlobalOscDiscoverOptions(devices) {
+  if (!oscDiscoverGlobalSelect || !oscDiscoverCreateButton) {
+    return;
+  }
+  populateOscDiscoverSelect(
+    oscDiscoverGlobalSelect,
+    devices,
+    "Create instance from discovered desk...",
+  );
+  const hasDevices = devices.length > 0;
+  oscDiscoverGlobalSelect.hidden = !hasDevices;
+  oscDiscoverCreateButton.hidden = !hasDevices;
+  oscDiscoverGlobalSelect.disabled = !hasDevices;
+  oscDiscoverCreateButton.disabled = !hasDevices;
+  if (hasDevices && devices.length === 1) {
+    oscDiscoverGlobalSelect.value = JSON.stringify(devices[0]);
+  }
+}
+
+function slugifyOscInstanceName(value) {
+  return String(value)
+    .trim()
+    .toLowerCase()
+    .replace(/[^a-z0-9_]+/g, "_")
+    .replace(/^_+|_+$/g, "");
+}
+
+function usedOscInstanceNames() {
+  const names = new Set(DEFAULT_OSC_INSTANCE_NAMES);
+  for (const instance of oscAdaptersConfig?.instances || []) {
+    if (instance.name) {
+      names.add(instance.name);
+    }
+  }
+  for (const card of oscInstances.querySelectorAll(".midi-adapter-card")) {
+    const { name } = adapterInstanceNameFromCard(card);
+    if (name) {
+      names.add(name);
+    }
+  }
+  return names;
+}
+
+function suggestedOscInstanceName(device) {
+  const preferred = slugifyOscInstanceName(device.name || "");
+  const fallback = slugifyOscInstanceName(
+    `${device.protocol}_${String(device.ip).replace(/\./g, "_")}`,
+  );
+  const base = preferred || fallback || "desk";
+  const used = usedOscInstanceNames();
+  let candidate = base;
+  let suffix = 2;
+  while (used.has(candidate)) {
+    candidate = `${base}_${suffix}`;
+    suffix += 1;
+  }
+  return candidate;
+}
+
+function deskModeFromDiscoveredDevice(device) {
+  return device.protocol === "wing" ? "wing" : "x32";
+}
+
+function createOscInstanceFromDiscoveredDesk(device) {
+  const deskMode = deskModeFromDiscoveredDevice(device);
+  const config = oscAdaptersConfig || {
+    available_osc_libraries: [],
+    instances: [],
+  };
+  const instance = {
+    ...defaultOscInstanceTemplate(),
+    name: suggestedOscInstanceName(device),
+    desk_mode: deskMode,
+    osc_library: deskModeToLibraryId(deskMode),
+    remote_host: device.ip,
+    osc_port: deskOscDefaultPort(deskMode),
+    listen_port: deskOscDefaultPort(deskMode),
+  };
+  const card = createOscAdapterCard(instance, config, { isNew: true });
+  oscInstances.appendChild(card);
+  applyDiscoveredDeskToCard(card, device);
+  selectDiscoveredDeskInCard(card, device);
+  updateMidiAdapterCardDirtyState(card);
+  card.scrollIntoView({ behavior: "smooth", block: "nearest" });
+  return card;
 }
 
 function populateAllOscDiscoverSelects(devices) {
@@ -2355,10 +2492,12 @@ function populateAllOscDiscoverSelects(devices) {
 
 function rememberDiscoveredOscDesks(devices) {
   if (!Array.isArray(devices) || !devices.length) {
+    updateGlobalOscDiscoverOptions([]);
     return;
   }
   discoveredOscDesks = devices.slice();
   populateAllOscDiscoverSelects(discoveredOscDesks);
+  updateGlobalOscDiscoverOptions(discoveredOscDesks);
 }
 
 function restoreOscDiscoverSelects() {
@@ -2683,6 +2822,7 @@ function renderOscAdaptersConfig(config) {
     oscInstances.appendChild(createOscAdapterCard(instance, config));
   }
   restoreOscDiscoverSelections();
+  updateGlobalOscDiscoverOptions(discoveredOscDesks);
 }
 
 function createTextField(labelText, fieldName, value) {
@@ -2998,18 +3138,32 @@ oscDiscoverButton?.addEventListener("click", () => {
       const devices = payload.devices || [];
       rememberDiscoveredOscDesks(devices);
       oscMessage.textContent = formatOscDiscoverMessage(payload, devices);
-      if (!devices.length) {
-        return;
-      }
-      const firstCard = oscInstances.querySelector(".midi-adapter-card");
-      if (firstCard) {
-        applyDiscoveredDeskToCard(firstCard, devices[0]);
-        selectDiscoveredDeskInCard(firstCard, devices[0]);
+      if (devices.length) {
+        oscMessage.textContent += "; choose a desk to create an instance";
       }
     })
     .catch((error) => {
       oscMessage.textContent = `scan error: ${error.message}`;
     });
+});
+
+oscDiscoverCreateButton?.addEventListener("click", () => {
+  const selected = oscDiscoverGlobalSelect?.value || "";
+  if (!selected) {
+    oscMessage.textContent = "select a discovered desk first";
+    return;
+  }
+  const device = JSON.parse(selected);
+  const card = createOscInstanceFromDiscoveredDesk(device);
+  const { name } = adapterInstanceNameFromCard(card);
+  const configuredInstances = configuredOscInstanceNamesForHost(device.ip).filter(
+    (instanceName) => instanceName !== name,
+  );
+  if (configuredInstances.length) {
+    oscMessage.textContent = `prepared OSC instance ${name}; ${device.ip} is already used by ${configuredInstances.join(", ")}`;
+    return;
+  }
+  oscMessage.textContent = `prepared OSC instance ${name}; review and save`;
 });
 
 gpioForm.addEventListener("submit", (event) => {
