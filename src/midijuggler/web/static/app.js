@@ -93,6 +93,7 @@ let gpioConfig = null;
 let masterClockConfig = null;
 let midiAdaptersConfig = null;
 let oscAdaptersConfig = null;
+let discoveredOscDesks = [];
 let monitorDisplayMode = monitorDisplayModeSelect?.value || "library";
 let adapterLibraryConfig = {};
 const monitorLibraryCache = { midi: {}, osc: {} };
@@ -2330,6 +2331,63 @@ function formatOscDiscoverMessage(payload, devices) {
   return "no desks discovered on the local network";
 }
 
+function oscDiscoverOptionLabel(device) {
+  return `${device.protocol.toUpperCase()} ${device.ip}${device.name ? ` (${device.name})` : ""}`;
+}
+
+function populateOscDiscoverSelect(select, devices) {
+  select.replaceChildren();
+  select.appendChild(new Option("Choose discovered desk...", ""));
+  for (const device of devices) {
+    select.appendChild(new Option(oscDiscoverOptionLabel(device), JSON.stringify(device)));
+  }
+}
+
+function populateAllOscDiscoverSelects(devices) {
+  for (const select of oscInstances.querySelectorAll(".osc-discover-select")) {
+    populateOscDiscoverSelect(select, devices);
+  }
+}
+
+function rememberDiscoveredOscDesks(devices) {
+  if (!Array.isArray(devices) || !devices.length) {
+    return;
+  }
+  discoveredOscDesks = devices.slice();
+  populateAllOscDiscoverSelects(discoveredOscDesks);
+}
+
+function restoreOscDiscoverSelects() {
+  populateAllOscDiscoverSelects(discoveredOscDesks);
+}
+
+function restoreOscDiscoverSelections() {
+  for (const card of oscInstances.querySelectorAll(".midi-adapter-card")) {
+    const host = card.querySelector('[data-field="remote_host"]')?.value?.trim();
+    if (!host) {
+      continue;
+    }
+    const device = discoveredOscDesks.find((entry) => entry.ip === host);
+    if (device) {
+      selectDiscoveredDeskInCard(card, device);
+    }
+  }
+}
+
+function selectDiscoveredDeskInCard(card, device) {
+  const select = card.querySelector(".osc-discover-select");
+  if (!select) {
+    return;
+  }
+  const target = JSON.stringify(device);
+  for (const option of select.options) {
+    if (option.value === target) {
+      select.value = target;
+      return;
+    }
+  }
+}
+
 function createOscAdapterCard(instance, config, options = {}) {
   const isNew = Boolean(options.isNew);
   const card = document.createElement("section");
@@ -2461,22 +2519,13 @@ function createOscAdapterCard(instance, config, options = {}) {
   discoverButton.textContent = "Scan";
   discoverButton.addEventListener("click", () => {
     discoverButton.disabled = true;
+    oscMessage.textContent = "scanning for desks...";
     fetch("/api/osc-adapters/discover")
       .then((response) => response.json())
       .then((payload) => {
-        discoverSelect.replaceChildren();
-        discoverSelect.appendChild(new Option("Choose discovered desk...", ""));
-        for (const device of payload.devices || []) {
-          const label = `${device.protocol.toUpperCase()} ${device.ip}${device.name ? ` (${device.name})` : ""}`;
-          const option = new Option(label, JSON.stringify(device));
-          discoverSelect.appendChild(option);
-        }
-        if (!(payload.devices || []).length) {
-          oscMessage.textContent = formatOscDiscoverMessage(
-            payload,
-            payload.devices || [],
-          );
-        }
+        const devices = payload.devices || [];
+        rememberDiscoveredOscDesks(devices);
+        oscMessage.textContent = formatOscDiscoverMessage(payload, devices);
       })
       .catch((error) => {
         oscMessage.textContent = `scan error: ${error.message}`;
@@ -2494,6 +2543,7 @@ function createOscAdapterCard(instance, config, options = {}) {
   discoverRow.append(discoverButton, discoverSelect);
   remoteHostField.appendChild(discoverRow);
   card.appendChild(remoteHostField);
+  populateOscDiscoverSelect(discoverSelect, discoveredOscDesks);
 
   const syncLabel = document.createElement("label");
   syncLabel.className = "inline-field";
@@ -2612,6 +2662,7 @@ function addOscAdapterCard() {
   oscInstances.appendChild(
     createOscAdapterCard(defaultOscInstanceTemplate(), config, { isNew: true }),
   );
+  restoreOscDiscoverSelections();
 }
 
 function renderOscAdaptersConfig(config) {
@@ -2623,6 +2674,7 @@ function renderOscAdaptersConfig(config) {
     }
     oscInstances.appendChild(createOscAdapterCard(instance, config));
   }
+  restoreOscDiscoverSelections();
 }
 
 function createTextField(labelText, fieldName, value) {
@@ -2936,6 +2988,7 @@ oscDiscoverButton?.addEventListener("click", () => {
     .then((response) => response.json())
     .then((payload) => {
       const devices = payload.devices || [];
+      rememberDiscoveredOscDesks(devices);
       oscMessage.textContent = formatOscDiscoverMessage(payload, devices);
       if (!devices.length) {
         return;
@@ -2943,6 +2996,7 @@ oscDiscoverButton?.addEventListener("click", () => {
       const firstCard = oscInstances.querySelector(".midi-adapter-card");
       if (firstCard) {
         applyDiscoveredDeskToCard(firstCard, devices[0]);
+        selectDiscoveredDeskInCard(firstCard, devices[0]);
       }
     })
     .catch((error) => {
