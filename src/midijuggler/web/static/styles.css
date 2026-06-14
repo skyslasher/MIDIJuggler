@@ -398,6 +398,54 @@ legend {
   font-weight: 600;
 }
 
+.mapping-item {
+  border: 1px solid #31405e;
+  border-radius: 10px;
+  display: grid;
+  gap: 0.5rem;
+  list-style: none;
+  padding: 0.75rem;
+}
+
+.mapping-summary {
+  color: #dbe6f8;
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 0.9rem;
+  word-break: break-word;
+}
+
+.mapping-meta {
+  color: #9fb5d9;
+  font-size: 0.85rem;
+}
+
+.mapping-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+}
+
+.mapping-editor {
+  border: 1px solid #4a6ea8;
+  border-radius: 12px;
+  display: grid;
+  gap: 0.75rem;
+  margin-top: 0.75rem;
+  padding: 0.85rem;
+}
+
+.mapping-editor-title {
+  font-size: 1rem;
+  margin: 0;
+}
+
+#mappings {
+  display: grid;
+  gap: 0.65rem;
+  margin: 0;
+  padding: 0;
+}
+
 .learn-target-fields {
   display: grid;
   gap: 0.75rem;

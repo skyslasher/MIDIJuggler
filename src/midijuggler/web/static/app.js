@@ -56,6 +56,22 @@ const gpioBounceMs = document.querySelector("#gpio-bounce-ms");
 const gpioPollMs = document.querySelector("#gpio-poll-ms");
 const gpioMessage = document.querySelector("#gpio-message");
 const mappings = document.querySelector("#mappings");
+const mappingEditor = document.querySelector("#mapping-editor");
+const mappingEditorTitle = document.querySelector("#mapping-editor-title");
+const mappingEditSourceInstance = document.querySelector("#mapping-edit-source-instance");
+const mappingEditSourceDatapoint = document.querySelector("#mapping-edit-source-datapoint");
+const mappingEditTargetInstance = document.querySelector("#mapping-edit-target-instance");
+const mappingEditTargetDatapoint = document.querySelector("#mapping-edit-target-datapoint");
+const mappingEditModifier = document.querySelector("#mapping-edit-modifier");
+const mappingEditRangeFields = document.querySelector("#mapping-edit-range-fields");
+const mappingEditInputMin = document.querySelector("#mapping-edit-input-min");
+const mappingEditInputMax = document.querySelector("#mapping-edit-input-max");
+const mappingEditOutputMin = document.querySelector("#mapping-edit-output-min");
+const mappingEditOutputMax = document.querySelector("#mapping-edit-output-max");
+const mappingEditInvert = document.querySelector("#mapping-edit-invert");
+const mappingSave = document.querySelector("#mapping-save");
+const mappingCancel = document.querySelector("#mapping-cancel");
+const mappingEditorMessage = document.querySelector("#mapping-editor-message");
 const oscLibraries = document.querySelector("#osc-libraries");
 const midiLibraries = document.querySelector("#midi-libraries");
 const events = document.querySelector("#events");
@@ -121,6 +137,8 @@ let oscAdaptersConfig = null;
 let discoveredOscDesks = [];
 let monitorDisplayMode = monitorDisplayModeSelect?.value || "library";
 let adapterLibraryConfig = {};
+let storedConnections = [];
+let editingConnectionId = "";
 const monitorLibraryCache = { midi: {}, osc: {} };
 const adapterConnectionStatus = {};
 
@@ -198,16 +216,8 @@ function renderStatus(status) {
   }
 
   mappings.replaceChildren();
-  for (const rule of status.mappings || []) {
-    const item = document.createElement("li");
-    item.textContent = `${rule.id}: ${rule.source} -> ${rule.target}`;
-    mappings.appendChild(item);
-  }
-  for (const connection of status.connections || []) {
-    const item = document.createElement("li");
-    item.textContent = `${connection.id}: ${connection.source} -> ${connection.target} (${connection.modifier})`;
-    mappings.appendChild(item);
-  }
+  storedConnections = status.stored_connections || [];
+  renderMappingsList(storedConnections);
 
   preloadMonitorLibraries(status);
   applyAdapterRuntimeConnectionsFromStatus(status.adapters || {});
@@ -462,6 +472,178 @@ function clearLearnEndpointSelects() {
   learnTargetInstance.value = "";
   fillLearnPointSelect(learnSourceDatapoint, "", "input", "");
   fillLearnPointSelect(learnTargetDatapoint, "", "output", "");
+}
+
+function connectionSummary(connection) {
+  return `${connection.source} -> ${connection.target}`;
+}
+
+function connectionMeta(connection) {
+  if (connection.modifier === "passthrough") {
+    return `${connection.id} · passthrough`;
+  }
+  return (
+    `${connection.id} · range ${connection.input_min}-${connection.input_max}`
+    + ` -> ${connection.output_min}-${connection.output_max}`
+    + `${connection.invert ? " · inverted" : ""}`
+  );
+}
+
+function renderMappingsList(connections) {
+  mappings.replaceChildren();
+  if (!connections.length) {
+    const empty = document.createElement("li");
+    empty.className = "mapping-item";
+    empty.textContent = "No mappings configured.";
+    mappings.appendChild(empty);
+    return;
+  }
+
+  for (const connection of connections) {
+    const item = document.createElement("li");
+    item.className = "mapping-item";
+
+    const summary = document.createElement("div");
+    summary.className = "mapping-summary";
+    summary.textContent = connectionSummary(connection);
+
+    const meta = document.createElement("div");
+    meta.className = "mapping-meta";
+    meta.textContent = connectionMeta(connection);
+
+    const actions = document.createElement("div");
+    actions.className = "mapping-actions";
+
+    const editButton = document.createElement("button");
+    editButton.type = "button";
+    editButton.textContent = "Edit";
+    editButton.addEventListener("click", () => openMappingEditor(connection));
+
+    const deleteButton = document.createElement("button");
+    deleteButton.type = "button";
+    deleteButton.className = "danger-button";
+    deleteButton.textContent = "Delete";
+    deleteButton.addEventListener("click", () => deleteMappingConnection(connection.id));
+
+    actions.append(editButton, deleteButton);
+    item.append(summary, meta, actions);
+    mappings.appendChild(item);
+  }
+}
+
+function syncMappingEditRangeFieldsVisibility() {
+  const showRanges = mappingEditModifier.value !== "passthrough";
+  mappingEditRangeFields.hidden = !showRanges;
+}
+
+function populateMappingEditor(connection) {
+  const sourceInstance = connection.source.split(".")[0];
+  const targetInstance = connection.target.split(".")[0];
+
+  fillLearnInstanceSelect(mappingEditSourceInstance, "input", sourceInstance);
+  fillLearnInstanceSelect(mappingEditTargetInstance, "output", targetInstance);
+  fillLearnPointSelect(mappingEditSourceDatapoint, sourceInstance, "input", connection.source);
+  fillLearnPointSelect(mappingEditTargetDatapoint, targetInstance, "output", connection.target);
+
+  mappingEditModifier.value = connection.modifier || "range_map";
+  mappingEditInputMin.value = connection.input_min ?? 0;
+  mappingEditInputMax.value = connection.input_max ?? 127;
+  mappingEditOutputMin.value = connection.output_min ?? 0;
+  mappingEditOutputMax.value = connection.output_max ?? 127;
+  mappingEditInvert.checked = Boolean(connection.invert);
+  syncMappingEditRangeFieldsVisibility();
+}
+
+async function openMappingEditor(connection) {
+  editingConnectionId = connection.id;
+  mappingEditorTitle.textContent = `Edit mapping: ${connection.id}`;
+  mappingEditorMessage.textContent = "";
+  mappingEditor.hidden = false;
+  if (!learnRegistryDatapoints.length) {
+    await loadLearnDatapoints();
+  }
+  populateMappingEditor(connection);
+  mappingEditor.scrollIntoView({ behavior: "smooth", block: "nearest" });
+}
+
+function closeMappingEditor() {
+  editingConnectionId = "";
+  mappingEditor.hidden = true;
+  mappingEditorMessage.textContent = "";
+}
+
+function collectMappingEditorConnection() {
+  const source = mappingEditSourceDatapoint.value;
+  const target = mappingEditTargetDatapoint.value;
+  if (!source || !target) {
+    throw new Error("select source and target data points");
+  }
+  return {
+    id: editingConnectionId,
+    source,
+    target,
+    modifier: mappingEditModifier.value,
+    input_min: Number(mappingEditInputMin.value),
+    input_max: Number(mappingEditInputMax.value),
+    output_min: Number(mappingEditOutputMin.value),
+    output_max: Number(mappingEditOutputMax.value),
+    invert: mappingEditInvert.checked,
+  };
+}
+
+async function saveStoredConnections(connections) {
+  const response = await fetch("/api/connections", {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({ connections }),
+  });
+  if (!response.ok) {
+    throw new Error(await response.text());
+  }
+  const payload = await response.json();
+  storedConnections = payload.stored_connections || connections;
+  renderMappingsList(storedConnections);
+  if (payload.persisted === false) {
+    mappingEditorMessage.textContent = `saved for runtime only: ${payload.persist_error}`;
+  }
+  return payload;
+}
+
+async function saveMappingEditor() {
+  if (!editingConnectionId) {
+    return;
+  }
+  mappingEditorMessage.textContent = "saving...";
+  let updatedConnection;
+  try {
+    updatedConnection = collectMappingEditorConnection();
+  } catch (error) {
+    mappingEditorMessage.textContent = `error: ${error.message}`;
+    return;
+  }
+
+  const nextConnections = storedConnections.map((connection) => (
+    connection.id === editingConnectionId ? updatedConnection : connection
+  ));
+  try {
+    await saveStoredConnections(nextConnections);
+    closeMappingEditor();
+  } catch (error) {
+    mappingEditorMessage.textContent = `error: ${error.message}`;
+  }
+}
+
+async function deleteMappingConnection(connectionId) {
+  const nextConnections = storedConnections.filter((connection) => connection.id !== connectionId);
+  mappingEditorMessage.textContent = "deleting...";
+  try {
+    await saveStoredConnections(nextConnections);
+    if (editingConnectionId === connectionId) {
+      closeMappingEditor();
+    }
+  } catch (error) {
+    mappingEditorMessage.textContent = `error: ${error.message}`;
+  }
 }
 
 function applyLearnDatapointRanges(selectedOption, role) {
@@ -3439,6 +3621,20 @@ learnOscParameter.addEventListener("change", () => {
 
 learnCreate.addEventListener("click", completeLearnMapping);
 learnClear.addEventListener("click", clearLearnSource);
+
+mappingEditSourceInstance.addEventListener("change", () => {
+  fillLearnPointSelect(mappingEditSourceDatapoint, mappingEditSourceInstance.value, "input", "");
+});
+
+mappingEditTargetInstance.addEventListener("change", () => {
+  fillLearnPointSelect(mappingEditTargetDatapoint, mappingEditTargetInstance.value, "output", "");
+});
+
+mappingEditModifier.addEventListener("change", syncMappingEditRangeFieldsVisibility);
+mappingSave.addEventListener("click", () => {
+  saveMappingEditor();
+});
+mappingCancel.addEventListener("click", closeMappingEditor);
 
 masterTap.addEventListener("click", () => {
   fetch("/api/master-clock/tap", { method: "POST" })

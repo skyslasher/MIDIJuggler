@@ -74,6 +74,7 @@ from midijuggler.osc.desk_protocol import (
 from midijuggler.osc.discovery import discover_desks, discovery_scan_networks
 from midijuggler.osc_library import get_osc_library, list_osc_libraries
 from midijuggler.datapoint.bridge import datapoint_to_legacy_source, datapoint_to_legacy_target, legacy_source_to_datapoint
+from midijuggler.datapoint.bridge import mapping_from_connection, stored_connections
 from midijuggler.datapoint.migrate import effective_connections
 from midijuggler.datapoint.store import DataPointStore
 from midijuggler.datapoint.types import ConnectionSpec, ModifierKind, float_value
@@ -213,9 +214,10 @@ class WebInterface:
         return web.json_response(self.datapoints_payload())
 
     def connections_payload(self) -> dict[str, Any]:
-        connections = self._effective_connections()
+        stored = self._stored_connections()
         return {
-            "connections": [connection.as_dict() for connection in connections],
+            "connections": [connection.as_dict() for connection in self._effective_connections()],
+            "stored_connections": [connection.as_dict() for connection in stored],
             "datapoint_routing": self.config.runtime.datapoint_routing,
         }
 
@@ -267,8 +269,12 @@ class WebInterface:
                 "runtime",
                 RuntimeConfig(datapoint_routing=bool(payload["datapoint_routing"])),
             )
-        self._apply_runtime_connections()
-        return web.json_response(self.connections_payload())
+        self._apply_stored_connections(connections)
+        persisted, persist_error = self._persist_stored_connections(connections)
+        response = self.connections_payload()
+        response["persisted"] = persisted
+        response["persist_error"] = persist_error
+        return web.json_response(response)
 
     async def write_datapoint(self, point_id: str, value: float) -> None:
         if self.datapoint_store is None:
@@ -765,6 +771,40 @@ class WebInterface:
         )
         return response
 
+    def _stored_connections(self) -> list[ConnectionSpec]:
+        return stored_connections(self.config.mappings, self.config.connections)
+
+    def _apply_stored_connections(self, connections: list[ConnectionSpec]) -> None:
+        object.__setattr__(self.config, "connections", list(connections))
+        updated_mappings = [mapping_from_connection(connection) for connection in connections]
+        self.config.mappings[:] = updated_mappings
+        if self.mapping_engine is not None:
+            self.mapping_engine.replace_rules(updated_mappings)
+        self._apply_runtime_connections()
+
+    def _persist_stored_connections(
+        self,
+        connections: list[ConnectionSpec],
+    ) -> tuple[bool, str]:
+        if self.config_path is None:
+            return False, "no config path available"
+        try:
+            save_connections(self.config_path, connections)
+            mappings = (
+                []
+                if self.config.runtime.datapoint_routing
+                else [mapping_from_connection(connection) for connection in connections]
+            )
+            save_mappings(self.config_path, mappings)
+            return True, ""
+        except OSError as exc:
+            LOGGER.warning(
+                "Could not persist connections to %s: %s",
+                self.config_path,
+                exc,
+            )
+            return False, str(exc)
+
     def _apply_runtime_connections(self) -> None:
         if self.modifier_graph is None:
             return
@@ -810,6 +850,9 @@ class WebInterface:
             "learn": self.learn.state.as_dict(),
             "osc_instances": self._osc_instances_payload(),
             "mappings": [rule.__dict__ for rule in self.config.mappings],
+            "stored_connections": [
+                connection.as_dict() for connection in self._stored_connections()
+            ],
             "connections": [
                 connection.as_dict() for connection in self._effective_connections()
             ],

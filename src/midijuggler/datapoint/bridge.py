@@ -65,6 +65,30 @@ def migrate_mappings_to_connections(rules: list[MappingRule]) -> list[Connection
     return connections_from_legacy_mappings(rules)
 
 
+def mapping_from_connection(connection: ConnectionSpec) -> MappingRule:
+    return MappingRule(
+        id=connection.id,
+        source=datapoint_to_legacy_source(connection.source),
+        target=datapoint_to_legacy_target(connection.target),
+        input_min=connection.input_min,
+        input_max=connection.input_max,
+        output_min=connection.output_min,
+        output_max=connection.output_max,
+        invert=connection.invert,
+    )
+
+
+def stored_connections(
+    mappings: list[MappingRule],
+    connections: list[ConnectionSpec],
+) -> list[ConnectionSpec]:
+    """Return user-defined connections, migrating legacy mappings when needed."""
+
+    if connections:
+        return list(connections)
+    return migrate_mappings_to_connections(mappings)
+
+
 class EventToDataPointBridge:
     """Mirror legacy bus events into the data-point store."""
 

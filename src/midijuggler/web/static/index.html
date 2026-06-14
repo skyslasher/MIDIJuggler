@@ -113,6 +113,65 @@
         <article>
           <h2>Mappings</h2>
           <ul id="mappings"></ul>
+          <div id="mapping-editor" class="mapping-editor" hidden>
+            <h3 id="mapping-editor-title" class="mapping-editor-title">Edit mapping</h3>
+            <div class="learn-endpoint-group">
+              <h4 class="learn-endpoint-title">Source</h4>
+              <label class="stacked-field">
+                Instance
+                <select id="mapping-edit-source-instance"></select>
+              </label>
+              <label class="stacked-field">
+                Data point
+                <select id="mapping-edit-source-datapoint" disabled></select>
+              </label>
+            </div>
+            <div class="learn-endpoint-group">
+              <h4 class="learn-endpoint-title">Target</h4>
+              <label class="stacked-field">
+                Instance
+                <select id="mapping-edit-target-instance"></select>
+              </label>
+              <label class="stacked-field">
+                Data point
+                <select id="mapping-edit-target-datapoint" disabled></select>
+              </label>
+            </div>
+            <label class="stacked-field">
+              Modifier
+              <select id="mapping-edit-modifier">
+                <option value="range_map">Range map</option>
+                <option value="passthrough">Passthrough</option>
+              </select>
+            </label>
+            <div id="mapping-edit-range-fields" class="learn-range-fields">
+              <label class="stacked-field">
+                Input min
+                <input id="mapping-edit-input-min" type="number" step="any" value="0" />
+              </label>
+              <label class="stacked-field">
+                Input max
+                <input id="mapping-edit-input-max" type="number" step="any" value="127" />
+              </label>
+              <label class="stacked-field">
+                Output min
+                <input id="mapping-edit-output-min" type="number" step="any" value="0" />
+              </label>
+              <label class="stacked-field">
+                Output max
+                <input id="mapping-edit-output-max" type="number" step="any" value="127" />
+              </label>
+              <label class="inline-field">
+                <input id="mapping-edit-invert" type="checkbox" />
+                Invert
+              </label>
+            </div>
+            <div class="learn-actions">
+              <button id="mapping-save" type="button">Save mapping</button>
+              <button id="mapping-cancel" type="button">Cancel</button>
+            </div>
+            <p id="mapping-editor-message" class="message"></p>
+          </div>
         </article>
         <article>
           <h2>OSC Libraries</h2>
