@@ -17,6 +17,26 @@ LEGACY_MAPPING_DEPRECATION = (
 )
 
 
+def resolved_user_connections(
+    mappings: list[MappingRule],
+    connections: list[ConnectionSpec],
+) -> list[ConnectionSpec]:
+    """Resolve configured user connections without resurrecting cleared mappings."""
+
+    if connections or not mappings:
+        return list(connections)
+    return migrate_mappings_to_connections(mappings)
+
+
+def stored_connections(
+    mappings: list[MappingRule],
+    connections: list[ConnectionSpec],
+) -> list[ConnectionSpec]:
+    """Return user-defined connections, migrating legacy mappings when needed."""
+
+    return resolved_user_connections(mappings, connections)
+
+
 def effective_connections(
     mappings: list[MappingRule],
     connections: list[ConnectionSpec],
@@ -27,7 +47,7 @@ def effective_connections(
 ) -> list[ConnectionSpec]:
     """Return explicit connections, migrated mappings, and optional clock defaults."""
 
-    resolved = list(connections) if connections else migrate_mappings_to_connections(mappings)
+    resolved = resolved_user_connections(mappings, connections)
     if not datapoint_routing or master_clock is None:
         return resolved
     output_targets = list(master_clock.output_targets)

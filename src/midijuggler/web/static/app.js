@@ -603,6 +603,14 @@ async function saveStoredConnections(connections) {
   const payload = await response.json();
   storedConnections = payload.stored_connections || connections;
   renderMappingsList(storedConnections);
+  try {
+    const statusResponse = await fetch("/api/status");
+    if (statusResponse.ok) {
+      renderStatus(await statusResponse.json());
+    }
+  } catch {
+    // keep list update even if status refresh fails
+  }
   if (payload.persisted === false) {
     mappingEditorMessage.textContent = `saved for runtime only: ${payload.persist_error}`;
   }

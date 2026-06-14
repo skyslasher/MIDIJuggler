@@ -78,17 +78,6 @@ def mapping_from_connection(connection: ConnectionSpec) -> MappingRule:
     )
 
 
-def stored_connections(
-    mappings: list[MappingRule],
-    connections: list[ConnectionSpec],
-) -> list[ConnectionSpec]:
-    """Return user-defined connections, migrating legacy mappings when needed."""
-
-    if connections:
-        return list(connections)
-    return migrate_mappings_to_connections(mappings)
-
-
 class EventToDataPointBridge:
     """Mirror legacy bus events into the data-point store."""
 
@@ -116,10 +105,12 @@ class EventToDataPointBridge:
 
     async def _on_control(self, event: ControlEvent) -> None:
         if event.source == "clock" and event.control == "bpm":
-            await self.store.write(float_value(DataPointId("clock", "bpm"), event.value))
+            await self.store.write(
+                float_value(DataPointId("clock", "bpm"), event.value, emit_outputs=False)
+            )
             return
         point_id = DataPointId(module=event.source, point=event.control)
-        await self.store.write(float_value(point_id, event.value))
+        await self.store.write(float_value(point_id, event.value, emit_outputs=False))
 
     async def _on_midi_message(self, event: MidiMessageEvent) -> None:
         if event.direction == "output" and event.source == "master_clock":
@@ -135,7 +126,7 @@ class EventToDataPointBridge:
             point=_midi_message_point_id(event),
         )
         await self.store.write(
-            midi_message_value(point_id, event.status, event.data),
+            midi_message_value(point_id, event.status, event.data, emit_outputs=False),
         )
 
     async def _on_osc_message(self, event: OscMessageEvent) -> None:
@@ -149,7 +140,9 @@ class EventToDataPointBridge:
             osc_arguments=event.arguments,
         )
         if event.arguments and isinstance(event.arguments[0], (int, float)):
-            await self.store.write(float_value(point_id, float(event.arguments[0])))
+            await self.store.write(
+                float_value(point_id, float(event.arguments[0]), emit_outputs=False)
+            )
         await self.store.write(value)
 
 

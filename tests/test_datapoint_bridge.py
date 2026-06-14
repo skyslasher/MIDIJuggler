@@ -4,8 +4,8 @@ from midijuggler.datapoint.bridge import (
     legacy_target_to_datapoint,
     mapping_from_connection,
     migrate_mappings_to_connections,
-    stored_connections,
 )
+from midijuggler.datapoint.migrate import resolved_user_connections, stored_connections
 from midijuggler.mapping import MappingRule
 
 
@@ -87,3 +87,16 @@ def test_stored_connections_prefers_explicit_connections() -> None:
     resolved = stored_connections(rules, explicit)
     assert len(resolved) == 1
     assert resolved[0].id == "modern"
+
+
+def test_resolved_user_connections_honors_cleared_state() -> None:
+    rules = [
+        MappingRule(
+            id="legacy",
+            source="gpio:pin17",
+            target="midi:cc:1:64",
+        )
+    ]
+
+    assert resolved_user_connections([], []) == []
+    assert len(resolved_user_connections(rules, [])) == 1

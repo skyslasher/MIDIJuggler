@@ -85,6 +85,7 @@ class DataPointValue:
     midi_data: tuple[int, ...] | None = None
     osc_address: str | None = None
     osc_arguments: tuple[Any, ...] | None = None
+    emit_outputs: bool = True
 
     def as_dict(self) -> dict[str, Any]:
         payload: dict[str, Any] = {
@@ -137,12 +138,18 @@ class ConnectionSpec:
         }
 
 
-def float_value(point_id: DataPointId | str, value: float) -> DataPointValue:
+def float_value(
+    point_id: DataPointId | str,
+    value: float,
+    *,
+    emit_outputs: bool = True,
+) -> DataPointValue:
     resolved = point_id if isinstance(point_id, DataPointId) else DataPointId.parse(point_id)
     return DataPointValue(
         point_id=resolved,
         value_type=ValueType.FLOAT,
         float_value=value,
+        emit_outputs=emit_outputs,
     )
 
 
@@ -159,6 +166,8 @@ def midi_message_value(
     point_id: DataPointId | str,
     status: int,
     data: tuple[int, ...] = (),
+    *,
+    emit_outputs: bool = True,
 ) -> DataPointValue:
     resolved = point_id if isinstance(point_id, DataPointId) else DataPointId.parse(point_id)
     return DataPointValue(
@@ -166,6 +175,7 @@ def midi_message_value(
         value_type=ValueType.MIDI_MESSAGE,
         midi_status=status,
         midi_data=data,
+        emit_outputs=emit_outputs,
     )
 
 
@@ -181,4 +191,5 @@ def relay_value(value: DataPointValue, target: DataPointId | str) -> DataPointVa
         midi_data=value.midi_data,
         osc_address=value.osc_address,
         osc_arguments=value.osc_arguments,
+        emit_outputs=value.emit_outputs,
     )

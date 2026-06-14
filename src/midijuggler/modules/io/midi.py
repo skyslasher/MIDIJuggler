@@ -130,7 +130,7 @@ class MidiIOModule(IOModule):
         )
 
     async def _on_output_value(self, value: DataPointValue) -> None:
-        if value.float_value is None:
+        if not value.emit_outputs or value.float_value is None:
             return
         try:
             status, data = encode_mapped_midi_target(

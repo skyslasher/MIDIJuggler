@@ -51,7 +51,7 @@ from midijuggler.learn import (
     upsert_mapping_rule,
 )
 from midijuggler.osc_library import get_osc_library
-from midijuggler.mapping import MappingEngine, MappingRule
+from midijuggler.mapping import MappingEngine
 from midijuggler.midi.target_encode import (
     encode_midi_target_message,
     lookup_midi_target_ranges,
@@ -73,9 +73,9 @@ from midijuggler.osc.desk_protocol import (
 )
 from midijuggler.osc.discovery import discover_desks, discovery_scan_networks
 from midijuggler.osc_library import get_osc_library, list_osc_libraries
-from midijuggler.datapoint.bridge import datapoint_to_legacy_source, datapoint_to_legacy_target, legacy_source_to_datapoint
-from midijuggler.datapoint.bridge import mapping_from_connection, stored_connections
-from midijuggler.datapoint.migrate import effective_connections
+from midijuggler.datapoint.bridge import legacy_source_to_datapoint
+from midijuggler.datapoint.bridge import mapping_from_connection
+from midijuggler.datapoint.migrate import effective_connections, stored_connections
 from midijuggler.datapoint.store import DataPointStore
 from midijuggler.datapoint.types import ConnectionSpec, ModifierKind, float_value
 from midijuggler.modules.modifier.graph import ModifierGraph
@@ -702,52 +702,23 @@ class WebInterface:
 
         use_datapoint_routing = self.config.runtime.datapoint_routing
         created_mapping: dict[str, Any] | None = None
-        updated_mappings = list(self.config.mappings)
-
         if not use_datapoint_routing:
-            source_legacy = (
-                self.learn.state.source.key
-                if self.learn.state.source is not None
-                else datapoint_to_legacy_source(source_datapoint)
-            )
-            target_adapter = str(payload.get("target_adapter", "")).strip()
-            parameter_id = str(payload.get("parameter_id", "")).strip()
-            if target_adapter and parameter_id and self.learn.state.source is not None:
-                rule = self.learn.build_mapping(
-                    self.config,
-                    source=self.learn.state.source,
-                    target_adapter=target_adapter,
-                    target_parameter_id=parameter_id,
-                    mapping_id=str(payload.get("id", "")).strip() or None,
-                )
-            else:
-                rule = MappingRule(
-                    id=connection.id,
-                    source=source_legacy,
-                    target=datapoint_to_legacy_target(target_datapoint),
-                    input_min=input_min,
-                    input_max=input_max,
-                    output_min=output_min,
-                    output_max=output_max,
-                    invert=invert,
-                )
-            updated_mappings = upsert_mapping_rule(self.config.mappings, rule)
-            self.config.mappings[:] = updated_mappings
-            if self.mapping_engine is not None:
-                self.mapping_engine.replace_rules(updated_mappings)
-            created_mapping = rule.__dict__
+            created_mapping = mapping_from_connection(connection).__dict__
 
         updated_connections = upsert_connection(self.config.connections, connection)
-        object.__setattr__(self.config, "connections", updated_connections)
-        self._apply_runtime_connections()
+        self._apply_stored_connections(updated_connections)
 
         persisted = False
         persist_error = ""
         if self.config_path is not None:
             try:
                 save_connections(self.config_path, updated_connections)
-                if created_mapping is not None:
-                    save_mappings(self.config_path, updated_mappings)
+                mappings_to_save = (
+                    []
+                    if use_datapoint_routing
+                    else list(self.config.mappings)
+                )
+                save_mappings(self.config_path, mappings_to_save)
                 persisted = True
             except OSError as exc:
                 persist_error = str(exc)
@@ -808,7 +779,16 @@ class WebInterface:
     def _apply_runtime_connections(self) -> None:
         if self.modifier_graph is None:
             return
-        self.modifier_graph.replace_connections(self._effective_connections())
+        user_connections = self._stored_connections()
+        self.modifier_graph.replace_connections(
+            effective_connections(
+                [],
+                user_connections,
+                datapoint_routing=self.config.runtime.datapoint_routing,
+                master_clock=self.config.master_clock,
+                adapters=self.config.adapters,
+            )
+        )
 
     async def _broadcast_event(self, event: Event) -> None:
         if isinstance(event, AdapterStatusEvent):

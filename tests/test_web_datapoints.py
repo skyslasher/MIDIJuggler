@@ -131,3 +131,57 @@ invert = false
     reloaded = load_config(config_path)
     assert reloaded.connections[0].id == "updated"
     assert reloaded.mappings[0].source == "gpio:pin18"
+
+
+def test_delete_all_connections_clears_runtime_routing(tmp_path) -> None:
+    from midijuggler.config import load_config
+    from midijuggler.mapping import MappingEngine
+    from midijuggler.modules.modifier.graph import ModifierGraph
+
+    config_path = tmp_path / "config.toml"
+    config_path.write_text(
+        """
+[web]
+host = "127.0.0.1"
+port = 8080
+
+[[connections]]
+id = "route"
+source = "gpio.pin17"
+target = "midi.cc_1_64"
+modifier = "range_map"
+input_min = 0.0
+input_max = 1.0
+output_min = 0.0
+output_max = 127.0
+invert = false
+""".strip()
+        + "\n",
+        encoding="utf-8",
+    )
+    config = load_config(config_path)
+    mapping_engine = MappingEngine(config.mappings)
+    store = DataPointStore()
+    graph = ModifierGraph(store, config.connections)
+    interface = WebInterface(
+        config,
+        EventBus(),
+        ClockBpmTracker(),
+        MasterClock(config.master_clock, EventBus()),
+        mapping_engine=mapping_engine,
+        datapoint_store=store,
+        modifier_graph=graph,
+        config_path=config_path,
+    )
+
+    async def scenario() -> None:
+        app = interface.create_app()
+        async with TestClient(TestServer(app)) as client:
+            response = await client.post("/api/connections", json={"connections": []})
+            assert response.status == 200
+
+    asyncio.run(scenario())
+
+    assert mapping_engine.rules == ()
+    assert interface._stored_connections() == []
+    assert graph.connections == []

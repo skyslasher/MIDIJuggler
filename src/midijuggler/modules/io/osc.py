@@ -80,7 +80,7 @@ class OscIOModule(IOModule):
         await super().stop()
 
     async def _on_output_value(self, value: DataPointValue) -> None:
-        if value.float_value is None:
+        if not value.emit_outputs or value.float_value is None:
             return
         target = f"{self.name}:{value.point_id.point}"
         await self.adapter.send(
