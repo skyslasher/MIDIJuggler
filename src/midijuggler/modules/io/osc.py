@@ -47,11 +47,11 @@ class OscIOModule(IOModule):
                 library = None
             if library is not None:
                 for parameter in library.parameters:
-                    direction = (
-                        DataPointDirection.INPUT
-                        if parameter.direction == "source"
-                        else DataPointDirection.OUTPUT
-                    )
+                    if parameter.direction == "source":
+                        direction = DataPointDirection.INPUT
+                    else:
+                        # Desk OSC targets are writable and also report state on the same path.
+                        direction = DataPointDirection.BIDIRECTIONAL
                     point = parameter.address if parameter.address.startswith("/") else parameter.id
                     specs.append(
                         DataPointSpec(
@@ -64,7 +64,10 @@ class OscIOModule(IOModule):
                             protocol="osc",
                         )
                     )
-                    if direction == DataPointDirection.OUTPUT:
+                    if direction in {
+                        DataPointDirection.OUTPUT,
+                        DataPointDirection.BIDIRECTIONAL,
+                    }:
                         self._output_points.add(point)
         return specs
 
