@@ -43,7 +43,7 @@ def test_encode_mapped_midi_target_for_xtouch_library_parameter() -> None:
         14.0,
     )
 
-    assert status == 0xBA
+    assert status == 0xBB
     assert data == (1, 14)
 
 

@@ -193,7 +193,7 @@ class MidiAdapter(Adapter):
             )
             return None
 
-        return build_source_index(library, resolve_library_port(self.config))
+        return build_source_index(library, resolve_library_port(self.config), adapter=self.config)
 
     def _refresh_port_addresses(self) -> None:
         """Re-resolve MIDI port names from configured port labels."""

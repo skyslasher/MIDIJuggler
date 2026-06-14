@@ -27,7 +27,13 @@ def test_xtouch_mini_library_contains_layers_controls_and_feedback() -> None:
 
     assert parameters["layer_a_encoder_8_led_ring"].direction == "target"
     assert parameters["layer_a_encoder_8_led_ring"].number == 8
+    assert parameters["layer_a_encoder_8_led_ring"].midi_channel == 12
+    assert parameters["layer_a_encoder_8_led_ring"].value_max == 28
+    assert parameters["layer_a_encoder_1_value"].midi_channel == 11
+    assert parameters["layer_a_encoder_1_value"].number == 1
+    assert parameters["layer_a_encoder_1_value"].value_max == 127
     assert parameters["layer_b_encoder_8_led_ring"].number == 18
+    assert parameters["layer_b_encoder_8_value"].number == 18
     assert parameters["layer_a_top_button_1_led"].number == 8
     assert parameters["layer_a_top_button_1_led"].value_max == 1
     assert parameters["layer_a_top_button_1_led"].note_on_velocity == 127
@@ -35,7 +41,7 @@ def test_xtouch_mini_library_contains_layers_controls_and_feedback() -> None:
     assert parameters["layer_b_bottom_button_8_led"].number == 47
     assert parameters["select_layer_b"].message_type == "program_change"
     assert parameters["set_mc_mode"].number == 127
-    assert len(library.parameters) == 118
+    assert len(library.parameters) == 134
 
 
 def test_faderport_library_contains_channel_controls_and_lcd_track_names() -> None:

@@ -261,7 +261,7 @@ def build_midi_source_index_for_adapter(adapter: AdapterConfig) -> MidiSourceInd
     except KeyError:
         return None
 
-    return build_source_index(library, resolve_library_port(adapter))
+    return build_source_index(library, resolve_library_port(adapter), adapter=adapter)
 
 
 def make_mapping_id(source: str, target: str) -> str:

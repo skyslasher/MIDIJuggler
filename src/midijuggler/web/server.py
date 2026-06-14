@@ -57,6 +57,11 @@ from midijuggler.midi.target_encode import (
     lookup_midi_target_ranges,
     resolve_midi_target_parameter,
 )
+from midijuggler.midi.xtouch_channels import (
+    DEFAULT_XTOUCH_DISPLAY_CHANNEL,
+    DEFAULT_XTOUCH_VALUE_CHANNEL,
+    parse_midi_channel_option,
+)
 from midijuggler.midi.xtouch_feedback import (
     XTOUCH_MINI_LIBRARY_ID,
     parse_feedback_refresh_interval,
@@ -1853,6 +1858,14 @@ class WebInterface:
                     "feedback_refresh_interval": float(
                         options.get("feedback_refresh_interval", 0) or 0
                     ),
+                    "midi_value_channel": int(
+                        options.get("midi_value_channel", DEFAULT_XTOUCH_VALUE_CHANNEL)
+                        or DEFAULT_XTOUCH_VALUE_CHANNEL
+                    ),
+                    "midi_display_channel": int(
+                        options.get("midi_display_channel", DEFAULT_XTOUCH_DISPLAY_CHANNEL)
+                        or DEFAULT_XTOUCH_DISPLAY_CHANNEL
+                    ),
                     "available_input_ports": self._midi_port_choices(
                         available_input_ports,
                         input_port,
@@ -1955,6 +1968,23 @@ class WebInterface:
             )
         if midi_library == XTOUCH_MINI_LIBRARY_ID or interval > 0:
             options["feedback_refresh_interval"] = interval
+        if midi_library == XTOUCH_MINI_LIBRARY_ID:
+            options["midi_value_channel"] = parse_midi_channel_option(
+                payload.get(
+                    "midi_value_channel",
+                    current.get("midi_value_channel", DEFAULT_XTOUCH_VALUE_CHANNEL),
+                ),
+                field_name="midi_value_channel",
+                default=DEFAULT_XTOUCH_VALUE_CHANNEL,
+            )
+            options["midi_display_channel"] = parse_midi_channel_option(
+                payload.get(
+                    "midi_display_channel",
+                    current.get("midi_display_channel", DEFAULT_XTOUCH_DISPLAY_CHANNEL),
+                ),
+                field_name="midi_display_channel",
+                default=DEFAULT_XTOUCH_DISPLAY_CHANNEL,
+            )
         return options
 
     def _normalized_rtp_midi_options(

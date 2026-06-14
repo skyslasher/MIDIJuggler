@@ -39,8 +39,11 @@ layer_a_fader
 layer_b_encoder_1_turn
 layer_b_top_button_1
 layer_b_fader
+layer_a_encoder_1_value
+layer_b_encoder_1_value
 layer_a_encoder_1_led_ring
 layer_b_encoder_1_led_ring
+encoder_1_value
 encoder_1_led_ring
 button_1_led
 select_layer_a
@@ -63,9 +66,11 @@ library uses a predictable layout that is suitable for MIDIJuggler mappings:
 
 Feedback targets follow the documented X-Touch Mini receive behavior:
 
-- Layer A LED rings: CC 1-8, values 0-28
-- Layer B LED rings: CC 11-18, values 0-28
+- Internal encoder values: configurable value channel (default 11), CC 1-8 / 11-18, values 0-127
+- LED ring display: configurable display channel (default 12), CC 1-8 / 11-18, values 0-28
 - Button LEDs: notes 0-15, value 0 off, 1 on, 2 blinking
+
+Configure `midi_value_channel` and `midi_display_channel` on the adapter when the X-Touch Editor uses non-default MIDI channels.
 - Layer selection: program change 0 for Layer A, 1 for Layer B
 - Mode selection: CC 127 value 0 for Standard Mode, 1 for MC Mode
 
@@ -78,6 +83,8 @@ enabled = true
 input_port = "X-TOUCH MINI"
 output_port = "X-TOUCH MINI"
 midi_library = "behringer_xtouch_mini"
+midi_value_channel = 11
+midi_display_channel = 12
 
 [[mappings]]
 id = "xtouch-mini-layer-a-encoder-1-to-x32-send"

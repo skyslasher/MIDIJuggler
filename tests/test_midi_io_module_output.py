@@ -89,16 +89,16 @@ def test_midi_io_module_does_not_echo_input_sourced_datapoint_writes() -> None:
     async def scenario() -> None:
         await module.start()
         await store.write(
-            float_value("xtouch_mini.layer_a_encoder_1_led_ring", 12.0, emit_outputs=False)
+            float_value("xtouch_mini.layer_a_encoder_1_value", 64.0, emit_outputs=False)
         )
-        await store.write(float_value("xtouch_mini.layer_a_encoder_1_led_ring", 18.0))
+        await store.write(float_value("xtouch_mini.layer_a_encoder_1_value", 100.0))
 
     asyncio.run(scenario())
 
     adapter.send_midi_message.assert_awaited_once()
     sent = adapter.send_midi_message.await_args.args[0]
     assert sent.direction == "output"
-    assert sent.data == (1, 18)
+    assert sent.data == (1, 100)
 
 
 def test_bridge_midi_control_event_does_not_emit_outputs() -> None:

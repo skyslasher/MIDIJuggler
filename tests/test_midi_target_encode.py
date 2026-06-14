@@ -46,8 +46,17 @@ def test_encode_midi_target_message_control_change_led_ring() -> None:
 
     status, data = encode_midi_target_message(parameter, 5)
 
-    assert status == 0xBA
+    assert status == 0xBB
     assert data == (1, 5)
+
+
+def test_encode_midi_target_message_control_change_encoder_value() -> None:
+    parameter = _parameter("behringer_xtouch_mini", "layer_a_encoder_1_value")
+
+    status, data = encode_midi_target_message(parameter, 64.0)
+
+    assert status == 0xBA
+    assert data == (1, 64)
 
 
 def test_resolve_midi_target_parameter_uses_adapter_library() -> None:

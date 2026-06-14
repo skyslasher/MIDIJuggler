@@ -3,7 +3,7 @@ id = "behringer_xtouch_mini"
 name = "Behringer X-Touch Mini MIDI"
 vendor = "Behringer"
 model = "X-Touch Mini"
-notes = "Logical Standard Mode mapping catalog for X-Touch Mini on MIDI channel 11. The controller is user-programmable with the X-Touch Editor; this library uses a predictable two-layer layout with 8 encoders, 16 buttons and one fader per layer, plus documented feedback targets for LED rings and button LEDs."
+notes = "Logical Standard Mode mapping catalog for X-Touch Mini. Control and internal value targets use MIDI channel 11 (0-127, persisted in X-Touch Editor memory). LED ring display targets use MIDI channel 12 (0-28 ring positions). The controller is user-programmable with the X-Touch Editor; this library uses a predictable two-layer layout with 8 encoders, 16 buttons and one fader per layer."
 
 [[templates]]
 id = "layer_a_encoder_{encoder}_turn"
@@ -191,6 +191,43 @@ number = 10
 description = "Layer B 60 mm master fader on CC 10."
 
 [[templates]]
+id = "layer_a_encoder_{encoder}_value"
+label = "Layer A Encoder {encoder} Value"
+address = "xtouch-mini://layer_a/value/encoder/{encoder}"
+range_name = "encoder"
+range_start = 1
+range_end = 8
+message_type = "control_change"
+value_type = "int"
+value_min = 0
+value_max = 127
+category = "value"
+direction = "target"
+midi_channel = 11
+number = "{encoder}"
+description = "Layer A encoder {encoder} internal value on channel 11 CC {encoder}. Updates persisted X-Touch memory (0-127), not the LED ring display."
+
+[[templates]]
+id = "layer_b_encoder_{encoder}_value"
+label = "Layer B Encoder {encoder} Value"
+address = "xtouch-mini://layer_b/value/encoder/{encoder}"
+range_name = "encoder"
+range_start = 1
+range_end = 8
+derived = [
+  { name = "cc_number", source = "encoder", offset = 10 },
+]
+message_type = "control_change"
+value_type = "int"
+value_min = 0
+value_max = 127
+category = "value"
+direction = "target"
+midi_channel = 11
+number = "{cc_number}"
+description = "Layer B encoder {encoder} internal value on channel 11 CC 11-18. Updates persisted X-Touch memory (0-127), not the LED ring display."
+
+[[templates]]
 id = "layer_a_encoder_{encoder}_led_ring"
 label = "Layer A Encoder {encoder} LED Ring"
 address = "xtouch-mini://layer_a/feedback/encoder/{encoder}/led_ring"
@@ -203,9 +240,9 @@ value_min = 0
 value_max = 28
 category = "feedback"
 direction = "target"
-midi_channel = 11
+midi_channel = 12
 number = "{encoder}"
-description = "Layer A encoder {encoder} LED ring on CC 1-8. 0 off, 1-13 position, 14-26 blinking position, 27 all on, 28 all blinking."
+description = "Layer A encoder {encoder} LED ring display on channel 12 CC {encoder}. 0 off, 1-13 position, 14-26 blinking position, 27 all on, 28 all blinking."
 
 [[templates]]
 id = "layer_b_encoder_{encoder}_led_ring"
@@ -223,9 +260,9 @@ value_min = 0
 value_max = 28
 category = "feedback"
 direction = "target"
-midi_channel = 11
+midi_channel = 12
 number = "{cc_number}"
-description = "Layer B encoder {encoder} LED ring on CC 11-18. 0 off, 1-13 position, 14-26 blinking position, 27 all on, 28 all blinking."
+description = "Layer B encoder {encoder} LED ring display on channel 12 CC 11-18. 0 off, 1-13 position, 14-26 blinking position, 27 all on, 28 all blinking."
 
 [[templates]]
 id = "layer_a_top_button_{button}_led"

@@ -46,7 +46,7 @@ def test_modifier_graph_subscribes_sources_added_at_runtime() -> None:
         if value.float_value is not None:
             received.append(value.float_value)
 
-    store.subscribe("xtouch_mini.layer_a_encoder_1_led_ring", handler)
+    store.subscribe("xtouch_mini.layer_a_encoder_1_value", handler)
 
     async def scenario() -> None:
         await graph.start()
@@ -55,11 +55,11 @@ def test_modifier_graph_subscribes_sources_added_at_runtime() -> None:
                 ConnectionSpec(
                     id="fader-to-ring",
                     source="x32./ch/01/mix/fader",
-                    target="xtouch_mini.layer_a_encoder_1_led_ring",
+                    target="xtouch_mini.layer_a_encoder_1_value",
                     input_min=0.0,
                     input_max=1.0,
                     output_min=0.0,
-                    output_max=28.0,
+                    output_max=127.0,
                 )
             ]
         )
@@ -68,4 +68,4 @@ def test_modifier_graph_subscribes_sources_added_at_runtime() -> None:
         )
 
     asyncio.run(scenario())
-    assert received == [14.0]
+    assert received == [63.5]

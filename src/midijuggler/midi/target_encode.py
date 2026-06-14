@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from midijuggler.config import AdapterConfig, AppConfig
 from midijuggler.midi.library_match import _parameter_matches_port, resolve_library_port
+from midijuggler.midi.xtouch_channels import resolve_parameter_midi_channel
 from midijuggler.midi_library import MidiParameter, get_midi_library
 
 NOTE_OFF = 0x80
@@ -64,6 +65,8 @@ def lookup_midi_target_ranges(
 def encode_midi_target_message(
     parameter: MidiParameter,
     value: float,
+    *,
+    adapter: AdapterConfig | None = None,
 ) -> tuple[int, tuple[int, ...]]:
     if parameter.direction != "target":
         raise ValueError(f"MIDI parameter {parameter.id!r} is not a target")
@@ -74,7 +77,11 @@ def encode_midi_target_message(
     if parameter.midi_channel is None:
         raise ValueError(f"MIDI parameter {parameter.label!r} is missing midi_channel")
 
-    channel = parameter.midi_channel - 1
+    channel = (
+        resolve_parameter_midi_channel(adapter, parameter) - 1
+        if adapter is not None
+        else parameter.midi_channel - 1
+    )
     scaled = _scaled_midi_value(parameter, value)
 
     if parameter.message_type == "control_change":
@@ -141,7 +148,8 @@ def encode_mapped_midi_target(
         if encoded is None:
             raise ValueError(f"unsupported MIDI target point {target_point!r}")
         return encoded
-    return encode_midi_target_message(parameter, value)
+    adapter = config.adapters.get(adapter_name)
+    return encode_midi_target_message(parameter, value, adapter=adapter)
 
 
 def encode_legacy_midi_target_point(
