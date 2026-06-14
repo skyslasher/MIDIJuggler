@@ -188,3 +188,68 @@ def test_upsert_connection_replaces_same_source() -> None:
 
     assert len(updated) == 1
     assert updated[0].id == "new"
+
+
+def test_reverse_connection_maps_encoder_turn_to_value() -> None:
+    from midijuggler.datapoint.types import ConnectionSpec
+    from midijuggler.learn import reverse_connection, suggest_feedback_target
+
+    forward = ConnectionSpec(
+        id="encoder-to-fader",
+        source="xtouch_mini.layer_a_encoder_1_turn",
+        target="x32_foh./ch/01/mix/fader",
+        input_min=1.0,
+        input_max=127.0,
+        output_min=0.0,
+        output_max=1.0,
+    )
+
+    assert suggest_feedback_target(forward.source, forward.target) == (
+        "xtouch_mini.layer_a_encoder_1_value"
+    )
+
+    feedback = reverse_connection(forward)
+    assert feedback.source == "x32_foh./ch/01/mix/fader"
+    assert feedback.target == "xtouch_mini.layer_a_encoder_1_value"
+    assert feedback.input_min == 0.0
+    assert feedback.input_max == 1.0
+    assert feedback.output_min == 1.0
+    assert feedback.output_max == 127.0
+
+
+def test_reverse_connection_uses_registry_ranges_for_feedback_target() -> None:
+    from midijuggler.datapoint.store import DataPointStore
+    from midijuggler.datapoint.types import (
+        ConnectionSpec,
+        DataPointDirection,
+        DataPointId,
+        DataPointSpec,
+        ValueType,
+    )
+    from midijuggler.learn import reverse_connection
+
+    store = DataPointStore()
+    store.register(
+        DataPointSpec(
+            id=DataPointId("xtouch_mini", "layer_a_encoder_1_value"),
+            value_type=ValueType.FLOAT,
+            direction=DataPointDirection.OUTPUT,
+            value_min=0.0,
+            value_max=127.0,
+            protocol="midi",
+        )
+    )
+    forward = ConnectionSpec(
+        id="encoder-to-fader",
+        source="xtouch_mini.layer_a_encoder_1_turn",
+        target="x32_foh./ch/01/mix/fader",
+        input_min=1.0,
+        input_max=127.0,
+        output_min=0.0,
+        output_max=1.0,
+    )
+
+    feedback = reverse_connection(forward, store)
+
+    assert feedback.output_min == 0.0
+    assert feedback.output_max == 127.0

@@ -262,3 +262,60 @@ invert = false
 
     reloaded = load_config(config_path)
     assert reloaded.runtime.feedback_suppress_ms == 900
+
+
+def test_reverse_connection_api_creates_feedback_mapping(tmp_path) -> None:
+    from midijuggler.config import load_config
+
+    config_path = tmp_path / "config.toml"
+    config_path.write_text(
+        """
+[web]
+host = "127.0.0.1"
+port = 8080
+
+[[connections]]
+id = "encoder-to-fader"
+source = "xtouch_mini.layer_a_encoder_1_turn"
+target = "x32_foh./ch/01/mix/fader"
+modifier = "range_map"
+input_min = 1.0
+input_max = 127.0
+output_min = 0.0
+output_max = 1.0
+invert = false
+""".strip()
+        + "\n",
+        encoding="utf-8",
+    )
+    config = load_config(config_path)
+    interface = WebInterface(
+        config,
+        EventBus(),
+        ClockBpmTracker(),
+        MasterClock(config.master_clock, EventBus()),
+        config_path=config_path,
+    )
+
+    async def scenario() -> dict:
+        app = interface.create_app()
+        async with TestClient(TestServer(app)) as client:
+            response = await client.post(
+                "/api/connections/reverse",
+                json={"id": "encoder-to-fader"},
+            )
+            assert response.status == 200
+            return await response.json()
+
+    payload = asyncio.run(scenario())
+
+    assert payload["persisted"] is True
+    assert len(payload["stored_connections"]) == 2
+    feedback = payload["created_connection"]
+    assert feedback["source"] == "x32_foh./ch/01/mix/fader"
+    assert feedback["target"] == "xtouch_mini.layer_a_encoder_1_value"
+    assert feedback["input_min"] == 0.0
+    assert feedback["input_max"] == 1.0
+
+    reloaded = load_config(config_path)
+    assert len(reloaded.connections) == 2

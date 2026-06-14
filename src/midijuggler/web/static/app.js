@@ -534,13 +534,18 @@ function renderMappingsList(connections) {
     editButton.textContent = "Edit";
     editButton.addEventListener("click", () => openMappingEditor(connection));
 
+    const reverseButton = document.createElement("button");
+    reverseButton.type = "button";
+    reverseButton.textContent = "Reverse mapping";
+    reverseButton.addEventListener("click", () => createReverseMapping(connection.id));
+
     const deleteButton = document.createElement("button");
     deleteButton.type = "button";
     deleteButton.className = "danger-button";
     deleteButton.textContent = "Delete";
     deleteButton.addEventListener("click", () => deleteMappingConnection(connection.id));
 
-    actions.append(editButton, deleteButton);
+    actions.append(editButton, reverseButton, deleteButton);
     item.append(summary, meta, actions);
     mappings.appendChild(item);
   }
@@ -694,6 +699,48 @@ async function deleteMappingConnection(connectionId) {
     }
   } catch (error) {
     mappingEditorMessage.textContent = `error: ${error.message}`;
+  }
+}
+
+async function createReverseMapping(connectionId) {
+  const messageTarget = learnMode ? learnMessage : mappingEditorMessage;
+  if (messageTarget) {
+    messageTarget.textContent = "creating feedback mapping...";
+  }
+  try {
+    const response = await fetch("/api/connections/reverse", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ id: connectionId }),
+    });
+    if (!response.ok) {
+      throw new Error(await response.text());
+    }
+    const payload = await response.json();
+    storedConnections = payload.stored_connections || storedConnections;
+    renderMappingsList(storedConnections);
+    try {
+      const statusResponse = await fetch("/api/status");
+      if (statusResponse.ok) {
+        renderStatus(await statusResponse.json());
+      }
+    } catch {
+      // keep list update even if status refresh fails
+    }
+    const created = payload.created_connection;
+    const feedbackText = created
+      ? `created feedback mapping ${created.id}`
+      : "created feedback mapping";
+    if (messageTarget) {
+      messageTarget.textContent =
+        payload.persisted === false
+          ? `${feedbackText} (runtime only: ${payload.persist_error})`
+          : feedbackText;
+    }
+  } catch (error) {
+    if (messageTarget) {
+      messageTarget.textContent = `error: ${error.message}`;
+    }
   }
 }
 

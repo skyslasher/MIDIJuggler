@@ -50,6 +50,7 @@ from midijuggler.learn import (
     resolve_monitor_source,
     resolve_osc_target_address,
     resolve_target_datapoint,
+    reverse_connection,
     upsert_connection,
     upsert_mapping_rule,
 )
@@ -188,6 +189,7 @@ class WebInterface:
         app.router.add_get("/api/datapoints", self.datapoints_config)
         app.router.add_get("/api/connections", self.connections_config)
         app.router.add_post("/api/connections", self.set_connections_config)
+        app.router.add_post("/api/connections/reverse", self.reverse_connection_config)
         app.router.add_get("/ws/monitor", self.monitor_ws)
         return app
 
@@ -284,6 +286,56 @@ class WebInterface:
         response = self.connections_payload()
         response["persisted"] = persisted_connections and persisted_runtime
         response["persist_error"] = persist_error or runtime_persist_error
+        return web.json_response(response)
+
+    async def reverse_connection_config(self, request: web.Request) -> web.Response:
+        payload = await request.json()
+        connection_id = str(payload.get("id", "")).strip()
+        if not connection_id:
+            return web.Response(text="id is required", status=400)
+
+        stored = self._stored_connections()
+        original = next(
+            (connection for connection in stored if connection.id == connection_id),
+            None,
+        )
+        if original is None:
+            return web.Response(text=f"unknown connection id: {connection_id!r}", status=404)
+
+        feedback = reverse_connection(original, self.datapoint_store)
+        updated_connections = upsert_connection(stored, feedback)
+        self._apply_stored_connections(updated_connections)
+
+        persisted = False
+        persist_error = ""
+        if self.config_path is not None:
+            try:
+                save_connections(self.config_path, updated_connections)
+                mappings_to_save = (
+                    []
+                    if self.config.runtime.datapoint_routing
+                    else list(self.config.mappings)
+                )
+                save_mappings(self.config_path, mappings_to_save)
+                persisted = True
+            except OSError as exc:
+                persist_error = str(exc)
+                LOGGER.warning(
+                    "Reverse connection applied at runtime but could not be persisted to %s: %s",
+                    self.config_path,
+                    exc,
+                )
+        else:
+            persist_error = "no config path available"
+
+        response = self.connections_payload()
+        response.update(
+            {
+                "created_connection": feedback.as_dict(),
+                "persisted": persisted,
+                "persist_error": persist_error,
+            }
+        )
         return web.json_response(response)
 
     async def write_datapoint(self, point_id: str, value: float) -> None:

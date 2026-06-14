@@ -413,3 +413,58 @@ def lookup_datapoint_ranges(
     if spec is None or spec.value_min is None or spec.value_max is None:
         return fallback
     return float(spec.value_min), float(spec.value_max)
+
+
+def suggest_feedback_target(
+    forward_source: str,
+    forward_target: str,
+    store: DataPointStore | None = None,
+) -> str:
+    """Pick a display/output data point for the return path of a mapping."""
+
+    del forward_target
+    source_module, _, source_point = forward_source.partition(".")
+    if source_point.endswith("_turn"):
+        base = source_point.removesuffix("_turn")
+        for suffix in ("_value", "_led_ring"):
+            candidate = f"{source_module}.{base}{suffix}"
+            if store is None or store.spec(candidate) is not None:
+                return candidate
+    return forward_source
+
+
+def reverse_connection(
+    connection: ConnectionSpec,
+    store: DataPointStore | None = None,
+    *,
+    connection_id: str | None = None,
+) -> ConnectionSpec:
+    """Build a feedback mapping by swapping endpoints and range roles."""
+
+    feedback_target = suggest_feedback_target(
+        connection.source,
+        connection.target,
+        store,
+    )
+    output_min, output_max = lookup_datapoint_ranges(
+        store,
+        feedback_target,
+        fallback=(connection.input_min, connection.input_max),
+    )
+    resolved_id = connection_id or make_mapping_id(
+        f"{connection.id}-feedback",
+        feedback_target,
+    )
+    if resolved_id == connection.id:
+        resolved_id = f"{connection.id}-feedback"
+    return ConnectionSpec(
+        id=resolved_id,
+        source=connection.target,
+        target=feedback_target,
+        modifier=connection.modifier,
+        input_min=connection.output_min,
+        input_max=connection.output_max,
+        output_min=output_min,
+        output_max=output_max,
+        invert=connection.invert,
+    )
