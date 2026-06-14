@@ -8,6 +8,7 @@ from midijuggler.datapoint.store import DataPointStore
 from midijuggler.datapoint.types import (
     ConnectionSpec,
     DataPointId,
+    DataPointSpec,
     DataPointValue,
     ModifierKind,
     ValueType,
@@ -17,7 +18,11 @@ from midijuggler.datapoint.types import (
 from midijuggler.modules.base import ModifierModule
 from midijuggler.modules.modifier.feedback_suppress import EncoderFeedbackSuppressor
 from midijuggler.modules.modifier.range_map import RangeMapTransform, apply_range_map
-from midijuggler.modules.modifier.relative_delta import apply_relative_delta
+from midijuggler.modules.modifier.relative_delta import (
+    DEFAULT_RELATIVE_ENCODING,
+    ENCODING_ABSOLUTE_DELTA,
+    apply_relative_delta,
+)
 
 LOGGER = logging.getLogger(__name__)
 
@@ -38,6 +43,8 @@ class ModifierGraph(ModifierModule):
         self._passthrough_index: dict[str, list[ConnectionSpec]] = {}
         self._subscribed_sources: set[str] = set()
         self._feedback_suppressor = EncoderFeedbackSuppressor(feedback_suppress_ms)
+        self._last_relative_input: dict[str, int] = {}
+        self._relative_targets: dict[tuple[str, str], float] = {}
         self._rebuild_index()
 
     def datapoints(self) -> list:
@@ -120,16 +127,47 @@ class ModifierGraph(ModifierModule):
         target_key: str,
         transform: RangeMapTransform,
     ) -> float | None:
-        if self._is_relative_source(source_key):
-            current = self.store.float_value(target_key)
-            if current is None:
-                current = (transform.output_min + transform.output_max) / 2.0
-            return apply_relative_delta(current, numeric, transform)
-        return apply_range_map(numeric, transform)
+        if not self._is_relative_source(source_key):
+            return apply_range_map(numeric, transform)
+
+        encoding = self._relative_encoding(source_key)
+        step = int(round(numeric))
+        last_step = self._last_relative_input.get(source_key)
+        if encoding == ENCODING_ABSOLUTE_DELTA:
+            self._last_relative_input[source_key] = step
+        accumulator_key = (source_key, target_key)
+        current = self._relative_targets.get(accumulator_key)
+        if current is None:
+            stored = self.store.float_value(target_key)
+            current = (
+                stored
+                if stored is not None
+                else (transform.output_min + transform.output_max) / 2.0
+            )
+        mapped = apply_relative_delta(
+            current,
+            numeric,
+            transform,
+            encoding=encoding,
+            last_value=last_step,
+        )
+        if mapped is None:
+            return None
+        self._relative_targets[accumulator_key] = mapped
+        return mapped
 
     def _is_relative_source(self, source_key: str) -> bool:
         spec = self.store.spec(source_key)
-        return spec is not None and spec.input_mode == "relative"
+        if spec is not None and spec.input_mode == "relative":
+            return True
+        point = source_key.split(".", 1)[-1]
+        return point.endswith("_turn")
+
+    def _relative_encoding(self, source_key: str) -> str:
+        spec = self.store.spec(source_key)
+        if isinstance(spec, DataPointSpec) and spec.relative_encoding:
+            return spec.relative_encoding
+        return DEFAULT_RELATIVE_ENCODING
 
     async def _relay_passthrough(
         self,

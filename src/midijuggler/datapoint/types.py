@@ -56,6 +56,7 @@ class DataPointSpec:
     value_max: float | None = None
     protocol: str = ""
     input_mode: str = ""
+    relative_encoding: str = ""
 
     def as_dict(self) -> dict[str, Any]:
         payload: dict[str, Any] = {
@@ -73,6 +74,8 @@ class DataPointSpec:
             payload["value_max"] = self.value_max
         if self.input_mode:
             payload["input_mode"] = self.input_mode
+        if self.relative_encoding:
+            payload["relative_encoding"] = self.relative_encoding
         return payload
 
 

@@ -72,6 +72,11 @@ class MidiIOModule(IOModule):
                                 if parameter.direction == "source"
                                 else ""
                             ),
+                            relative_encoding=(
+                                parameter.relative_encoding
+                                if parameter.direction == "source"
+                                else ""
+                            ),
                         )
                     )
                     if direction == DataPointDirection.OUTPUT:

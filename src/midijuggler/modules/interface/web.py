@@ -30,6 +30,8 @@ class WebInterfaceModule(InterfaceModule):
         await super().stop()
 
     async def _on_datapoint_update(self, value: DataPointValue) -> None:
+        if not value.emit_outputs:
+            return
         payload = value.as_dict()
         self._recent_updates.append(payload)
         if len(self._recent_updates) > 200:

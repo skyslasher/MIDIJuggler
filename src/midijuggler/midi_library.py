@@ -22,6 +22,7 @@ class MidiParameter:
     value_max: float | None
     category: str
     direction: str
+    relative_encoding: str = ""
     port: str = ""
     midi_channel: int | None = None
     number: int | None = None
@@ -155,6 +156,7 @@ def _parse_parameter(
         value_max=_optional_float(raw.get("value_max"), f"{field_name}.value_max", values),
         category=_formatted_str(raw.get("category", ""), values),
         direction=_formatted_str(raw.get("direction", "source"), values),
+        relative_encoding=_formatted_str(raw.get("relative_encoding", ""), values),
         port=_formatted_str(raw.get("port", ""), values),
         midi_channel=_optional_int(raw.get("midi_channel"), f"{field_name}.midi_channel", values),
         number=_optional_int(raw.get("number"), f"{field_name}.number", values),
