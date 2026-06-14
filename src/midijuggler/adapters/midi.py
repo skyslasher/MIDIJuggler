@@ -16,6 +16,10 @@ from midijuggler.events import (
     MidiClockEvent,
     MidiMessageEvent,
 )
+from midijuggler.midi.echo_guard import (
+    MidiEchoGuard,
+    parse_echo_guard_ms,
+)
 from midijuggler.midi.mido_io import (
     MidoUnavailableError,
     close_mido_port,
@@ -65,6 +69,12 @@ class MidiAdapter(Adapter):
         self._source_index: MidiSourceIndex | None = None
         self._last_connection_detail: str | None = None
         self._feedback_refresh: XTouchFeedbackRefresh | None = None
+        self._echo_guard = MidiEchoGuard()
+
+    def _configure_echo_guard(self) -> None:
+        self._echo_guard.configure(
+            parse_echo_guard_ms(self.config.options.get("echo_guard_ms"))
+        )
 
     async def start(self) -> None:
         if not self.config.enabled:
@@ -81,6 +91,7 @@ class MidiAdapter(Adapter):
             return
 
         self._source_index = self._load_source_index()
+        self._configure_echo_guard()
         self._last_connection_detail = None
         input_port = str(self.config.options.get("input_port", "")).strip()
         output_port = str(self.config.options.get("output_port", "")).strip()
@@ -355,6 +366,15 @@ class MidiAdapter(Adapter):
             await self.bus.publish(MidiClockEvent(source=self.name))
             return
 
+        if self._echo_guard.is_echo(status, data):
+            LOGGER.debug(
+                "MIDI adapter %s ignored echo input status=0x%02X data=%s",
+                self.name,
+                status,
+                data,
+            )
+            return
+
         await self.bus.publish(
             MidiMessageEvent(
                 source=self.name,
@@ -517,6 +537,7 @@ class MidiAdapter(Adapter):
         event: MidiMessageEvent,
     ) -> None:
         await send_midi_message_to_port(output_address, event.status, event.data)
+        self._echo_guard.record(event.status, event.data)
         await self.bus.publish(
             MidiMessageEvent(
                 source=self.name,

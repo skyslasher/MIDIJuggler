@@ -1587,6 +1587,7 @@ function defaultMidiInstanceTemplate(config) {
     output_port: "",
     midi_library: "",
     feedback_refresh_interval: 0,
+    echo_guard_ms: 30,
     midi_value_channel: 11,
     midi_display_channel: 12,
     available_input_ports: portChoices,
@@ -2566,6 +2567,26 @@ function createMidiAdapterCard(instance, config, options = {}) {
       updateXtouchFeedbackRefreshVisibility();
     });
     card.appendChild(libraryField);
+    const echoGuardField = createNumberField(
+      "Echo guard (ms)",
+      "echo_guard_ms",
+      instance.echo_guard_ms ?? 30,
+      0,
+      5000,
+      1,
+    );
+    const echoGuardInput = echoGuardField.querySelector("input");
+    if (echoGuardInput) {
+      echoGuardInput.title =
+        "Ignore incoming MIDI that matches output sent within this time window. 0 disables echo guard.";
+    }
+    const echoGuardHint = document.createElement("p");
+    echoGuardHint.className = "hint";
+    echoGuardHint.textContent =
+      "Suppresses hardware loopback when input and output share the same port.";
+    const echoGuardWrap = document.createElement("div");
+    echoGuardWrap.className = "midi-echo-guard-field";
+    echoGuardWrap.append(echoGuardField, echoGuardHint);
     const feedbackRefreshField = createNumberField(
       "LED feedback refresh (s)",
       "feedback_refresh_interval",
@@ -2598,6 +2619,7 @@ function createMidiAdapterCard(instance, config, options = {}) {
       displayChannelField.hidden = !isXtouch;
     };
     updateXtouchFeedbackRefreshVisibility();
+    card.appendChild(echoGuardWrap);
     card.appendChild(feedbackRefreshField);
     card.appendChild(valueChannelField);
     card.appendChild(displayChannelField);

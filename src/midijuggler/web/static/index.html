@@ -236,6 +236,10 @@
         </article>
         <article class="midi-device-panel">
           <h2>MIDI</h2>
+          <p class="hint">
+            Echo guard ignores MIDI input that matches recently sent output on the same port
+            (loopback). Set to 0 to disable. Default is 30&nbsp;ms.
+          </p>
           <div id="midi-instances"></div>
           <button type="button" id="midi-add">Add MIDI instance</button>
           <p id="midi-message" class="message"></p>

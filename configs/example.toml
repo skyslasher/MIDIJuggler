@@ -84,6 +84,8 @@ enabled = false
 input_port = "X-TOUCH MINI"
 output_port = "X-TOUCH MINI"
 midi_library = "behringer_xtouch_mini"
+# Ignore MIDI input matching recent output on the same port (ms, 0 = off).
+echo_guard_ms = 30
 # Periodically re-send cached LED feedback for hidden layers (0 = off, 0.1s steps).
 feedback_refresh_interval = 0
 

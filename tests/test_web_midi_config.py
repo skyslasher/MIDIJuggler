@@ -87,6 +87,77 @@ def test_midi_adapters_config_payload_lists_instances(monkeypatch) -> None:
     assert "discovered_rtp_sessions" in payload
 
 
+def test_midi_adapters_config_payload_includes_echo_guard_ms(monkeypatch) -> None:
+    _mock_midi_ports(monkeypatch, [])
+    config = parse_config(
+        {
+            "adapters": {
+                "xtouch_mini": {
+                    "enabled": True,
+                    "type": "midi",
+                    "echo_guard_ms": 45,
+                }
+            }
+        }
+    )
+    interface = WebInterface(
+        config,
+        EventBus(),
+        ClockBpmTracker(),
+        MasterClock(config.master_clock, EventBus()),
+    )
+
+    payload = interface.midi_adapters_config_payload()
+    instance = next(
+        item for item in payload["instances"] if item["name"] == "xtouch_mini"
+    )
+
+    assert instance["echo_guard_ms"] == 45
+
+
+def test_apply_midi_adapters_config_persists_echo_guard_ms(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
+    _mock_midi_ports(monkeypatch, [])
+    config_file = tmp_path / "config.toml"
+    config_file.write_text(
+        """
+        [adapters.midi]
+        enabled = true
+        type = "midi"
+        """,
+        encoding="utf-8",
+    )
+    config = load_config(config_file)
+    interface = WebInterface(
+        config,
+        EventBus(),
+        ClockBpmTracker(),
+        MasterClock(config.master_clock, EventBus()),
+        config_path=config_file,
+    )
+
+    result = asyncio.run(
+        interface.apply_midi_adapters_config(
+            {
+                "instances": [
+                    {
+                        "name": "midi",
+                        "enabled": True,
+                        "echo_guard_ms": 0,
+                    }
+                ]
+            }
+        )
+    )
+
+    saved = load_config(config_file)
+
+    assert result["persisted"] is True
+    assert saved.adapters["midi"].options["echo_guard_ms"] == 0
+
+
 def test_midi_adapters_config_payload_includes_feedback_refresh_interval(monkeypatch) -> None:
     _mock_midi_ports(monkeypatch, [])
     config = parse_config(

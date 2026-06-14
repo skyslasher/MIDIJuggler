@@ -57,6 +57,7 @@ from midijuggler.midi.target_encode import (
     lookup_midi_target_ranges,
     resolve_midi_target_parameter,
 )
+from midijuggler.midi.echo_guard import DEFAULT_ECHO_GUARD_MS, parse_echo_guard_ms
 from midijuggler.midi.xtouch_channels import (
     DEFAULT_XTOUCH_DISPLAY_CHANNEL,
     DEFAULT_XTOUCH_VALUE_CHANNEL,
@@ -1866,6 +1867,10 @@ class WebInterface:
                         options.get("midi_display_channel", DEFAULT_XTOUCH_DISPLAY_CHANNEL)
                         or DEFAULT_XTOUCH_DISPLAY_CHANNEL
                     ),
+                    "echo_guard_ms": int(
+                        options.get("echo_guard_ms", DEFAULT_ECHO_GUARD_MS)
+                        or DEFAULT_ECHO_GUARD_MS
+                    ),
                     "available_input_ports": self._midi_port_choices(
                         available_input_ports,
                         input_port,
@@ -1985,6 +1990,9 @@ class WebInterface:
                 field_name="midi_display_channel",
                 default=DEFAULT_XTOUCH_DISPLAY_CHANNEL,
             )
+        options["echo_guard_ms"] = parse_echo_guard_ms(
+            payload.get("echo_guard_ms", current.get("echo_guard_ms", DEFAULT_ECHO_GUARD_MS))
+        )
         return options
 
     def _normalized_rtp_midi_options(
