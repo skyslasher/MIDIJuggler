@@ -67,7 +67,7 @@ from midijuggler.osc.desk_protocol import (
     is_desk_library,
     osc_library_for_desk_mode,
 )
-from midijuggler.osc.discovery import discover_desks
+from midijuggler.osc.discovery import discover_desks, discovery_scan_networks
 from midijuggler.osc_library import get_osc_library, list_osc_libraries
 from midijuggler.datapoint.migrate import effective_connections
 from midijuggler.datapoint.store import DataPointStore
@@ -1054,7 +1054,12 @@ class WebInterface:
             raise web.HTTPBadRequest(text="protocol must be wing, x32, or all")
 
         devices = await discover_desks(protocols)
-        return web.json_response({"devices": [device.as_dict() for device in devices]})
+        return web.json_response(
+            {
+                "devices": [device.as_dict() for device in devices],
+                "networks": [str(network) for network in discovery_scan_networks()],
+            }
+        )
 
     def gpio_config_payload(self) -> dict[str, Any]:
         options = self._gpio_options()

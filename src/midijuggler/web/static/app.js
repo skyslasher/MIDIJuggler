@@ -2319,6 +2319,17 @@ function applyDiscoveredDeskToCard(card, device) {
   updateMidiAdapterCardDirtyState(card);
 }
 
+function formatOscDiscoverMessage(payload, devices) {
+  if (devices.length) {
+    return `discovered ${devices.length} desk(s)`;
+  }
+  const networks = payload.networks || [];
+  if (networks.length) {
+    return `no desks discovered on ${networks.join(", ")}`;
+  }
+  return "no desks discovered on the local network";
+}
+
 function createOscAdapterCard(instance, config, options = {}) {
   const isNew = Boolean(options.isNew);
   const card = document.createElement("section");
@@ -2461,7 +2472,10 @@ function createOscAdapterCard(instance, config, options = {}) {
           discoverSelect.appendChild(option);
         }
         if (!(payload.devices || []).length) {
-          oscMessage.textContent = "no desks discovered on the local network";
+          oscMessage.textContent = formatOscDiscoverMessage(
+            payload,
+            payload.devices || [],
+          );
         }
       })
       .catch((error) => {
@@ -2922,11 +2936,10 @@ oscDiscoverButton?.addEventListener("click", () => {
     .then((response) => response.json())
     .then((payload) => {
       const devices = payload.devices || [];
+      oscMessage.textContent = formatOscDiscoverMessage(payload, devices);
       if (!devices.length) {
-        oscMessage.textContent = "no desks discovered on the local network";
         return;
       }
-      oscMessage.textContent = `discovered ${devices.length} desk(s)`;
       const firstCard = oscInstances.querySelector(".midi-adapter-card");
       if (firstCard) {
         applyDiscoveredDeskToCard(firstCard, devices[0]);
