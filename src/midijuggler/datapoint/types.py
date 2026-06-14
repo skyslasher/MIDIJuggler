@@ -55,6 +55,7 @@ class DataPointSpec:
     value_min: float | None = None
     value_max: float | None = None
     protocol: str = ""
+    input_mode: str = ""
 
     def as_dict(self) -> dict[str, Any]:
         payload: dict[str, Any] = {
@@ -70,6 +71,8 @@ class DataPointSpec:
             payload["value_min"] = self.value_min
         if self.value_max is not None:
             payload["value_max"] = self.value_max
+        if self.input_mode:
+            payload["input_mode"] = self.input_mode
         return payload
 
 

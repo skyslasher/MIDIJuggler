@@ -57,7 +57,13 @@ def build_module_registry(
         master_clock=config.master_clock,
         adapters=config.adapters,
     )
-    registry.add(ModifierGraph(store, connections))
+    registry.add(
+        ModifierGraph(
+            store,
+            connections,
+            feedback_suppress_ms=config.runtime.feedback_suppress_ms,
+        )
+    )
     registry.add(MasterClockGenerator(master_clock, store))
     registry.add(WebInterfaceModule(web, store))
     return registry, io_modules

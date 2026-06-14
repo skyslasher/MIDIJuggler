@@ -27,17 +27,20 @@ from midijuggler.config import (
     AdapterConfig,
     AppConfig,
     MasterClockConfig,
+    RuntimeConfig,
     _validate_adapter_instance_name,
     parse_config,
     save_gpio_adapter_options,
     save_mappings,
     save_connections,
     save_master_clock_config,
+    save_runtime_config,
     remove_midi_adapter_configs,
     remove_osc_adapter_configs,
     save_midi_adapter_configs,
     save_osc_adapter_configs,
 )
+from midijuggler.modules.modifier.feedback_suppress import parse_feedback_suppress_ms
 from midijuggler.eventbus import EventBus
 from midijuggler.events import AdapterStatusEvent, Event, MidiMessageEvent
 from midijuggler.learn import (
@@ -225,6 +228,7 @@ class WebInterface:
             "connections": [connection.as_dict() for connection in self._effective_connections()],
             "stored_connections": [connection.as_dict() for connection in stored],
             "datapoint_routing": self.config.runtime.datapoint_routing,
+            "feedback_suppress_ms": self.config.runtime.feedback_suppress_ms,
         }
 
     def _effective_connections(self) -> list[ConnectionSpec]:
@@ -267,19 +271,19 @@ class WebInterface:
                 return web.Response(text=str(exc), status=400)
 
         object.__setattr__(self.config, "connections", connections)
-        if "datapoint_routing" in payload:
-            from midijuggler.config import RuntimeConfig
-
-            object.__setattr__(
-                self.config,
-                "runtime",
-                RuntimeConfig(datapoint_routing=bool(payload["datapoint_routing"])),
-            )
+        try:
+            runtime_changed = self._apply_runtime_settings_from_payload(payload)
+        except ValueError as exc:
+            return web.Response(text=str(exc), status=400)
         self._apply_stored_connections(connections)
-        persisted, persist_error = self._persist_stored_connections(connections)
+        persisted_connections, persist_error = self._persist_stored_connections(connections)
+        persisted_runtime = True
+        runtime_persist_error = ""
+        if runtime_changed:
+            persisted_runtime, runtime_persist_error = self._persist_runtime_config()
         response = self.connections_payload()
-        response["persisted"] = persisted
-        response["persist_error"] = persist_error
+        response["persisted"] = persisted_connections and persisted_runtime
+        response["persist_error"] = persist_error or runtime_persist_error
         return web.json_response(response)
 
     async def write_datapoint(self, point_id: str, value: float) -> None:
@@ -783,6 +787,10 @@ class WebInterface:
             return False, str(exc)
 
     def _apply_runtime_connections(self) -> None:
+        if self.modifier_graph is not None:
+            self.modifier_graph.configure_feedback_suppress(
+                self.config.runtime.feedback_suppress_ms
+            )
         if self.modifier_graph is None:
             return
         user_connections = self._stored_connections()
@@ -795,6 +803,48 @@ class WebInterface:
                 adapters=self.config.adapters,
             )
         )
+
+    def _apply_runtime_settings_from_payload(self, payload: dict[str, Any]) -> bool:
+        runtime_changed = False
+        current = self.config.runtime
+        datapoint_routing = current.datapoint_routing
+        feedback_suppress_ms = current.feedback_suppress_ms
+
+        if "datapoint_routing" in payload:
+            datapoint_routing = bool(payload["datapoint_routing"])
+            runtime_changed = True
+        if "feedback_suppress_ms" in payload:
+            feedback_suppress_ms = parse_feedback_suppress_ms(payload["feedback_suppress_ms"])
+            runtime_changed = True
+
+        if not runtime_changed:
+            return False
+
+        object.__setattr__(
+            self.config,
+            "runtime",
+            RuntimeConfig(
+                datapoint_routing=datapoint_routing,
+                feedback_suppress_ms=feedback_suppress_ms,
+            ),
+        )
+        if self.modifier_graph is not None:
+            self.modifier_graph.configure_feedback_suppress(feedback_suppress_ms)
+        return True
+
+    def _persist_runtime_config(self) -> tuple[bool, str]:
+        if self.config_path is None:
+            return False, "no config path available"
+        try:
+            save_runtime_config(self.config_path, self.config.runtime)
+            return True, ""
+        except OSError as exc:
+            LOGGER.warning(
+                "Could not persist runtime config to %s: %s",
+                self.config_path,
+                exc,
+            )
+            return False, str(exc)
 
     async def _broadcast_event(self, event: Event) -> None:
         if isinstance(event, AdapterStatusEvent):
@@ -843,6 +893,7 @@ class WebInterface:
                 connection.as_dict() for connection in self._effective_connections()
             ],
             "datapoint_routing": self.config.runtime.datapoint_routing,
+            "feedback_suppress_ms": self.config.runtime.feedback_suppress_ms,
             "adapters": {
                 name: self._adapter_status_entry(name, adapter)
                 for name, adapter in self.config.adapters.items()
@@ -1108,6 +1159,10 @@ class WebInterface:
             "desk_mode": desk_mode,
             "desk_sync_on_connect": bool(options.get("desk_sync_on_connect", False)),
             "desk_proxy_mode": bool(options.get("desk_proxy_mode", False)),
+            "echo_guard_ms": int(
+                options.get("echo_guard_ms", DEFAULT_ECHO_GUARD_MS)
+                or DEFAULT_ECHO_GUARD_MS
+            ),
             "proxy_client_count": (
                 runtime_adapter.desk_proxy_client_count
                 if runtime_adapter is not None and runtime_adapter.running
@@ -1168,6 +1223,9 @@ class WebInterface:
             if osc_library not in known_libraries:
                 raise ValueError(f"unknown OSC library: {osc_library}")
             options["osc_library"] = osc_library
+        options["echo_guard_ms"] = parse_echo_guard_ms(
+            payload.get("echo_guard_ms", current.get("echo_guard_ms", DEFAULT_ECHO_GUARD_MS))
+        )
         return apply_desk_options(options)
 
     def _validate_osc_listen_ports(self) -> None:

@@ -56,6 +56,9 @@ const gpioBounceMs = document.querySelector("#gpio-bounce-ms");
 const gpioPollMs = document.querySelector("#gpio-poll-ms");
 const gpioMessage = document.querySelector("#gpio-message");
 const mappings = document.querySelector("#mappings");
+const feedbackSuppressMs = document.querySelector("#feedback-suppress-ms");
+const routingSettingsSave = document.querySelector("#routing-settings-save");
+const routingSettingsMessage = document.querySelector("#routing-settings-message");
 const mappingEditor = document.querySelector("#mapping-editor");
 const mappingEditorTitle = document.querySelector("#mapping-editor-title");
 const mappingEditSourceInstance = document.querySelector("#mapping-edit-source-instance");
@@ -218,6 +221,9 @@ function renderStatus(status) {
   mappings.replaceChildren();
   storedConnections = status.stored_connections || [];
   renderMappingsList(storedConnections);
+  if (feedbackSuppressMs && status.feedback_suppress_ms != null) {
+    feedbackSuppressMs.value = String(status.feedback_suppress_ms);
+  }
 
   preloadMonitorLibraries(status);
   applyAdapterRuntimeConnectionsFromStatus(status.adapters || {});
@@ -604,7 +610,10 @@ async function saveStoredConnections(connections) {
   const response = await fetch("/api/connections", {
     method: "POST",
     headers: { "content-type": "application/json" },
-    body: JSON.stringify({ connections }),
+    body: JSON.stringify({
+      connections,
+      ...routingSettingsPayload(),
+    }),
   });
   if (!response.ok) {
     throw new Error(await response.text());
@@ -624,6 +633,31 @@ async function saveStoredConnections(connections) {
     mappingEditorMessage.textContent = `saved for runtime only: ${payload.persist_error}`;
   }
   return payload;
+}
+
+function routingSettingsPayload() {
+  if (!feedbackSuppressMs) {
+    return {};
+  }
+  return {
+    feedback_suppress_ms: Number(feedbackSuppressMs.value),
+  };
+}
+
+async function saveRoutingSettings() {
+  if (!routingSettingsMessage) {
+    return;
+  }
+  routingSettingsMessage.textContent = "saving...";
+  try {
+    const payload = await saveStoredConnections(storedConnections);
+    routingSettingsMessage.textContent =
+      payload.persisted === false
+        ? `saved for runtime only: ${payload.persist_error}`
+        : "saved";
+  } catch (error) {
+    routingSettingsMessage.textContent = `error: ${error.message}`;
+  }
 }
 
 async function saveMappingEditor() {
@@ -2977,6 +3011,7 @@ function defaultOscInstanceTemplate() {
     osc_library: "",
     desk_sync_on_connect: false,
     desk_proxy_mode: false,
+    echo_guard_ms: 30,
   };
 }
 
@@ -3467,6 +3502,17 @@ function createOscAdapterCard(instance, config, options = {}) {
   proxyLabel.append(proxyInput, document.createTextNode(" Proxy mode (Wing)"));
   card.appendChild(proxyLabel);
 
+  card.appendChild(
+    createNumberField(
+      "Echo guard (ms)",
+      "echo_guard_ms",
+      instance.echo_guard_ms ?? 30,
+      0,
+      5000,
+      1,
+    ),
+  );
+
   const deskModeSelect = card.querySelector('[data-field="desk_mode"]');
   deskModeSelect?.addEventListener("change", () => updateOscCardDeskMode(card));
   proxyInput.addEventListener("change", () => updateOscCardDeskMode(card));
@@ -3815,6 +3861,9 @@ mappingSave.addEventListener("click", () => {
   saveMappingEditor();
 });
 mappingCancel.addEventListener("click", closeMappingEditor);
+routingSettingsSave?.addEventListener("click", () => {
+  saveRoutingSettings();
+});
 
 masterTap.addEventListener("click", () => {
   fetch("/api/master-clock/tap", { method: "POST" })

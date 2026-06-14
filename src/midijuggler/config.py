@@ -9,11 +9,13 @@ import tomllib
 
 from midijuggler.mapping import MappingRule
 from midijuggler.datapoint.types import ConnectionSpec, ModifierKind
+from midijuggler.modules.modifier.feedback_suppress import parse_feedback_suppress_ms
 
 
 @dataclass(frozen=True)
 class RuntimeConfig:
     datapoint_routing: bool = False
+    feedback_suppress_ms: int = 500
 
 
 @dataclass(frozen=True)
@@ -199,6 +201,19 @@ def save_connections(path: str | Path, connections: list[ConnectionSpec]) -> Non
 
     temp_path = config_path.with_suffix(config_path.suffix + ".tmp")
     temp_path.write_text(text, encoding="utf-8")
+    temp_path.replace(config_path)
+
+
+def save_runtime_config(path: str | Path, runtime: RuntimeConfig) -> None:
+    """Persist runtime options in a TOML config file."""
+
+    config_path = Path(path)
+    text = config_path.read_text(encoding="utf-8")
+    section = _format_runtime_section(runtime)
+    new_text = _replace_toml_section(text, "[runtime]", section)
+
+    temp_path = config_path.with_suffix(config_path.suffix + ".tmp")
+    temp_path.write_text(new_text, encoding="utf-8")
     temp_path.replace(config_path)
 
 
@@ -658,12 +673,24 @@ def _parse_connection(index: int, raw: Any) -> ConnectionSpec:
     )
 
 
+def _format_runtime_section(runtime: RuntimeConfig) -> str:
+    lines = [
+        "[runtime]",
+        f"datapoint_routing = {_toml_bool(runtime.datapoint_routing)}",
+        f"feedback_suppress_ms = {runtime.feedback_suppress_ms}",
+    ]
+    return "\n".join(lines) + "\n\n"
+
+
 def _parse_runtime(raw: Any) -> RuntimeConfig:
     if raw is None:
         raw = {}
     if not isinstance(raw, dict):
         raise ValueError("runtime must be a table")
-    return RuntimeConfig(datapoint_routing=bool(raw.get("datapoint_routing", False)))
+    return RuntimeConfig(
+        datapoint_routing=bool(raw.get("datapoint_routing", False)),
+        feedback_suppress_ms=parse_feedback_suppress_ms(raw.get("feedback_suppress_ms", 500)),
+    )
 
 
 def _parse_optional_string_list(raw: Any, field_name: str) -> list[str] | None:

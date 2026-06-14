@@ -112,6 +112,24 @@
         </article>
         <article>
           <h2>Mappings</h2>
+          <div class="routing-settings">
+            <label class="stacked-field">
+              Feedback suppress (ms)
+              <input
+                id="feedback-suppress-ms"
+                type="number"
+                min="0"
+                max="10000"
+                step="1"
+                value="500"
+              />
+            </label>
+            <p class="hint">
+              Pause desk-to-controller encoder feedback briefly after encoder turns. 0 disables.
+            </p>
+            <button id="routing-settings-save" type="button">Save routing settings</button>
+            <p id="routing-settings-message" class="message"></p>
+          </div>
           <ul id="mappings"></ul>
           <div id="mapping-editor" class="mapping-editor" hidden>
             <h3 id="mapping-editor-title" class="mapping-editor-title">Edit mapping</h3>
@@ -237,8 +255,8 @@
         <article class="midi-device-panel">
           <h2>MIDI</h2>
           <p class="hint">
-            Echo guard ignores MIDI input that matches recently sent output on the same port
-            (loopback). Set to 0 to disable. Default is 30&nbsp;ms.
+            Echo guard ignores input that matches recently sent output on the same path
+            (MIDI loopback or OSC desk echo). Set to 0 to disable. Default is 30&nbsp;ms.
           </p>
           <div id="midi-instances"></div>
           <button type="button" id="midi-add">Add MIDI instance</button>

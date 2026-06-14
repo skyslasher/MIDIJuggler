@@ -19,6 +19,11 @@ from midijuggler.events import (
     MappedEvent,
     OscMessageEvent,
 )
+from midijuggler.midi.echo_guard import (
+    DEFAULT_ECHO_GUARD_MS,
+    OscEchoGuard,
+    parse_echo_guard_ms,
+)
 from midijuggler.osc.desk_protocol import (
     DeskProtocol,
     apply_desk_options,
@@ -43,6 +48,12 @@ class OscAdapter(Adapter):
         self._protocol: _OscDatagramProtocol | None = None
         self._keepalive_task: asyncio.Task[None] | None = None
         self._proxy_clients: dict[tuple[str, int], float] = {}
+        self._echo_guard = OscEchoGuard()
+
+    def _configure_echo_guard(self) -> None:
+        self._echo_guard.configure(
+            parse_echo_guard_ms(self.config.options.get("echo_guard_ms"))
+        )
 
     def _apply_options(self, options: dict[str, Any]) -> None:
         normalized = apply_desk_options(dict(options))
@@ -67,6 +78,7 @@ class OscAdapter(Adapter):
 
     async def start(self) -> None:
         self._apply_options(self.config.options)
+        self._configure_echo_guard()
 
         loop = asyncio.get_running_loop()
         bind_host, bind_port = self._bind_address()
@@ -115,6 +127,7 @@ class OscAdapter(Adapter):
         previous_bind = self._bind_address() if self.running else None
         self.config = config
         self._apply_options(config.options)
+        self._configure_echo_guard()
         if not self.running:
             return
         if previous_bind == self._bind_address():
@@ -170,6 +183,15 @@ class OscAdapter(Adapter):
             return
 
         for address, arguments in messages:
+            numeric_value = _first_numeric_argument(arguments)
+            if numeric_value is not None and self._echo_guard.is_echo(address, numeric_value):
+                LOGGER.debug(
+                    "OSC adapter %s ignored echo input %s %s",
+                    self.name,
+                    address,
+                    numeric_value,
+                )
+                continue
             await self.bus.publish(
                 OscMessageEvent(
                     source=self.name,
@@ -178,7 +200,6 @@ class OscAdapter(Adapter):
                     direction="input",
                 )
             )
-            numeric_value = _first_numeric_argument(arguments)
             if numeric_value is not None:
                 await self.bus.publish(
                     ControlEvent(
@@ -201,6 +222,9 @@ class OscAdapter(Adapter):
 
         payload = encode_message(normalized_address, arguments)
         self._transport.sendto(payload, (self._remote_host, self._remote_port))
+        numeric_value = _first_numeric_argument(tuple(arguments))
+        if numeric_value is not None:
+            self._echo_guard.record(normalized_address, numeric_value)
         await self.bus.publish(
             OscMessageEvent(
                 source=self.name,
@@ -228,6 +252,7 @@ class OscAdapter(Adapter):
 
         payload = encode_message(address, [float(event.value)])
         self._transport.sendto(payload, (self._remote_host, self._remote_port))
+        self._echo_guard.record(address, float(event.value))
         await self.bus.publish(
             OscMessageEvent(
                 source=self.name,

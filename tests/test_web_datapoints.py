@@ -185,3 +185,80 @@ invert = false
     assert mapping_engine.rules == ()
     assert interface._stored_connections() == []
     assert graph.connections == []
+
+
+def test_connections_api_includes_feedback_suppress_ms() -> None:
+    config = parse_config({"runtime": {"feedback_suppress_ms": 750}})
+    interface = WebInterface(
+        config,
+        EventBus(),
+        ClockBpmTracker(),
+        MasterClock(config.master_clock, EventBus()),
+    )
+
+    payload = interface.connections_payload()
+
+    assert payload["feedback_suppress_ms"] == 750
+
+
+def test_set_connections_config_persists_feedback_suppress_ms(tmp_path) -> None:
+    from midijuggler.config import load_config
+    from midijuggler.datapoint.store import DataPointStore
+    from midijuggler.modules.modifier.graph import ModifierGraph
+
+    config_path = tmp_path / "config.toml"
+    config_path.write_text(
+        """
+[runtime]
+datapoint_routing = true
+feedback_suppress_ms = 500
+
+[[connections]]
+id = "route"
+source = "gpio.pin17"
+target = "midi.cc_1_64"
+modifier = "range_map"
+input_min = 0.0
+input_max = 1.0
+output_min = 0.0
+output_max = 127.0
+invert = false
+""".strip()
+        + "\n",
+        encoding="utf-8",
+    )
+    config = load_config(config_path)
+    store = DataPointStore()
+    graph = ModifierGraph(store, config.connections, feedback_suppress_ms=500)
+    interface = WebInterface(
+        config,
+        EventBus(),
+        ClockBpmTracker(),
+        MasterClock(config.master_clock, EventBus()),
+        datapoint_store=store,
+        modifier_graph=graph,
+        config_path=config_path,
+    )
+
+    async def scenario() -> dict:
+        app = interface.create_app()
+        async with TestClient(TestServer(app)) as client:
+            response = await client.post(
+                "/api/connections",
+                json={
+                    "connections": [config.connections[0].as_dict()],
+                    "feedback_suppress_ms": 900,
+                },
+            )
+            assert response.status == 200
+            return await response.json()
+
+    payload = asyncio.run(scenario())
+
+    assert payload["persisted"] is True
+    assert payload["feedback_suppress_ms"] == 900
+    assert interface.config.runtime.feedback_suppress_ms == 900
+    assert graph._feedback_suppressor._window_seconds == pytest.approx(0.9)
+
+    reloaded = load_config(config_path)
+    assert reloaded.runtime.feedback_suppress_ms == 900

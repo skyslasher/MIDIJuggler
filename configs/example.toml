@@ -7,6 +7,8 @@ port = 8080
 # the legacy MappingEngine/MappedEvent path. Legacy [[mappings]] are still
 # accepted and converted automatically when [[connections]] is empty.
 datapoint_routing = false
+# Pause desk-to-controller encoder feedback briefly after encoder turns (ms, 0 = off).
+feedback_suppress_ms = 500
 
 [master_clock]
 enabled = true
@@ -49,6 +51,7 @@ osc_port = 10023
 remote_host = "192.168.10.32"
 osc_library = "behringer_x32"
 desk_sync_on_connect = false
+echo_guard_ms = 30
 
 [adapters.wing_foh]
 type = "osc"

@@ -67,6 +67,11 @@ class MidiIOModule(IOModule):
                             value_min=float(parameter.value_min),
                             value_max=float(parameter.value_max),
                             protocol="midi",
+                            input_mode=(
+                                parameter.value_type
+                                if parameter.direction == "source"
+                                else ""
+                            ),
                         )
                     )
                     if direction == DataPointDirection.OUTPUT:

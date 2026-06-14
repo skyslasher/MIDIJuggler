@@ -64,6 +64,13 @@ class DataPointStore:
     def history(self) -> list[DataPointValue]:
         return list(self._history)
 
+    def float_value(self, point_id: DataPointId | str) -> float | None:
+        key = self._normalize_id(point_id)
+        current = self._values.get(key)
+        if current is None or current.float_value is None:
+            return None
+        return current.float_value
+
     def subscribe(self, point_id: DataPointId | str, handler: Handler) -> None:
         self._subscribers[self._normalize_id(point_id)].append(handler)
 
