@@ -11,6 +11,8 @@ const masterBpmMin = document.querySelector("#master-bpm-min");
 const masterBpmMax = document.querySelector("#master-bpm-max");
 const masterClickInterval = document.querySelector("#master-click-interval");
 const masterTapTempoMinTaps = document.querySelector("#master-tap-tempo-min-taps");
+const masterBpmStep = document.querySelector("#master-bpm-step");
+const masterBpmQuantize = document.querySelector("#master-bpm-quantize");
 const masterOutputTargets = document.querySelector("#master-output-targets");
 const masterClickEnabled = document.querySelector("#master-click-enabled");
 const masterClickWav = document.querySelector("#master-click-wav");
@@ -4373,6 +4375,8 @@ function renderMasterClockConfig(config) {
   masterBpmMax.value = config.bpm_max;
   masterClickInterval.value = config.click_interval;
   masterTapTempoMinTaps.value = config.tap_tempo_min_taps ?? 4;
+  masterBpmStep.value = config.bpm_step ?? 0.5;
+  masterBpmQuantize.value = String(config.bpm_quantize ?? 0.5);
   masterClickEnabled.checked = Boolean(config.click_enabled);
   replaceSelectOptions(
     masterClickWav,
@@ -4795,6 +4799,8 @@ masterClockForm.addEventListener("submit", (event) => {
       click_wav: masterClickWav.value,
       click_interval: masterClickInterval.value,
       tap_tempo_min_taps: Number(masterTapTempoMinTaps.value),
+      bpm_step: Number(masterBpmStep.value),
+      bpm_quantize: Number(masterBpmQuantize.value),
       click_audio_device: masterClickDevice.value,
     }),
   })

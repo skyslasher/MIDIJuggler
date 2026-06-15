@@ -308,6 +308,24 @@ def test_parse_config_reads_tap_tempo_min_taps() -> None:
     assert config.master_clock.tap_tempo_min_taps == 3
 
 
+def test_parse_config_reads_bpm_step_and_quantize() -> None:
+    config = parse_config(
+        {"master_clock": {"bpm_step": 1.0, "bpm_quantize": 1.0}}
+    )
+    assert config.master_clock.bpm_step == pytest.approx(1.0)
+    assert config.master_clock.bpm_quantize == pytest.approx(1.0)
+
+
+def test_parse_config_rejects_invalid_bpm_quantize() -> None:
+    with pytest.raises(ValueError, match="bpm_quantize"):
+        parse_config({"master_clock": {"bpm_quantize": 0.25}})
+
+
+def test_parse_config_rejects_invalid_bpm_step() -> None:
+    with pytest.raises(ValueError, match="bpm_step"):
+        parse_config({"master_clock": {"bpm_step": 0}})
+
+
 def test_parse_config_rejects_tap_tempo_min_taps_below_minimum() -> None:
     with pytest.raises(ValueError, match="tap_tempo_min_taps"):
         parse_config({"master_clock": {"tap_tempo_min_taps": 2}})

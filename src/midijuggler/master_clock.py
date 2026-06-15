@@ -62,10 +62,12 @@ class TapTempoTracker:
         reset_timeout: float = TAP_TEMPO_RESET_TIMEOUT_SECONDS,
         max_taps: int = TAP_TEMPO_MAX_TAPS,
         min_taps: int = 4,
+        quantize_step: float = TAP_TEMPO_BPM_QUANTIZE_STEP,
     ) -> None:
         self.reset_timeout = reset_timeout
         self.max_taps = max_taps
         self.min_taps = min_taps
+        self.quantize_step = quantize_step
         self._tap_times: list[float] = []
 
     @property
@@ -86,7 +88,10 @@ class TapTempoTracker:
         ]
         if not intervals:
             return None
-        return quantize_bpm(60.0 / (sum(intervals) / len(intervals)))
+        return quantize_bpm(
+            60.0 / (sum(intervals) / len(intervals)),
+            step=self.quantize_step,
+        )
 
     def clear(self) -> None:
         self._tap_times.clear()
@@ -228,7 +233,10 @@ class MasterClock:
         self._bpm_notify_task: asyncio.Task[None] | None = None
         self._click_tasks: set[asyncio.Task[None]] = set()
         self._datapoint_sink: ClockDatapointSink | None = None
-        self._tap_tempo = TapTempoTracker(min_taps=config.tap_tempo_min_taps)
+        self._tap_tempo = TapTempoTracker(
+            min_taps=config.tap_tempo_min_taps,
+            quantize_step=config.bpm_quantize,
+        )
 
     def bind_datapoint_sink(self, sink: ClockDatapointSink | None) -> None:
         self._datapoint_sink = sink
@@ -266,6 +274,7 @@ class MasterClock:
         self.config = config
         self.remote = MasterClockRemote(config)
         self._tap_tempo.min_taps = config.tap_tempo_min_taps
+        self._tap_tempo.quantize_step = config.bpm_quantize
         await self._replace_click_player(config)
         self.bpm = config.bpm
         self.click_interval = config.click_interval

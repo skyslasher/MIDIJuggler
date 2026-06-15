@@ -31,6 +31,8 @@ from midijuggler.config import (
     RuntimeConfig,
     _validate_adapter_instance_name,
     _validate_tap_tempo_min_taps,
+    _validate_bpm_step,
+    _validate_bpm_quantize,
     parse_config,
     save_gpio_adapter_options,
     save_mappings,
@@ -2210,6 +2212,8 @@ class WebInterface:
             "click_wav": config.click_wav,
             "click_interval": config.click_interval,
             "tap_tempo_min_taps": config.tap_tempo_min_taps,
+            "bpm_step": config.bpm_step,
+            "bpm_quantize": config.bpm_quantize,
             "click_audio_device": config.click_audio_device,
             "available_audio_devices": self._audio_devices(config.click_audio_device),
             "available_click_wavs": self._click_wavs(config.click_wav),
@@ -2653,6 +2657,14 @@ class WebInterface:
             payload.get("tap_tempo_min_taps", current.tap_tempo_min_taps),
             "tap_tempo_min_taps",
         )
+        bpm_step = _validate_bpm_step(
+            payload.get("bpm_step", current.bpm_step),
+            "bpm_step",
+        )
+        bpm_quantize = _validate_bpm_quantize(
+            payload.get("bpm_quantize", current.bpm_quantize),
+            "bpm_quantize",
+        )
 
         return MasterClockConfig(
             enabled=bool(payload.get("enabled", current.enabled)),
@@ -2676,6 +2688,8 @@ class WebInterface:
             click_command="aplay",
             click_audio_device=str(payload.get("click_audio_device", current.click_audio_device)),
             tap_tempo_min_taps=tap_tempo_min_taps,
+            bpm_step=bpm_step,
+            bpm_quantize=bpm_quantize,
         )
 
     def _available_adapter_targets(

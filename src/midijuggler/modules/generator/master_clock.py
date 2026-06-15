@@ -21,7 +21,6 @@ from midijuggler.master_clock import (
     MIDI_START,
     MIDI_STOP,
     MIDI_TIMING_CLOCK,
-    TAP_TEMPO_BPM_QUANTIZE_STEP,
     MasterClock,
     quantize_bpm,
 )
@@ -248,7 +247,7 @@ class MasterClockGenerator(GeneratorModule):
             MasterClockCommandEvent(
                 source=CLOCK_MODULE,
                 command="set_bpm",
-                value=self._step_bpm(TAP_TEMPO_BPM_QUANTIZE_STEP),
+                value=self._step_bpm(self.clock.config.bpm_step),
             )
         )
         asyncio.create_task(self._publish_outputs(), name="clock-publish-outputs")
@@ -258,13 +257,16 @@ class MasterClockGenerator(GeneratorModule):
             MasterClockCommandEvent(
                 source=CLOCK_MODULE,
                 command="set_bpm",
-                value=self._step_bpm(-TAP_TEMPO_BPM_QUANTIZE_STEP),
+                value=self._step_bpm(-self.clock.config.bpm_step),
             )
         )
         asyncio.create_task(self._publish_outputs(), name="clock-publish-outputs")
 
     def _step_bpm(self, delta: float) -> float:
-        stepped = quantize_bpm(self.clock.bpm + delta)
+        stepped = quantize_bpm(
+            self.clock.bpm + delta,
+            step=self.clock.config.bpm_quantize,
+        )
         return min(
             max(stepped, self.clock.config.bpm_min),
             self.clock.config.bpm_max,

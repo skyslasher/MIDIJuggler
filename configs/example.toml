@@ -23,6 +23,8 @@ send_transport = true
 click_enabled = false
 click_wav = "/etc/midijuggler/click.wav"
 click_interval = "quarter"
+bpm_step = 0.5
+bpm_quantize = 0.5
 click_audio_device = ""
 
 # Route clock control via [[connections]], for example:
