@@ -317,6 +317,53 @@ def test_tap_tempo_datapoint_respects_configured_min_taps() -> None:
     asyncio.run(scenario())
 
 
+def test_repeated_passthrough_bpm_up_steps_tempo() -> None:
+    config = parse_config(
+        {
+            "master_clock": {
+                "enabled": True,
+                "bpm": 120.0,
+                "bpm_min": 40.0,
+                "bpm_max": 240.0,
+            }
+        }
+    )
+    store = DataPointStore()
+    store.register(
+        DataPointSpec(
+            id=DataPointId("enc", "key_f"),
+            value_type=ValueType.FLOAT,
+            direction=DataPointDirection.INPUT,
+            protocol="hid",
+        )
+    )
+    master_clock = MasterClock(config.master_clock, EventBus())
+    clock_gen = MasterClockGenerator(master_clock, store)
+    store.register_many(clock_gen.datapoints())
+    graph = ModifierGraph(
+        store,
+        [
+            ConnectionSpec(
+                id="enc-bpm-up",
+                source="enc.key_f",
+                target="clock.bpm_up",
+                modifier=ModifierKind.PASSTHROUGH,
+            )
+        ],
+    )
+
+    async def scenario() -> None:
+        await clock_gen.start()
+        await graph.start()
+        await store.write(float_value("enc.key_f", 0.6))
+        await store.write(float_value("enc.key_f", 0.8))
+        await store.write(float_value("enc.key_f", 1.0))
+
+    asyncio.run(scenario())
+
+    assert master_clock.bpm == pytest.approx(121.5)
+
+
 def test_bpm_up_down_datapoints_step_and_quantize_by_half() -> None:
     config = parse_config(
         {

@@ -9,6 +9,7 @@ from midijuggler.datapoint.types import (
     DataPointId,
     DataPointSpec,
     DataPointValue,
+    ModifierKind,
     ValueType,
     float_value,
 )
@@ -62,6 +63,44 @@ def test_modifier_graph_maps_source_to_target() -> None:
 
     asyncio.run(scenario())
     assert received == [127.0]
+
+
+def test_modifier_graph_passthrough_pulses_repeated_trigger_targets() -> None:
+    store = DataPointStore()
+    store.register(
+        DataPointSpec(
+            id=DataPointId("clock", "bpm_up"),
+            value_type=ValueType.TRIGGER,
+            direction=DataPointDirection.OUTPUT,
+            protocol="clock",
+        )
+    )
+    graph = ModifierGraph(
+        store,
+        [
+            ConnectionSpec(
+                id="enc-bpm-up",
+                source="enc.key_f",
+                target="clock.bpm_up",
+                modifier=ModifierKind.PASSTHROUGH,
+            )
+        ],
+    )
+    received: list[bool | None] = []
+
+    async def handler(value: DataPointValue) -> None:
+        received.append(value.bool_value)
+
+    store.subscribe("clock.bpm_up", handler)
+
+    async def scenario() -> None:
+        await graph.start()
+        await store.write(float_value("enc.key_f", 0.6))
+        await store.write(float_value("enc.key_f", 0.8))
+
+    asyncio.run(scenario())
+
+    assert received == [False, True, False, True]
 
 
 def test_modifier_graph_subscribes_sources_added_at_runtime() -> None:

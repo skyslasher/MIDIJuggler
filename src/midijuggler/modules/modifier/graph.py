@@ -207,7 +207,10 @@ class ModifierGraph(ModifierModule):
             )
             return
         if value.value_type in {ValueType.FLOAT, ValueType.BOOL, ValueType.INT, ValueType.TRIGGER}:
-            await self.store.write(self._coerce_relay_value(value, connection.target))
+            coerced = self._coerce_relay_value(value, connection.target)
+            if coerced.value_type == ValueType.TRIGGER and value_is_active(coerced):
+                await self.store.write(trigger_value(connection.target, False))
+            await self.store.write(coerced)
 
     def _coerce_relay_value(
         self,

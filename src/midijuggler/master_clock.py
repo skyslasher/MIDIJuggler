@@ -225,7 +225,6 @@ class MasterClock:
         self.alsa_config_path = Path(alsa_config_path) if alsa_config_path is not None else None
         self.click_player = click_player or self._build_click_player(config)
         self._transport_task: asyncio.Task[None] | None = None
-        self._transport_wake = asyncio.Event()
         self._click_tasks: set[asyncio.Task[None]] = set()
         self._datapoint_sink: ClockDatapointSink | None = None
         self._tap_tempo = TapTempoTracker(min_taps=config.tap_tempo_min_taps)
@@ -306,7 +305,6 @@ class MasterClock:
         self.bpm = bpm
         self.config = replace(self.config, bpm=bpm)
         self.remote = MasterClockRemote(self.config)
-        self._wake_transport_loop()
         await self.bus.publish(BpmChangedEvent(source="master_clock", bpm=bpm))
         await self._publish_state()
         await self._publish_parameters()
@@ -315,7 +313,6 @@ class MasterClock:
         if interval not in CLICK_INTERVAL_TICKS:
             raise ValueError("click interval must be eighth, quarter, half or whole")
         self.click_interval = interval
-        self._wake_transport_loop()
         await self._publish_state()
 
     async def start_transport(self, reset_position: bool) -> None:
@@ -379,10 +376,6 @@ class MasterClock:
         with contextlib.suppress(asyncio.CancelledError):
             await self._transport_task
         self._transport_task = None
-        self._transport_wake.set()
-
-    def _wake_transport_loop(self) -> None:
-        self._transport_wake.set()
 
     async def _emit_frame(self) -> None:
         if self._is_click_tick(self.position_ticks):
@@ -404,25 +397,10 @@ class MasterClock:
             )
         )
 
-    async def _sleep_frame(self, wake: asyncio.Event) -> None:
+    async def _sleep_frame(self) -> None:
         if not self.running:
             return
-        if wake.is_set():
-            wake.clear()
-            return
-        sleep_task = asyncio.create_task(asyncio.sleep(self._seconds_per_tick()))
-        wake_task = asyncio.create_task(wake.wait())
-        await asyncio.wait(
-            {sleep_task, wake_task},
-            return_when=asyncio.FIRST_COMPLETED,
-        )
-        for task in (sleep_task, wake_task):
-            if not task.done():
-                task.cancel()
-                with contextlib.suppress(asyncio.CancelledError):
-                    await task
-        if wake.is_set():
-            wake.clear()
+        await asyncio.sleep(self._seconds_per_tick())
 
     async def _replace_click_player(self, config: MasterClockConfig) -> None:
         previous = self.click_player
@@ -466,7 +444,7 @@ class MasterClock:
         try:
             while self.running:
                 await self._emit_frame()
-                await self._sleep_frame(self._transport_wake)
+                await self._sleep_frame()
         except asyncio.CancelledError:
             raise
 

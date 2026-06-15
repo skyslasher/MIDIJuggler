@@ -43,6 +43,8 @@ class MasterClockGenerator(GeneratorModule):
         self.clock = clock
         self._tap_tempo_pressed = False
         self._start_stop_pressed = False
+        self._bpm_up_pressed = False
+        self._bpm_down_pressed = False
 
     def datapoints(self) -> list[DataPointSpec]:
         return [
@@ -191,25 +193,19 @@ class MasterClockGenerator(GeneratorModule):
             )
             await self._publish_outputs()
             return
-        if point == "bpm_up" and value_is_active(value):
-            await self.clock.handle_command(
-                MasterClockCommandEvent(
-                    source=CLOCK_MODULE,
-                    command="set_bpm",
-                    value=self._step_bpm(TAP_TEMPO_BPM_QUANTIZE_STEP),
-                )
+        if point == "bpm_up":
+            await self._handle_trigger_edge(
+                value,
+                pressed_attr="_bpm_up_pressed",
+                on_rising=self._handle_bpm_up,
             )
-            await self._publish_outputs()
             return
-        if point == "bpm_down" and value_is_active(value):
-            await self.clock.handle_command(
-                MasterClockCommandEvent(
-                    source=CLOCK_MODULE,
-                    command="set_bpm",
-                    value=self._step_bpm(-TAP_TEMPO_BPM_QUANTIZE_STEP),
-                )
+        if point == "bpm_down":
+            await self._handle_trigger_edge(
+                value,
+                pressed_attr="_bpm_down_pressed",
+                on_rising=self._handle_bpm_down,
             )
-            await self._publish_outputs()
             return
         if point == "start" and value_is_active(value):
             if self.clock.running:
@@ -243,6 +239,26 @@ class MasterClockGenerator(GeneratorModule):
 
     async def _toggle_transport(self, _value: DataPointValue) -> None:
         await self.clock.toggle_transport()
+        await self._publish_outputs()
+
+    async def _handle_bpm_up(self, _value: DataPointValue) -> None:
+        await self.clock.handle_command(
+            MasterClockCommandEvent(
+                source=CLOCK_MODULE,
+                command="set_bpm",
+                value=self._step_bpm(TAP_TEMPO_BPM_QUANTIZE_STEP),
+            )
+        )
+        await self._publish_outputs()
+
+    async def _handle_bpm_down(self, _value: DataPointValue) -> None:
+        await self.clock.handle_command(
+            MasterClockCommandEvent(
+                source=CLOCK_MODULE,
+                command="set_bpm",
+                value=self._step_bpm(-TAP_TEMPO_BPM_QUANTIZE_STEP),
+            )
+        )
         await self._publish_outputs()
 
     def _step_bpm(self, delta: float) -> float:

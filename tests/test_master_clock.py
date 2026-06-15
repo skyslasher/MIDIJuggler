@@ -221,20 +221,6 @@ def test_click_and_midi_tick_share_the_same_transport_frame() -> None:
     assert click_events[0].position_ticks == 0
 
 
-def test_sleep_frame_returns_immediately_when_bpm_wake_is_pending() -> None:
-    async def scenario() -> float:
-        clock = MasterClock(MasterClockConfig(enabled=True), EventBus())
-        clock.running = True
-        clock._transport_wake.set()
-        started = asyncio.get_running_loop().time()
-        await clock._sleep_frame(clock._transport_wake)
-        return asyncio.get_running_loop().time() - started
-
-    elapsed = asyncio.run(scenario())
-
-    assert elapsed < 0.02
-
-
 def test_rapid_bpm_changes_keep_transport_frames_and_clicks_advancing() -> None:
     async def scenario() -> tuple[int, int, list[ClickEvent]]:
         bus = EventBus()
