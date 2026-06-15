@@ -2924,7 +2924,8 @@ function attachMidiAdapterCardControls(card) {
 
   const message = document.createElement("p");
   message.className = "message midi-adapter-message";
-  card.appendChild(message);
+  const messageContainer = card.querySelector(".adapter-instance-body") || card;
+  messageContainer.appendChild(message);
 
   const markDirty = () => {
     clearMidiAdapterCardMessage(card);

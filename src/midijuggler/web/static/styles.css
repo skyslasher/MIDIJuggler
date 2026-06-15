@@ -270,7 +270,11 @@ legend {
 }
 
 .midi-adapter-card .midi-adapter-message {
-  margin-top: 0.65rem;
+  margin-top: 0;
+}
+
+.midi-adapter-card .midi-adapter-message:empty {
+  display: none;
 }
 
 .adapter-status-badge {
