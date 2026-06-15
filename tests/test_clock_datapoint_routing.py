@@ -142,3 +142,15 @@ def test_master_clock_datapoint_routing_reaches_midi_adapter(
     asyncio.run(scenario())
 
     assert [event.status for event in sent] == [MIDI_TIMING_CLOCK, MIDI_START]
+
+
+def test_master_clock_datapoint_directions_match_connection_roles() -> None:
+    store = DataPointStore()
+    clock = MasterClock(parse_config({}).master_clock, EventBus())
+    specs = {str(spec.id): spec for spec in MasterClockGenerator(clock, store).datapoints()}
+
+    for point in ("bpm", "running", "midi_tick", "quarter_ms", "eighth_ms"):
+        assert specs[f"clock.{point}"].direction.value == "input"
+
+    for point in ("bpm_set", "bpm_up", "bpm_down", "start", "stop"):
+        assert specs[f"clock.{point}"].direction.value == "output"
