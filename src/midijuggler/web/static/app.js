@@ -10,6 +10,7 @@ const masterBpm = document.querySelector("#master-bpm");
 const masterBpmMin = document.querySelector("#master-bpm-min");
 const masterBpmMax = document.querySelector("#master-bpm-max");
 const masterClickInterval = document.querySelector("#master-click-interval");
+const masterTapTempoMinTaps = document.querySelector("#master-tap-tempo-min-taps");
 const masterOutputTargets = document.querySelector("#master-output-targets");
 const masterClickEnabled = document.querySelector("#master-click-enabled");
 const masterClickWav = document.querySelector("#master-click-wav");
@@ -1470,7 +1471,7 @@ function formatMonitorEventLine(event, time) {
   }
 
   if (event.kind === "ControlEvent") {
-    if (monitorDisplayMode === "manual") {
+    if (monitorDisplayMode === "manual" || isHidAdapterSource(event.source)) {
       return `[${time}] Control ${event.source}:${event.control} = ${event.value}`;
     }
     const label =
@@ -1500,8 +1501,16 @@ function formatMonitorEventLine(event, time) {
   return `[${time}] ${event.kind} from ${event.source}: ${JSON.stringify(event)}`;
 }
 
+function isHidAdapterSource(source) {
+  return (hidAdaptersConfig?.instances || []).some((instance) => instance.name === source);
+}
+
 function shouldShowMonitorEvent(event) {
   const hasMidiLibrary = Boolean(adapterMidiLibraryId(event.source));
+
+  if (event.kind === "ControlEvent" && isHidAdapterSource(event.source)) {
+    return false;
+  }
 
   if (
     event.kind === "MidiMessageEvent" &&
@@ -4352,6 +4361,7 @@ function renderMasterClockConfig(config) {
   masterBpmMin.value = config.bpm_min;
   masterBpmMax.value = config.bpm_max;
   masterClickInterval.value = config.click_interval;
+  masterTapTempoMinTaps.value = config.tap_tempo_min_taps ?? 4;
   masterClickEnabled.checked = Boolean(config.click_enabled);
   replaceSelectOptions(
     masterClickWav,
@@ -4769,6 +4779,7 @@ masterClockForm.addEventListener("submit", (event) => {
       click_enabled: masterClickEnabled.checked,
       click_wav: masterClickWav.value,
       click_interval: masterClickInterval.value,
+      tap_tempo_min_taps: Number(masterTapTempoMinTaps.value),
       click_audio_device: masterClickDevice.value,
     }),
   })

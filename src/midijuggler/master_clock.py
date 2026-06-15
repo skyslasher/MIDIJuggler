@@ -5,6 +5,7 @@ from __future__ import annotations
 import asyncio
 import contextlib
 import logging
+import time
 from dataclasses import dataclass, replace
 from pathlib import Path
 from typing import Protocol
@@ -42,6 +43,53 @@ CLICK_INTERVAL_TICKS = {
     "half": MIDI_CLOCK_TICKS_PER_QUARTER * 2,
     "whole": MIDI_CLOCK_TICKS_PER_QUARTER * 4,
 }
+
+TAP_TEMPO_RESET_TIMEOUT_SECONDS = 2.5
+TAP_TEMPO_MAX_TAPS = 5
+TAP_TEMPO_BPM_QUANTIZE_STEP = 0.5
+
+
+def quantize_bpm(bpm: float, step: float = TAP_TEMPO_BPM_QUANTIZE_STEP) -> float:
+    return round(bpm / step) * step
+
+
+class TapTempoTracker:
+    """Collect tap timestamps and derive BPM from recent intervals."""
+
+    def __init__(
+        self,
+        *,
+        reset_timeout: float = TAP_TEMPO_RESET_TIMEOUT_SECONDS,
+        max_taps: int = TAP_TEMPO_MAX_TAPS,
+        min_taps: int = 4,
+    ) -> None:
+        self.reset_timeout = reset_timeout
+        self.max_taps = max_taps
+        self.min_taps = min_taps
+        self._tap_times: list[float] = []
+
+    @property
+    def tap_count(self) -> int:
+        return len(self._tap_times)
+
+    def register_tap(self, timestamp: float) -> float | None:
+        if self._tap_times and timestamp - self._tap_times[-1] > self.reset_timeout:
+            self._tap_times.clear()
+        self._tap_times.append(timestamp)
+        self._tap_times = self._tap_times[-self.max_taps :]
+        if len(self._tap_times) < self.min_taps:
+            return None
+        intervals = [
+            later - earlier
+            for earlier, later in zip(self._tap_times, self._tap_times[1:], strict=False)
+            if later > earlier
+        ]
+        if not intervals:
+            return None
+        return quantize_bpm(60.0 / (sum(intervals) / len(intervals)))
+
+    def clear(self) -> None:
+        self._tap_times.clear()
 
 
 @dataclass(frozen=True)
@@ -179,6 +227,7 @@ class MasterClock:
         self._task: asyncio.Task[None] | None = None
         self._click_tasks: set[asyncio.Task[None]] = set()
         self._datapoint_sink: ClockDatapointSink | None = None
+        self._tap_tempo = TapTempoTracker(min_taps=config.tap_tempo_min_taps)
 
     def bind_datapoint_sink(self, sink: ClockDatapointSink | None) -> None:
         self._datapoint_sink = sink
@@ -186,6 +235,10 @@ class MasterClock:
     @property
     def parameters(self) -> MasterClockParameters:
         return bpm_to_parameters(self.bpm)
+
+    @property
+    def tap_count(self) -> int:
+        return self._tap_tempo.tap_count
 
     async def start(self) -> None:
         await self._publish_state()
@@ -206,6 +259,7 @@ class MasterClock:
 
         self.config = config
         self.remote = MasterClockRemote(config)
+        self._tap_tempo.min_taps = config.tap_tempo_min_taps
         await self._replace_click_player(config)
         self.bpm = config.bpm
         self.click_interval = config.click_interval
@@ -285,6 +339,24 @@ class MasterClock:
         if send_transport and self.config.send_transport:
             await self._publish_midi_status(MIDI_STOP)
         await self._publish_state()
+
+    async def toggle_transport(self) -> None:
+        if self.running:
+            await self.stop_transport()
+        else:
+            await self.start_transport(reset_position=True)
+
+    async def register_tap_tempo(self, timestamp: float | None = None) -> float | None:
+        """Record a tap on the rising edge and update BPM when enough taps exist."""
+
+        bpm = self._tap_tempo.register_tap(
+            time.monotonic() if timestamp is None else timestamp
+        )
+        if bpm is None:
+            return None
+        clamped = min(max(bpm, self.config.bpm_min), self.config.bpm_max)
+        await self.set_bpm(clamped)
+        return clamped
 
     async def emit_tick(self) -> None:
         """Emit one MIDI clock tick. Exposed for tests and deterministic stepping."""

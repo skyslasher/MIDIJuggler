@@ -14,6 +14,8 @@ from midijuggler.datapoint.types import (
     ValueType,
     float_value,
     relay_value,
+    trigger_value,
+    value_is_active,
 )
 from midijuggler.modules.base import ModifierModule
 from midijuggler.modules.modifier.feedback_suppress import (
@@ -205,7 +207,17 @@ class ModifierGraph(ModifierModule):
             )
             return
         if value.value_type in {ValueType.FLOAT, ValueType.BOOL, ValueType.INT, ValueType.TRIGGER}:
-            await self.store.write(relay_value(value, connection.target))
+            await self.store.write(self._coerce_relay_value(value, connection.target))
+
+    def _coerce_relay_value(
+        self,
+        value: DataPointValue,
+        target: DataPointId | str,
+    ) -> DataPointValue:
+        spec = self.store.spec(target)
+        if spec is not None and spec.value_type == ValueType.TRIGGER:
+            return trigger_value(target, value_is_active(value))
+        return relay_value(value, target)
 
 
 def _numeric_value(value: DataPointValue) -> float | None:

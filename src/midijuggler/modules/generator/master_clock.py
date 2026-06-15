@@ -11,6 +11,7 @@ from midijuggler.datapoint.types import (
     ValueType,
     float_value,
     midi_message_value,
+    value_is_active,
 )
 from midijuggler.events import MasterClockCommandEvent
 from midijuggler.master_clock import (
@@ -38,6 +39,8 @@ class MasterClockGenerator(GeneratorModule):
     def __init__(self, clock: MasterClock, store: DataPointStore) -> None:
         super().__init__(CLOCK_MODULE, store)
         self.clock = clock
+        self._tap_tempo_pressed = False
+        self._start_stop_pressed = False
 
     def datapoints(self) -> list[DataPointSpec]:
         return [
@@ -85,6 +88,20 @@ class MasterClockGenerator(GeneratorModule):
                 value_type=ValueType.TRIGGER,
                 direction=DataPointDirection.OUTPUT,
                 label="Stop transport",
+                protocol="clock",
+            ),
+            DataPointSpec(
+                id=DataPointId(CLOCK_MODULE, "start_stop"),
+                value_type=ValueType.TRIGGER,
+                direction=DataPointDirection.OUTPUT,
+                label="Toggle transport start/stop",
+                protocol="clock",
+            ),
+            DataPointSpec(
+                id=DataPointId(CLOCK_MODULE, "tap_tempo"),
+                value_type=ValueType.TRIGGER,
+                direction=DataPointDirection.OUTPUT,
+                label="Tap tempo on rising edge",
                 protocol="clock",
             ),
             DataPointSpec(
@@ -140,7 +157,15 @@ class MasterClockGenerator(GeneratorModule):
 
     async def start(self) -> None:
         await super().start()
-        for point in ("bpm_set", "bpm_up", "bpm_down", "start", "stop"):
+        for point in (
+            "bpm_set",
+            "bpm_up",
+            "bpm_down",
+            "start",
+            "stop",
+            "start_stop",
+            "tap_tempo",
+        ):
             self.store.subscribe(
                 DataPointId(CLOCK_MODULE, point),
                 self._on_input,
@@ -164,7 +189,7 @@ class MasterClockGenerator(GeneratorModule):
             )
             await self._publish_outputs()
             return
-        if point == "bpm_up" and value.bool_value:
+        if point == "bpm_up" and value_is_active(value):
             step = max(1.0, self.clock.bpm * 0.01)
             await self.clock.handle_command(
                 MasterClockCommandEvent(
@@ -175,7 +200,7 @@ class MasterClockGenerator(GeneratorModule):
             )
             await self._publish_outputs()
             return
-        if point == "bpm_down" and value.bool_value:
+        if point == "bpm_down" and value_is_active(value):
             step = max(1.0, self.clock.bpm * 0.01)
             await self.clock.handle_command(
                 MasterClockCommandEvent(
@@ -186,7 +211,7 @@ class MasterClockGenerator(GeneratorModule):
             )
             await self._publish_outputs()
             return
-        if point == "start" and value.bool_value:
+        if point == "start" and value_is_active(value):
             if self.clock.running:
                 return
             await self.clock.handle_command(
@@ -194,13 +219,48 @@ class MasterClockGenerator(GeneratorModule):
             )
             await self._publish_outputs()
             return
-        if point == "stop" and value.bool_value:
+        if point == "stop" and value_is_active(value):
             if not self.clock.running:
                 return
             await self.clock.handle_command(
                 MasterClockCommandEvent(source=CLOCK_MODULE, command="stop")
             )
             await self._publish_outputs()
+            return
+        if point == "start_stop":
+            await self._handle_trigger_edge(
+                value,
+                pressed_attr="_start_stop_pressed",
+                on_rising=self._toggle_transport,
+            )
+            return
+        if point == "tap_tempo":
+            await self._handle_trigger_edge(
+                value,
+                pressed_attr="_tap_tempo_pressed",
+                on_rising=self._register_tap_tempo,
+            )
+
+    async def _toggle_transport(self, _value: DataPointValue) -> None:
+        await self.clock.toggle_transport()
+        await self._publish_outputs()
+
+    async def _register_tap_tempo(self, value: DataPointValue) -> None:
+        await self.clock.register_tap_tempo(value.timestamp)
+        await self._publish_outputs()
+
+    async def _handle_trigger_edge(
+        self,
+        value: DataPointValue,
+        *,
+        pressed_attr: str,
+        on_rising,
+    ) -> None:
+        active = value_is_active(value)
+        was_pressed = getattr(self, pressed_attr)
+        setattr(self, pressed_attr, active)
+        if active and not was_pressed:
+            await on_rising(value)
 
     async def publish_tick(self) -> None:
         await self.publish_midi_message(MIDI_TIMING_CLOCK)

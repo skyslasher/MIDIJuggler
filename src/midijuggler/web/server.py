@@ -7,7 +7,6 @@ import contextlib
 import json
 import logging
 import mimetypes
-import time
 import tomllib
 from importlib import resources
 from pathlib import Path
@@ -30,6 +29,7 @@ from midijuggler.config import (
     MasterClockConfig,
     RuntimeConfig,
     _validate_adapter_instance_name,
+    _validate_tap_tempo_min_taps,
     parse_config,
     save_gpio_adapter_options,
     save_mappings,
@@ -156,7 +156,6 @@ class WebInterface:
         self.alsa_config_path = (
             Path(alsa_config_path) if alsa_config_path is not None else None
         )
-        self._tap_times: list[float] = []
         self._websockets: set[web.WebSocketResponse] = set()
         self._hid_learn_instance: str | None = None
         self._adapter_runtime_status: dict[str, dict[str, str]] = {}
@@ -2192,6 +2191,7 @@ class WebInterface:
             "click_enabled": config.click_enabled,
             "click_wav": config.click_wav,
             "click_interval": config.click_interval,
+            "tap_tempo_min_taps": config.tap_tempo_min_taps,
             "click_audio_device": config.click_audio_device,
             "available_audio_devices": self._audio_devices(config.click_audio_device),
             "available_click_wavs": self._click_wavs(config.click_wav),
@@ -2251,37 +2251,17 @@ class WebInterface:
         return response
 
     async def apply_tap_tempo(self, timestamp: float | None = None) -> dict[str, Any]:
-        now = time.monotonic() if timestamp is None else timestamp
-        if self._tap_times and now - self._tap_times[-1] > 2.5:
-            self._tap_times.clear()
-        self._tap_times.append(now)
-        self._tap_times = self._tap_times[-5:]
-
-        if len(self._tap_times) >= 2:
-            intervals = [
-                later - earlier
-                for earlier, later in zip(self._tap_times, self._tap_times[1:])
-                if later > earlier
-            ]
-            if intervals:
-                bpm = _quantize_bpm(60.0 / (sum(intervals) / len(intervals)))
-                await self.master_clock.set_bpm(
-                    min(
-                        max(bpm, self.master_clock.config.bpm_min),
-                        self.master_clock.config.bpm_max,
-                    )
-                )
-
+        await self.master_clock.register_tap_tempo(timestamp)
         payload = self._status_payload()
-        payload["tap_count"] = len(self._tap_times)
+        payload["tap_count"] = self.master_clock.tap_count
         return payload
 
     async def apply_master_clock_transport(self, action: str) -> dict[str, Any]:
         if not self.master_clock.config.enabled:
             raise ValueError("master clock is disabled")
         if action == "toggle":
-            action = "stop" if self.master_clock.running else "start"
-        if action == "start":
+            await self.master_clock.toggle_transport()
+        elif action == "start":
             await self.master_clock.start_transport(reset_position=True)
         elif action == "stop":
             await self.master_clock.stop_transport()
@@ -2630,6 +2610,11 @@ class WebInterface:
         if not bpm_min <= bpm <= bpm_max:
             raise ValueError("bpm must be inside bpm_min/bpm_max")
 
+        tap_tempo_min_taps = _validate_tap_tempo_min_taps(
+            payload.get("tap_tempo_min_taps", current.tap_tempo_min_taps),
+            "tap_tempo_min_taps",
+        )
+
         return MasterClockConfig(
             enabled=bool(payload.get("enabled", current.enabled)),
             bpm=bpm,
@@ -2651,6 +2636,7 @@ class WebInterface:
             click_interval=click_interval,
             click_command="aplay",
             click_audio_device=str(payload.get("click_audio_device", current.click_audio_device)),
+            tap_tempo_min_taps=tap_tempo_min_taps,
         )
 
     def _available_adapter_targets(
@@ -2728,10 +2714,6 @@ def _validate_midi_7bit(value: Any, field_name: str) -> int:
     if not 0 <= parsed <= 127:
         raise ValueError(f"{field_name} must be between 0 and 127")
     return parsed
-
-
-def _quantize_bpm(bpm: float, step: float = 0.5) -> float:
-    return round(bpm / step) * step
 
 
 async def run_web_server(interface: WebInterface) -> web.AppRunner:

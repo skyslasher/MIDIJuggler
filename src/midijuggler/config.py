@@ -53,6 +53,7 @@ class MasterClockConfig:
     click_interval: str = "quarter"
     click_command: str = "aplay"
     click_audio_device: str = ""
+    tap_tempo_min_taps: int = 4
 
 
 @dataclass(frozen=True)
@@ -469,6 +470,7 @@ def _format_master_clock_section(
         f"click_enabled = {_toml_bool(config.click_enabled)}\n"
         f"click_wav = {_toml_string(config.click_wav)}\n"
         f"click_interval = {_toml_string(config.click_interval)}\n"
+        f"tap_tempo_min_taps = {config.tap_tempo_min_taps}\n"
         f"click_audio_device = {_toml_string(config.click_audio_device)}\n\n"
     )
     return section
@@ -581,6 +583,11 @@ def _parse_master_clock(raw: Any) -> MasterClockConfig:
     if click_interval not in {"eighth", "quarter", "half", "whole"}:
         raise ValueError("master_clock.click_interval must be eighth, quarter, half or whole")
 
+    tap_tempo_min_taps = _validate_tap_tempo_min_taps(
+        raw.get("tap_tempo_min_taps", 4),
+        "master_clock.tap_tempo_min_taps",
+    )
+
     return MasterClockConfig(
         enabled=bool(raw.get("enabled", False)),
         bpm=bpm,
@@ -607,6 +614,7 @@ def _parse_master_clock(raw: Any) -> MasterClockConfig:
         click_interval=click_interval,
         click_command=str(raw.get("click_command", "aplay")),
         click_audio_device=str(raw.get("click_audio_device", "")),
+        tap_tempo_min_taps=tap_tempo_min_taps,
     )
 
 
@@ -748,6 +756,13 @@ def _parse_optional_string_list(raw: Any, field_name: str) -> list[str] | None:
     if not isinstance(raw, list):
         raise ValueError(f"{field_name} must be a list")
     return [str(item) for item in raw]
+
+
+def _validate_tap_tempo_min_taps(value: Any, field_name: str) -> int:
+    parsed = _as_int(value, field_name)
+    if parsed < 3:
+        raise ValueError(f"{field_name} must be at least 3")
+    return parsed
 
 
 def _as_int(value: Any, field_name: str) -> int:

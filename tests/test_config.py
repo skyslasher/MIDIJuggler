@@ -303,6 +303,16 @@ def test_parse_config_rejects_invalid_master_clock_interval() -> None:
         parse_config({"master_clock": {"click_interval": "triplet"}})
 
 
+def test_parse_config_reads_tap_tempo_min_taps() -> None:
+    config = parse_config({"master_clock": {"tap_tempo_min_taps": 3}})
+    assert config.master_clock.tap_tempo_min_taps == 3
+
+
+def test_parse_config_rejects_tap_tempo_min_taps_below_minimum() -> None:
+    with pytest.raises(ValueError, match="tap_tempo_min_taps"):
+        parse_config({"master_clock": {"tap_tempo_min_taps": 2}})
+
+
 def test_parse_config_rejects_unknown_adapter_instance_without_type() -> None:
     with pytest.raises(ValueError, match="type must be one of"):
         parse_config({"adapters": {"pedalboard": {"enabled": True}}})

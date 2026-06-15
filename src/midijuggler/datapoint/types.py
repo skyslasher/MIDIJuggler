@@ -199,3 +199,13 @@ def relay_value(value: DataPointValue, target: DataPointId | str) -> DataPointVa
         osc_arguments=value.osc_arguments,
         emit_outputs=value.emit_outputs,
     )
+
+
+def value_is_active(value: DataPointValue) -> bool:
+    if value.bool_value is not None:
+        return value.bool_value
+    if value.float_value is not None:
+        return value.float_value > 0.5
+    if value.int_value is not None:
+        return value.int_value != 0
+    return False
