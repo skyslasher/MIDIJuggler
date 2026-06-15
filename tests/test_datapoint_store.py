@@ -82,3 +82,26 @@ def test_registry_snapshot_includes_specs() -> None:
     payload = store.registry_snapshot()
     assert payload[0]["id"] == "clock.bpm"
     assert payload[0]["label"] == "BPM"
+
+
+def test_midi_message_writes_always_propagate() -> None:
+    from midijuggler.datapoint.types import midi_message_value
+    from midijuggler.master_clock import MIDI_TIMING_CLOCK
+
+    store = DataPointStore()
+    seen = 0
+
+    async def handler(_value) -> None:
+        nonlocal seen
+        seen += 1
+
+    store.subscribe("clock.midi_tick", handler)
+
+    async def scenario() -> None:
+        for _ in range(5):
+            await store.write(
+                midi_message_value("clock.midi_tick", MIDI_TIMING_CLOCK),
+            )
+
+    asyncio.run(scenario())
+    assert seen == 5

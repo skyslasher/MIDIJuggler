@@ -27,6 +27,38 @@ from midijuggler.modules.modifier.graph import ModifierGraph
 from midijuggler.web.server import WebInterface
 
 
+def test_modifier_graph_passthrough_relays_repeated_midi_clock_ticks() -> None:
+    store = DataPointStore()
+    graph = ModifierGraph(
+        store,
+        [
+            ConnectionSpec(
+                id="clock-to-midi",
+                source="clock.midi_tick",
+                target="midi.midi_out",
+                modifier=ModifierKind.PASSTHROUGH,
+            )
+        ],
+    )
+    received: list[int] = []
+
+    async def handler(value) -> None:
+        if value.midi_status is not None:
+            received.append(value.midi_status)
+
+    store.subscribe("midi.midi_out", handler)
+
+    async def scenario() -> None:
+        await graph.start()
+        for _ in range(3):
+            await store.write(
+                midi_message_value("clock.midi_tick", MIDI_TIMING_CLOCK),
+            )
+
+    asyncio.run(scenario())
+    assert received == [MIDI_TIMING_CLOCK, MIDI_TIMING_CLOCK, MIDI_TIMING_CLOCK]
+
+
 def test_modifier_graph_passthrough_relays_midi_messages() -> None:
     store = DataPointStore()
     graph = ModifierGraph(

@@ -9,7 +9,7 @@ from collections import defaultdict, deque
 from collections.abc import Awaitable, Callable
 from typing import Any
 
-from midijuggler.datapoint.types import DataPointId, DataPointSpec, DataPointValue
+from midijuggler.datapoint.types import DataPointId, DataPointSpec, DataPointValue, ValueType
 
 LOGGER = logging.getLogger(__name__)
 
@@ -118,6 +118,8 @@ class DataPointStore:
                 LOGGER.exception("data point handler failed for %s", key)
 
     def _value_changed(self, key: str, value: DataPointValue) -> bool:
+        if value.value_type == ValueType.MIDI_MESSAGE:
+            return True
         previous = self._values.get(key)
         if previous is None:
             return True

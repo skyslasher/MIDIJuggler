@@ -230,6 +230,7 @@ class MasterClock:
         self.alsa_config_path = Path(alsa_config_path) if alsa_config_path is not None else None
         self.click_player = click_player or self._build_click_player(config)
         self._transport_task: asyncio.Task[None] | None = None
+        self._transport_next_deadline: float | None = None
         self._bpm_notify_task: asyncio.Task[None] | None = None
         self._click_tasks: set[asyncio.Task[None]] = set()
         self._datapoint_sink: ClockDatapointSink | None = None
@@ -363,6 +364,8 @@ class MasterClock:
         if reset_position and not was_running:
             self.position_ticks = 0
         self.running = True
+        if not was_running:
+            self._transport_next_deadline = None
         if self.config.send_transport and not was_running:
             await self._publish_midi_status(MIDI_START)
         self._ensure_transport_task()
@@ -432,18 +435,22 @@ class MasterClock:
     async def _emit_click(self) -> None:
         if self.config.click_enabled:
             self._trigger_click()
+        position_ticks = self.position_ticks
+        task = asyncio.create_task(
+            self._publish_click_event(position_ticks),
+            name="click-event",
+        )
+        self._click_tasks.add(task)
+        task.add_done_callback(self._click_tasks.discard)
+
+    async def _publish_click_event(self, position_ticks: int) -> None:
         await self.bus.publish(
             ClickEvent(
                 source="master_clock",
                 interval=self.click_interval,
-                position_ticks=self.position_ticks,
+                position_ticks=position_ticks,
             )
         )
-
-    async def _sleep_frame(self) -> None:
-        if not self.running:
-            return
-        await asyncio.sleep(self._seconds_per_tick())
 
     async def _replace_click_player(self, config: MasterClockConfig) -> None:
         previous = self.click_player
@@ -484,11 +491,20 @@ class MasterClock:
         task.add_done_callback(self._click_tasks.discard)
 
     async def _run_transport(self) -> None:
+        loop = asyncio.get_running_loop()
+        next_deadline = self._transport_next_deadline
+        if next_deadline is None:
+            next_deadline = loop.time()
         try:
             while self.running:
+                next_deadline += self._seconds_per_tick()
+                delay = next_deadline - loop.time()
+                if delay > 0:
+                    await asyncio.sleep(delay)
                 await self._emit_frame()
-                await self._sleep_frame()
+            self._transport_next_deadline = next_deadline
         except asyncio.CancelledError:
+            self._transport_next_deadline = next_deadline
             raise
 
     def _seconds_per_tick(self) -> float:

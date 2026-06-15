@@ -281,6 +281,31 @@ def test_rapid_bpm_changes_keep_transport_frames_and_clicks_advancing() -> None:
     assert click_events
 
 
+def test_transport_maintains_average_bpm_over_one_second() -> None:
+    async def scenario() -> tuple[int, float]:
+        bus = EventBus()
+        clock = MasterClock(
+            MasterClockConfig(
+                enabled=True,
+                click_enabled=False,
+                bpm=120.0,
+            ),
+            bus,
+            click_player=FakeClickPlayer(),
+        )
+        await clock.start_transport(reset_position=True)
+        loop = asyncio.get_running_loop()
+        started = loop.time()
+        await asyncio.sleep(1.0)
+        elapsed = loop.time() - started
+        return clock.position_ticks, elapsed
+
+    ticks, elapsed = asyncio.run(scenario())
+
+    expected_ticks = elapsed * (120.0 / 60.0) * 24
+    assert ticks == pytest.approx(expected_ticks, rel=0.03, abs=3)
+
+
 def test_master_clock_start_command_while_running_does_not_reset_position() -> None:
     async def scenario() -> MasterClock:
         bus = EventBus()
