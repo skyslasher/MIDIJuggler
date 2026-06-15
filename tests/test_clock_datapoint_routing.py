@@ -315,3 +315,36 @@ def test_tap_tempo_datapoint_respects_configured_min_taps() -> None:
         assert master_clock.bpm == pytest.approx(120.5)
 
     asyncio.run(scenario())
+
+
+def test_bpm_up_down_datapoints_step_and_quantize_by_half() -> None:
+    config = parse_config(
+        {
+            "master_clock": {
+                "enabled": True,
+                "bpm": 120.0,
+                "bpm_min": 40.0,
+                "bpm_max": 240.0,
+            }
+        }
+    )
+    store = DataPointStore()
+    master_clock = MasterClock(config.master_clock, EventBus())
+    clock_gen = MasterClockGenerator(master_clock, store)
+    store.register_many(clock_gen.datapoints())
+
+    async def tap_edge(point: str) -> None:
+        await store.write(trigger_value(point, active=False))
+        await store.write(trigger_value(point, active=True))
+
+    async def scenario() -> None:
+        await clock_gen.start()
+        await tap_edge("clock.bpm_up")
+        assert master_clock.bpm == pytest.approx(120.5)
+        await store.write(float_value("clock.bpm_set", 120.3))
+        await tap_edge("clock.bpm_up")
+        assert master_clock.bpm == pytest.approx(121.0)
+        await tap_edge("clock.bpm_down")
+        assert master_clock.bpm == pytest.approx(120.5)
+
+    asyncio.run(scenario())

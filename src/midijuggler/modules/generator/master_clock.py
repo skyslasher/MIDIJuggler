@@ -19,7 +19,9 @@ from midijuggler.master_clock import (
     MIDI_START,
     MIDI_STOP,
     MIDI_TIMING_CLOCK,
+    TAP_TEMPO_BPM_QUANTIZE_STEP,
     MasterClock,
+    quantize_bpm,
 )
 from midijuggler.modules.base import GeneratorModule
 
@@ -190,23 +192,21 @@ class MasterClockGenerator(GeneratorModule):
             await self._publish_outputs()
             return
         if point == "bpm_up" and value_is_active(value):
-            step = max(1.0, self.clock.bpm * 0.01)
             await self.clock.handle_command(
                 MasterClockCommandEvent(
                     source=CLOCK_MODULE,
                     command="set_bpm",
-                    value=min(self.clock.config.bpm_max, self.clock.bpm + step),
+                    value=self._step_bpm(TAP_TEMPO_BPM_QUANTIZE_STEP),
                 )
             )
             await self._publish_outputs()
             return
         if point == "bpm_down" and value_is_active(value):
-            step = max(1.0, self.clock.bpm * 0.01)
             await self.clock.handle_command(
                 MasterClockCommandEvent(
                     source=CLOCK_MODULE,
                     command="set_bpm",
-                    value=max(self.clock.config.bpm_min, self.clock.bpm - step),
+                    value=self._step_bpm(-TAP_TEMPO_BPM_QUANTIZE_STEP),
                 )
             )
             await self._publish_outputs()
@@ -244,6 +244,13 @@ class MasterClockGenerator(GeneratorModule):
     async def _toggle_transport(self, _value: DataPointValue) -> None:
         await self.clock.toggle_transport()
         await self._publish_outputs()
+
+    def _step_bpm(self, delta: float) -> float:
+        stepped = quantize_bpm(self.clock.bpm + delta)
+        return min(
+            max(stepped, self.clock.config.bpm_min),
+            self.clock.config.bpm_max,
+        )
 
     async def _register_tap_tempo(self, value: DataPointValue) -> None:
         await self.clock.register_tap_tempo(value.timestamp)
