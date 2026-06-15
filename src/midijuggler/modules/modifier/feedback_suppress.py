@@ -1,4 +1,4 @@
-"""Suppress desk feedback while a paired encoder is being turned."""
+"""Suppress desk feedback while a paired control is being moved."""
 
 from __future__ import annotations
 
@@ -49,12 +49,34 @@ def encoder_control_group(point_id: str) -> str | None:
     return None
 
 
-class EncoderFeedbackSuppressor:
-    """Pause desk-to-controller feedback shortly after encoder movement."""
+def reciprocal_feedback_pairs(
+    connections: list[object],
+) -> dict[str, str]:
+    """Map desk feedback sources to their paired user-side sources."""
+    pairs: dict[str, str] = {}
+    for left in connections:
+        left_source = getattr(left, "source", None)
+        left_target = getattr(left, "target", None)
+        if not isinstance(left_source, str) or not isinstance(left_target, str):
+            continue
+        for right in connections:
+            right_source = getattr(right, "source", None)
+            right_target = getattr(right, "target", None)
+            if not isinstance(right_source, str) or not isinstance(right_target, str):
+                continue
+            if left_source == right_target and left_target == right_source:
+                pairs[left_source] = right_source
+    return pairs
+
+
+class FeedbackSuppressor:
+    """Pause desk-to-controller feedback shortly after local user input."""
 
     def __init__(self, window_ms: int = DEFAULT_FEEDBACK_SUPPRESS_MS) -> None:
         self._window_seconds = 0.0
         self._last_turn_at: dict[str, float] = {}
+        self._last_user_input_at: dict[str, float] = {}
+        self._feedback_pairs: dict[str, str] = {}
         self.configure(window_ms)
 
     @property
@@ -65,6 +87,10 @@ class EncoderFeedbackSuppressor:
         self._window_seconds = max(0.0, window_ms) / 1000.0
         if not self.enabled:
             self._last_turn_at.clear()
+            self._last_user_input_at.clear()
+
+    def set_feedback_pairs(self, pairs: dict[str, str]) -> None:
+        self._feedback_pairs = dict(pairs)
 
     def note_turn(self, source_point_id: str, *, now: float | None = None) -> None:
         if not self.enabled:
@@ -74,6 +100,25 @@ class EncoderFeedbackSuppressor:
             return
         timestamp = time.monotonic() if now is None else now
         self._last_turn_at[group] = timestamp
+
+    def note_user_input(self, source_point_id: str, *, now: float | None = None) -> None:
+        if not self.enabled:
+            return
+        timestamp = time.monotonic() if now is None else now
+        self._last_user_input_at[source_point_id] = timestamp
+        self.note_turn(source_point_id, now=timestamp)
+
+    def should_suppress_source(self, source_point_id: str, *, now: float | None = None) -> bool:
+        if not self.enabled:
+            return False
+        user_source = self._feedback_pairs.get(source_point_id)
+        if user_source is None:
+            return False
+        last_input = self._last_user_input_at.get(user_source)
+        if last_input is None:
+            return False
+        timestamp = time.monotonic() if now is None else now
+        return timestamp - last_input <= self._window_seconds
 
     def should_suppress_target(self, target_point_id: str, *, now: float | None = None) -> bool:
         if not self.enabled:
@@ -86,3 +131,6 @@ class EncoderFeedbackSuppressor:
             return False
         timestamp = time.monotonic() if now is None else now
         return timestamp - last_turn <= self._window_seconds
+
+
+EncoderFeedbackSuppressor = FeedbackSuppressor

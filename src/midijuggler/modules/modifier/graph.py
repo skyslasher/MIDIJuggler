@@ -16,7 +16,10 @@ from midijuggler.datapoint.types import (
     relay_value,
 )
 from midijuggler.modules.base import ModifierModule
-from midijuggler.modules.modifier.feedback_suppress import EncoderFeedbackSuppressor
+from midijuggler.modules.modifier.feedback_suppress import (
+    FeedbackSuppressor,
+    reciprocal_feedback_pairs,
+)
 from midijuggler.modules.modifier.range_map import RangeMapTransform, apply_range_map
 from midijuggler.modules.modifier.relative_delta import (
     DEFAULT_RELATIVE_ENCODING,
@@ -42,7 +45,8 @@ class ModifierGraph(ModifierModule):
         self._source_index: dict[str, list[tuple[ConnectionSpec, RangeMapTransform]]] = {}
         self._passthrough_index: dict[str, list[ConnectionSpec]] = {}
         self._subscribed_sources: set[str] = set()
-        self._feedback_suppressor = EncoderFeedbackSuppressor(feedback_suppress_ms)
+        self._feedback_suppressor = FeedbackSuppressor(feedback_suppress_ms)
+        self._user_sources: set[str] = set()
         self._last_relative_input: dict[str, int] = {}
         self._relative_targets: dict[tuple[str, str], float] = {}
         self._rebuild_index()
@@ -70,6 +74,9 @@ class ModifierGraph(ModifierModule):
             self._source_index.setdefault(connection.source, []).append(
                 (connection, transform)
             )
+        feedback_pairs = reciprocal_feedback_pairs(self.connections)
+        self._user_sources = set(feedback_pairs.values())
+        self._feedback_suppressor.set_feedback_pairs(feedback_pairs)
 
     async def start(self) -> None:
         await super().start()
@@ -95,12 +102,20 @@ class ModifierGraph(ModifierModule):
         key = str(value.point_id)
         if self._is_relative_source(key):
             self._feedback_suppressor.note_turn(key, now=value.timestamp)
+        if key in self._user_sources:
+            self._feedback_suppressor.note_user_input(key, now=value.timestamp)
         for connection in self._passthrough_index.get(key, []):
             await self._relay_passthrough(value, connection)
         if value.value_type not in {ValueType.FLOAT, ValueType.BOOL, ValueType.INT}:
             return
         numeric = _numeric_value(value)
         if numeric is None:
+            return
+        if self._feedback_suppressor.should_suppress_source(key, now=value.timestamp):
+            LOGGER.debug(
+                "modifier_graph suppressed feedback source %s",
+                key,
+            )
             return
         for connection, transform in self._source_index.get(key, []):
             if self._feedback_suppressor.should_suppress_target(
