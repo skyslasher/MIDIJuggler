@@ -1619,11 +1619,39 @@ function loadHidAdaptersConfig() {
 }
 
 function renderHidAdaptersConfig(config) {
+  const openInstances = new Set(
+    [...hidInstances.querySelectorAll(".hid-adapter-card")].flatMap((card) => {
+      const details = card.querySelector("details");
+      return details?.open ? [card.dataset.instanceName] : [];
+    }),
+  );
+
   hidAdaptersConfig = config;
   hidLearnInstanceName = config.learn_active || "";
   hidInstances.replaceChildren();
   for (const instance of config.instances || []) {
-    hidInstances.appendChild(createHidAdapterCard(instance, config));
+    const card = createHidAdapterCard(instance, config);
+    if (openInstances.has(instance.name)) {
+      const details = card.querySelector("details");
+      if (details) {
+        details.open = true;
+      }
+    }
+    hidInstances.appendChild(card);
+  }
+}
+
+function syncHidLearnState(config) {
+  hidAdaptersConfig = config;
+  hidLearnInstanceName = config.learn_active || "";
+  for (const card of hidInstances.querySelectorAll(".hid-adapter-card")) {
+    const learnButton = card.querySelector(".hid-learn-button");
+    const isActive = card.dataset.instanceName === hidLearnInstanceName;
+    card.dataset.learnActive = isActive ? "true" : "false";
+    if (learnButton) {
+      learnButton.textContent = isActive ? "Stop learning" : "Learn input";
+      learnButton.classList.toggle("active-learn", isActive);
+    }
   }
 }
 
@@ -1799,7 +1827,7 @@ function setHidLearnMode(card, active) {
       return response.json();
     })
     .then((config) => {
-      renderHidAdaptersConfig(config);
+      syncHidLearnState(config);
       hidMessage.textContent = active
         ? `learning inputs for ${name}; press a button or move an axis`
         : "";
@@ -1873,7 +1901,12 @@ function createHidAdapterCard(instance, config) {
   learnButton.type = "button";
   learnButton.className = "hid-learn-button";
   learnButton.textContent = instance.learn_active ? "Stop learning" : "Learn input";
-  learnButton.addEventListener("click", () => {
+  if (instance.learn_active) {
+    learnButton.classList.add("active-learn");
+  }
+  learnButton.addEventListener("click", (event) => {
+    event.preventDefault();
+    event.stopPropagation();
     setHidLearnMode(card, card.dataset.learnActive !== "true");
   });
   learnRow.appendChild(learnButton);
