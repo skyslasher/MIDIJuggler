@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import asyncio
+
 from midijuggler.datapoint.store import DataPointStore
 from midijuggler.datapoint.types import (
     DataPointDirection,
@@ -249,7 +251,7 @@ class MasterClockGenerator(GeneratorModule):
                 value=self._step_bpm(TAP_TEMPO_BPM_QUANTIZE_STEP),
             )
         )
-        await self._publish_outputs()
+        asyncio.create_task(self._publish_outputs(), name="clock-publish-outputs")
 
     async def _handle_bpm_down(self, _value: DataPointValue) -> None:
         await self.clock.handle_command(
@@ -259,7 +261,7 @@ class MasterClockGenerator(GeneratorModule):
                 value=self._step_bpm(-TAP_TEMPO_BPM_QUANTIZE_STEP),
             )
         )
-        await self._publish_outputs()
+        asyncio.create_task(self._publish_outputs(), name="clock-publish-outputs")
 
     def _step_bpm(self, delta: float) -> float:
         stepped = quantize_bpm(self.clock.bpm + delta)

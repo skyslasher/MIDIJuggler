@@ -221,6 +221,37 @@ def test_click_and_midi_tick_share_the_same_transport_frame() -> None:
     assert click_events[0].position_ticks == 0
 
 
+def test_set_bpm_schedules_notifications_without_blocking_transport() -> None:
+    async def scenario() -> tuple[MasterClock, int, float]:
+        bus = EventBus()
+        broadcasts = 0
+
+        async def slow_broadcast(_event) -> None:
+            nonlocal broadcasts
+            broadcasts += 1
+            await asyncio.sleep(0.05)
+
+        bus.subscribe("*", slow_broadcast)
+        clock = MasterClock(
+            MasterClockConfig(enabled=True, click_enabled=True, click_interval="eighth", bpm=120.0),
+            bus,
+            click_player=FakeClickPlayer(),
+        )
+        await clock.start_transport(reset_position=True)
+        ticks_before = clock.position_ticks
+        started = asyncio.get_running_loop().time()
+        for step in range(12):
+            await clock.set_bpm(120.0 + step * 0.5)
+        elapsed = asyncio.get_running_loop().time() - started
+        await asyncio.sleep(0.12)
+        return clock, ticks_before, elapsed
+
+    clock, ticks_before, elapsed = asyncio.run(scenario())
+
+    assert elapsed < 0.08
+    assert clock.position_ticks > ticks_before
+
+
 def test_rapid_bpm_changes_keep_transport_frames_and_clicks_advancing() -> None:
     async def scenario() -> tuple[int, int, list[ClickEvent]]:
         bus = EventBus()
@@ -354,6 +385,7 @@ def test_master_clock_bpm_can_be_set_by_osc() -> None:
                 arguments=(128.5,),
             )
         )
+        await clock.flush_bpm_notifications()
         return clock, controls
 
     clock, controls = asyncio.run(scenario())

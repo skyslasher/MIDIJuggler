@@ -225,6 +225,7 @@ class MasterClock:
         self.alsa_config_path = Path(alsa_config_path) if alsa_config_path is not None else None
         self.click_player = click_player or self._build_click_player(config)
         self._transport_task: asyncio.Task[None] | None = None
+        self._bpm_notify_task: asyncio.Task[None] | None = None
         self._click_tasks: set[asyncio.Task[None]] = set()
         self._datapoint_sink: ClockDatapointSink | None = None
         self._tap_tempo = TapTempoTracker(min_taps=config.tap_tempo_min_taps)
@@ -248,6 +249,11 @@ class MasterClock:
 
     async def stop(self) -> None:
         await self.stop_transport(send_transport=False)
+        if self._bpm_notify_task is not None:
+            self._bpm_notify_task.cancel()
+            with contextlib.suppress(asyncio.CancelledError):
+                await self._bpm_notify_task
+            self._bpm_notify_task = None
         await self.click_player.close()
 
     async def configure(self, config: MasterClockConfig) -> None:
@@ -305,9 +311,37 @@ class MasterClock:
         self.bpm = bpm
         self.config = replace(self.config, bpm=bpm)
         self.remote = MasterClockRemote(self.config)
-        await self.bus.publish(BpmChangedEvent(source="master_clock", bpm=bpm))
-        await self._publish_state()
-        await self._publish_parameters()
+        self._schedule_bpm_notify()
+
+    def _schedule_bpm_notify(self) -> None:
+        if self._bpm_notify_task is not None and not self._bpm_notify_task.done():
+            return
+        self._bpm_notify_task = asyncio.create_task(
+            self._emit_bpm_notifications(),
+            name="master-clock-bpm-notify",
+        )
+
+    async def _emit_bpm_notifications(self) -> None:
+        try:
+            await asyncio.sleep(0)
+            published_bpm = self.bpm
+            await self.bus.publish(
+                BpmChangedEvent(source="master_clock", bpm=published_bpm)
+            )
+            await self._publish_state()
+            await self._publish_parameters()
+            if abs(self.bpm - published_bpm) > 1e-6:
+                self._schedule_bpm_notify()
+        except asyncio.CancelledError:
+            raise
+        finally:
+            if self._bpm_notify_task is asyncio.current_task():
+                self._bpm_notify_task = None
+
+    async def flush_bpm_notifications(self) -> None:
+        task = self._bpm_notify_task
+        if task is not None:
+            await task
 
     async def set_click_interval(self, interval: str) -> None:
         if interval not in CLICK_INTERVAL_TICKS:

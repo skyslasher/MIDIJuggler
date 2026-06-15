@@ -938,7 +938,20 @@ class WebInterface:
         await self._broadcast_payload({"type": "event", "payload": event.as_dict()})
         if isinstance(event, MasterClockStateEvent):
             await self._broadcast_payload(
-                {"type": "status", "payload": self._status_payload()}
+                {
+                    "type": "status",
+                    "payload": {
+                        "bpm": event.bpm,
+                        "master_clock": {
+                            "enabled": self.master_clock.config.enabled,
+                            "bpm": event.bpm,
+                            "running": event.running,
+                            "position_ticks": event.position_ticks,
+                            "click_interval": event.click_interval,
+                            "parameters": self.master_clock.parameters.as_controls(),
+                        },
+                    },
+                }
             )
 
     async def _broadcast_payload(self, payload: dict[str, Any]) -> None:
