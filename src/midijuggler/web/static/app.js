@@ -1758,6 +1758,8 @@ function hidAdapterCardPayload(card) {
     type: "hid",
     enabled: card.querySelector('[data-field="enabled"]')?.checked ?? false,
     device: card.querySelector('[data-field="device"]')?.value.trim() || "",
+    keystrokes: card.querySelector('[data-field="keystrokes"]')?.checked ?? false,
+    grab: card.querySelector('[data-field="grab"]')?.checked ?? false,
     inputs: hidInputsFromCard(card),
   };
 }
@@ -1886,6 +1888,27 @@ function createHidAdapterCard(instance, config) {
   enabledLabel.append(enabledInput, document.createTextNode(" Enabled"));
   body.appendChild(enabledLabel);
 
+  const keystrokesLabel = document.createElement("label");
+  keystrokesLabel.className = "inline-field";
+  const keystrokesInput = document.createElement("input");
+  keystrokesInput.type = "checkbox";
+  keystrokesInput.dataset.field = "keystrokes";
+  keystrokesInput.checked = Boolean(instance.keystrokes);
+  keystrokesLabel.append(
+    keystrokesInput,
+    document.createTextNode(" Accept keystrokes (KEY_*)"),
+  );
+  body.appendChild(keystrokesLabel);
+
+  const grabLabel = document.createElement("label");
+  grabLabel.className = "inline-field";
+  const grabInput = document.createElement("input");
+  grabInput.type = "checkbox";
+  grabInput.dataset.field = "grab";
+  grabInput.checked = Boolean(instance.grab);
+  grabLabel.append(grabInput, document.createTextNode(" Grab device (exclusive)"));
+  body.appendChild(grabLabel);
+
   if (!config.hid_available) {
     const hint = document.createElement("p");
     hint.className = "hint";
@@ -1912,8 +1935,9 @@ function createHidAdapterCard(instance, config) {
   learnRow.appendChild(learnButton);
   const learnHint = document.createElement("p");
   learnHint.className = "hint";
-  learnHint.textContent =
-    "Save with Enabled and a device first, then Learn input, then Save again to persist controls.";
+  learnHint.textContent = instance.keystrokes
+    ? "Keystrokes mode publishes KEY_* presses automatically. Save with Enabled and a keyboard device, or use Learn input for specific keys."
+    : "Save with Enabled and a device first, then Learn input, then Save again to persist controls.";
   learnRow.appendChild(learnHint);
   body.appendChild(learnRow);
 

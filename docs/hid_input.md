@@ -129,8 +129,35 @@ value_max = 1.0
 ```
 
 Compact `codes` uses lowercase evdev names as control IDs (`BTN_A` →
-`btn_a`). Buttons normalize to `0.0` / `1.0`. Axes are scaled using the
-device absinfo range into `value_min` / `value_max`.
+`btn_a`, `KEY_A` → `key_a`). Buttons and keys normalize to `0.0` / `1.0`.
+Axes are scaled using the device absinfo range into `value_min` /
+`value_max`.
+
+### Keyboard keystrokes
+
+Point the adapter at a keyboard evdev node (for example
+`/dev/input/event0` or a path under `/dev/input/by-id/`). Enable
+`keystrokes = true` to publish every `KEY_*` press and release without
+listing each key first:
+
+```toml
+[adapters.keyboard]
+type = "hid"
+enabled = true
+device = "/dev/input/by-id/usb-...-event-kbd"
+keystrokes = true
+grab = true
+```
+
+With `keystrokes = true`, each key becomes a control such as `key_a` or
+`key_space` (`keyboard.key_a` as a data point). `grab = true` (the
+default when keystrokes are enabled) keeps key events from also reaching
+other programs on the same device.
+
+You can still map individual keys explicitly with `codes = ["A",
+"KEY_ENTER"]` or learn them in the web UI. Single letters and common
+names such as `ENTER` or `SPACE` are accepted as aliases for `KEY_*`
+codes.
 
 ## Data points and mappings
 

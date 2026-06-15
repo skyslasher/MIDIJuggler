@@ -15,6 +15,8 @@ from midijuggler.eventbus import EventBus
 from midijuggler.events import AdapterStatusEvent, ControlEvent, HidEvent, HidLearnEvent
 from midijuggler.hid.codes import (
     evdev_code_name,
+    is_keyboard_key,
+    normalize_evdev_code_name,
     resolve_device_path,
     resolve_evdev_code,
 )
@@ -70,13 +72,15 @@ class HidReader(Protocol):
 class EvdevHidReader:
     """Read HID events from a Linux evdev device node."""
 
-    def __init__(self, device_path: str) -> None:
+    def __init__(self, device_path: str, *, grab: bool = False) -> None:
         if InputDevice is None:
             raise ImportError(
                 "evdev is required for HID adapters. Install with: pip install 'midijuggler[hid]'"
             )
         self.device_path = device_path
         self.device = InputDevice(device_path)
+        if grab:
+            self.device.grab()
 
     def read_one(self) -> HidRawEvent | None:
         event = self.device.read_one()
@@ -116,20 +120,32 @@ class HidAdapter(Adapter):
         reader_factory: HidReaderFactory | None = None,
     ) -> None:
         super().__init__(name=name, config=config, bus=bus)
-        self._reader_factory = reader_factory or (
-            lambda device_path, _inputs: EvdevHidReader(device_path)
-        )
+        self._reader_factory = reader_factory or self._default_reader_factory
         self._reader: HidReader | None = None
         self._read_task: asyncio.Task[None] | None = None
         self._abs_ranges: dict[tuple[int, int], tuple[int, int]] = {}
         self._lock = asyncio.Lock()
         self._learn_active = False
         self._last_connection_detail: str | None = None
+        self.keystrokes = False
+        self.grab_device = False
         self._apply_options(config.options)
+
+    def _default_reader_factory(
+        self,
+        device_path: str,
+        _inputs: list[HidInput],
+    ) -> HidReader:
+        return EvdevHidReader(device_path, grab=self.grab_device)
 
     def _apply_options(self, options: dict[str, Any]) -> None:
         normalized = dict(options)
         self.device_path = resolve_device_path(normalized)
+        self.keystrokes = _parse_bool_option(normalized.get("keystrokes"), default=False)
+        self.grab_device = _parse_bool_option(
+            normalized.get("grab"),
+            default=self.keystrokes,
+        )
         self.inputs = parse_hid_inputs(normalized)
         self._input_index = {
             (hid_input.event_type, hid_input.code): hid_input for hid_input in self.inputs
@@ -300,11 +316,27 @@ class HidAdapter(Adapter):
 
     async def _handle_raw_event(self, raw: HidRawEvent) -> None:
         await self._maybe_publish_learn(raw)
-        hid_input = self._input_index.get((raw.event_type, raw.code))
+        hid_input = self._resolve_hid_input(raw)
         if hid_input is None:
             return
         value = self._normalize_value(hid_input, raw.value)
         await self._publish_input_state(hid_input, value)
+
+    def _resolve_hid_input(self, raw: HidRawEvent) -> HidInput | None:
+        hid_input = self._input_index.get((raw.event_type, raw.code))
+        if hid_input is not None:
+            return hid_input
+        if not self.keystrokes or not is_keyboard_key(raw.event_type, raw.code):
+            return None
+        code_name = self._resolve_code_name(raw.event_type, raw.code)
+        return HidInput(
+            control=_default_control_name(code_name),
+            event_type=raw.event_type,
+            code=raw.code,
+            code_name=code_name,
+            value_min=0.0,
+            value_max=1.0,
+        )
 
     async def _maybe_publish_learn(self, raw: HidRawEvent) -> None:
         if not self._learn_active:
@@ -399,6 +431,8 @@ class HidAdapter(Adapter):
     def config_payload(self) -> dict[str, Any]:
         return {
             "device": self.device_path,
+            "keystrokes": self.keystrokes,
+            "grab": self.grab_device,
             "inputs": [
                 {
                     "code": hid_input.code_name,
@@ -454,7 +488,7 @@ def parse_hid_inputs(options: dict[str, Any]) -> list[HidInput]:
 
 
 def _parse_compact_input(raw_code: Any, index: int) -> HidInput:
-    code_name = str(raw_code).strip().upper()
+    code_name = normalize_evdev_code_name(str(raw_code))
     if not code_name:
         raise ValueError(f"HID codes[{index}] must not be empty")
     event_type, code = resolve_evdev_code(code_name)
@@ -474,7 +508,7 @@ def _parse_explicit_input(raw_input: Any, index: int) -> HidInput:
     if "code" not in raw_input:
         raise ValueError(f"HID inputs[{index}] missing required field: code")
 
-    code_name = str(raw_input["code"]).strip().upper()
+    code_name = normalize_evdev_code_name(str(raw_input["code"]))
     event_type, code = resolve_evdev_code(code_name)
     control = str(raw_input.get("control") or raw_input.get("name") or "").strip()
     if not control:
@@ -509,3 +543,19 @@ def _default_value_max(event_type: int) -> float:
     if event_type == EV_KEY:
         return 1.0
     return 1.0
+
+
+def _parse_bool_option(value: Any, *, default: bool) -> bool:
+    if value is None:
+        return default
+    if isinstance(value, bool):
+        return value
+    if isinstance(value, (int, float)):
+        return bool(value)
+    if isinstance(value, str):
+        normalized = value.strip().lower()
+        if normalized in {"1", "true", "yes", "on"}:
+            return True
+        if normalized in {"0", "false", "no", "off"}:
+            return False
+    raise ValueError(f"invalid boolean HID option: {value!r}")

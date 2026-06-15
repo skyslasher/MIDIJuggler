@@ -22,16 +22,29 @@ def fake_evdev_codes(monkeypatch: pytest.MonkeyPatch) -> None:
     mapping = {
         "BTN_A": (EV_KEY, 304),
         "BTN_B": (EV_KEY, 305),
+        "KEY_A": (EV_KEY, 30),
         "ABS_X": (EV_ABS, 0),
     }
 
     def resolve(name: str) -> tuple[int, int]:
         normalized = str(name).strip().upper()
+        if len(normalized) == 1 and normalized.isalnum():
+            normalized = f"KEY_{normalized}"
         if normalized not in mapping:
             raise ValueError(f"unknown evdev code: {name!r}")
         return mapping[normalized]
 
     monkeypatch.setattr("midijuggler.adapters.hid.resolve_evdev_code", resolve)
+    reverse = {value: key for key, value in mapping.items()}
+
+    def code_name(event_type: int, code: int) -> str:
+        return reverse.get((event_type, code), f"type{event_type}_code{code}")
+
+    monkeypatch.setattr("midijuggler.adapters.hid.evdev_code_name", code_name)
+    monkeypatch.setattr(
+        "midijuggler.adapters.hid.is_keyboard_key",
+        lambda event_type, code: event_type == EV_KEY and code < 0x100,
+    )
 
 
 class FakeHidReader:
@@ -242,8 +255,81 @@ def test_hid_adapter_publishes_learn_events(fake_evdev_codes: None) -> None:
 
     events = asyncio.run(scenario())
     assert len(events) == 1
-    assert events[0].code == "type1_code304"
-    assert events[0].suggested_control == "type1_code304"
+    assert events[0].code == "BTN_A"
+    assert events[0].suggested_control == "btn_a"
+
+
+def test_parse_hid_inputs_accepts_key_aliases(fake_evdev_codes: None) -> None:
+    inputs = parse_hid_inputs({"codes": ["A"]})
+
+    assert len(inputs) == 1
+    assert inputs[0].code_name == "KEY_A"
+    assert inputs[0].control == "key_a"
+
+
+def test_hid_adapter_publishes_keystrokes_without_mapping(
+    fake_evdev_codes: None,
+) -> None:
+    async def scenario() -> list[HidEvent]:
+        bus = EventBus()
+        events: list[HidEvent] = []
+        bus.subscribe(HidEvent, lambda event: events.append(event))
+
+        reader = FakeHidReader(events=[HidRawEvent(EV_KEY, 30, 1)])
+        adapter = HidAdapter(
+            name="keyboard",
+            config=AdapterConfig(
+                enabled=True,
+                options={
+                    "device": "/dev/input/event0",
+                    "keystrokes": True,
+                },
+            ),
+            bus=bus,
+            reader_factory=lambda _device_path, _inputs: reader,
+        )
+
+        await adapter.start()
+        for _ in range(50):
+            if events:
+                break
+            await asyncio.sleep(0.002)
+        await adapter.stop()
+        return events
+
+    events = asyncio.run(scenario())
+
+    assert len(events) == 1
+    assert events[0].control == "key_a"
+    assert events[0].value == pytest.approx(1.0)
+
+
+def test_hid_adapter_ignores_unmapped_buttons_without_keystrokes(
+    fake_evdev_codes: None,
+) -> None:
+    async def scenario() -> list[HidEvent]:
+        bus = EventBus()
+        events: list[HidEvent] = []
+        bus.subscribe(HidEvent, lambda event: events.append(event))
+
+        reader = FakeHidReader(events=[HidRawEvent(EV_KEY, 30, 1)])
+        adapter = HidAdapter(
+            name="keyboard",
+            config=AdapterConfig(
+                enabled=True,
+                options={"device": "/dev/input/event0"},
+            ),
+            bus=bus,
+            reader_factory=lambda _device_path, _inputs: reader,
+        )
+
+        await adapter.start()
+        await asyncio.sleep(0.02)
+        await adapter.stop()
+        return events
+
+    events = asyncio.run(scenario())
+    assert events == []
 
 
 def test_hid_adapter_logs_once_when_device_disappears(

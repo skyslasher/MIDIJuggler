@@ -1443,6 +1443,8 @@ class WebInterface:
             "device": str(options.get("device", "")).strip(),
             "vendor_id": options.get("vendor_id", ""),
             "product_id": options.get("product_id", ""),
+            "keystrokes": bool(options.get("keystrokes", False)),
+            "grab": bool(options.get("grab", options.get("keystrokes", False))),
             "inputs": normalized_inputs,
         }
 
@@ -1491,6 +1493,17 @@ class WebInterface:
                 }
             )
         options["inputs"] = inputs
+        if "keystrokes" in payload or "keystrokes" in current:
+            options["keystrokes"] = bool(
+                payload.get("keystrokes", current.get("keystrokes", False))
+            )
+        if "grab" in payload or "grab" in current or options.get("keystrokes"):
+            options["grab"] = bool(
+                payload.get(
+                    "grab",
+                    current.get("grab", options.get("keystrokes", False)),
+                )
+            )
         return options
 
     async def _resolve_hid_runtime_adapter(self, name: str) -> HidAdapter:

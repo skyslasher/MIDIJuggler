@@ -68,8 +68,10 @@ Workflow:
 1. Choose a device from the dropdown (requires `evdev` / `pip install -e '.[hid]'`).
 2. Enable the instance and **Save** (inputs may still be empty).
 3. Click **Learn input**, operate the physical control; the learned `BTN_*` / `ABS_*`
-   code appears in the table.
-4. **Save** again to persist the input list.
+   or `KEY_*` code appears in the table.
+4. For keyboards, enable **Accept keystrokes** to publish all `KEY_*` presses
+   without learning each key individually.
+5. **Save** again to persist the input list.
 
 The HTTP API is:
 

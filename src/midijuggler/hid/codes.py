@@ -16,13 +16,70 @@ def _require_evdev():
     return evdev, ecodes
 
 
+_KEY_CODE_ALIASES = {
+    "ENTER": "KEY_ENTER",
+    "RETURN": "KEY_ENTER",
+    "SPACE": "KEY_SPACE",
+    "ESC": "KEY_ESC",
+    "ESCAPE": "KEY_ESC",
+    "BACKSPACE": "KEY_BACKSPACE",
+    "DELETE": "KEY_DELETE",
+    "TAB": "KEY_TAB",
+}
+
+
+def normalize_evdev_code_name(name: str) -> str:
+    """Normalize user-facing code names to evdev constants."""
+
+    normalized = str(name).strip().upper()
+    if not normalized:
+        raise ValueError("HID input code must not be empty")
+
+    if normalized in _KEY_CODE_ALIASES:
+        return _KEY_CODE_ALIASES[normalized]
+
+    if len(normalized) == 1 and normalized.isalnum():
+        return f"KEY_{normalized}"
+
+    if normalized.startswith(("KEY_", "BTN_", "ABS_", "REL_", "SW_", "MSC_", "LED_")):
+        return normalized
+
+    try:
+        _, ecodes = _require_evdev()
+    except ImportError:
+        return normalized
+
+    prefixed = f"KEY_{normalized}"
+    if ecodes.ecodes.get(prefixed) is not None:
+        return prefixed
+    return normalized
+
+
+def is_keyboard_key(event_type: int, code: int) -> bool:
+    """Return True when an EV_KEY code represents a keyboard key."""
+
+    try:
+        from evdev import ecodes
+
+        key_type = int(ecodes.EV_KEY)
+    except ImportError:
+        key_type = 0x01
+
+    if int(event_type) != key_type:
+        return False
+
+    try:
+        _, ecodes = _require_evdev()
+        return int(code) in ecodes.KEY
+    except ImportError:
+        return int(code) < 0x100
+
+
 def resolve_evdev_code(name: str) -> tuple[int, int]:
     """Return (event_type, code) for an evdev code name such as BTN_A or ABS_X."""
 
     _, ecodes = _require_evdev()
-    normalized = str(name).strip().upper()
-    if not normalized:
-        raise ValueError("HID input code must not be empty")
+    normalized = normalize_evdev_code_name(name)
 
     code = ecodes.ecodes.get(normalized)
     if code is None:
