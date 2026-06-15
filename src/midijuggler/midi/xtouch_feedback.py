@@ -5,7 +5,6 @@ from __future__ import annotations
 import asyncio
 import contextlib
 import logging
-import re
 from typing import TYPE_CHECKING
 
 from midijuggler.config import AdapterConfig, AppConfig
@@ -18,7 +17,6 @@ if TYPE_CHECKING:
 LOGGER = logging.getLogger(__name__)
 
 PROGRAM_CHANGE = 0xC0
-_ENCODER_VALUE_PATTERN = re.compile(r"^(?P<prefix>.+_encoder_\d+)_value$")
 
 
 def uses_xtouch_feedback_refresh(config: AdapterConfig) -> bool:
@@ -73,20 +71,6 @@ def feedback_point_ids(config: AdapterConfig) -> frozenset[str]:
     )
 
 
-def paired_led_ring_point(value_point: str) -> str | None:
-    match = _ENCODER_VALUE_PATTERN.match(value_point)
-    if match is None:
-        return None
-    return f"{match.group('prefix')}_led_ring"
-
-
-def encoder_value_to_led_ring(value: float) -> float:
-    if value <= 0:
-        return 0.0
-    scaled = round((value / 127.0) * 13.0)
-    return float(max(1, min(13, scaled)))
-
-
 def is_layer_program_change(
     config: AdapterConfig,
     status: int,
@@ -118,9 +102,6 @@ class XTouchFeedbackRefresh:
         if point not in self._feedback_points:
             return
         self._cache[point] = value
-        ring_point = paired_led_ring_point(point)
-        if ring_point is not None and ring_point in self._feedback_points:
-            self._cache[ring_point] = encoder_value_to_led_ring(value)
 
     async def start(self, config: AdapterConfig) -> None:
         await self.stop()

@@ -6,10 +6,8 @@ import pytest
 from midijuggler.config import AdapterConfig, parse_config
 from midijuggler.midi.xtouch_feedback import (
     XTouchFeedbackRefresh,
-    encoder_value_to_led_ring,
     feedback_point_ids,
     is_layer_program_change,
-    paired_led_ring_point,
     parse_feedback_refresh_interval,
     uses_xtouch_feedback_refresh,
 )
@@ -62,18 +60,7 @@ def test_feedback_point_ids_lists_xtouch_feedback_targets() -> None:
     )
 
 
-def test_paired_led_ring_point_for_encoder_value() -> None:
-    assert paired_led_ring_point("layer_a_encoder_1_value") == "layer_a_encoder_1_led_ring"
-    assert paired_led_ring_point("layer_a_top_button_1_led") is None
-
-
-def test_encoder_value_to_led_ring_scales_positions() -> None:
-    assert encoder_value_to_led_ring(0.0) == 0.0
-    assert encoder_value_to_led_ring(127.0) == 13.0
-    assert encoder_value_to_led_ring(63.5) == 6.0
-
-
-def test_remember_mirrors_encoder_value_to_led_ring() -> None:
+def test_remember_encoder_value_does_not_mirror_led_ring() -> None:
     config = parse_config(
         {
             "adapters": {
@@ -93,10 +80,7 @@ def test_remember_mirrors_encoder_value_to_led_ring() -> None:
 
     refresh.remember("layer_a_encoder_1_value", 127.0)
 
-    assert refresh._cache == {
-        "layer_a_encoder_1_value": 127.0,
-        "layer_a_encoder_1_led_ring": 13.0,
-    }
+    assert refresh._cache == {"layer_a_encoder_1_value": 127.0}
 
 
 def test_is_layer_program_change_detects_xtouch_layer_buttons() -> None:
@@ -337,4 +321,4 @@ def test_layer_program_change_triggers_feedback_resend(monkeypatch: pytest.Monke
 
     asyncio.run(scenario())
 
-    assert adapter.send_feedback_target.await_count >= 2
+    adapter.send_feedback_target.assert_awaited_once_with("layer_a_encoder_1_value", 127.0)
