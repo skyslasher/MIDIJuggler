@@ -224,7 +224,8 @@ class MasterClock:
         self.click_audio_device = click_audio_device
         self.alsa_config_path = Path(alsa_config_path) if alsa_config_path is not None else None
         self.click_player = click_player or self._build_click_player(config)
-        self._task: asyncio.Task[None] | None = None
+        self._transport_task: asyncio.Task[None] | None = None
+        self._transport_wake = asyncio.Event()
         self._click_tasks: set[asyncio.Task[None]] = set()
         self._datapoint_sink: ClockDatapointSink | None = None
         self._tap_tempo = TapTempoTracker(min_taps=config.tap_tempo_min_taps)
@@ -305,6 +306,7 @@ class MasterClock:
         self.bpm = bpm
         self.config = replace(self.config, bpm=bpm)
         self.remote = MasterClockRemote(self.config)
+        self._wake_transport_loop()
         await self.bus.publish(BpmChangedEvent(source="master_clock", bpm=bpm))
         await self._publish_state()
         await self._publish_parameters()
@@ -313,6 +315,7 @@ class MasterClock:
         if interval not in CLICK_INTERVAL_TICKS:
             raise ValueError("click interval must be eighth, quarter, half or whole")
         self.click_interval = interval
+        self._wake_transport_loop()
         await self._publish_state()
 
     async def start_transport(self, reset_position: bool) -> None:
@@ -322,23 +325,19 @@ class MasterClock:
         self.running = True
         if self.config.send_transport and not was_running:
             await self._publish_midi_status(MIDI_START)
-        self._ensure_task()
+        self._ensure_transport_task()
         await self._publish_state()
 
     async def continue_transport(self) -> None:
         self.running = True
         if self.config.send_transport:
             await self._publish_midi_status(MIDI_CONTINUE)
-        self._ensure_task()
+        self._ensure_transport_task()
         await self._publish_state()
 
     async def stop_transport(self, send_transport: bool = True) -> None:
         self.running = False
-        if self._task is not None:
-            self._task.cancel()
-            with contextlib.suppress(asyncio.CancelledError):
-                await self._task
-            self._task = None
+        await self._cancel_transport_task()
         if send_transport and self.config.send_transport:
             await self._publish_midi_status(MIDI_STOP)
         await self._publish_state()
@@ -364,22 +363,66 @@ class MasterClock:
     async def emit_tick(self) -> None:
         """Emit one MIDI clock tick. Exposed for tests and deterministic stepping."""
 
-        if self._is_click_tick():
-            if self.config.click_enabled:
-                self._trigger_click()
-            await self.bus.publish(
-                ClickEvent(
-                    source="master_clock",
-                    interval=self.click_interval,
-                    position_ticks=self.position_ticks,
-                )
+        await self._emit_frame()
+
+    def _ensure_transport_task(self) -> None:
+        if self._transport_task is None or self._transport_task.done():
+            self._transport_task = asyncio.create_task(
+                self._run_transport(),
+                name="master-clock",
             )
+
+    async def _cancel_transport_task(self) -> None:
+        if self._transport_task is None:
+            return
+        self._transport_task.cancel()
+        with contextlib.suppress(asyncio.CancelledError):
+            await self._transport_task
+        self._transport_task = None
+        self._transport_wake.set()
+
+    def _wake_transport_loop(self) -> None:
+        self._transport_wake.set()
+
+    async def _emit_frame(self) -> None:
+        if self._is_click_tick(self.position_ticks):
+            await self._emit_click()
+        await self._emit_midi_tick()
+
+    async def _emit_midi_tick(self) -> None:
         await self._publish_midi_status(MIDI_TIMING_CLOCK)
         self.position_ticks += 1
 
-    def _ensure_task(self) -> None:
-        if self._task is None or self._task.done():
-            self._task = asyncio.create_task(self._run(), name="master-clock")
+    async def _emit_click(self) -> None:
+        if self.config.click_enabled:
+            self._trigger_click()
+        await self.bus.publish(
+            ClickEvent(
+                source="master_clock",
+                interval=self.click_interval,
+                position_ticks=self.position_ticks,
+            )
+        )
+
+    async def _sleep_frame(self, wake: asyncio.Event) -> None:
+        while self.running:
+            wake.clear()
+            sleep_task = asyncio.create_task(asyncio.sleep(self._seconds_per_tick()))
+            wake_task = asyncio.create_task(wake.wait())
+            done, pending = await asyncio.wait(
+                {sleep_task, wake_task},
+                return_when=asyncio.FIRST_COMPLETED,
+            )
+            for task in pending:
+                task.cancel()
+                with contextlib.suppress(asyncio.CancelledError):
+                    await task
+            if not self.running:
+                return
+            if wake.is_set():
+                wake.clear()
+                continue
+            return
 
     async def _replace_click_player(self, config: MasterClockConfig) -> None:
         previous = self.click_player
@@ -419,18 +462,19 @@ class MasterClock:
         self._click_tasks.add(task)
         task.add_done_callback(self._click_tasks.discard)
 
-    async def _run(self) -> None:
-        while self.running:
-            started = asyncio.get_running_loop().time()
-            await self.emit_tick()
-            elapsed = asyncio.get_running_loop().time() - started
-            await asyncio.sleep(max(0.0, self._seconds_per_tick() - elapsed))
+    async def _run_transport(self) -> None:
+        try:
+            while self.running:
+                await self._emit_frame()
+                await self._sleep_frame(self._transport_wake)
+        except asyncio.CancelledError:
+            raise
 
     def _seconds_per_tick(self) -> float:
         return 60.0 / (self.bpm * MIDI_CLOCK_TICKS_PER_QUARTER)
 
-    def _is_click_tick(self) -> bool:
-        return self.position_ticks % CLICK_INTERVAL_TICKS[self.click_interval] == 0
+    def _is_click_tick(self, frame: int) -> bool:
+        return frame % CLICK_INTERVAL_TICKS[self.click_interval] == 0
 
     async def _publish_midi_status(self, status: int) -> None:
         if self._datapoint_sink is not None:
