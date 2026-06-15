@@ -7,6 +7,7 @@ import contextlib
 import json
 import logging
 import mimetypes
+import time
 import tomllib
 from importlib import resources
 from pathlib import Path
@@ -92,7 +93,7 @@ from midijuggler.datapoint.bridge import legacy_source_to_datapoint
 from midijuggler.datapoint.bridge import mapping_from_connection
 from midijuggler.datapoint.migrate import effective_connections, stored_connections
 from midijuggler.datapoint.store import DataPointStore
-from midijuggler.datapoint.types import ConnectionSpec, ModifierKind, float_value
+from midijuggler.datapoint.types import ConnectionSpec, ModifierKind, DataPointId, DataPointValue, ValueType, float_value
 from midijuggler.modules.modifier.graph import ModifierGraph
 from midijuggler.system_hostname import (
     apply_hostname,
@@ -2251,7 +2252,27 @@ class WebInterface:
         return response
 
     async def apply_tap_tempo(self, timestamp: float | None = None) -> dict[str, Any]:
-        await self.master_clock.register_tap_tempo(timestamp)
+        now = time.monotonic() if timestamp is None else timestamp
+        if self.datapoint_store is not None:
+            tap = DataPointId("clock", "tap_tempo")
+            await self.datapoint_store.write(
+                DataPointValue(
+                    point_id=tap,
+                    value_type=ValueType.TRIGGER,
+                    bool_value=False,
+                    timestamp=now,
+                )
+            )
+            await self.datapoint_store.write(
+                DataPointValue(
+                    point_id=tap,
+                    value_type=ValueType.TRIGGER,
+                    bool_value=True,
+                    timestamp=now,
+                )
+            )
+        else:
+            await self.master_clock.register_tap_tempo(now)
         payload = self._status_payload()
         payload["tap_count"] = self.master_clock.tap_count
         return payload

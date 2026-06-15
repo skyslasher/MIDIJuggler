@@ -56,7 +56,11 @@ class FakeLongProcess:
 class FakePcm:
     def __init__(self) -> None:
         self.writes: list[bytes] = []
+        self.prepares = 0
         self.closed = False
+
+    def prepare(self) -> None:
+        self.prepares += 1
 
     def write(self, data: bytes) -> None:
         self.writes.append(data)
@@ -190,6 +194,7 @@ def test_alsa_click_player_reuses_pcm_and_writes_loaded_wav(tmp_path, monkeypatc
     player._play_unlocked()
 
     assert len(pcm.writes) == 2
+    assert pcm.prepares == 2
     assert pcm.closed is False
 
     player._close_pcm()
@@ -238,3 +243,49 @@ def test_alsa_click_player_serializes_writes_when_overlap_is_disabled(tmp_path, 
         return max_active_writes
 
     assert asyncio.run(scenario()) == 1
+
+
+def test_alsa_click_player_overlapping_writes_do_not_block_each_other(tmp_path, monkeypatch) -> None:
+    wav_path = tmp_path / "click.wav"
+    _write_wav(wav_path)
+    pcm = FakePcm()
+    active_writes = 0
+    max_active_writes = 0
+
+    class FakeAlsaModule:
+        PCM_PLAYBACK = "playback"
+        PCM_NORMAL = "normal"
+        PCM_FORMAT_U8 = "u8"
+        PCM_FORMAT_S16_LE = "s16le"
+        PCM_FORMAT_S24_3LE = "s24_3le"
+        PCM_FORMAT_S32_LE = "s32le"
+
+        class ALSAAudioError(OSError):
+            pass
+
+        def PCM(self, **kwargs):
+            return pcm
+
+    def slow_write(data: bytes) -> None:
+        nonlocal active_writes, max_active_writes
+        active_writes += 1
+        max_active_writes = max(max_active_writes, active_writes)
+        try:
+            import time
+
+            time.sleep(0.05)
+        finally:
+            pcm.writes.append(data)
+            active_writes -= 1
+
+    pcm.write = slow_write  # type: ignore[method-assign]
+    monkeypatch.setitem(__import__("sys").modules, "alsaaudio", FakeAlsaModule())
+
+    async def scenario() -> int:
+        player = AlsaClickPlayer(str(wav_path), allow_overlap=True)
+        await player.play()
+        await player.play()
+        await asyncio.sleep(0.08)
+        return max_active_writes
+
+    assert asyncio.run(scenario()) == 2

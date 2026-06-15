@@ -141,6 +141,7 @@ let gpioConfig = null;
 let hidAdaptersConfig = null;
 let hidLearnInstanceName = "";
 let masterClockConfig = null;
+let tapPulseTimer = null;
 let midiAdaptersConfig = null;
 let oscAdaptersConfig = null;
 let discoveredOscDesks = [];
@@ -181,6 +182,16 @@ function loadSystemConfig() {
       updateAppTitle(config.hostname);
       return config;
     });
+}
+
+function pulseTapButton() {
+  masterTap.classList.remove("tap-pulse");
+  void masterTap.offsetWidth;
+  masterTap.classList.add("tap-pulse");
+  clearTimeout(tapPulseTimer);
+  tapPulseTimer = window.setTimeout(() => {
+    masterTap.classList.remove("tap-pulse");
+  }, 150);
 }
 
 function renderStatus(status) {
@@ -4461,6 +4472,9 @@ function connect() {
       if (data.payload?.kind === "HidLearnEvent") {
         handleHidLearnCapture(data.payload);
       }
+      if (data.payload?.kind === "ClickEvent") {
+        pulseTapButton();
+      }
       appendEvent(data.payload);
       if (data.payload.kind === "BpmChangedEvent") {
         bpm.textContent = data.payload.bpm.toFixed(1);
@@ -4551,6 +4565,7 @@ routingSettingsSave?.addEventListener("click", () => {
 });
 
 masterTap.addEventListener("click", () => {
+  pulseTapButton();
   fetch("/api/master-clock/tap", { method: "POST" })
     .then(async (response) => {
       if (!response.ok) {

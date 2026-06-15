@@ -23,7 +23,7 @@ from midijuggler.events import (
     MidiMessageEvent,
     OscMessageEvent,
 )
-from midijuggler.alsa import alsa_mode_for_device
+from midijuggler.alsa import alsa_mode_for_device, MASTER_CLOCK_PCM_NAME
 
 LOGGER = logging.getLogger(__name__)
 
@@ -361,8 +361,9 @@ class MasterClock:
     async def emit_tick(self) -> None:
         """Emit one MIDI clock tick. Exposed for tests and deterministic stepping."""
 
-        if self.config.click_enabled and self._is_click_tick():
-            self._trigger_click()
+        if self._is_click_tick():
+            if self.config.click_enabled:
+                self._trigger_click()
             await self.bus.publish(
                 ClickEvent(
                     source="master_clock",
@@ -384,6 +385,7 @@ class MasterClock:
             await previous.close()
 
     def _build_click_player(self, config: MasterClockConfig) -> ClickPlayer:
+        playback_device = self.click_audio_device or config.click_audio_device
         environment = (
             {"ALSA_CONFIG_PATH": str(self.alsa_config_path)}
             if self.alsa_config_path is not None
@@ -392,10 +394,22 @@ class MasterClock:
         return create_click_player(
             config.click_wav,
             command=config.click_command,
-            audio_device=self.click_audio_device or config.click_audio_device,
+            audio_device=playback_device,
             environment=environment,
-            allow_overlap=alsa_mode_for_device(config.click_audio_device) == "dmix",
+            allow_overlap=self._click_player_allows_overlap(config, playback_device),
         )
+
+    def _click_player_allows_overlap(
+        self,
+        config: MasterClockConfig,
+        playback_device: str,
+    ) -> bool:
+        if playback_device == MASTER_CLOCK_PCM_NAME:
+            return True
+        configured_device = config.click_audio_device or playback_device
+        if not configured_device:
+            return False
+        return alsa_mode_for_device(configured_device) == "dmix"
 
     def _trigger_click(self) -> None:
         task = asyncio.create_task(self.click_player.play(), name="click-trigger")

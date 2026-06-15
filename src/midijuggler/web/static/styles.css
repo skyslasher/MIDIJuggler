@@ -49,6 +49,28 @@ p {
   margin-top: 0;
 }
 
+.clock-actions {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+}
+
+#master-tap.tap-pulse {
+  animation: tap-pulse 140ms ease-out;
+}
+
+@keyframes tap-pulse {
+  from {
+    box-shadow: 0 0 0 0 rgba(110, 168, 254, 0.95);
+    filter: brightness(1.4);
+  }
+
+  to {
+    box-shadow: 0 0 0 12px rgba(110, 168, 254, 0);
+    filter: brightness(1);
+  }
+}
+
 .bpm-card {
   background: #263757;
   border-radius: 14px;
@@ -91,12 +113,6 @@ button,
 
 .danger-button {
   background: #ff7b7b;
-}
-
-.clock-actions {
-  display: flex;
-  flex-direction: column;
-  gap: 0.5rem;
 }
 
 .button-link {

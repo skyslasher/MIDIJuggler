@@ -116,11 +116,15 @@ class AlsaClickPlayer:
             LOGGER.warning("click WAV does not exist: %s", self.wav_path)
             return
 
-        async with self._async_lock:
-            if not self.allow_overlap:
+        if not self.allow_overlap:
+            async with self._async_lock:
                 await asyncio.to_thread(self._play_locked)
-                return
-            await asyncio.to_thread(self._play_unlocked)
+            return
+
+        asyncio.create_task(self._play_overlapping(), name="click-playback")
+
+    async def _play_overlapping(self) -> None:
+        await asyncio.to_thread(self._play_unlocked)
 
     async def close(self) -> None:
         async with self._async_lock:
@@ -135,6 +139,7 @@ class AlsaClickPlayer:
             self._ensure_pcm()
             assert self._pcm is not None
             assert self._wav is not None
+            self._pcm.prepare()
             self._pcm.write(self._wav.frames)
         except self._alsaaudio.ALSAAudioError as exc:
             message = str(exc)

@@ -3,6 +3,8 @@ import logging
 
 import pytest
 
+from midijuggler.alsa import MASTER_CLOCK_PCM_NAME
+from midijuggler.click_player import AplayClickPlayer
 from midijuggler.config import MasterClockConfig
 from midijuggler.eventbus import EventBus
 from midijuggler.events import ClickEvent, ControlEvent, MidiMessageEvent, OscMessageEvent
@@ -81,6 +83,43 @@ def test_master_clock_outputs_midi_ticks_and_clicks() -> None:
     assert click_player.plays == 1
     assert len(click_events) == 1
     assert click_events[0].position_ticks == 0
+
+
+def test_master_clock_publishes_click_events_without_audio_click() -> None:
+    async def scenario() -> tuple[FakeClickPlayer, list[ClickEvent]]:
+        bus = EventBus()
+        click_events: list[ClickEvent] = []
+        bus.subscribe(ClickEvent, lambda event: click_events.append(event))
+        click_player = FakeClickPlayer()
+        clock = MasterClock(
+            MasterClockConfig(
+                enabled=True,
+                click_enabled=False,
+                click_interval="quarter",
+            ),
+            bus,
+            click_player=click_player,
+        )
+
+        await clock.emit_tick()
+        await asyncio.sleep(0)
+        return click_player, click_events
+
+    click_player, click_events = asyncio.run(scenario())
+
+    assert click_player.plays == 0
+    assert len(click_events) == 1
+
+
+def test_master_clock_uses_overlapping_click_playback_for_generated_pcm() -> None:
+    clock = MasterClock(
+        MasterClockConfig(),
+        EventBus(),
+        click_audio_device=MASTER_CLOCK_PCM_NAME,
+    )
+
+    assert isinstance(clock.click_player, AplayClickPlayer)
+    assert clock.click_player.allow_overlap is True
 
 
 def test_master_clock_triggers_clicks_without_waiting_for_previous_playback() -> None:
