@@ -26,7 +26,6 @@
       </header>
 
       <section class="toolbar">
-        <button id="learn-toggle" type="button" class="learn-toggle">Enable learn mode</button>
         <button id="configuration-toggle" type="button">Configuration</button>
         <button id="configuration-exit" type="button" hidden>Exit configuration</button>
         <span id="connection-state">connecting...</span>
@@ -37,98 +36,83 @@
           <h2>Master Clock</h2>
           <div id="master-clock" class="master-status"></div>
         </article>
-        <article id="learn-panel" class="learn-panel" hidden>
-          <h2>Learn Mode</h2>
-          <p id="learn-status" class="hint"></p>
-          <div id="learn-fields" class="learn-fields" hidden>
-            <div class="learn-endpoint-group">
-              <h3 class="learn-endpoint-title">Source</h3>
-              <label class="stacked-field">
-                Instance
-                <select id="learn-source-instance"></select>
-              </label>
-              <label class="stacked-field">
-                Data point
-                <select id="learn-source-datapoint" disabled></select>
-              </label>
-            </div>
-            <div class="learn-endpoint-group">
-              <h3 class="learn-endpoint-title">Target</h3>
-              <label class="stacked-field">
-                Instance
-                <select id="learn-target-instance"></select>
-              </label>
-              <label class="stacked-field">
-                Data point
-                <select id="learn-target-datapoint" disabled></select>
-              </label>
-            </div>
-            <label class="stacked-field">
-              Modifier
-              <select id="learn-modifier">
-                <option value="range_map">Range map</option>
-                <option value="passthrough">Passthrough</option>
-              </select>
-            </label>
-            <div id="learn-range-fields" class="learn-range-fields">
-              <label class="stacked-field">
-                Input min
-                <input id="learn-input-min" type="number" step="any" value="0" />
-              </label>
-              <label class="stacked-field">
-                Input max
-                <input id="learn-input-max" type="number" step="any" value="127" />
-              </label>
-              <label class="stacked-field">
-                Output min
-                <input id="learn-output-min" type="number" step="any" value="0" />
-              </label>
-              <label class="stacked-field">
-                Output max
-                <input id="learn-output-max" type="number" step="any" value="127" />
-              </label>
-              <label class="inline-field">
-                <input id="learn-invert" type="checkbox" />
-                Invert
-              </label>
-            </div>
-            <details id="learn-osc-quick-pick" class="learn-osc-quick-pick">
-              <summary>Quick pick OSC target from library</summary>
-              <label class="stacked-field">
-                OSC adapter
-                <select id="learn-osc-adapter"></select>
-              </label>
-              <label class="stacked-field">
-                OSC parameter
-                <select id="learn-osc-parameter"></select>
-              </label>
-            </details>
-            <div class="learn-actions">
-              <button id="learn-create" type="button">Create connection</button>
-              <button id="learn-clear" type="button">Clear source</button>
-            </div>
-            <p id="learn-message" class="message"></p>
+        <article id="mappings-card" class="mappings-card">
+          <div class="mappings-card-header">
+            <h2>Mappings</h2>
+            <button id="learn-toggle" type="button" class="learn-toggle">Create mapping</button>
           </div>
-        </article>
-        <article>
-          <h2>Mappings</h2>
-          <div class="routing-settings">
-            <label class="stacked-field">
-              Feedback suppress (ms)
-              <input
-                id="feedback-suppress-ms"
-                type="number"
-                min="0"
-                max="10000"
-                step="1"
-                value="500"
-              />
-            </label>
-            <p class="hint">
-              Pause desk-to-controller encoder feedback briefly after encoder turns. 0 disables.
-            </p>
-            <button id="routing-settings-save" type="button">Save routing settings</button>
-            <p id="routing-settings-message" class="message"></p>
+          <div id="learn-panel" class="learn-panel" hidden>
+            <h3 class="learn-panel-title">Create mapping</h3>
+            <p id="learn-status" class="hint"></p>
+            <div id="learn-fields" class="learn-fields" hidden>
+              <div class="learn-endpoint-group">
+                <h4 class="learn-endpoint-title">Source</h4>
+                <label class="stacked-field">
+                  Instance
+                  <select id="learn-source-instance"></select>
+                </label>
+                <label class="stacked-field">
+                  Data point
+                  <select id="learn-source-datapoint" disabled></select>
+                </label>
+              </div>
+              <div class="learn-endpoint-group">
+                <h4 class="learn-endpoint-title">Target</h4>
+                <label class="stacked-field">
+                  Instance
+                  <select id="learn-target-instance"></select>
+                </label>
+                <label class="stacked-field">
+                  Data point
+                  <select id="learn-target-datapoint" disabled></select>
+                </label>
+              </div>
+              <label class="stacked-field">
+                Modifier
+                <select id="learn-modifier">
+                  <option value="range_map">Range map</option>
+                  <option value="passthrough">Passthrough</option>
+                </select>
+              </label>
+              <div id="learn-range-fields" class="learn-range-fields">
+                <label class="stacked-field">
+                  Input min
+                  <input id="learn-input-min" type="number" step="any" value="0" />
+                </label>
+                <label class="stacked-field">
+                  Input max
+                  <input id="learn-input-max" type="number" step="any" value="127" />
+                </label>
+                <label class="stacked-field">
+                  Output min
+                  <input id="learn-output-min" type="number" step="any" value="0" />
+                </label>
+                <label class="stacked-field">
+                  Output max
+                  <input id="learn-output-max" type="number" step="any" value="127" />
+                </label>
+                <label class="inline-field">
+                  <input id="learn-invert" type="checkbox" />
+                  Invert
+                </label>
+              </div>
+              <details id="learn-osc-quick-pick" class="learn-osc-quick-pick">
+                <summary>Quick pick OSC target from library</summary>
+                <label class="stacked-field">
+                  OSC adapter
+                  <select id="learn-osc-adapter"></select>
+                </label>
+                <label class="stacked-field">
+                  OSC parameter
+                  <select id="learn-osc-parameter"></select>
+                </label>
+              </details>
+              <div class="learn-actions">
+                <button id="learn-create" type="button">Create connection</button>
+                <button id="learn-clear" type="button">Clear source</button>
+              </div>
+              <p id="learn-message" class="message"></p>
+            </div>
           </div>
           <ul id="mappings"></ul>
           <div id="mapping-editor" class="mapping-editor" hidden>
@@ -202,7 +186,7 @@
         <article class="monitor-panel">
           <h2>Monitor</h2>
           <p id="learn-monitor-hint" class="hint learn-monitor-hint" hidden>
-            Learn mode active: click a monitor message or choose source instance and data point above.
+            Create mapping: click a monitor message or choose source instance and data point in the Mappings card.
           </p>
           <label class="inline-field monitor-filter">
             <input id="show-clock-ticks" type="checkbox" />
@@ -225,7 +209,7 @@
 
       <section id="configuration-view" class="grid" hidden>
         <article>
-          <h2>Stage system</h2>
+          <h2>System</h2>
           <p class="hint">Identify this box on the network and recover without power cycling.</p>
           <label>
             Hostname
@@ -233,6 +217,24 @@
           </label>
           <button type="button" id="system-hostname-save">Save hostname</button>
           <p id="system-hostname-message" class="message"></p>
+          <div class="routing-settings">
+            <label class="stacked-field">
+              Feedback suppress (ms)
+              <input
+                id="feedback-suppress-ms"
+                type="number"
+                min="0"
+                max="10000"
+                step="1"
+                value="500"
+              />
+            </label>
+            <p class="hint">
+              Pause desk-to-controller encoder feedback briefly after encoder turns. 0 disables.
+            </p>
+            <button id="routing-settings-save" type="button">Save routing settings</button>
+            <p id="routing-settings-message" class="message"></p>
+          </div>
           <button type="button" id="system-restart" class="danger-button">Restart MIDIJuggler service</button>
           <p id="system-restart-message" class="message"></p>
         </article>

@@ -182,7 +182,7 @@ function renderStatus(status) {
   const displayedBpm = status.master_clock?.bpm || status.bpm;
   bpm.textContent = displayedBpm ? displayedBpm.toFixed(1) : "--";
   learnMode = Boolean(status.learn_mode);
-  learnToggle.textContent = learnMode ? "Disable learn mode" : "Enable learn mode";
+  learnToggle.textContent = learnMode ? "Close mapping" : "Create mapping";
   learnToggle.classList.toggle("active-button", learnMode);
   learnOscInstances = status.osc_instances || [];
   learnPhase = status.learn?.phase || "idle";
@@ -489,8 +489,19 @@ function clearLearnEndpointSelects() {
   fillLearnPointSelect(learnTargetDatapoint, "", "output", "");
 }
 
+function formatDatapointDisplay(pointId) {
+  if (!pointId || typeof pointId !== "string") {
+    return pointId;
+  }
+  const separatorIndex = pointId.indexOf(".");
+  if (separatorIndex < 0) {
+    return pointId;
+  }
+  return `${pointId.slice(0, separatorIndex)}:${pointId.slice(separatorIndex + 1)}`;
+}
+
 function connectionSummary(connection) {
-  return `${connection.source} -> ${connection.target}`;
+  return `${formatDatapointDisplay(connection.source)} -> ${formatDatapointDisplay(connection.target)}`;
 }
 
 function connectionMeta(connection) {
@@ -1070,11 +1081,11 @@ function updateMonitorLearnHint() {
     return;
   }
   if (learnPhase === "waiting_target" && (learnSourceDatapointId || learnSourceKey)) {
-    const sourceLabel = learnSourceDatapointId || learnSourceKey;
-    learnMonitorHint.textContent = `Source selected: ${sourceLabel}. Click another message to change it, or pick target data points below.`;
+    const sourceLabel = formatDatapointDisplay(learnSourceDatapointId || learnSourceKey);
+    learnMonitorHint.textContent = `Source selected: ${sourceLabel}. Click another message to change it, or pick target data points in the Mappings card.`;
     return;
   }
-  learnMonitorHint.textContent = "Learn mode active: click a monitor message or choose source instance and data point above.";
+  learnMonitorHint.textContent = "Create mapping: click a monitor message or choose source instance and data point in the Mappings card.";
 }
 
 function refreshMonitorEventLearnState() {

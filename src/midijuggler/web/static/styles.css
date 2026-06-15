@@ -360,7 +360,42 @@ legend {
 }
 
 .learn-panel {
-  border-color: #4a6ea8;
+  border: 1px solid #31405e;
+  border-radius: 12px;
+  display: grid;
+  gap: 0.75rem;
+  margin-bottom: 0.85rem;
+  padding: 0.85rem;
+}
+
+.learn-panel-title {
+  font-size: 1rem;
+  margin: 0;
+}
+
+.mappings-card-header {
+  align-items: center;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.75rem;
+  justify-content: space-between;
+  margin-bottom: 0.75rem;
+}
+
+.mappings-card-header h2 {
+  margin: 0;
+}
+
+.mappings-card .learn-toggle {
+  flex-shrink: 0;
+}
+
+.routing-settings {
+  border-top: 1px solid #31405e;
+  display: grid;
+  gap: 0.75rem;
+  margin-top: 1rem;
+  padding-top: 1rem;
 }
 
 .learn-fields {
