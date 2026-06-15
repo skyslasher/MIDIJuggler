@@ -2,6 +2,7 @@
 
 from midijuggler.adapters.base import Adapter
 from midijuggler.adapters.gpio import GpioAdapter
+from midijuggler.adapters.hid import HidAdapter
 from midijuggler.adapters.osc import OscAdapter
 from midijuggler.adapters.rtp_midi import RtpMidiAdapter
 from midijuggler.adapters.midi import MidiAdapter
@@ -14,6 +15,7 @@ ADAPTER_CLASSES = {
     "midi": MidiAdapter,
     "rtp_midi": RtpMidiAdapter,
     "gpio": GpioAdapter,
+    "hid": HidAdapter,
 }
 
 

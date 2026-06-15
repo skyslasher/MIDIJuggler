@@ -237,6 +237,12 @@ def resolve_monitor_source(config: AppConfig, event: dict[str, Any]) -> LearnSou
             raise ValueError("monitor GpioEvent is missing control")
         return LearnSource(adapter=adapter_name, control=control)
 
+    if kind == "HidEvent":
+        control = str(event.get("control", "")).strip()
+        if not control:
+            raise ValueError("monitor HidEvent is missing control")
+        return LearnSource(adapter=adapter_name, control=control)
+
     if kind == "DataPointValue":
         point_id = str(event.get("id", "")).strip()
         if not point_id:

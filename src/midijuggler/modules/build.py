@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from midijuggler.adapters.base import Adapter
 from midijuggler.adapters.gpio import GpioAdapter
+from midijuggler.adapters.hid import HidAdapter
 from midijuggler.adapters.midi import MidiAdapter
 from midijuggler.adapters.osc import OscAdapter
 from midijuggler.adapters.rtp_midi import RtpMidiAdapter
@@ -15,6 +16,7 @@ from midijuggler.master_clock import MasterClock
 from midijuggler.modules.generator.master_clock import MasterClockGenerator
 from midijuggler.modules.interface.web import WebInterfaceModule
 from midijuggler.modules.io.gpio import GpioIOModule
+from midijuggler.modules.io.hid import HidIOModule
 from midijuggler.modules.io.midi import MidiIOModule
 from midijuggler.modules.io.osc import OscIOModule
 from midijuggler.modules.io.rtp_midi import RtpMidiIOModule
@@ -37,6 +39,8 @@ def build_module_registry(
     for adapter in adapters:
         if isinstance(adapter, GpioAdapter):
             registry.add(GpioIOModule(adapter, store))
+        elif isinstance(adapter, HidAdapter):
+            registry.add(HidIOModule(adapter, store))
         elif isinstance(adapter, MidiAdapter):
             module = MidiIOModule(adapter, store, config)
             registry.add(module)

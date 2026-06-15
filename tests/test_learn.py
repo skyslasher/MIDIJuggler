@@ -23,6 +23,23 @@ def test_learn_controller_selects_control_source() -> None:
     assert state.source.key == "xtouch_mini:layer_a_fader"
 
 
+def test_resolve_monitor_source_from_hid_event() -> None:
+    config = parse_config({"adapters": {}})
+    source = resolve_monitor_source(
+        config,
+        {
+            "kind": "HidEvent",
+            "source": "gamepad",
+            "control": "btn_a",
+            "code": "BTN_A",
+            "value": 1.0,
+            "initial": False,
+        },
+    )
+
+    assert source.key == "gamepad:btn_a"
+
+
 def test_resolve_monitor_source_from_gpio_event() -> None:
     config = parse_config({"adapters": {}})
     source = resolve_monitor_source(

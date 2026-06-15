@@ -28,6 +28,9 @@ midi = [
 rtp = [
   "zeroconf>=0.131",
 ]
+hid = [
+  "evdev>=1.7",
+]
 
 [project.scripts]
 midijuggler = "midijuggler.__main__:main"
