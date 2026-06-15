@@ -2646,7 +2646,8 @@ function createMidiAdapterCard(instance, config, options = {}) {
     },
   );
   actions.appendChild(deleteButton);
-  prependAdapterBodySections(body, [statusBadge, actions, nameField]);
+  accordion.summary.appendChild(statusBadge);
+  prependAdapterBodySections(body, [actions, nameField]);
   mountAdapterInstanceCard(card, accordion);
 
   const enabledLabel = document.createElement("label");
