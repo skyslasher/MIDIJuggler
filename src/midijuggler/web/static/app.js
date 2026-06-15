@@ -2522,28 +2522,49 @@ function createTestSelectField(labelText, fieldName, options, selectedValue) {
   return label;
 }
 
-function createAdapterInstanceAccordion() {
+function adapterInstanceSummaryLabel(instance, isNew) {
+  if (isNew) {
+    return "New instance";
+  }
+  return instance.name || "Unnamed instance";
+}
+
+function createAdapterInstanceAccordion(summaryLabel) {
   const details = document.createElement("details");
   details.className = "adapter-instance-accordion";
   const summary = document.createElement("summary");
   summary.className = "adapter-instance-summary";
-  summary.addEventListener("click", (event) => {
-    if (event.target.closest("input, select, textarea, button, label")) {
-      event.preventDefault();
-    }
-  });
+  const title = document.createElement("span");
+  title.className = "adapter-instance-title";
+  title.textContent = summaryLabel;
+  summary.appendChild(title);
   const body = document.createElement("div");
   body.className = "adapter-instance-body";
   details.append(summary, body);
-  return { details, summary, body };
+  return { details, summary, body, title };
 }
 
-function mountAdapterInstanceHeader(card, summaryMain, actions, accordion) {
-  const header = document.createElement("div");
-  header.className = "midi-adapter-card-header";
-  accordion.summary.appendChild(summaryMain);
-  header.append(accordion.details, actions);
-  card.appendChild(header);
+function bindAdapterInstanceTitle(title, nameInput, { isNew = false } = {}) {
+  const fallback = isNew ? "New instance" : "Unnamed instance";
+  const update = () => {
+    title.textContent = (nameInput?.value || "").trim() || fallback;
+  };
+  nameInput?.addEventListener("input", update);
+  nameInput?.addEventListener("change", update);
+  return update;
+}
+
+function prependAdapterBodySections(body, sections) {
+  for (let index = sections.length - 1; index >= 0; index -= 1) {
+    const section = sections[index];
+    if (section) {
+      body.insertBefore(section, body.firstChild);
+    }
+  }
+}
+
+function mountAdapterInstanceCard(card, accordion) {
+  card.appendChild(accordion.details);
 }
 
 function createAdapterNameField(instance, defaultNames, { isNew = false } = {}) {
@@ -2585,20 +2606,17 @@ function createMidiAdapterCard(instance, config, options = {}) {
     card.dataset.isNew = "true";
   }
 
-  const accordion = createAdapterInstanceAccordion();
-  const { body } = accordion;
-
-  const headerMain = document.createElement("div");
-  headerMain.className = "midi-adapter-card-header-main";
-
-  headerMain.appendChild(
-    createAdapterNameField(instance, DEFAULT_MIDI_ADAPTER_NAMES, { isNew }),
+  const accordion = createAdapterInstanceAccordion(
+    adapterInstanceSummaryLabel(instance, isNew),
   );
+  const { body, title } = accordion;
+
+  const nameField = createAdapterNameField(instance, DEFAULT_MIDI_ADAPTER_NAMES, { isNew });
+  bindAdapterInstanceTitle(title, nameField.querySelector("input"), { isNew });
 
   const statusBadge = document.createElement("span");
   statusBadge.className = "adapter-status-badge adapter-status-unknown";
   statusBadge.hidden = true;
-  headerMain.appendChild(statusBadge);
 
   if (instance.runtime_connection) {
     setAdapterConnectionStatus(instance.name, instance.runtime_connection);
@@ -2628,7 +2646,8 @@ function createMidiAdapterCard(instance, config, options = {}) {
     },
   );
   actions.appendChild(deleteButton);
-  mountAdapterInstanceHeader(card, headerMain, actions, accordion);
+  prependAdapterBodySections(body, [statusBadge, actions, nameField]);
+  mountAdapterInstanceCard(card, accordion);
 
   const enabledLabel = document.createElement("label");
   enabledLabel.className = "inline-field";
@@ -3415,14 +3434,13 @@ function createOscAdapterCard(instance, config, options = {}) {
     card.dataset.isNew = "true";
   }
 
-  const accordion = createAdapterInstanceAccordion();
-  const { body } = accordion;
-
-  const headerMain = document.createElement("div");
-  headerMain.className = "midi-adapter-card-header-main";
-  headerMain.appendChild(
-    createAdapterNameField(instance, DEFAULT_OSC_INSTANCE_NAMES, { isNew }),
+  const accordion = createAdapterInstanceAccordion(
+    adapterInstanceSummaryLabel(instance, isNew),
   );
+  const { body, title } = accordion;
+
+  const nameField = createAdapterNameField(instance, DEFAULT_OSC_INSTANCE_NAMES, { isNew });
+  bindAdapterInstanceTitle(title, nameField.querySelector("input"), { isNew });
 
   const actions = document.createElement("div");
   actions.className = "midi-adapter-card-actions";
@@ -3442,7 +3460,8 @@ function createOscAdapterCard(instance, config, options = {}) {
     panelMessage: oscMessage,
   });
   actions.appendChild(deleteButton);
-  mountAdapterInstanceHeader(card, headerMain, actions, accordion);
+  prependAdapterBodySections(body, [actions, nameField]);
+  mountAdapterInstanceCard(card, accordion);
 
   if (!isNew) {
     const runtime = document.createElement("p");

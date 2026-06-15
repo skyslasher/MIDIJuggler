@@ -208,16 +208,8 @@ legend {
   padding: 0.9rem;
 }
 
-.midi-adapter-card-header {
-  align-items: flex-start;
-  display: flex;
-  gap: 0.75rem;
-  justify-content: space-between;
-}
-
 .adapter-instance-accordion {
-  flex: 1;
-  min-width: 0;
+  width: 100%;
 }
 
 .adapter-instance-summary {
@@ -226,6 +218,15 @@ legend {
   display: flex;
   gap: 0.5rem;
   list-style: none;
+}
+
+.adapter-instance-title {
+  font-size: 1rem;
+  font-weight: 700;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .adapter-instance-summary::-webkit-details-marker {
@@ -253,17 +254,12 @@ legend {
   padding-top: 0.65rem;
 }
 
-.midi-adapter-card .midi-adapter-message {
-  margin-top: 0.65rem;
+.adapter-instance-body > .midi-adapter-card-actions {
+  margin-bottom: 0.15rem;
 }
 
-.midi-adapter-card-header-main {
-  align-items: center;
-  display: flex;
-  flex: 1;
-  flex-wrap: wrap;
-  gap: 0.6rem;
-  min-width: 0;
+.midi-adapter-card .midi-adapter-message {
+  margin-top: 0.65rem;
 }
 
 .adapter-status-badge {
@@ -275,6 +271,7 @@ legend {
   padding: 0.35rem 0.65rem;
   text-transform: uppercase;
   white-space: nowrap;
+  width: fit-content;
 }
 
 .adapter-status-connected {
@@ -307,11 +304,6 @@ legend {
   background: rgb(176 64 64 / 28%);
   color: #f0a0a0;
   outline: 1px solid rgb(214 96 96 / 45%);
-}
-
-.midi-adapter-card-header h3 {
-  font-size: 1rem;
-  margin: 0;
 }
 
 .midi-adapter-card-actions {
