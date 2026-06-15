@@ -1,4 +1,5 @@
 import asyncio
+import contextlib
 import logging
 
 import pytest
@@ -7,7 +8,7 @@ from midijuggler.alsa import MASTER_CLOCK_PCM_NAME
 from midijuggler.click_player import AplayClickPlayer
 from midijuggler.config import MasterClockConfig
 from midijuggler.eventbus import EventBus
-from midijuggler.events import ClickEvent, ControlEvent, MidiMessageEvent, OscMessageEvent
+from midijuggler.events import ClickEvent, ControlEvent, MasterClockCommandEvent, MidiMessageEvent, OscMessageEvent
 from midijuggler.master_clock import (
     MIDI_START,
     MIDI_STOP,
@@ -148,6 +149,75 @@ def test_master_clock_triggers_clicks_without_waiting_for_previous_playback() ->
     click_player = asyncio.run(scenario())
 
     assert click_player.plays == 2
+
+
+def test_master_clock_start_command_while_running_does_not_reset_position() -> None:
+    async def scenario() -> MasterClock:
+        bus = EventBus()
+        clock = MasterClock(MasterClockConfig(enabled=True, output_targets=["midi"]), bus)
+        clock.running = True
+        for _ in range(8):
+            await clock.emit_tick()
+        await clock.handle_command(
+            MasterClockCommandEvent(source="test", command="start")
+        )
+        return clock
+
+    clock = asyncio.run(scenario())
+
+    assert clock.running is True
+    assert clock.position_ticks == 8
+
+
+def test_set_bpm_while_running_preserves_position() -> None:
+    async def scenario() -> tuple[MasterClock, list[MidiMessageEvent]]:
+        bus = EventBus()
+        midi_events: list[MidiMessageEvent] = []
+        bus.subscribe(MidiMessageEvent, lambda event: midi_events.append(event))
+        clock = MasterClock(MasterClockConfig(enabled=True, output_targets=["midi"]), bus)
+        clock.running = True
+        for _ in range(6):
+            await clock.emit_tick()
+        midi_events.clear()
+        await clock.set_bpm(128.5)
+        return clock, midi_events
+
+    clock, midi_events = asyncio.run(scenario())
+
+    assert clock.running is True
+    assert clock.position_ticks == 6
+    assert clock.bpm == pytest.approx(128.5)
+    assert [event.status for event in midi_events] == []
+
+
+def test_start_transport_while_running_preserves_position() -> None:
+    async def scenario() -> tuple[MasterClock, list[MidiMessageEvent]]:
+        bus = EventBus()
+        midi_events: list[MidiMessageEvent] = []
+        bus.subscribe(MidiMessageEvent, lambda event: midi_events.append(event))
+        clock = MasterClock(MasterClockConfig(enabled=True, output_targets=["midi"]), bus)
+        await clock.start_transport(reset_position=True)
+        if clock._task is not None:
+            clock._task.cancel()
+            with contextlib.suppress(asyncio.CancelledError):
+                await clock._task
+            clock._task = None
+        for _ in range(9):
+            await clock.emit_tick()
+        midi_events.clear()
+        await clock.start_transport(reset_position=True)
+        if clock._task is not None:
+            clock._task.cancel()
+            with contextlib.suppress(asyncio.CancelledError):
+                await clock._task
+            clock._task = None
+        return clock, midi_events
+
+    clock, midi_events = asyncio.run(scenario())
+
+    assert clock.running is True
+    assert clock.position_ticks == 9
+    assert [event.status for event in midi_events] == []
 
 
 def test_master_clock_responds_to_midi_transport_messages() -> None:

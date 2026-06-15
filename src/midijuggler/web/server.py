@@ -2287,7 +2287,8 @@ class WebInterface:
         if action == "toggle":
             await self.master_clock.toggle_transport()
         elif action == "start":
-            await self.master_clock.start_transport(reset_position=True)
+            if not self.master_clock.running:
+                await self.master_clock.start_transport(reset_position=True)
         elif action == "stop":
             await self.master_clock.stop_transport()
         elif action == "continue":

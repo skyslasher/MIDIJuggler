@@ -277,6 +277,8 @@ class MasterClock:
         elif event.command == "set_click_interval":
             await self.set_click_interval(str(event.value))
         elif event.command == "start":
+            if self.running:
+                return
             await self.start_transport(reset_position=True)
         elif event.command == "continue":
             await self.continue_transport()
@@ -314,10 +316,11 @@ class MasterClock:
         await self._publish_state()
 
     async def start_transport(self, reset_position: bool) -> None:
-        if reset_position:
+        was_running = self.running
+        if reset_position and not was_running:
             self.position_ticks = 0
         self.running = True
-        if self.config.send_transport:
+        if self.config.send_transport and not was_running:
             await self._publish_midi_status(MIDI_START)
         self._ensure_task()
         await self._publish_state()

@@ -348,3 +348,75 @@ def test_bpm_up_down_datapoints_step_and_quantize_by_half() -> None:
         assert master_clock.bpm == pytest.approx(120.5)
 
     asyncio.run(scenario())
+
+
+def test_bpm_up_while_running_preserves_transport_position() -> None:
+    config = parse_config({"master_clock": {"enabled": True, "bpm": 120.0}})
+    store = DataPointStore()
+    master_clock = MasterClock(config.master_clock, EventBus())
+    clock_gen = MasterClockGenerator(master_clock, store)
+    store.register_many(clock_gen.datapoints())
+
+    async def scenario() -> None:
+        await clock_gen.start()
+        await master_clock.start_transport(reset_position=True)
+        for _ in range(7):
+            await master_clock.emit_tick()
+        await store.write(trigger_value("clock.bpm_up", active=False))
+        await store.write(trigger_value("clock.bpm_up", active=True))
+        assert master_clock.running is True
+        assert master_clock.position_ticks == 7
+        assert master_clock.bpm == pytest.approx(120.5)
+
+    asyncio.run(scenario())
+
+
+def test_tap_tempo_while_running_preserves_transport_position() -> None:
+    config = parse_config(
+        {
+            "master_clock": {
+                "enabled": True,
+                "bpm": 100.0,
+                "bpm_min": 40.0,
+                "bpm_max": 240.0,
+                "tap_tempo_min_taps": 3,
+            }
+        }
+    )
+    store = DataPointStore()
+    master_clock = MasterClock(config.master_clock, EventBus())
+    clock_gen = MasterClockGenerator(master_clock, store)
+    store.register_many(clock_gen.datapoints())
+    tap = DataPointId("clock", "tap_tempo")
+
+    async def tap_edge(timestamp: float) -> None:
+        await store.write(
+            DataPointValue(
+                point_id=tap,
+                value_type=ValueType.TRIGGER,
+                bool_value=False,
+                timestamp=timestamp,
+            )
+        )
+        await store.write(
+            DataPointValue(
+                point_id=tap,
+                value_type=ValueType.TRIGGER,
+                bool_value=True,
+                timestamp=timestamp,
+            )
+        )
+
+    async def scenario() -> None:
+        await clock_gen.start()
+        await master_clock.start_transport(reset_position=True)
+        for _ in range(5):
+            await master_clock.emit_tick()
+        await tap_edge(10.0)
+        await tap_edge(10.497)
+        await tap_edge(10.994)
+        assert master_clock.running is True
+        assert master_clock.position_ticks == 5
+        assert master_clock.bpm == pytest.approx(120.5)
+
+    asyncio.run(scenario())
