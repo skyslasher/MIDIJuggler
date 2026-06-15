@@ -1566,9 +1566,13 @@ class WebInterface:
             return
         adapter = self.hid_adapters.get(name)
         if adapter is None:
+            self.datapoint_store.unregister_module_except(name, set())
             return
         module = HidIOModule(adapter, self.datapoint_store)
-        self.datapoint_store.register_many(module.datapoints())
+        specs = module.datapoints()
+        keep = {str(spec.id) for spec in specs}
+        self.datapoint_store.unregister_module_except(name, keep)
+        self.datapoint_store.register_many(specs)
 
     async def apply_hid_adapters_config(self, payload: dict[str, Any]) -> dict[str, Any]:
         if not isinstance(payload, dict):

@@ -36,6 +36,18 @@ class DataPointStore:
         for spec in specs:
             self.register(spec)
 
+    def unregister(self, point_id: DataPointId | str) -> None:
+        key = self._normalize_id(point_id)
+        self._specs.pop(key, None)
+        self._values.pop(key, None)
+        self._subscribers.pop(key, None)
+
+    def unregister_module_except(self, module: str, keep: set[str]) -> None:
+        prefix = f"{module}."
+        for key in list(self._specs):
+            if key.startswith(prefix) and key not in keep:
+                self.unregister(key)
+
     def spec(self, point_id: DataPointId | str) -> DataPointSpec | None:
         return self._specs.get(self._normalize_id(point_id))
 

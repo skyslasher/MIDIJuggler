@@ -55,24 +55,19 @@ def normalize_evdev_code_name(name: str) -> str:
     return normalized
 
 
+def keyboard_code_name(event_type: int, code: int) -> str | None:
+    """Return the evdev name for a keyboard KEY_* press, if applicable."""
+
+    name = evdev_code_name(event_type, code)
+    if name.startswith("KEY_"):
+        return name
+    return None
+
+
 def is_keyboard_key(event_type: int, code: int) -> bool:
     """Return True when an EV_KEY code represents a keyboard key."""
 
-    try:
-        from evdev import ecodes
-
-        key_type = int(ecodes.EV_KEY)
-    except ImportError:
-        key_type = 0x01
-
-    if int(event_type) != key_type:
-        return False
-
-    try:
-        _, ecodes = _require_evdev()
-        return int(code) in ecodes.KEY
-    except ImportError:
-        return int(code) < 0x100
+    return keyboard_code_name(event_type, code) is not None
 
 
 def resolve_evdev_code(name: str) -> tuple[int, int]:
@@ -93,13 +88,21 @@ def resolve_evdev_code(name: str) -> tuple[int, int]:
 
 
 def evdev_code_name(event_type: int, code: int) -> str:
-    _, ecodes = _require_evdev()
-    for name, value in ecodes.ecodes.items():
-        if value == code:
-            for mapped_type, codes in ecodes.bytype.items():
-                if int(mapped_type) == int(event_type) and code in codes:
-                    return name
-    return f"type{event_type}_code{code}"
+    try:
+        _, ecodes = _require_evdev()
+    except ImportError:
+        return f"type{event_type}_code{code}"
+
+    names = ecodes.bytype.get(int(event_type), {}).get(int(code))
+    if names is None:
+        return f"type{event_type}_code{code}"
+    if isinstance(names, list):
+        for name in names:
+            normalized = str(name)
+            if normalized.startswith("KEY_"):
+                return normalized
+        return str(names[0])
+    return str(names)
 
 
 def list_input_devices() -> list[dict[str, Any]]:

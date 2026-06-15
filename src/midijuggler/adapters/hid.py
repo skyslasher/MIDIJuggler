@@ -15,7 +15,7 @@ from midijuggler.eventbus import EventBus
 from midijuggler.events import AdapterStatusEvent, ControlEvent, HidEvent, HidLearnEvent
 from midijuggler.hid.codes import (
     evdev_code_name,
-    is_keyboard_key,
+    keyboard_code_name,
     normalize_evdev_code_name,
     resolve_device_path,
     resolve_evdev_code,
@@ -328,19 +328,22 @@ class HidAdapter(Adapter):
             return hid_input
         if raw.event_type != EV_KEY or raw.value == 0:
             return None
-        if self.keystrokes and is_keyboard_key(raw.event_type, raw.code):
-            return self._ephemeral_input(raw)
-        if self._learn_active and is_keyboard_key(raw.event_type, raw.code):
-            return self._ephemeral_input(raw)
+        code_name = keyboard_code_name(raw.event_type, raw.code)
+        if code_name is None:
+            return None
+        if self.keystrokes or self._learn_active:
+            return self._ephemeral_input(raw, code_name)
         return None
 
-    def _ephemeral_input(self, raw: HidRawEvent) -> HidInput:
-        code_name = self._resolve_code_name(raw.event_type, raw.code)
+    def _ephemeral_input(self, raw: HidRawEvent, code_name: str | None = None) -> HidInput:
+        resolved_name = code_name or keyboard_code_name(raw.event_type, raw.code)
+        if resolved_name is None:
+            resolved_name = self._resolve_code_name(raw.event_type, raw.code)
         return HidInput(
-            control=_default_control_name(code_name),
+            control=_default_control_name(resolved_name),
             event_type=raw.event_type,
             code=raw.code,
-            code_name=code_name,
+            code_name=resolved_name,
             value_min=0.0,
             value_max=1.0,
         )

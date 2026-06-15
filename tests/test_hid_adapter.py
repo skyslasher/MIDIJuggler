@@ -42,8 +42,12 @@ def fake_evdev_codes(monkeypatch: pytest.MonkeyPatch) -> None:
 
     monkeypatch.setattr("midijuggler.adapters.hid.evdev_code_name", code_name)
     monkeypatch.setattr(
-        "midijuggler.adapters.hid.is_keyboard_key",
-        lambda event_type, code: event_type == EV_KEY and code < 0x100,
+        "midijuggler.adapters.hid.keyboard_code_name",
+        lambda event_type, code: (
+            reverse.get((event_type, code))
+            if reverse.get((event_type, code), "").startswith("KEY_")
+            else None
+        ),
     )
 
 

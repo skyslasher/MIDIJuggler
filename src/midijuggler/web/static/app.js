@@ -393,8 +393,13 @@ function learnPointsForInstance(instance, direction) {
   const points = filterLearnRegistryDatapoints(learnRegistryDatapoints, direction)
     .filter((entry) => datapointModule(entry) === instance);
   if (direction === "input") {
+    const configuredControls = hidConfiguredControls(instance);
     for (const [pointId, label] of learnMonitorDatapoints) {
       if (pointId.split(".")[0] !== instance || !isLearnSelectableMonitorPointId(pointId)) {
+        continue;
+      }
+      const control = pointId.slice(instance.length + 1);
+      if (configuredControls && !configuredControls.has(control)) {
         continue;
       }
       if (points.some((entry) => entry.id === pointId)) {
@@ -1620,6 +1625,91 @@ function loadHidAdaptersConfig() {
     });
 }
 
+function pruneLearnMonitorDatapointsForHidInstance(
+  instanceName,
+  inputs,
+  { keystrokes = false } = {},
+) {
+  if (!instanceName) {
+    return;
+  }
+  const allowed = new Set(
+    (inputs || [])
+      .map((input) => String(input.control || "").trim())
+      .filter(Boolean),
+  );
+  let changed = false;
+  for (const pointId of [...learnMonitorDatapoints.keys()]) {
+    if (!pointId.startsWith(`${instanceName}.`)) {
+      continue;
+    }
+    const control = pointId.slice(instanceName.length + 1);
+    if (keystrokes && control.startsWith("key_")) {
+      continue;
+    }
+    if (!allowed.has(control)) {
+      learnMonitorDatapoints.delete(pointId);
+      changed = true;
+    }
+  }
+  if (changed && learnMode) {
+    renderLearnDatapointSelects();
+    highlightSelectedMonitorEvent();
+  }
+}
+
+function pruneLearnMonitorDatapointsForDeletedHidInstance(instanceName) {
+  if (!instanceName) {
+    return;
+  }
+  let changed = false;
+  for (const pointId of [...learnMonitorDatapoints.keys()]) {
+    if (!pointId.startsWith(`${instanceName}.`)) {
+      continue;
+    }
+    learnMonitorDatapoints.delete(pointId);
+    changed = true;
+  }
+  if (changed && learnMode) {
+    renderLearnDatapointSelects();
+    highlightSelectedMonitorEvent();
+  }
+}
+
+function syncLearnMonitorDatapointsFromHidConfig(config) {
+  for (const instance of config.instances || []) {
+    pruneLearnMonitorDatapointsForHidInstance(instance.name, instance.inputs || [], {
+      keystrokes: Boolean(instance.keystrokes),
+    });
+  }
+}
+
+function hidConfiguredControls(instanceName) {
+  const configInstance = (hidAdaptersConfig?.instances || []).find(
+    (entry) => entry.name === instanceName,
+  );
+  if (!configInstance) {
+    return null;
+  }
+  const controls = new Set(
+    (configInstance.inputs || [])
+      .map((input) => String(input.control || "").trim())
+      .filter(Boolean),
+  );
+  if (configInstance.keystrokes) {
+    for (const pointId of learnMonitorDatapoints.keys()) {
+      if (!pointId.startsWith(`${instanceName}.`)) {
+        continue;
+      }
+      const control = pointId.slice(instanceName.length + 1);
+      if (control.startsWith("key_")) {
+        controls.add(control);
+      }
+    }
+  }
+  return controls;
+}
+
 function renderHidAdaptersConfig(config) {
   const openInstances = new Set(
     [...hidInstances.querySelectorAll(".hid-adapter-card")].flatMap((card) => {
@@ -1640,6 +1730,10 @@ function renderHidAdaptersConfig(config) {
       }
     }
     hidInstances.appendChild(card);
+  }
+  syncLearnMonitorDatapointsFromHidConfig(config);
+  if (learnMode) {
+    loadLearnDatapoints();
   }
 }
 
@@ -1730,9 +1824,18 @@ function createHidInputRow(input = {}) {
   removeButton.type = "button";
   removeButton.textContent = "Remove";
   removeButton.addEventListener("click", () => {
-    row.remove();
+    const control = row.querySelector('[data-field="control"]')?.value.trim() || "";
     const card = row.closest(".hid-adapter-card");
+    row.remove();
     if (card) {
+      if (control) {
+        const instanceName = card.dataset.instanceName || "";
+        learnMonitorDatapoints.delete(`${instanceName}.${control}`);
+        if (learnMode) {
+          renderLearnDatapointSelects();
+          highlightSelectedMonitorEvent();
+        }
+      }
       updateHidAdapterCardDirtyState(card);
     }
   });
@@ -1833,7 +1936,7 @@ function setHidLearnMode(card, active) {
     .then((config) => {
       syncHidLearnState(config);
       hidMessage.textContent = active
-        ? `learning inputs for ${name}; press a button or move an axis`
+        ? `learning inputs for ${name}; press a key, button, or move an axis`
         : "";
     })
     .catch((error) => {
@@ -2021,7 +2124,8 @@ function deleteHidAdapterCard(card) {
     card.remove();
     return;
   }
-  if (!window.confirm(`Delete HID adapter instance "${card.dataset.instanceName}"?`)) {
+  const instanceName = card.dataset.instanceName || "";
+  if (!window.confirm(`Delete HID adapter instance "${instanceName}"?`)) {
     return;
   }
   fetch("/api/hid-adapters", {
@@ -2039,6 +2143,7 @@ function deleteHidAdapterCard(card) {
       return response.json();
     })
     .then((config) => {
+      pruneLearnMonitorDatapointsForDeletedHidInstance(instanceName);
       renderHidAdaptersConfig(config);
       hidMessage.textContent = "deleted";
     })
