@@ -20,6 +20,8 @@ from midijuggler.hid.codes import (
 )
 
 LOGGER = logging.getLogger(__name__)
+DEVICE_WAIT_INTERVAL_SECONDS = 2.0
+DEVICE_RECONNECT_DELAY_SECONDS = 2.0
 
 try:
     from evdev import InputDevice, ecodes
@@ -122,6 +124,7 @@ class HidAdapter(Adapter):
         self._abs_ranges: dict[tuple[int, int], tuple[int, int]] = {}
         self._lock = asyncio.Lock()
         self._learn_active = False
+        self._last_connection_detail: str | None = None
         self._apply_options(config.options)
 
     def _apply_options(self, options: dict[str, Any]) -> None:
@@ -140,23 +143,11 @@ class HidAdapter(Adapter):
             self._load_abs_ranges()
 
         self.running = True
+        self._last_connection_detail = None
         if self.inputs:
             await self._publish_initial_states()
         self._read_task = asyncio.create_task(self._read_loop(), name=f"hid-{self.name}")
-        mapped = len(self.inputs)
-        detail = f"reading HID device {self.device_path}"
-        if mapped:
-            detail += f" ({mapped} inputs)"
-        else:
-            detail += " (no inputs mapped yet; use learn mode)"
-        await self.bus.publish(
-            AdapterStatusEvent(
-                source=self.name,
-                adapter=self.name,
-                status="started",
-                detail=detail,
-            )
-        )
+        await self._publish_connection_status("connected", force=True)
 
     async def stop(self) -> None:
         self.running = False
@@ -180,18 +171,96 @@ class HidAdapter(Adapter):
             )
         )
 
+    def _connection_detail(self, phase: str) -> str:
+        mapped = len(self.inputs)
+        detail = f"HID device {self.device_path}"
+        if mapped:
+            detail += f" ({mapped} inputs)"
+        else:
+            detail += " (no inputs mapped yet; use learn mode)"
+        if phase == "waiting":
+            return f"waiting for {detail}"
+        if phase == "reconnecting":
+            return f"reconnecting to {detail}"
+        return f"reading {detail}"
+
+    async def _publish_connection_status(self, phase: str, *, force: bool = False) -> None:
+        detail = self._connection_detail(phase)
+        if not force and detail == self._last_connection_detail:
+            return
+        self._last_connection_detail = detail
+        await self.bus.publish(
+            AdapterStatusEvent(
+                source=self.name,
+                adapter=self.name,
+                status="started",
+                detail=detail,
+                connection_phase=phase,
+            )
+        )
+
+    def _refresh_device_path(self) -> None:
+        with contextlib.suppress(ValueError, ImportError):
+            self.device_path = resolve_device_path(self.config.options)
+
+    async def _close_reader(self) -> None:
+        async with self._lock:
+            reader = self._reader
+            self._reader = None
+        if reader is not None:
+            reader.close()
+
+    async def _ensure_reader(self) -> bool:
+        async with self._lock:
+            if self._reader is not None:
+                return True
+
+        self._refresh_device_path()
+        loop = asyncio.get_running_loop()
+        try:
+            reader = await loop.run_in_executor(
+                None,
+                lambda: self._reader_factory(self.device_path, self.inputs),
+            )
+        except OSError:
+            return False
+
+        async with self._lock:
+            if not self.running:
+                reader.close()
+                return False
+            self._reader = reader
+            self._load_abs_ranges()
+
+        await self._publish_connection_status("connected", force=True)
+        if self.inputs:
+            await self._publish_initial_states()
+        return True
+
     async def _read_loop(self) -> None:
         loop = asyncio.get_running_loop()
         while self.running:
             reader = self._reader
             if reader is None:
-                return
+                if not await self._ensure_reader():
+                    await self._publish_connection_status("waiting")
+                    await asyncio.sleep(DEVICE_WAIT_INTERVAL_SECONDS)
+                continue
+
             try:
                 raw = await loop.run_in_executor(None, reader.read_one)
             except OSError as exc:
-                LOGGER.warning("HID read failed for %s: %s", self.name, exc)
-                await asyncio.sleep(0.05)
+                LOGGER.warning(
+                    "HID device lost for %s (%s): %s",
+                    self.name,
+                    self.device_path,
+                    exc,
+                )
+                await self._close_reader()
+                await self._publish_connection_status("reconnecting")
+                await asyncio.sleep(DEVICE_RECONNECT_DELAY_SECONDS)
                 continue
+
             if raw is None:
                 await asyncio.sleep(0.001)
                 continue

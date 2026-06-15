@@ -246,6 +246,42 @@ def test_hid_adapter_publishes_learn_events(fake_evdev_codes: None) -> None:
     assert events[0].suggested_control == "type1_code304"
 
 
+def test_hid_adapter_logs_once_when_device_disappears(
+    fake_evdev_codes: None,
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    class DisconnectingReader(FakeHidReader):
+        def read_one(self) -> HidRawEvent | None:
+            raise OSError(19, "No such device")
+
+    async def scenario() -> int:
+        bus = EventBus()
+        reader = DisconnectingReader()
+        adapter = HidAdapter(
+            name="encoder_key",
+            config=AdapterConfig(
+                enabled=True,
+                options={"device": "/dev/input/event0", "codes": ["BTN_A"]},
+            ),
+            bus=bus,
+            reader_factory=lambda _device_path, _inputs: reader,
+        )
+
+        with caplog.at_level("WARNING"):
+            await adapter.start()
+            await asyncio.sleep(0.15)
+            await adapter.stop()
+
+        return sum(
+            1
+            for record in caplog.records
+            if "HID device lost" in record.message
+        )
+
+    warning_count = asyncio.run(scenario())
+    assert warning_count == 1
+
+
 def test_hid_control_events_update_datapoint_store(fake_evdev_codes: None) -> None:
     async def scenario() -> float | None:
         bus = EventBus()
