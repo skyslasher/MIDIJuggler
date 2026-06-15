@@ -2522,6 +2522,30 @@ function createTestSelectField(labelText, fieldName, options, selectedValue) {
   return label;
 }
 
+function createAdapterInstanceAccordion() {
+  const details = document.createElement("details");
+  details.className = "adapter-instance-accordion";
+  const summary = document.createElement("summary");
+  summary.className = "adapter-instance-summary";
+  summary.addEventListener("click", (event) => {
+    if (event.target.closest("input, select, textarea, button, label")) {
+      event.preventDefault();
+    }
+  });
+  const body = document.createElement("div");
+  body.className = "adapter-instance-body";
+  details.append(summary, body);
+  return { details, summary, body };
+}
+
+function mountAdapterInstanceHeader(card, summaryMain, actions, accordion) {
+  const header = document.createElement("div");
+  header.className = "midi-adapter-card-header";
+  accordion.summary.appendChild(summaryMain);
+  header.append(accordion.details, actions);
+  card.appendChild(header);
+}
+
 function createAdapterNameField(instance, defaultNames, { isNew = false } = {}) {
   const field = createTextField(
     "Instance name",
@@ -2561,8 +2585,8 @@ function createMidiAdapterCard(instance, config, options = {}) {
     card.dataset.isNew = "true";
   }
 
-  const header = document.createElement("div");
-  header.className = "midi-adapter-card-header";
+  const accordion = createAdapterInstanceAccordion();
+  const { body } = accordion;
 
   const headerMain = document.createElement("div");
   headerMain.className = "midi-adapter-card-header-main";
@@ -2575,7 +2599,6 @@ function createMidiAdapterCard(instance, config, options = {}) {
   statusBadge.className = "adapter-status-badge adapter-status-unknown";
   statusBadge.hidden = true;
   headerMain.appendChild(statusBadge);
-  header.appendChild(headerMain);
 
   if (instance.runtime_connection) {
     setAdapterConnectionStatus(instance.name, instance.runtime_connection);
@@ -2605,8 +2628,7 @@ function createMidiAdapterCard(instance, config, options = {}) {
     },
   );
   actions.appendChild(deleteButton);
-  header.appendChild(actions);
-  card.appendChild(header);
+  mountAdapterInstanceHeader(card, headerMain, actions, accordion);
 
   const enabledLabel = document.createElement("label");
   enabledLabel.className = "inline-field";
@@ -2615,10 +2637,10 @@ function createMidiAdapterCard(instance, config, options = {}) {
   enabledInput.dataset.field = "enabled";
   enabledInput.checked = Boolean(instance.enabled);
   enabledLabel.append(enabledInput, document.createTextNode(" Enabled"));
-  card.appendChild(enabledLabel);
+  body.appendChild(enabledLabel);
 
   if (instance.type === "midi") {
-    card.appendChild(
+    body.appendChild(
       createSelectField(
         "Input port",
         "input_port",
@@ -2629,7 +2651,7 @@ function createMidiAdapterCard(instance, config, options = {}) {
         "No input port",
       ),
     );
-    card.appendChild(
+    body.appendChild(
       createSelectField(
         "Output port",
         "output_port",
@@ -2658,7 +2680,7 @@ function createMidiAdapterCard(instance, config, options = {}) {
       updateMidiTestSendSection(card);
       updateXtouchFeedbackRefreshVisibility();
     });
-    card.appendChild(libraryField);
+    body.appendChild(libraryField);
     const echoGuardField = createNumberField(
       "Echo guard (ms)",
       "echo_guard_ms",
@@ -2711,10 +2733,10 @@ function createMidiAdapterCard(instance, config, options = {}) {
       displayChannelField.hidden = !isXtouch;
     };
     updateXtouchFeedbackRefreshVisibility();
-    card.appendChild(echoGuardWrap);
-    card.appendChild(feedbackRefreshField);
-    card.appendChild(valueChannelField);
-    card.appendChild(displayChannelField);
+    body.appendChild(echoGuardWrap);
+    body.appendChild(feedbackRefreshField);
+    body.appendChild(valueChannelField);
+    body.appendChild(displayChannelField);
   } else {
   const roleOptions = [
     { id: "listen", label: "Host session" },
@@ -2729,7 +2751,7 @@ function createMidiAdapterCard(instance, config, options = {}) {
     "label",
     String(instance.role || "host").toLowerCase(),
   );
-  card.appendChild(modeField);
+  body.appendChild(modeField);
 
   const hostFields = document.createElement("div");
   hostFields.className = "rtp-host-fields";
@@ -2739,7 +2761,7 @@ function createMidiAdapterCard(instance, config, options = {}) {
   hostFields.appendChild(
     createNumberField("UDP port", "port", instance.port ?? 5004, 1, 65535, 1),
   );
-  card.appendChild(hostFields);
+  body.appendChild(hostFields);
 
   const joinFields = document.createElement("div");
   joinFields.className = "rtp-join-fields";
@@ -2754,9 +2776,9 @@ function createMidiAdapterCard(instance, config, options = {}) {
     joinSelectEmptyLabel(joinChoices),
   );
   joinFields.appendChild(joinSelect);
-  card.appendChild(joinFields);
+  body.appendChild(joinFields);
 
-  card.appendChild(
+  body.appendChild(
     createSelectField(
       "Test output port",
       "output_port",
@@ -2794,7 +2816,7 @@ function createMidiAdapterCard(instance, config, options = {}) {
   updateRtpVisibility();
   }
 
-  card.appendChild(createAdapterTestSendSection(instance.type, instance));
+  body.appendChild(createAdapterTestSendSection(instance.type, instance));
   attachMidiAdapterCardControls(card);
   if (instance.type === "midi") {
     updateMidiTestSendSection(card);
@@ -3393,10 +3415,12 @@ function createOscAdapterCard(instance, config, options = {}) {
     card.dataset.isNew = "true";
   }
 
-  const header = document.createElement("div");
-  header.className = "midi-adapter-card-header";
+  const accordion = createAdapterInstanceAccordion();
+  const { body } = accordion;
 
-  header.appendChild(
+  const headerMain = document.createElement("div");
+  headerMain.className = "midi-adapter-card-header-main";
+  headerMain.appendChild(
     createAdapterNameField(instance, DEFAULT_OSC_INSTANCE_NAMES, { isNew }),
   );
 
@@ -3418,8 +3442,7 @@ function createOscAdapterCard(instance, config, options = {}) {
     panelMessage: oscMessage,
   });
   actions.appendChild(deleteButton);
-  header.appendChild(actions);
-  card.appendChild(header);
+  mountAdapterInstanceHeader(card, headerMain, actions, accordion);
 
   if (!isNew) {
     const runtime = document.createElement("p");
@@ -3429,13 +3452,13 @@ function createOscAdapterCard(instance, config, options = {}) {
       runtimeText += `; proxy clients: ${instance.proxy_client_count}`;
     }
     runtime.textContent = runtimeText;
-    card.appendChild(runtime);
+    body.appendChild(runtime);
   }
 
   const deskHint = document.createElement("p");
   deskHint.className = "hint osc-desk-hint";
   deskHint.hidden = true;
-  card.appendChild(deskHint);
+  body.appendChild(deskHint);
 
   const enabledLabel = document.createElement("label");
   enabledLabel.className = "inline-field";
@@ -3444,9 +3467,9 @@ function createOscAdapterCard(instance, config, options = {}) {
   enabledInput.dataset.field = "enabled";
   enabledInput.checked = Boolean(instance.enabled);
   enabledLabel.append(enabledInput, document.createTextNode(" Enabled"));
-  card.appendChild(enabledLabel);
+  body.appendChild(enabledLabel);
 
-  card.appendChild(
+  body.appendChild(
     createSelectField(
       "Desk mode",
       "desk_mode",
@@ -3462,9 +3485,9 @@ function createOscAdapterCard(instance, config, options = {}) {
   hiddenLibraryField.type = "hidden";
   hiddenLibraryField.dataset.field = "osc_library";
   hiddenLibraryField.value = instance.osc_library || deskModeToLibraryId(deskModeFromInstance(instance));
-  card.appendChild(hiddenLibraryField);
+  body.appendChild(hiddenLibraryField);
 
-  card.appendChild(
+  body.appendChild(
     createTextField("Listen host", "listen_host", instance.listen_host || "0.0.0.0"),
   );
 
@@ -3490,7 +3513,7 @@ function createOscAdapterCard(instance, config, options = {}) {
       1,
     ),
   );
-  card.appendChild(genericPorts);
+  body.appendChild(genericPorts);
 
   const deskPortField = createNumberField(
     "OSC port",
@@ -3501,7 +3524,7 @@ function createOscAdapterCard(instance, config, options = {}) {
     1,
   );
   deskPortField.dataset.oscDesk = "true";
-  card.appendChild(deskPortField);
+  body.appendChild(deskPortField);
 
   const remoteHostField = createTextField("Remote host", "remote_host", instance.remote_host || "");
   const discoverRow = document.createElement("div");
@@ -3537,7 +3560,7 @@ function createOscAdapterCard(instance, config, options = {}) {
   });
   discoverRow.append(discoverButton, discoverSelect);
   remoteHostField.appendChild(discoverRow);
-  card.appendChild(remoteHostField);
+  body.appendChild(remoteHostField);
   populateOscDiscoverSelect(discoverSelect, discoveredOscDesks);
 
   const syncLabel = document.createElement("label");
@@ -3548,7 +3571,7 @@ function createOscAdapterCard(instance, config, options = {}) {
   syncInput.dataset.field = "desk_sync_on_connect";
   syncInput.checked = Boolean(instance.desk_sync_on_connect);
   syncLabel.append(syncInput, document.createTextNode(" Full sync on connect"));
-  card.appendChild(syncLabel);
+  body.appendChild(syncLabel);
 
   const proxyLabel = document.createElement("label");
   proxyLabel.className = "inline-field";
@@ -3558,9 +3581,9 @@ function createOscAdapterCard(instance, config, options = {}) {
   proxyInput.dataset.field = "desk_proxy_mode";
   proxyInput.checked = Boolean(instance.desk_proxy_mode);
   proxyLabel.append(proxyInput, document.createTextNode(" Proxy mode (Wing)"));
-  card.appendChild(proxyLabel);
+  body.appendChild(proxyLabel);
 
-  card.appendChild(
+  body.appendChild(
     createNumberField(
       "Echo guard (ms)",
       "echo_guard_ms",
@@ -3579,7 +3602,7 @@ function createOscAdapterCard(instance, config, options = {}) {
     portField.dataset.userEdited = "true";
   });
 
-  card.appendChild(createAdapterTestSendSection("osc", instance));
+  body.appendChild(createAdapterTestSendSection("osc", instance));
   attachMidiAdapterCardControls(card);
   updateOscCardDeskMode(card);
   return card;

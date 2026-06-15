@@ -209,11 +209,52 @@ legend {
 }
 
 .midi-adapter-card-header {
-  align-items: center;
+  align-items: flex-start;
   display: flex;
   gap: 0.75rem;
   justify-content: space-between;
-  margin-bottom: 0.6rem;
+}
+
+.adapter-instance-accordion {
+  flex: 1;
+  min-width: 0;
+}
+
+.adapter-instance-summary {
+  align-items: center;
+  cursor: pointer;
+  display: flex;
+  gap: 0.5rem;
+  list-style: none;
+}
+
+.adapter-instance-summary::-webkit-details-marker {
+  display: none;
+}
+
+.adapter-instance-summary::before {
+  color: #9fb5d9;
+  content: "▸";
+  flex-shrink: 0;
+  font-size: 0.85rem;
+  line-height: 1;
+  transition: transform 0.15s ease;
+}
+
+.adapter-instance-accordion[open] > .adapter-instance-summary::before {
+  content: "▾";
+}
+
+.adapter-instance-body {
+  border-top: 1px solid #31405e;
+  display: grid;
+  gap: 0.65rem;
+  margin-top: 0.65rem;
+  padding-top: 0.65rem;
+}
+
+.midi-adapter-card .midi-adapter-message {
+  margin-top: 0.65rem;
 }
 
 .midi-adapter-card-header-main {
