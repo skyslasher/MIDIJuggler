@@ -40,6 +40,22 @@ def test_resolve_monitor_source_from_hid_event() -> None:
     assert source.key == "gamepad:btn_a"
 
 
+def test_resolve_monitor_source_from_hid_learn_event() -> None:
+    config = parse_config({"adapters": {}})
+    source = resolve_monitor_source(
+        config,
+        {
+            "kind": "HidLearnEvent",
+            "source": "keyboard",
+            "code": "KEY_A",
+            "suggested_control": "key_a",
+            "value": 1.0,
+        },
+    )
+
+    assert source.key == "keyboard:key_a"
+
+
 def test_resolve_monitor_source_from_gpio_event() -> None:
     config = parse_config({"adapters": {}})
     source = resolve_monitor_source(

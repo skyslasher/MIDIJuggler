@@ -1021,7 +1021,7 @@ function isLearnSelectableEvent(event) {
     }
     return !LEARN_STREAM_VALUE_TYPES.has(event.value_type) && isLearnSelectableMonitorPointId(event.id);
   }
-  if (event.kind === "GpioEvent" || event.kind === "HidEvent") {
+  if (event.kind === "GpioEvent" || event.kind === "HidEvent" || event.kind === "HidLearnEvent") {
     return true;
   }
   if (event.kind === "ControlEvent" && event.source !== "clock" && event.source !== "mapping") {
@@ -1040,8 +1040,9 @@ function eventToDatapointId(event) {
   if (event.kind === "DataPointValue" && event.id) {
     return event.id;
   }
-  if (event.kind === "GpioEvent" || event.kind === "HidEvent" || event.kind === "ControlEvent") {
-    return `${event.source}.${event.control}`;
+  if (event.kind === "GpioEvent" || event.kind === "HidEvent" || event.kind === "HidLearnEvent" || event.kind === "ControlEvent") {
+    const control = event.control || event.suggested_control || "";
+    return `${event.source}.${control}`;
   }
   if (event.kind === "OscMessageEvent" && event.address) {
     return `${event.source}.${event.address}`;
@@ -1065,8 +1066,9 @@ function monitorSourceKeyForEvent(event) {
     const point = event.id.slice(module.length + 1);
     return `${module}:${point}`;
   }
-  if (event.kind === "GpioEvent" || event.kind === "HidEvent" || event.kind === "ControlEvent") {
-    return `${event.source}:${event.control}`;
+  if (event.kind === "GpioEvent" || event.kind === "HidEvent" || event.kind === "HidLearnEvent" || event.kind === "ControlEvent") {
+    const control = event.control || event.suggested_control || "";
+    return `${event.source}:${control}`;
   }
   if (event.kind === "OscMessageEvent") {
     return `${event.source}:${event.address}`;

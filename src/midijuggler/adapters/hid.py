@@ -326,8 +326,15 @@ class HidAdapter(Adapter):
         hid_input = self._input_index.get((raw.event_type, raw.code))
         if hid_input is not None:
             return hid_input
-        if not self.keystrokes or not is_keyboard_key(raw.event_type, raw.code):
+        if raw.event_type != EV_KEY or raw.value == 0:
             return None
+        if self.keystrokes and is_keyboard_key(raw.event_type, raw.code):
+            return self._ephemeral_input(raw)
+        if self._learn_active and is_keyboard_key(raw.event_type, raw.code):
+            return self._ephemeral_input(raw)
+        return None
+
+    def _ephemeral_input(self, raw: HidRawEvent) -> HidInput:
         code_name = self._resolve_code_name(raw.event_type, raw.code)
         return HidInput(
             control=_default_control_name(code_name),

@@ -332,6 +332,41 @@ def test_hid_adapter_ignores_unmapped_buttons_without_keystrokes(
     assert events == []
 
 
+def test_hid_adapter_publishes_hid_event_during_learn_for_keyboard(
+    fake_evdev_codes: None,
+) -> None:
+    async def scenario() -> list[HidEvent]:
+        bus = EventBus()
+        events: list[HidEvent] = []
+        bus.subscribe(HidEvent, lambda event: events.append(event))
+
+        reader = FakeHidReader(events=[HidRawEvent(EV_KEY, 30, 1)])
+        adapter = HidAdapter(
+            name="keyboard",
+            config=AdapterConfig(
+                enabled=True,
+                options={"device": "/dev/input/event0"},
+            ),
+            bus=bus,
+            reader_factory=lambda _device_path, _inputs: reader,
+        )
+
+        await adapter.start()
+        await adapter.set_learn_active(True)
+        for _ in range(50):
+            if events:
+                break
+            await asyncio.sleep(0.002)
+        await adapter.stop()
+        return events
+
+    events = asyncio.run(scenario())
+
+    assert len(events) == 1
+    assert events[0].code == "KEY_A"
+    assert events[0].control == "key_a"
+
+
 def test_hid_adapter_logs_once_when_device_disappears(
     fake_evdev_codes: None,
     caplog: pytest.LogCaptureFixture,
