@@ -7,9 +7,9 @@ from midijuggler.adapters.midi import MidiAdapter
 from midijuggler.config import parse_config
 from midijuggler.datapoint.bridge import EventToDataPointBridge
 from midijuggler.datapoint.store import DataPointStore
-from midijuggler.datapoint.types import DataPointId, DataPointValue, float_value
+from midijuggler.datapoint.types import DataPointId, DataPointValue, ValueType, float_value
 from midijuggler.eventbus import EventBus
-from midijuggler.events import ControlEvent, MidiMessageEvent
+from midijuggler.events import ControlEvent, MidiMessageEvent, OscMessageEvent
 from midijuggler.modules.io.midi import MidiIOModule
 
 
@@ -127,6 +127,42 @@ def test_bridge_midi_control_event_does_not_emit_outputs() -> None:
     assert len(captured) == 1
     assert captured[0].float_value == 64.0
     assert captured[0].emit_outputs is False
+
+
+def test_bridge_skips_osc_control_events() -> None:
+    store = DataPointStore()
+    bus = EventBus()
+    bridge = EventToDataPointBridge(store, bus)
+    captured: list[DataPointValue] = []
+
+    async def capture(value: DataPointValue) -> None:
+        captured.append(value)
+
+    store.subscribe(DataPointId("x32", "/ch/01/mix/fader"), capture)
+    bridge.attach()
+
+    async def scenario() -> None:
+        await bus.publish(
+            OscMessageEvent(
+                source="x32",
+                address="/ch/01/mix/fader",
+                arguments=(0.5,),
+                direction="input",
+            )
+        )
+        await bus.publish(
+            ControlEvent(
+                source="x32",
+                control="/ch/01/mix/fader",
+                value=0.5,
+            )
+        )
+
+    asyncio.run(scenario())
+
+    float_captures = [value for value in captured if value.value_type == ValueType.FLOAT]
+    assert len(float_captures) == 1
+    assert float_captures[0].float_value == 0.5
 
 
 def test_bridge_midi_control_event_does_not_echo_output_subscribed_target(

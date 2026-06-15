@@ -366,3 +366,48 @@ def test_modifier_graph_allows_fader_feedback_without_recent_user_move() -> None
 
     asyncio.run(scenario())
     assert received == [63.5]
+
+
+def test_modifier_graph_suppresses_encoder_feedback_after_desk_drive() -> None:
+    store = DataPointStore()
+    _register_relative_turn(store)
+    graph = ModifierGraph(
+        store,
+        [
+            ConnectionSpec(
+                id="encoder-to-desk",
+                source="xtouch_mini.layer_a_encoder_1_turn",
+                target="x32./ch/01/mix/fader",
+                input_min=1.0,
+                input_max=127.0,
+                output_min=0.0,
+                output_max=1.0,
+            ),
+            ConnectionSpec(
+                id="desk-to-ring",
+                source="x32./ch/01/mix/fader",
+                target="xtouch_mini.layer_a_encoder_1_led_ring",
+                input_min=0.0,
+                input_max=1.0,
+                output_min=0.0,
+                output_max=28.0,
+            ),
+        ],
+        feedback_suppress_ms=500,
+    )
+    received: list[float] = []
+
+    async def handler(value):
+        if value.float_value is not None:
+            received.append(value.float_value)
+
+    store.subscribe("xtouch_mini.layer_a_encoder_1_led_ring", handler)
+
+    async def scenario() -> None:
+        await graph.start()
+        await store.write(float_value("xtouch_mini.layer_a_encoder_1_turn", 65.0))
+        received.clear()
+        await store.write(float_value("x32./ch/01/mix/fader", 0.52))
+
+    asyncio.run(scenario())
+    assert received == []

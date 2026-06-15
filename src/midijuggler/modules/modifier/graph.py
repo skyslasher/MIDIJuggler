@@ -134,6 +134,10 @@ class ModifierGraph(ModifierModule):
             await self.store.write(
                 float_value(DataPointId.parse(connection.target), mapped)
             )
+            self._feedback_suppressor.note_outbound_target(
+                connection.target,
+                now=value.timestamp,
+            )
 
     def _map_value(
         self,

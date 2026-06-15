@@ -76,6 +76,7 @@ class FeedbackSuppressor:
         self._window_seconds = 0.0
         self._last_turn_at: dict[str, float] = {}
         self._last_user_input_at: dict[str, float] = {}
+        self._last_outbound_target_at: dict[str, float] = {}
         self._feedback_pairs: dict[str, str] = {}
         self.configure(window_ms)
 
@@ -88,6 +89,7 @@ class FeedbackSuppressor:
         if not self.enabled:
             self._last_turn_at.clear()
             self._last_user_input_at.clear()
+            self._last_outbound_target_at.clear()
 
     def set_feedback_pairs(self, pairs: dict[str, str]) -> None:
         self._feedback_pairs = dict(pairs)
@@ -108,16 +110,28 @@ class FeedbackSuppressor:
         self._last_user_input_at[source_point_id] = timestamp
         self.note_turn(source_point_id, now=timestamp)
 
+    def note_outbound_target(self, target_point_id: str, *, now: float | None = None) -> None:
+        if not self.enabled:
+            return
+        timestamp = time.monotonic() if now is None else now
+        self._last_outbound_target_at[target_point_id] = timestamp
+
     def should_suppress_source(self, source_point_id: str, *, now: float | None = None) -> bool:
         if not self.enabled:
             return False
+        timestamp = time.monotonic() if now is None else now
+        last_outbound = self._last_outbound_target_at.get(source_point_id)
+        if (
+            last_outbound is not None
+            and timestamp - last_outbound <= self._window_seconds
+        ):
+            return True
         user_source = self._feedback_pairs.get(source_point_id)
         if user_source is None:
             return False
         last_input = self._last_user_input_at.get(user_source)
         if last_input is None:
             return False
-        timestamp = time.monotonic() if now is None else now
         return timestamp - last_input <= self._window_seconds
 
     def should_suppress_target(self, target_point_id: str, *, now: float | None = None) -> bool:
