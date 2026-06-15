@@ -435,3 +435,30 @@ def test_master_clock_transport_toggle_starts_and_stops() -> None:
 
     assert started["master_clock"]["running"] is True
     assert stopped["master_clock"]["running"] is False
+
+
+def test_master_clock_state_event_broadcasts_status_payload() -> None:
+    config = parse_config({"master_clock": {"enabled": True}})
+    bus = EventBus()
+    master_clock = MasterClock(config.master_clock, bus)
+    interface = WebInterface(
+        config,
+        bus,
+        ClockBpmTracker(),
+        master_clock,
+    )
+    payloads: list[dict] = []
+
+    async def capture(payload: dict) -> None:
+        payloads.append(payload)
+
+    interface._broadcast_payload = capture  # type: ignore[method-assign]
+
+    async def scenario() -> None:
+        await master_clock.start_transport(reset_position=True)
+
+    asyncio.run(scenario())
+
+    status_payloads = [payload for payload in payloads if payload.get("type") == "status"]
+    assert status_payloads
+    assert status_payloads[-1]["payload"]["master_clock"]["running"] is True

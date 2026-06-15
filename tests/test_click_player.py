@@ -56,11 +56,11 @@ class FakeLongProcess:
 class FakePcm:
     def __init__(self) -> None:
         self.writes: list[bytes] = []
-        self.prepares = 0
+        self.drops = 0
         self.closed = False
 
-    def prepare(self) -> None:
-        self.prepares += 1
+    def drop(self) -> None:
+        self.drops += 1
 
     def write(self, data: bytes) -> None:
         self.writes.append(data)
@@ -194,7 +194,7 @@ def test_alsa_click_player_reuses_pcm_and_writes_loaded_wav(tmp_path, monkeypatc
     player._play_unlocked()
 
     assert len(pcm.writes) == 2
-    assert pcm.prepares == 2
+    assert pcm.drops == 2
     assert pcm.closed is False
 
     player._close_pcm()
@@ -245,7 +245,10 @@ def test_alsa_click_player_serializes_writes_when_overlap_is_disabled(tmp_path, 
     assert asyncio.run(scenario()) == 1
 
 
-def test_alsa_click_player_overlapping_writes_do_not_block_each_other(tmp_path, monkeypatch) -> None:
+def test_alsa_click_player_overlapping_play_returns_before_write_finishes(
+    tmp_path,
+    monkeypatch,
+) -> None:
     wav_path = tmp_path / "click.wav"
     _write_wav(wav_path)
     pcm = FakePcm()
@@ -281,11 +284,16 @@ def test_alsa_click_player_overlapping_writes_do_not_block_each_other(tmp_path, 
     pcm.write = slow_write  # type: ignore[method-assign]
     monkeypatch.setitem(__import__("sys").modules, "alsaaudio", FakeAlsaModule())
 
-    async def scenario() -> int:
+    async def scenario() -> tuple[int, int]:
         player = AlsaClickPlayer(str(wav_path), allow_overlap=True)
         await player.play()
         await player.play()
-        await asyncio.sleep(0.08)
-        return max_active_writes
+        await asyncio.sleep(0)
+        queued = len(pcm.writes)
+        await asyncio.sleep(0.12)
+        return queued, len(pcm.writes)
 
-    assert asyncio.run(scenario()) == 2
+    queued, completed = asyncio.run(scenario())
+
+    assert queued == 0
+    assert completed == 2

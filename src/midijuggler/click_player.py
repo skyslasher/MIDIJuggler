@@ -124,7 +124,7 @@ class AlsaClickPlayer:
         asyncio.create_task(self._play_overlapping(), name="click-playback")
 
     async def _play_overlapping(self) -> None:
-        await asyncio.to_thread(self._play_unlocked)
+        await asyncio.to_thread(self._play_locked)
 
     async def close(self) -> None:
         async with self._async_lock:
@@ -139,7 +139,10 @@ class AlsaClickPlayer:
             self._ensure_pcm()
             assert self._pcm is not None
             assert self._wav is not None
-            self._pcm.prepare()
+            drop = getattr(self._pcm, "drop", None)
+            if callable(drop):
+                with contextlib.suppress(Exception):
+                    drop()
             self._pcm.write(self._wav.frames)
         except self._alsaaudio.ALSAAudioError as exc:
             message = str(exc)

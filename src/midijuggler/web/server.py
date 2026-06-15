@@ -48,7 +48,7 @@ from midijuggler.hid.codes import hid_available, list_input_devices
 from midijuggler.modules.io.hid import HidIOModule
 from midijuggler.modules.modifier.feedback_suppress import parse_feedback_suppress_ms
 from midijuggler.eventbus import EventBus
-from midijuggler.events import AdapterStatusEvent, Event, MidiMessageEvent
+from midijuggler.events import AdapterStatusEvent, Event, MasterClockStateEvent, MidiMessageEvent
 from midijuggler.learn import (
     LearnController,
     lookup_datapoint_ranges,
@@ -936,6 +936,10 @@ class WebInterface:
                 "connection_phase": event.connection_phase,
             }
         await self._broadcast_payload({"type": "event", "payload": event.as_dict()})
+        if isinstance(event, MasterClockStateEvent):
+            await self._broadcast_payload(
+                {"type": "status", "payload": self._status_payload()}
+            )
 
     async def _broadcast_payload(self, payload: dict[str, Any]) -> None:
         if not self._websockets:
