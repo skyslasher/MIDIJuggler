@@ -38,7 +38,11 @@ from midijuggler.midi.library_match import (
     resolve_library_port,
 )
 from midijuggler.midi.target_encode import encode_mapped_midi_target
-from midijuggler.midi.xtouch_feedback import XTouchFeedbackRefresh, uses_xtouch_feedback_refresh
+from midijuggler.midi.xtouch_feedback import (
+    XTouchFeedbackRefresh,
+    is_layer_program_change,
+    uses_xtouch_feedback_refresh,
+)
 from midijuggler.midi_library import get_midi_library
 from midijuggler.system_info import (
     resolve_midi_input_port_address,
@@ -374,6 +378,12 @@ class MidiAdapter(Adapter):
                 data,
             )
             return
+
+        if (
+            self._feedback_refresh is not None
+            and is_layer_program_change(self.config, status, data)
+        ):
+            await self._feedback_refresh.resend_all()
 
         await self.bus.publish(
             MidiMessageEvent(

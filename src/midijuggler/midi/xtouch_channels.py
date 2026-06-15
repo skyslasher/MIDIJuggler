@@ -3,9 +3,9 @@
 from __future__ import annotations
 
 from midijuggler.config import AdapterConfig
-from midijuggler.midi.xtouch_feedback import XTOUCH_MINI_LIBRARY_ID
 from midijuggler.midi_library import MidiParameter
 
+XTOUCH_MINI_LIBRARY_ID = "behringer_xtouch_mini"
 DEFAULT_XTOUCH_VALUE_CHANNEL = 11
 DEFAULT_XTOUCH_DISPLAY_CHANNEL = 12
 

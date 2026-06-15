@@ -5,9 +5,11 @@ from __future__ import annotations
 import asyncio
 import contextlib
 import logging
+import re
 from typing import TYPE_CHECKING
 
 from midijuggler.config import AdapterConfig, AppConfig
+from midijuggler.midi.xtouch_channels import XTOUCH_MINI_LIBRARY_ID, xtouch_value_channel
 from midijuggler.midi_library import get_midi_library
 
 if TYPE_CHECKING:
@@ -15,7 +17,8 @@ if TYPE_CHECKING:
 
 LOGGER = logging.getLogger(__name__)
 
-XTOUCH_MINI_LIBRARY_ID = "behringer_xtouch_mini"
+PROGRAM_CHANGE = 0xC0
+_ENCODER_VALUE_PATTERN = re.compile(r"^(?P<prefix>.+_encoder_\d+)_value$")
 
 
 def uses_xtouch_feedback_refresh(config: AdapterConfig) -> bool:
@@ -47,6 +50,14 @@ def parse_feedback_refresh_interval(value: object) -> float:
     return interval
 
 
+def is_refreshable_target(parameter_id: str, *, category: str) -> bool:
+    if category == "feedback":
+        return True
+    return category == "value" and "_encoder_" in parameter_id and parameter_id.endswith(
+        "_value"
+    )
+
+
 def feedback_point_ids(config: AdapterConfig) -> frozenset[str]:
     if not uses_xtouch_feedback_refresh(config):
         return frozenset()
@@ -57,8 +68,36 @@ def feedback_point_ids(config: AdapterConfig) -> frozenset[str]:
     return frozenset(
         parameter.id
         for parameter in library.parameters
-        if parameter.direction == "target" and parameter.category == "feedback"
+        if parameter.direction == "target"
+        and is_refreshable_target(parameter.id, category=parameter.category)
     )
+
+
+def paired_led_ring_point(value_point: str) -> str | None:
+    match = _ENCODER_VALUE_PATTERN.match(value_point)
+    if match is None:
+        return None
+    return f"{match.group('prefix')}_led_ring"
+
+
+def encoder_value_to_led_ring(value: float) -> float:
+    if value <= 0:
+        return 0.0
+    scaled = round((value / 127.0) * 13.0)
+    return float(max(1, min(13, scaled)))
+
+
+def is_layer_program_change(
+    config: AdapterConfig,
+    status: int,
+    data: tuple[int, ...],
+) -> bool:
+    if not uses_xtouch_feedback_refresh(config):
+        return False
+    if (status & 0xF0) != PROGRAM_CHANGE or not data:
+        return False
+    channel = (status & 0x0F) + 1
+    return channel == xtouch_value_channel(config) and data[0] in {0, 1}
 
 
 class XTouchFeedbackRefresh:
@@ -79,12 +118,17 @@ class XTouchFeedbackRefresh:
         if point not in self._feedback_points:
             return
         self._cache[point] = value
+        ring_point = paired_led_ring_point(point)
+        if ring_point is not None and ring_point in self._feedback_points:
+            self._cache[ring_point] = encoder_value_to_led_ring(value)
 
     async def start(self, config: AdapterConfig) -> None:
         await self.stop()
-        interval = feedback_refresh_interval_seconds(config)
-        if interval <= 0 or not self._feedback_points:
+        if not self._feedback_points:
             self._cache.clear()
+            return
+        interval = feedback_refresh_interval_seconds(config)
+        if interval <= 0:
             return
         self._task = asyncio.create_task(
             self._refresh_loop(interval),
@@ -98,6 +142,9 @@ class XTouchFeedbackRefresh:
         with contextlib.suppress(asyncio.CancelledError):
             await self._task
         self._task = None
+
+    async def resend_all(self) -> None:
+        await self._resend_cached_values()
 
     async def _refresh_loop(self, interval: float) -> None:
         try:

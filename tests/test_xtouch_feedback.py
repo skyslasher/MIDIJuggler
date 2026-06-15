@@ -6,7 +6,10 @@ import pytest
 from midijuggler.config import AdapterConfig, parse_config
 from midijuggler.midi.xtouch_feedback import (
     XTouchFeedbackRefresh,
+    encoder_value_to_led_ring,
     feedback_point_ids,
+    is_layer_program_change,
+    paired_led_ring_point,
     parse_feedback_refresh_interval,
     uses_xtouch_feedback_refresh,
 )
@@ -50,7 +53,70 @@ def test_feedback_point_ids_lists_xtouch_feedback_targets() -> None:
 
     assert "layer_a_top_button_1_led" in points
     assert "layer_a_encoder_1_led_ring" in points
-    assert all(point.endswith("_led") or point.endswith("_led_ring") for point in points)
+    assert "layer_a_encoder_1_value" in points
+    assert all(
+        point.endswith("_led")
+        or point.endswith("_led_ring")
+        or point.endswith("_value")
+        for point in points
+    )
+
+
+def test_paired_led_ring_point_for_encoder_value() -> None:
+    assert paired_led_ring_point("layer_a_encoder_1_value") == "layer_a_encoder_1_led_ring"
+    assert paired_led_ring_point("layer_a_top_button_1_led") is None
+
+
+def test_encoder_value_to_led_ring_scales_positions() -> None:
+    assert encoder_value_to_led_ring(0.0) == 0.0
+    assert encoder_value_to_led_ring(127.0) == 13.0
+    assert encoder_value_to_led_ring(63.5) == 6.0
+
+
+def test_remember_mirrors_encoder_value_to_led_ring() -> None:
+    config = parse_config(
+        {
+            "adapters": {
+                "xtouch_mini": {
+                    "enabled": True,
+                    "type": "midi",
+                    "midi_library": "behringer_xtouch_mini",
+                }
+            }
+        }
+    )
+    adapter = AsyncMock()
+    adapter.name = "xtouch_mini"
+    adapter.running = True
+    refresh = XTouchFeedbackRefresh(adapter, config)
+    refresh.configure(config.adapters["xtouch_mini"], config)
+
+    refresh.remember("layer_a_encoder_1_value", 127.0)
+
+    assert refresh._cache == {
+        "layer_a_encoder_1_value": 127.0,
+        "layer_a_encoder_1_led_ring": 13.0,
+    }
+
+
+def test_is_layer_program_change_detects_xtouch_layer_buttons() -> None:
+    config = parse_config(
+        {
+            "adapters": {
+                "xtouch_mini": {
+                    "enabled": True,
+                    "type": "midi",
+                    "midi_library": "behringer_xtouch_mini",
+                }
+            }
+        }
+    )
+    layer_a_status = 0xC0 | (11 - 1)
+    layer_b_status = 0xC0 | (11 - 1)
+
+    assert is_layer_program_change(config.adapters["xtouch_mini"], layer_a_status, (0,)) is True
+    assert is_layer_program_change(config.adapters["xtouch_mini"], layer_b_status, (1,)) is True
+    assert is_layer_program_change(config.adapters["xtouch_mini"], layer_a_status, (2,)) is False
 
 
 def test_remember_only_caches_feedback_targets() -> None:
@@ -235,3 +301,40 @@ def test_send_test_message_remembers_feedback_targets(monkeypatch: pytest.Monkey
     asyncio.run(scenario())
 
     assert adapter._feedback_refresh._cache["layer_a_top_button_1_led"] == 1.0
+
+
+def test_layer_program_change_triggers_feedback_resend(monkeypatch: pytest.MonkeyPatch) -> None:
+    from midijuggler.adapters.midi import MidiAdapter
+    from midijuggler.eventbus import EventBus
+
+    config = parse_config(
+        {
+            "adapters": {
+                "xtouch_mini": {
+                    "enabled": True,
+                    "type": "midi",
+                    "midi_library": "behringer_xtouch_mini",
+                    "feedback_refresh_interval": 1.0,
+                }
+            }
+        }
+    )
+    adapter = MidiAdapter(
+        "xtouch_mini",
+        config.adapters["xtouch_mini"],
+        EventBus(),
+        app_config=config,
+    )
+    adapter._source_index = None
+    refresh = XTouchFeedbackRefresh(adapter, config)
+    refresh.configure(config.adapters["xtouch_mini"], config)
+    refresh.remember("layer_a_encoder_1_value", 127.0)
+    adapter._feedback_refresh = refresh
+    adapter.send_feedback_target = AsyncMock()
+
+    async def scenario() -> None:
+        await adapter._handle_input_message(0xC0 | (11 - 1), (1,))
+
+    asyncio.run(scenario())
+
+    assert adapter.send_feedback_target.await_count >= 2
