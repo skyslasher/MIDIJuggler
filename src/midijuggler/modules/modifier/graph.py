@@ -111,33 +111,37 @@ class ModifierGraph(ModifierModule):
         numeric = _numeric_value(value)
         if numeric is None:
             return
-        if self._feedback_suppressor.should_suppress_source(key, now=value.timestamp):
-            LOGGER.debug(
-                "modifier_graph suppressed feedback source %s",
-                key,
-            )
-            return
+        suppress_source = self._feedback_suppressor.should_suppress_source(
+            key,
+            now=value.timestamp,
+        )
         for connection, transform in self._source_index.get(key, []):
-            if self._feedback_suppressor.should_suppress_target(
+            suppress_target = self._feedback_suppressor.should_suppress_target(
                 connection.target,
                 now=value.timestamp,
-            ):
+            )
+            if suppress_source or suppress_target:
                 LOGGER.debug(
                     "modifier_graph suppressed feedback %s -> %s",
                     connection.source,
                     connection.target,
                 )
-                continue
             mapped = self._map_value(key, numeric, connection.target, transform)
             if mapped is None:
                 continue
+            emit_outputs = not (suppress_source or suppress_target)
             await self.store.write(
-                float_value(DataPointId.parse(connection.target), mapped)
+                float_value(
+                    DataPointId.parse(connection.target),
+                    mapped,
+                    emit_outputs=emit_outputs,
+                )
             )
-            self._feedback_suppressor.note_outbound_target(
-                connection.target,
-                now=value.timestamp,
-            )
+            if emit_outputs:
+                self._feedback_suppressor.note_outbound_target(
+                    connection.target,
+                    now=value.timestamp,
+                )
 
     def _map_value(
         self,

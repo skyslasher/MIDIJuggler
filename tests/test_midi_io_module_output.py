@@ -101,6 +101,50 @@ def test_midi_io_module_does_not_echo_input_sourced_datapoint_writes() -> None:
     assert sent.data == (1, 100)
 
 
+def test_midi_io_module_remembers_feedback_without_emitting(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from midijuggler.midi.xtouch_feedback import XTouchFeedbackRefresh
+
+    config = parse_config(
+        {
+            "adapters": {
+                "xtouch_mini": {
+                    "enabled": True,
+                    "type": "midi",
+                    "input_port": "X-TOUCH MINI",
+                    "output_port": "X-TOUCH MINI",
+                    "midi_library": "behringer_xtouch_mini",
+                    "feedback_refresh_interval": 0.1,
+                }
+            }
+        }
+    )
+    store = DataPointStore()
+    bus = EventBus()
+    adapter = MidiAdapter("xtouch_mini", config.adapters["xtouch_mini"], bus, app_config=config)
+    module = MidiIOModule(adapter, store, config)
+    store.register_many(module.datapoints())
+    adapter.send_midi_message = AsyncMock()
+    adapter._feedback_refresh = XTouchFeedbackRefresh(adapter, config)
+    adapter._feedback_refresh.configure(config.adapters["xtouch_mini"], config)
+
+    async def scenario() -> None:
+        await module.start()
+        await store.write(
+            float_value(
+                "xtouch_mini.layer_a_encoder_1_led_ring",
+                12.0,
+                emit_outputs=False,
+            )
+        )
+
+    asyncio.run(scenario())
+
+    assert adapter._feedback_refresh._cache["layer_a_encoder_1_led_ring"] == 12.0
+    adapter.send_midi_message.assert_not_awaited()
+
+
 def test_bridge_midi_control_event_does_not_emit_outputs() -> None:
     store = DataPointStore()
     bus = EventBus()

@@ -8,6 +8,7 @@ from midijuggler.datapoint.types import (
     DataPointDirection,
     DataPointId,
     DataPointSpec,
+    DataPointValue,
     ValueType,
     float_value,
 )
@@ -264,7 +265,7 @@ def test_modifier_graph_suppresses_encoder_feedback_during_turn() -> None:
     received: list[float] = []
 
     async def handler(value):
-        if value.float_value is not None:
+        if value.float_value is not None and value.emit_outputs:
             received.append(value.float_value)
 
     store.subscribe("xtouch_mini.layer_a_encoder_1_value", handler)
@@ -311,7 +312,7 @@ def test_modifier_graph_suppresses_fader_feedback_during_user_move() -> None:
     received: list[float] = []
 
     async def handler(value):
-        if value.float_value is not None:
+        if value.float_value is not None and value.emit_outputs:
             received.append(value.float_value)
 
     store.subscribe("xtouch_mini.layer_a_fader_2", handler)
@@ -324,6 +325,50 @@ def test_modifier_graph_suppresses_fader_feedback_during_user_move() -> None:
 
     asyncio.run(scenario())
     assert received == []
+
+
+def test_modifier_graph_caches_suppressed_fader_feedback_for_refresh() -> None:
+    store = DataPointStore()
+    graph = ModifierGraph(
+        store,
+        [
+            ConnectionSpec(
+                id="controller-to-desk",
+                source="xtouch_mini.layer_a_fader_2",
+                target="x32./ch/02/mix/fader",
+                input_min=0.0,
+                input_max=1.0,
+                output_min=0.0,
+                output_max=1.0,
+            ),
+            ConnectionSpec(
+                id="desk-to-controller",
+                source="x32./ch/02/mix/fader",
+                target="xtouch_mini.layer_a_fader_2",
+                input_min=0.0,
+                input_max=1.0,
+                output_min=0.0,
+                output_max=127.0,
+            ),
+        ],
+        feedback_suppress_ms=500,
+    )
+    cached: list[DataPointValue] = []
+
+    async def handler(value):
+        if value.float_value is not None and not value.emit_outputs:
+            cached.append(value)
+
+    store.subscribe("xtouch_mini.layer_a_fader_2", handler)
+
+    async def scenario() -> None:
+        await graph.start()
+        await store.write(float_value("xtouch_mini.layer_a_fader_2", 0.8))
+        cached.clear()
+        await store.write(float_value("x32./ch/02/mix/fader", 0.75))
+
+    asyncio.run(scenario())
+    assert any(value.float_value == pytest.approx(95.25) for value in cached)
 
 
 def test_modifier_graph_allows_fader_feedback_without_recent_user_move() -> None:
@@ -355,7 +400,7 @@ def test_modifier_graph_allows_fader_feedback_without_recent_user_move() -> None
     received: list[float] = []
 
     async def handler(value):
-        if value.float_value is not None:
+        if value.float_value is not None and value.emit_outputs:
             received.append(value.float_value)
 
     store.subscribe("xtouch_mini.layer_a_fader_2", handler)
@@ -398,7 +443,7 @@ def test_modifier_graph_suppresses_encoder_feedback_after_desk_drive() -> None:
     received: list[float] = []
 
     async def handler(value):
-        if value.float_value is not None:
+        if value.float_value is not None and value.emit_outputs:
             received.append(value.float_value)
 
     store.subscribe("xtouch_mini.layer_a_encoder_1_led_ring", handler)

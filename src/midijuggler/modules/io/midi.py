@@ -140,7 +140,10 @@ class MidiIOModule(IOModule):
         )
 
     async def _on_output_value(self, value: DataPointValue) -> None:
-        if not value.emit_outputs or value.float_value is None:
+        if value.float_value is None:
+            return
+        self.adapter.remember_feedback_value(value.point_id.point, value.float_value)
+        if not value.emit_outputs:
             return
         try:
             status, data = encode_mapped_midi_target(
@@ -152,7 +155,6 @@ class MidiIOModule(IOModule):
         except ValueError:
             LOGGER.warning("unsupported MIDI output data point %s", value.point_id)
             return
-        self.adapter.remember_feedback_value(value.point_id.point, value.float_value)
         await self.adapter.send_midi_message(
             MidiMessageEvent(
                 source=self.name,
