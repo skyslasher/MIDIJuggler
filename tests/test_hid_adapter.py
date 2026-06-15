@@ -188,7 +188,7 @@ def test_hid_adapter_normalizes_axis_values(fake_evdev_codes: None) -> None:
     assert adapter._normalize_value(hid_input, 255) == pytest.approx(1.0)
 
 
-def test_hid_adapter_start_requires_inputs(fake_evdev_codes: None) -> None:
+def test_hid_adapter_starts_without_mapped_inputs(fake_evdev_codes: None) -> None:
     async def scenario() -> None:
         bus = EventBus()
         adapter = HidAdapter(
@@ -200,8 +200,10 @@ def test_hid_adapter_start_requires_inputs(fake_evdev_codes: None) -> None:
             bus=bus,
             reader_factory=lambda _device_path, _inputs: FakeHidReader(),
         )
-        with pytest.raises(ValueError, match="at least one"):
-            await adapter.start()
+        await adapter.start()
+        assert adapter.running is True
+        assert adapter.inputs == []
+        await adapter.stop()
 
     asyncio.run(scenario())
 

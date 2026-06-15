@@ -135,21 +135,26 @@ class HidAdapter(Adapter):
         self.config.options.update(normalized)
 
     async def start(self) -> None:
-        if not self.inputs:
-            raise ValueError("HID adapter requires at least one configured input")
         async with self._lock:
             self._reader = self._reader_factory(self.device_path, self.inputs)
             self._load_abs_ranges()
 
         self.running = True
-        await self._publish_initial_states()
+        if self.inputs:
+            await self._publish_initial_states()
         self._read_task = asyncio.create_task(self._read_loop(), name=f"hid-{self.name}")
+        mapped = len(self.inputs)
+        detail = f"reading HID device {self.device_path}"
+        if mapped:
+            detail += f" ({mapped} inputs)"
+        else:
+            detail += " (no inputs mapped yet; use learn mode)"
         await self.bus.publish(
             AdapterStatusEvent(
                 source=self.name,
                 adapter=self.name,
                 status="started",
-                detail=f"reading HID device {self.device_path}",
+                detail=detail,
             )
         )
 

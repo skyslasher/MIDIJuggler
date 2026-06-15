@@ -1621,10 +1621,6 @@ class WebInterface:
                 enabled = bool(raw_instance.get("enabled", current.enabled))
 
             options = self._normalized_hid_options(raw_instance, current_options)
-            if enabled and not options.get("inputs"):
-                raise ValueError(
-                    f"HID adapter {name} requires at least one input when enabled"
-                )
             updated = AdapterConfig(enabled=enabled, options=options, kind="hid")
             updates[name] = updated
             self.config.adapters[name] = updated

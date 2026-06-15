@@ -140,6 +140,48 @@ def test_apply_hid_adapters_config_persists_section(
     assert "[[adapters.gamepad.inputs]]" in config_file.read_text(encoding="utf-8")
 
 
+def test_apply_hid_adapters_config_allows_enabled_without_inputs(
+    fake_evdev_codes: None,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    def patched_hid_adapter(*args, **kwargs):
+        kwargs.setdefault("reader_factory", lambda _device_path, _inputs: FakeHidReader())
+        return HidAdapter(*args, **kwargs)
+
+    monkeypatch.setattr("midijuggler.web.server.HidAdapter", patched_hid_adapter)
+
+    config = parse_config({"adapters": {}})
+    bus = EventBus()
+    interface = WebInterface(
+        config,
+        bus,
+        ClockBpmTracker(),
+        MasterClock(config.master_clock, bus),
+    )
+
+    result = asyncio.run(
+        interface.apply_hid_adapters_config(
+            {
+                "instances": [
+                    {
+                        "name": "encoder_key",
+                        "enabled": True,
+                        "device": "/dev/input/event0",
+                        "inputs": [],
+                    }
+                ],
+                "deleted": [],
+            }
+        )
+    )
+
+    instance = next(item for item in result["instances"] if item["name"] == "encoder_key")
+    assert instance["enabled"] is True
+    assert instance["device"] == "/dev/input/event0"
+    assert instance["inputs"] == []
+    assert interface.hid_adapters["encoder_key"].running is True
+
+
 def test_apply_hid_learn_mode_activates_adapter(
     fake_evdev_codes: None,
     monkeypatch: pytest.MonkeyPatch,

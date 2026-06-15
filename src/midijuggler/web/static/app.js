@@ -1879,7 +1879,8 @@ function createHidAdapterCard(instance, config) {
   learnRow.appendChild(learnButton);
   const learnHint = document.createElement("p");
   learnHint.className = "hint";
-  learnHint.textContent = "Save with Enabled checked, then press Learn and operate the device.";
+  learnHint.textContent =
+    "Save with Enabled and a device first, then Learn input, then Save again to persist controls.";
   learnRow.appendChild(learnHint);
   body.appendChild(learnRow);
 
