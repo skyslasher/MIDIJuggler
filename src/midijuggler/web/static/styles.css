@@ -184,6 +184,38 @@ legend {
   padding: 0.45rem 0.55rem;
 }
 
+.hid-inputs-table {
+  width: 100%;
+  border-collapse: collapse;
+  margin-top: 0.75rem;
+}
+
+.hid-inputs-table th,
+.hid-inputs-table td {
+  padding: 0.35rem 0.5rem;
+  text-align: left;
+  vertical-align: middle;
+}
+
+.hid-inputs-table input[type="text"],
+.hid-inputs-table input[type="number"] {
+  width: 100%;
+  min-width: 4rem;
+}
+
+.hid-learn-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.75rem;
+  margin-top: 0.75rem;
+}
+
+.hid-learn-button.active-learn {
+  background: #5b3f1f;
+  border-color: #c98a2e;
+}
+
 .midi-device-panel {
   min-height: 320px;
 }

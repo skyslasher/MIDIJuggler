@@ -1,7 +1,7 @@
 # Web configuration
 
 MIDIJuggler exposes configuration endpoints in the web interface for GPIO
-inputs, MIDI devices and the MIDI master clock.
+inputs, HID devices, MIDI devices and the MIDI master clock.
 
 ## GPIO inputs
 
@@ -55,6 +55,56 @@ Example POST body:
 
 At least one GPIO pin must be enabled. Pin numbers are BCM numbers, matching the
 hardware and DietPi documentation.
+
+## HID inputs
+
+The configuration view includes a **HID Inputs** card for Linux evdev devices.
+Each `hid` adapter instance can be enabled, assigned to a discovered
+`/dev/input/event*` device, and configured with a list of learned or manual
+evdev codes.
+
+Workflow:
+
+1. Choose a device from the dropdown (requires `evdev` / `pip install -e '.[hid]'`).
+2. Add inputs manually or click **Learn input** after saving an enabled instance.
+3. Operate the physical control; the learned `BTN_*` / `ABS_*` code appears in
+   the table.
+4. Save again to persist the updated input list.
+
+The HTTP API is:
+
+```text
+GET /api/hid-adapters
+POST /api/hid-adapters
+POST /api/hid-adapters/learn
+```
+
+Example POST body for save:
+
+```json
+{
+  "instances": [
+    {
+      "name": "gamepad",
+      "enabled": true,
+      "device": "/dev/input/event5",
+      "inputs": [
+        { "code": "BTN_A", "control": "btn_a", "value_min": 0, "value_max": 1 }
+      ]
+    }
+  ],
+  "deleted": []
+}
+```
+
+Example learn request:
+
+```json
+{ "name": "gamepad", "active": true }
+```
+
+Learned controls are announced on the monitor WebSocket as `HidLearnEvent`
+messages. See also [`hid_input.md`](hid_input.md).
 
 ## MIDI devices
 

@@ -84,6 +84,30 @@ class HidEvent(Event):
 
 
 @dataclass(frozen=True)
+class HidLearnEvent(Event):
+    """Captured evdev control while HID input learn mode is active."""
+
+    code: str = ""
+    event_type: int = 0
+    evdev_code: int = 0
+    value: float = 0.0
+    suggested_control: str = ""
+
+    def as_dict(self) -> dict[str, Any]:
+        payload = super().as_dict()
+        payload.update(
+            {
+                "code": self.code,
+                "event_type": self.event_type,
+                "evdev_code": self.evdev_code,
+                "value": self.value,
+                "suggested_control": self.suggested_control,
+            }
+        )
+        return payload
+
+
+@dataclass(frozen=True)
 class MidiClockEvent(Event):
     """MIDI timing clock tick, typically status byte 0xF8 at 24 PPQN."""
 

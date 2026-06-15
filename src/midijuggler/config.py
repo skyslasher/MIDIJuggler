@@ -113,6 +113,24 @@ def remove_osc_adapter_configs(
     _remove_adapter_configs(path, instance_names)
 
 
+def save_hid_adapter_configs(
+    path: str | Path,
+    instances: dict[str, AdapterConfig],
+) -> None:
+    """Persist editable HID adapter sections in a TOML config file."""
+
+    _save_adapter_configs(path, instances)
+
+
+def remove_hid_adapter_configs(
+    path: str | Path,
+    instance_names: list[str],
+) -> None:
+    """Remove HID adapter sections from a TOML config file."""
+
+    _remove_adapter_configs(path, instance_names)
+
+
 def _save_adapter_configs(
     path: str | Path,
     instances: dict[str, AdapterConfig],
@@ -306,6 +324,31 @@ def _format_mapping_rule(rule: MappingRule) -> str:
     return "\n".join(lines)
 
 
+def _adapter_section_end(lines: list[str], start: int) -> int:
+    end = start + 1
+    base_header = lines[start].strip()
+    instance_name = ""
+    if base_header.startswith("[adapters.") and base_header.endswith("]"):
+        instance_name = base_header[len("[adapters.") : -1]
+    inputs_header = f"[[adapters.{instance_name}.inputs]]" if instance_name else ""
+
+    while end < len(lines):
+        stripped = lines[end].strip()
+        if stripped.startswith("[") and stripped.endswith("]"):
+            if inputs_header and stripped == inputs_header:
+                end += 1
+                while end < len(lines):
+                    nested = lines[end].strip()
+                    if nested.startswith("[") and nested.endswith("]"):
+                        break
+                    end += 1
+                continue
+            if stripped != base_header:
+                break
+        end += 1
+    return end
+
+
 def _remove_toml_section(text: str, header: str) -> str:
     lines = text.splitlines()
     start = next(
@@ -315,13 +358,7 @@ def _remove_toml_section(text: str, header: str) -> str:
     if start is None:
         return text
 
-    end = start + 1
-    while end < len(lines):
-        stripped = lines[end].strip()
-        if stripped.startswith("[") and stripped.endswith("]"):
-            break
-        end += 1
-
+    end = _adapter_section_end(lines, start)
     new_lines = [*lines[:start], *lines[end:]]
     return "\n".join(new_lines).rstrip() + "\n"
 
@@ -335,15 +372,9 @@ def _replace_toml_section(text: str, header: str, section: str) -> str:
     )
     if start is None:
         return text.rstrip() + "\n\n" + section
-    else:
-        end = start + 1
-        while end < len(lines):
-            stripped = lines[end].strip()
-            if stripped.startswith("[") and stripped.endswith("]"):
-                break
-            end += 1
-        new_lines = [*lines[:start], *section.rstrip().splitlines(), "", *lines[end:]]
-        return "\n".join(new_lines).rstrip() + "\n"
+    end = _adapter_section_end(lines, start)
+    new_lines = [*lines[:start], *section.rstrip().splitlines(), "", *lines[end:]]
+    return "\n".join(new_lines).rstrip() + "\n"
 
 
 def _format_adapter_section(instance_name: str, adapter: AdapterConfig) -> str:
@@ -354,9 +385,27 @@ def _format_adapter_section(instance_name: str, adapter: AdapterConfig) -> str:
     ]
     if instance_name not in DEFAULT_ADAPTERS:
         lines.append(f"type = {_toml_string(kind)}")
+
+    inputs = adapter.options.get("inputs")
+    has_explicit_inputs = (
+        isinstance(inputs, list) and inputs and isinstance(inputs[0], dict)
+    )
     for key in sorted(adapter.options):
+        if key == "inputs" and has_explicit_inputs:
+            continue
+        if key == "codes" and has_explicit_inputs:
+            continue
         lines.append(f"{key} = {_format_toml_value(adapter.options[key])}")
-    return "\n".join(lines) + "\n\n"
+
+    section = "\n".join(lines) + "\n"
+    if has_explicit_inputs:
+        for entry in inputs:
+            if not isinstance(entry, dict):
+                continue
+            section += f"[[adapters.{instance_name}.inputs]]\n"
+            for field in sorted(entry):
+                section += f"{field} = {_format_toml_value(entry[field])}\n"
+    return section + "\n"
 
 
 def _format_toml_value(value: Any) -> str:

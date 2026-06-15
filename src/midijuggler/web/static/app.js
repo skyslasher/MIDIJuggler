@@ -55,6 +55,9 @@ const gpioActiveLow = document.querySelector("#gpio-active-low");
 const gpioBounceMs = document.querySelector("#gpio-bounce-ms");
 const gpioPollMs = document.querySelector("#gpio-poll-ms");
 const gpioMessage = document.querySelector("#gpio-message");
+const hidInstances = document.querySelector("#hid-instances");
+const hidAddButton = document.querySelector("#hid-add");
+const hidMessage = document.querySelector("#hid-message");
 const mappings = document.querySelector("#mappings");
 const feedbackSuppressMs = document.querySelector("#feedback-suppress-ms");
 const routingSettingsSave = document.querySelector("#routing-settings-save");
@@ -134,6 +137,8 @@ const LEARN_STREAM_POINT_SUFFIXES = new Set([
 let cachedOscLibrary = null;
 let socket;
 let gpioConfig = null;
+let hidAdaptersConfig = null;
+let hidLearnInstanceName = "";
 let masterClockConfig = null;
 let midiAdaptersConfig = null;
 let oscAdaptersConfig = null;
@@ -1453,6 +1458,10 @@ function formatMonitorEventLine(event, time) {
     return `[${time}] HID${code} ${event.control} = ${event.value}${suffix}`;
   }
 
+  if (event.kind === "HidLearnEvent") {
+    return `[${time}] HID learn ${event.code} (${event.suggested_control}) = ${event.value}`;
+  }
+
   if (event.kind === "ControlEvent") {
     if (monitorDisplayMode === "manual") {
       return `[${time}] Control ${event.source}:${event.control} = ${event.value}`;
@@ -1598,6 +1607,396 @@ function renderGpioConfig(config) {
 function selectedGpioPins() {
   return [...gpioPins.querySelectorAll("input[type='checkbox']:checked")]
     .map((input) => Number(input.value));
+}
+
+function loadHidAdaptersConfig() {
+  return fetch("/api/hid-adapters")
+    .then((response) => response.json())
+    .then((config) => {
+      renderHidAdaptersConfig(config);
+      return config;
+    });
+}
+
+function renderHidAdaptersConfig(config) {
+  hidAdaptersConfig = config;
+  hidLearnInstanceName = config.learn_active || "";
+  hidInstances.replaceChildren();
+  for (const instance of config.instances || []) {
+    hidInstances.appendChild(createHidAdapterCard(instance, config));
+  }
+}
+
+function createHidDeviceField(instance, config) {
+  const label = document.createElement("label");
+  label.append(document.createTextNode("Device "));
+  const select = document.createElement("select");
+  select.dataset.field = "device";
+  const emptyOption = document.createElement("option");
+  emptyOption.value = "";
+  emptyOption.textContent = "Select input device...";
+  select.appendChild(emptyOption);
+  for (const device of config.available_devices || []) {
+    const option = document.createElement("option");
+    option.value = device.path;
+    option.textContent = `${device.name} (${device.path})`;
+    select.appendChild(option);
+  }
+  if (instance.device) {
+    const configured = [...select.options].some((option) => option.value === instance.device);
+    if (!configured) {
+      const option = document.createElement("option");
+      option.value = instance.device;
+      option.textContent = `${instance.device} (configured)`;
+      select.appendChild(option);
+    }
+    select.value = instance.device;
+  }
+  label.appendChild(select);
+  return label;
+}
+
+function createHidInputRow(input = {}) {
+  const row = document.createElement("tr");
+  row.className = "hid-input-row";
+
+  const codeCell = document.createElement("td");
+  const codeInput = document.createElement("input");
+  codeInput.type = "text";
+  codeInput.dataset.field = "code";
+  codeInput.value = input.code || "";
+  codeInput.readOnly = true;
+  codeCell.appendChild(codeInput);
+  row.appendChild(codeCell);
+
+  const controlCell = document.createElement("td");
+  const controlInput = document.createElement("input");
+  controlInput.type = "text";
+  controlInput.dataset.field = "control";
+  controlInput.value = input.control || "";
+  controlCell.appendChild(controlInput);
+  row.appendChild(controlCell);
+
+  const minCell = document.createElement("td");
+  const minInput = document.createElement("input");
+  minInput.type = "number";
+  minInput.step = "any";
+  minInput.dataset.field = "value_min";
+  minInput.value = input.value_min ?? 0;
+  minCell.appendChild(minInput);
+  row.appendChild(minCell);
+
+  const maxCell = document.createElement("td");
+  const maxInput = document.createElement("input");
+  maxInput.type = "number";
+  maxInput.step = "any";
+  maxInput.dataset.field = "value_max";
+  maxInput.value = input.value_max ?? 1;
+  maxCell.appendChild(maxInput);
+  row.appendChild(maxCell);
+
+  const actionCell = document.createElement("td");
+  const removeButton = document.createElement("button");
+  removeButton.type = "button";
+  removeButton.textContent = "Remove";
+  removeButton.addEventListener("click", () => {
+    row.remove();
+    const card = row.closest(".hid-adapter-card");
+    if (card) {
+      updateHidAdapterCardDirtyState(card);
+    }
+  });
+  actionCell.appendChild(removeButton);
+  row.appendChild(actionCell);
+
+  return row;
+}
+
+function hidInputsFromCard(card) {
+  return [...card.querySelectorAll(".hid-input-row")]
+    .map((row) => ({
+      code: row.querySelector('[data-field="code"]')?.value.trim().toUpperCase() || "",
+      control: row.querySelector('[data-field="control"]')?.value.trim() || "",
+      value_min: Number(row.querySelector('[data-field="value_min"]')?.value ?? 0),
+      value_max: Number(row.querySelector('[data-field="value_max"]')?.value ?? 1),
+    }))
+    .filter((entry) => entry.code);
+}
+
+function hidAdapterCardPayload(card) {
+  const namePayload = adapterInstanceNameFromCard(card);
+  return {
+    ...namePayload,
+    type: "hid",
+    enabled: card.querySelector('[data-field="enabled"]')?.checked ?? false,
+    device: card.querySelector('[data-field="device"]')?.value.trim() || "",
+    inputs: hidInputsFromCard(card),
+  };
+}
+
+function hidAdapterCardStateSignature(card) {
+  return JSON.stringify(hidAdapterCardPayload(card));
+}
+
+function updateHidAdapterCardDirtyState(card) {
+  const saveButton = card.querySelector(".hid-adapter-save");
+  if (!saveButton) {
+    return;
+  }
+  saveButton.disabled = hidAdapterCardStateSignature(card) === card.dataset.savedState;
+}
+
+function showHidAdapterCardMessage(card, text) {
+  const message = card.querySelector(".hid-adapter-message");
+  if (message) {
+    message.textContent = text;
+  }
+}
+
+function appendLearnedHidInput(card, event) {
+  const code = String(event.code || "").trim().toUpperCase();
+  if (!code) {
+    return;
+  }
+  const tbody = card.querySelector(".hid-inputs-body");
+  if (!tbody) {
+    return;
+  }
+  const exists = [...tbody.querySelectorAll('[data-field="code"]')].some(
+    (input) => input.value.trim().toUpperCase() === code,
+  );
+  if (exists) {
+    showHidAdapterCardMessage(card, `${code} is already listed`);
+    return;
+  }
+  tbody.appendChild(
+    createHidInputRow({
+      code,
+      control: event.suggested_control || code.toLowerCase(),
+      value_min: 0,
+      value_max: 1,
+    }),
+  );
+  updateHidAdapterCardDirtyState(card);
+  showHidAdapterCardMessage(card, `learned ${code}`);
+}
+
+function setHidLearnMode(card, active) {
+  const name = (card.dataset.instanceName || "").trim();
+  if (!name || card.dataset.isNew === "true") {
+    showHidAdapterCardMessage(card, "save the instance before learning inputs");
+    return;
+  }
+  fetch("/api/hid-adapters/learn", {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({ name, active }),
+  })
+    .then(async (response) => {
+      if (!response.ok) {
+        throw new Error(await response.text());
+      }
+      return response.json();
+    })
+    .then((config) => {
+      renderHidAdaptersConfig(config);
+      hidMessage.textContent = active
+        ? `learning inputs for ${name}; press a button or move an axis`
+        : "";
+    })
+    .catch((error) => {
+      hidMessage.textContent = `error: ${error.message}`;
+      showHidAdapterCardMessage(card, `error: ${error.message}`);
+    });
+}
+
+function createHidAdapterCard(instance, config) {
+  const isNew = Boolean(instance.__isNew);
+  const card = document.createElement("section");
+  card.className = "midi-adapter-card hid-adapter-card";
+  card.dataset.instanceName = instance.name || "";
+  card.dataset.instanceType = "hid";
+  if (isNew) {
+    card.dataset.isNew = "true";
+  }
+
+  const accordion = createAdapterInstanceAccordion(
+    adapterInstanceSummaryLabel(instance, isNew),
+  );
+  const { body, title } = accordion;
+
+  const nameField = createAdapterNameField(instance, new Set(), { isNew });
+  bindAdapterInstanceTitle(title, nameField.querySelector("input"), { isNew });
+
+  const actions = document.createElement("div");
+  actions.className = "midi-adapter-card-actions";
+  const saveButton = document.createElement("button");
+  saveButton.type = "button";
+  saveButton.className = "hid-adapter-save";
+  saveButton.textContent = "Save";
+  saveButton.disabled = true;
+  actions.appendChild(saveButton);
+
+  const deleteButton = document.createElement("button");
+  deleteButton.type = "button";
+  deleteButton.className = "hid-adapter-delete";
+  deleteButton.textContent = "Delete";
+  wireAdapterDeleteButton(deleteButton, card, () => deleteHidAdapterCard(card), {
+    protectedDelete: false,
+    panelMessage: hidMessage,
+  });
+  actions.appendChild(deleteButton);
+  prependAdapterBodySections(body, [actions, nameField]);
+  mountAdapterInstanceCard(card, accordion);
+
+  const enabledLabel = document.createElement("label");
+  enabledLabel.className = "inline-field";
+  const enabledInput = document.createElement("input");
+  enabledInput.type = "checkbox";
+  enabledInput.dataset.field = "enabled";
+  enabledInput.checked = Boolean(instance.enabled);
+  enabledLabel.append(enabledInput, document.createTextNode(" Enabled"));
+  body.appendChild(enabledLabel);
+
+  if (!config.hid_available) {
+    const hint = document.createElement("p");
+    hint.className = "hint";
+    hint.textContent = "Install the hid pip extra (evdev) on Linux to use HID input.";
+    body.appendChild(hint);
+  }
+
+  body.appendChild(createHidDeviceField(instance, config));
+
+  const learnRow = document.createElement("div");
+  learnRow.className = "hid-learn-row";
+  const learnButton = document.createElement("button");
+  learnButton.type = "button";
+  learnButton.className = "hid-learn-button";
+  learnButton.textContent = instance.learn_active ? "Stop learning" : "Learn input";
+  learnButton.addEventListener("click", () => {
+    setHidLearnMode(card, card.dataset.learnActive !== "true");
+  });
+  learnRow.appendChild(learnButton);
+  const learnHint = document.createElement("p");
+  learnHint.className = "hint";
+  learnHint.textContent = "Save with Enabled checked, then press Learn and operate the device.";
+  learnRow.appendChild(learnHint);
+  body.appendChild(learnRow);
+
+  const table = document.createElement("table");
+  table.className = "hid-inputs-table";
+  const thead = document.createElement("thead");
+  thead.innerHTML = "<tr><th>Code</th><th>Control</th><th>Min</th><th>Max</th><th></th></tr>";
+  table.appendChild(thead);
+  const tbody = document.createElement("tbody");
+  tbody.className = "hid-inputs-body";
+  for (const input of instance.inputs || []) {
+    tbody.appendChild(createHidInputRow(input));
+  }
+  table.appendChild(tbody);
+  body.appendChild(table);
+
+  const message = document.createElement("p");
+  message.className = "message hid-adapter-message";
+  body.appendChild(message);
+
+  saveButton.addEventListener("click", () => saveHidAdapterCard(card));
+  const markDirty = () => {
+    showHidAdapterCardMessage(card, "");
+    updateHidAdapterCardDirtyState(card);
+  };
+  for (const element of card.querySelectorAll("[data-field]")) {
+    element.addEventListener("input", markDirty);
+    element.addEventListener("change", markDirty);
+  }
+
+  card.dataset.savedState = hidAdapterCardStateSignature(card);
+  card.dataset.learnActive = instance.learn_active ? "true" : "false";
+  updateHidAdapterCardDirtyState(card);
+  return card;
+}
+
+function saveHidAdapterCard(card) {
+  showHidAdapterCardMessage(card, "saving...");
+  const savedName = card.dataset.instanceName;
+  fetch("/api/hid-adapters", {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({
+      instances: [hidAdapterCardPayload(card)],
+      deleted: [],
+    }),
+  })
+    .then(async (response) => {
+      if (!response.ok) {
+        throw new Error(await response.text());
+      }
+      return response.json();
+    })
+    .then((config) => {
+      renderHidAdaptersConfig(config);
+      const savedCard = [...hidInstances.querySelectorAll(".hid-adapter-card")].find(
+        (entry) => entry.dataset.instanceName === savedName,
+      );
+      if (savedCard) {
+        showHidAdapterCardMessage(
+          savedCard,
+          config.persisted === false
+            ? `saved for runtime only: ${config.persist_error}`
+            : "saved",
+        );
+      }
+      hidMessage.textContent = config.persisted === false
+        ? `saved for runtime only: ${config.persist_error}`
+        : "saved";
+    })
+    .catch((error) => {
+      hidMessage.textContent = `error: ${error.message}`;
+      showHidAdapterCardMessage(card, `error: ${error.message}`);
+    });
+}
+
+function deleteHidAdapterCard(card) {
+  if (card.dataset.isNew === "true") {
+    card.remove();
+    return;
+  }
+  if (!window.confirm(`Delete HID adapter instance "${card.dataset.instanceName}"?`)) {
+    return;
+  }
+  fetch("/api/hid-adapters", {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({
+      instances: [],
+      deleted: [card.dataset.instanceName],
+    }),
+  })
+    .then(async (response) => {
+      if (!response.ok) {
+        throw new Error(await response.text());
+      }
+      return response.json();
+    })
+    .then((config) => {
+      renderHidAdaptersConfig(config);
+      hidMessage.textContent = "deleted";
+    })
+    .catch((error) => {
+      hidMessage.textContent = `error: ${error.message}`;
+    });
+}
+
+function handleHidLearnCapture(event) {
+  if (!hidLearnInstanceName || event.source !== hidLearnInstanceName) {
+    return;
+  }
+  const card = [...hidInstances.querySelectorAll(".hid-adapter-card")].find(
+    (entry) => entry.dataset.instanceName === event.source,
+  );
+  if (card) {
+    appendLearnedHidInput(card, event);
+  }
 }
 
 function joinRtpSessionChoices(config, instance) {
@@ -3884,6 +4283,9 @@ function connect() {
       if (data.payload?.kind === "AdapterStatusEvent") {
         handleAdapterStatusEvent(data.payload);
       }
+      if (data.payload?.kind === "HidLearnEvent") {
+        handleHidLearnCapture(data.payload);
+      }
       appendEvent(data.payload);
       if (data.payload.kind === "BpmChangedEvent") {
         bpm.textContent = data.payload.bpm.toFixed(1);
@@ -4088,6 +4490,20 @@ midiAdaptersRefresh?.addEventListener("click", () => {
     });
 });
 
+hidAddButton?.addEventListener("click", () => {
+  const config = hidAdaptersConfig || {
+    available_devices: [],
+    hid_available: false,
+    instances: [],
+  };
+  hidInstances.appendChild(
+    createHidAdapterCard(
+      { name: "", __isNew: true, enabled: false, inputs: [] },
+      config,
+    ),
+  );
+});
+
 midiAddButton?.addEventListener("click", () => {
   addMidiAdapterCard("midi");
 });
@@ -4251,6 +4667,7 @@ monitorDisplayModeSelect?.addEventListener("change", () => {
 fetch("/api/status").then((response) => response.json()).then(renderStatus);
 loadMidiAdaptersConfig();
 loadOscAdaptersConfig();
+loadHidAdaptersConfig();
 fetch("/api/gpio").then((response) => response.json()).then(renderGpioConfig);
 fetch("/api/master-clock").then((response) => response.json()).then(renderMasterClockConfig);
 fetch("/api/osc-libraries").then((response) => response.json()).then(renderOscLibraries);

@@ -88,9 +88,8 @@ def test_parse_hid_inputs_accepts_explicit_tables(fake_evdev_codes: None) -> Non
     ]
 
 
-def test_parse_hid_inputs_rejects_missing_codes(fake_evdev_codes: None) -> None:
-    with pytest.raises(ValueError, match="at least one"):
-        parse_hid_inputs({})
+def test_parse_hid_inputs_returns_empty_list_without_codes(fake_evdev_codes: None) -> None:
+    assert parse_hid_inputs({}) == []
 
 
 def test_hid_adapter_publishes_initial_events_on_start(fake_evdev_codes: None) -> None:
@@ -187,6 +186,62 @@ def test_hid_adapter_normalizes_axis_values(fake_evdev_codes: None) -> None:
     assert adapter._normalize_value(hid_input, 0) == pytest.approx(0.0)
     assert adapter._normalize_value(hid_input, 128) == pytest.approx(128 / 255, rel=1e-3)
     assert adapter._normalize_value(hid_input, 255) == pytest.approx(1.0)
+
+
+def test_hid_adapter_start_requires_inputs(fake_evdev_codes: None) -> None:
+    async def scenario() -> None:
+        bus = EventBus()
+        adapter = HidAdapter(
+            name="gamepad",
+            config=AdapterConfig(
+                enabled=True,
+                options={"device": "/dev/input/event0"},
+            ),
+            bus=bus,
+            reader_factory=lambda _device_path, _inputs: FakeHidReader(),
+        )
+        with pytest.raises(ValueError, match="at least one"):
+            await adapter.start()
+
+    asyncio.run(scenario())
+
+
+def test_hid_adapter_publishes_learn_events(fake_evdev_codes: None) -> None:
+    async def scenario() -> list[HidLearnEvent]:
+        from midijuggler.events import HidLearnEvent
+
+        bus = EventBus()
+        events: list[HidLearnEvent] = []
+        bus.subscribe(HidLearnEvent, lambda event: events.append(event))
+
+        reader = FakeHidReader(events=[HidRawEvent(EV_KEY, 304, 1)])
+        adapter = HidAdapter(
+            name="gamepad",
+            config=AdapterConfig(
+                enabled=True,
+                options={
+                    "device": "/dev/input/event0",
+                    "inputs": [{"code": "BTN_B", "control": "btn_b"}],
+                },
+            ),
+            bus=bus,
+            reader_factory=lambda _device_path, _inputs: reader,
+        )
+
+        await adapter.start()
+        await adapter.set_learn_active(True)
+        for _ in range(50):
+            if events:
+                break
+            await asyncio.sleep(0.002)
+        await adapter.set_learn_active(False)
+        await adapter.stop()
+        return events
+
+    events = asyncio.run(scenario())
+    assert len(events) == 1
+    assert events[0].code == "type1_code304"
+    assert events[0].suggested_control == "type1_code304"
 
 
 def test_hid_control_events_update_datapoint_store(fake_evdev_codes: None) -> None:

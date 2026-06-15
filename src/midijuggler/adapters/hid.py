@@ -12,8 +12,12 @@ from typing import Any, Protocol
 from midijuggler.adapters.base import Adapter
 from midijuggler.config import AdapterConfig
 from midijuggler.eventbus import EventBus
-from midijuggler.events import AdapterStatusEvent, ControlEvent, HidEvent
-from midijuggler.hid.codes import evdev_code_name, resolve_device_path, resolve_evdev_code
+from midijuggler.events import AdapterStatusEvent, ControlEvent, HidEvent, HidLearnEvent
+from midijuggler.hid.codes import (
+    evdev_code_name,
+    resolve_device_path,
+    resolve_evdev_code,
+)
 
 LOGGER = logging.getLogger(__name__)
 
@@ -110,11 +114,6 @@ class HidAdapter(Adapter):
         reader_factory: HidReaderFactory | None = None,
     ) -> None:
         super().__init__(name=name, config=config, bus=bus)
-        self.device_path = resolve_device_path(config.options)
-        self.inputs = parse_hid_inputs(config.options)
-        self._input_index = {
-            (hid_input.event_type, hid_input.code): hid_input for hid_input in self.inputs
-        }
         self._reader_factory = reader_factory or (
             lambda device_path, _inputs: EvdevHidReader(device_path)
         )
@@ -122,8 +121,22 @@ class HidAdapter(Adapter):
         self._read_task: asyncio.Task[None] | None = None
         self._abs_ranges: dict[tuple[int, int], tuple[int, int]] = {}
         self._lock = asyncio.Lock()
+        self._learn_active = False
+        self._apply_options(config.options)
+
+    def _apply_options(self, options: dict[str, Any]) -> None:
+        normalized = dict(options)
+        self.device_path = resolve_device_path(normalized)
+        self.inputs = parse_hid_inputs(normalized)
+        self._input_index = {
+            (hid_input.event_type, hid_input.code): hid_input for hid_input in self.inputs
+        }
+        self.config.options.clear()
+        self.config.options.update(normalized)
 
     async def start(self) -> None:
+        if not self.inputs:
+            raise ValueError("HID adapter requires at least one configured input")
         async with self._lock:
             self._reader = self._reader_factory(self.device_path, self.inputs)
             self._load_abs_ranges()
@@ -142,6 +155,7 @@ class HidAdapter(Adapter):
 
     async def stop(self) -> None:
         self.running = False
+        self._learn_active = False
         if self._read_task is not None:
             self._read_task.cancel()
             with contextlib.suppress(asyncio.CancelledError):
@@ -178,12 +192,74 @@ class HidAdapter(Adapter):
                 continue
             await self._handle_raw_event(raw)
 
+    async def set_learn_active(self, active: bool) -> None:
+        self._learn_active = active
+
+    async def reload(self, config: AdapterConfig) -> None:
+        self.config = config
+        if self.running:
+            await self.stop()
+        self._apply_options(config.options)
+        if config.enabled:
+            await self.start()
+
+    async def configure_options(self, options: dict[str, Any]) -> None:
+        """Apply a new HID configuration at runtime."""
+
+        was_running = self.running
+        if was_running:
+            await self.stop()
+        self._apply_options(options)
+        if was_running and self.config.enabled:
+            await self.start()
+        await self.bus.publish(
+            AdapterStatusEvent(
+                source=self.name,
+                adapter=self.name,
+                status="configured",
+                detail=(
+                    f"watching HID device {self.device_path} "
+                    f"({len(self.inputs)} inputs)"
+                ),
+            )
+        )
+
     async def _handle_raw_event(self, raw: HidRawEvent) -> None:
+        await self._maybe_publish_learn(raw)
         hid_input = self._input_index.get((raw.event_type, raw.code))
         if hid_input is None:
             return
         value = self._normalize_value(hid_input, raw.value)
         await self._publish_input_state(hid_input, value)
+
+    async def _maybe_publish_learn(self, raw: HidRawEvent) -> None:
+        if not self._learn_active:
+            return
+        if raw.event_type == EV_KEY and raw.value == 0:
+            return
+
+        code_name = self._resolve_code_name(raw.event_type, raw.code)
+        suggested_control = _default_control_name(code_name)
+        value = float(raw.value)
+        if raw.event_type == EV_KEY:
+            value = 1.0
+
+        await self.bus.publish(
+            HidLearnEvent(
+                source=self.name,
+                code=code_name,
+                event_type=raw.event_type,
+                evdev_code=raw.code,
+                value=value,
+                suggested_control=suggested_control,
+            )
+        )
+
+    def _resolve_code_name(self, event_type: int, code: int) -> str:
+        try:
+            return evdev_code_name(event_type, code)
+        except ImportError:
+            return f"type{event_type}_code{code}"
 
     async def _publish_initial_states(self) -> None:
         reader = self._reader
@@ -290,7 +366,7 @@ def parse_hid_inputs(options: dict[str, Any]) -> list[HidInput]:
         ]
 
     if not inputs:
-        raise ValueError("HID adapter requires at least one configured input")
+        return []
 
     controls = [hid_input.control for hid_input in inputs]
     if len(controls) != len(set(controls)):

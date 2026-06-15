@@ -17,6 +17,7 @@ from aiohttp import WSMsgType, web
 
 from midijuggler.adapters.base import Adapter
 from midijuggler.adapters.gpio import GpioAdapter, RASPBERRY_PI_HEADER_BCM_PINS
+from midijuggler.adapters.hid import HidAdapter
 from midijuggler.adapters.midi import MidiAdapter
 from midijuggler.adapters.osc import OscAdapter
 from midijuggler.adapters.rtp_midi import RtpMidiAdapter
@@ -37,9 +38,13 @@ from midijuggler.config import (
     save_runtime_config,
     remove_midi_adapter_configs,
     remove_osc_adapter_configs,
+    remove_hid_adapter_configs,
     save_midi_adapter_configs,
     save_osc_adapter_configs,
+    save_hid_adapter_configs,
 )
+from midijuggler.hid.codes import hid_available, list_input_devices
+from midijuggler.modules.io.hid import HidIOModule
 from midijuggler.modules.modifier.feedback_suppress import parse_feedback_suppress_ms
 from midijuggler.eventbus import EventBus
 from midijuggler.events import AdapterStatusEvent, Event, MidiMessageEvent
@@ -120,6 +125,7 @@ class WebInterface:
         clock: ClockBpmTracker,
         master_clock: MasterClock,
         gpio_adapter: GpioAdapter | None = None,
+        hid_adapters: dict[str, HidAdapter] | None = None,
         midi_adapters: dict[str, MidiAdapter] | None = None,
         rtp_midi_adapters: dict[str, RtpMidiAdapter] | None = None,
         osc_adapters: dict[str, OscAdapter] | None = None,
@@ -136,6 +142,7 @@ class WebInterface:
         self.clock = clock
         self.master_clock = master_clock
         self.gpio_adapter = gpio_adapter
+        self.hid_adapters = hid_adapters or {}
         self.midi_adapters = midi_adapters or {}
         self.rtp_midi_adapters = rtp_midi_adapters or {}
         self.osc_adapters = osc_adapters or {}
@@ -151,6 +158,7 @@ class WebInterface:
         )
         self._tap_times: list[float] = []
         self._websockets: set[web.WebSocketResponse] = set()
+        self._hid_learn_instance: str | None = None
         self._adapter_runtime_status: dict[str, dict[str, str]] = {}
         self.bus.subscribe("*", self._broadcast_event)
 
@@ -167,6 +175,9 @@ class WebInterface:
         app.router.add_post("/api/config/import", self.import_config)
         app.router.add_get("/api/gpio", self.gpio_config)
         app.router.add_post("/api/gpio", self.set_gpio_config)
+        app.router.add_get("/api/hid-adapters", self.hid_adapters_config)
+        app.router.add_post("/api/hid-adapters", self.set_hid_adapters_config)
+        app.router.add_post("/api/hid-adapters/learn", self.set_hid_learn_mode)
         app.router.add_get("/api/midi-adapters", self.midi_adapters_config)
         app.router.add_post("/api/midi-adapters", self.set_midi_adapters_config)
         app.router.add_post("/api/midi-adapters/test-send", self.test_send_midi_adapter)
@@ -475,6 +486,25 @@ class WebInterface:
         payload = await request.json()
         try:
             response = await self.apply_gpio_config(payload)
+        except ValueError as exc:
+            raise web.HTTPBadRequest(text=str(exc)) from exc
+        return web.json_response(response)
+
+    async def hid_adapters_config(self, request: web.Request) -> web.Response:
+        return web.json_response(self.hid_adapters_config_payload())
+
+    async def set_hid_adapters_config(self, request: web.Request) -> web.Response:
+        payload = await request.json()
+        try:
+            response = await self.apply_hid_adapters_config(payload)
+        except ValueError as exc:
+            raise web.HTTPBadRequest(text=str(exc)) from exc
+        return web.json_response(response)
+
+    async def set_hid_learn_mode(self, request: web.Request) -> web.Response:
+        payload = await request.json()
+        try:
+            response = await self.apply_hid_learn_mode(payload)
         except ValueError as exc:
             raise web.HTTPBadRequest(text=str(exc)) from exc
         return web.json_response(response)
@@ -1366,6 +1396,310 @@ class WebInterface:
         response.update({"persisted": persisted, "persist_error": persist_error})
         return response
 
+    def hid_adapters_config_payload(self) -> dict[str, Any]:
+        return {
+            "hid_available": hid_available(),
+            "available_devices": list_input_devices(),
+            "learn_active": self._hid_learn_instance,
+            "instances": [
+                self._hid_instance_payload(name, adapter)
+                for name, adapter in sorted(self.config.adapters.items())
+                if self._should_list_hid_instance(name, adapter)
+            ],
+        }
+
+    def _should_list_hid_instance(self, name: str, adapter: AdapterConfig) -> bool:
+        kind = adapter.kind or name
+        if kind != "hid":
+            return False
+        if name != "hid":
+            return True
+        return adapter.enabled or bool(adapter.options)
+
+    def _hid_instance_payload(self, name: str, adapter: AdapterConfig) -> dict[str, Any]:
+        options = dict(adapter.options)
+        runtime_adapter = self.hid_adapters.get(name)
+        inputs = options.get("inputs")
+        if not isinstance(inputs, list):
+            inputs = []
+        normalized_inputs: list[dict[str, Any]] = []
+        for raw_input in inputs:
+            if not isinstance(raw_input, dict):
+                continue
+            normalized_inputs.append(
+                {
+                    "code": str(raw_input.get("code", "")).strip().upper(),
+                    "control": str(raw_input.get("control", "")).strip(),
+                    "value_min": float(raw_input.get("value_min", 0.0)),
+                    "value_max": float(raw_input.get("value_max", 1.0)),
+                }
+            )
+        return {
+            "name": name,
+            "type": "hid",
+            "enabled": adapter.enabled,
+            "runtime_active": runtime_adapter is not None and runtime_adapter.running,
+            "learn_active": self._hid_learn_instance == name,
+            "device": str(options.get("device", "")).strip(),
+            "vendor_id": options.get("vendor_id", ""),
+            "product_id": options.get("product_id", ""),
+            "inputs": normalized_inputs,
+        }
+
+    def _normalized_hid_options(
+        self,
+        payload: dict[str, Any],
+        current: dict[str, Any],
+    ) -> dict[str, Any]:
+        device = str(payload.get("device", current.get("device", ""))).strip()
+        vendor_id = payload.get("vendor_id", current.get("vendor_id"))
+        product_id = payload.get("product_id", current.get("product_id"))
+
+        options: dict[str, Any] = {}
+        if device:
+            options["device"] = device
+        elif vendor_id is not None and product_id is not None:
+            options["vendor_id"] = vendor_id
+            options["product_id"] = product_id
+        else:
+            raise ValueError("HID adapter requires device or vendor_id and product_id")
+
+        raw_inputs = payload.get("inputs", current.get("inputs", []))
+        if not isinstance(raw_inputs, list):
+            raise ValueError("HID inputs must be a list")
+
+        inputs: list[dict[str, Any]] = []
+        for index, raw_input in enumerate(raw_inputs, start=1):
+            if not isinstance(raw_input, dict):
+                raise ValueError(f"HID inputs[{index}] must be an object")
+            code = str(raw_input.get("code", "")).strip().upper()
+            if not code:
+                raise ValueError(f"HID inputs[{index}].code is required")
+            control = str(raw_input.get("control", "")).strip()
+            if not control:
+                control = code.lower()
+            value_min = float(raw_input.get("value_min", 0.0))
+            value_max = float(raw_input.get("value_max", 1.0))
+            if value_max < value_min:
+                raise ValueError(f"HID inputs[{index}].value_max must be >= value_min")
+            inputs.append(
+                {
+                    "code": code,
+                    "control": control,
+                    "value_min": value_min,
+                    "value_max": value_max,
+                }
+            )
+        options["inputs"] = inputs
+        return options
+
+    async def _resolve_hid_runtime_adapter(self, name: str) -> HidAdapter:
+        adapter = self.hid_adapters.get(name)
+        if adapter is not None:
+            return adapter
+
+        config = self.config.adapters.get(name)
+        if config is None:
+            raise ValueError(f"unknown HID adapter instance: {name}")
+        if not config.enabled:
+            raise ValueError(f"HID adapter {name} is disabled; enable it before learning")
+        await self._apply_hid_runtime_adapter(name, config)
+        adapter = self.hid_adapters.get(name)
+        if adapter is None:
+            raise ValueError(f"HID adapter {name} could not be started")
+        return adapter
+
+    async def _apply_hid_runtime_adapter(self, name: str, updated: AdapterConfig) -> None:
+        adapter = self.hid_adapters.get(name)
+        if adapter is None:
+            if not updated.enabled:
+                return
+            adapter = HidAdapter(name=name, config=updated, bus=self.bus)
+            self.hid_adapters[name] = adapter
+            try:
+                await adapter.start()
+            except (OSError, ValueError, ImportError) as exc:
+                self.hid_adapters.pop(name, None)
+                raise ValueError(str(exc)) from exc
+            self._register_runtime_adapter(adapter)
+            self._refresh_hid_datapoints(name)
+            return
+
+        if updated.enabled:
+            try:
+                if adapter.running:
+                    await adapter.reload(updated)
+                else:
+                    adapter.config = updated
+                    adapter._apply_options(updated.options)  # noqa: SLF001
+                    await adapter.start()
+            except (OSError, ValueError, ImportError) as exc:
+                raise ValueError(str(exc)) from exc
+            self._register_runtime_adapter(adapter)
+            self._refresh_hid_datapoints(name)
+            return
+
+        if self._hid_learn_instance == name:
+            await adapter.set_learn_active(False)
+            self._hid_learn_instance = None
+        if adapter.running:
+            await adapter.stop()
+        adapter.config = updated
+        adapter._apply_options(updated.options)  # noqa: SLF001
+        self._unregister_runtime_adapter(adapter)
+
+    def _refresh_hid_datapoints(self, name: str) -> None:
+        if self.datapoint_store is None:
+            return
+        adapter = self.hid_adapters.get(name)
+        if adapter is None:
+            return
+        module = HidIOModule(adapter, self.datapoint_store)
+        self.datapoint_store.register_many(module.datapoints())
+
+    async def apply_hid_adapters_config(self, payload: dict[str, Any]) -> dict[str, Any]:
+        if not isinstance(payload, dict):
+            raise ValueError("HID adapter config payload must be an object")
+
+        raw_instances = payload.get("instances")
+        if not isinstance(raw_instances, list):
+            raise ValueError("HID adapter config requires an instances list")
+
+        raw_deleted = payload.get("deleted", [])
+        if not isinstance(raw_deleted, list):
+            raise ValueError("deleted must be a list")
+
+        deleted_names: list[str] = []
+        renamed_from: list[str] = []
+        runtime_renames: list[tuple[str, str, str]] = []
+        updates: dict[str, AdapterConfig] = {}
+
+        for raw_name in raw_deleted:
+            name = str(raw_name).strip()
+            if not name:
+                continue
+            if name in DEFAULT_ADAPTERS:
+                raise ValueError(f"cannot delete default adapter instance: {name}")
+            if name not in self.config.adapters:
+                raise ValueError(f"unknown HID adapter instance: {name}")
+            adapter_kind = self.config.adapters[name].kind or name
+            if adapter_kind != "hid":
+                raise ValueError(f"adapter {name} is not a HID adapter")
+            deleted_names.append(name)
+
+        for raw_instance in raw_instances:
+            if not isinstance(raw_instance, dict):
+                raise ValueError("each HID adapter instance must be an object")
+
+            name = str(raw_instance.get("name", "")).strip()
+            if not name:
+                raise ValueError("each HID adapter instance requires a name")
+
+            previous_name = str(raw_instance.get("previous_name", "")).strip()
+            if previous_name and previous_name != name:
+                kind = self._rename_adapter_config_instance(
+                    previous_name,
+                    name,
+                    allowed_kinds={"hid"},
+                )
+                renamed_from.append(previous_name)
+                runtime_renames.append((previous_name, name, kind))
+
+            if name not in self.config.adapters:
+                _validate_adapter_instance_name(name)
+                kind = str(raw_instance.get("type", "hid")).strip()
+                if kind != "hid":
+                    raise ValueError(f"adapter {name} must use type 'hid', not {kind!r}")
+                current_options: dict[str, Any] = {}
+                enabled = bool(raw_instance.get("enabled", False))
+            else:
+                current = self.config.adapters[name]
+                kind = current.kind or name
+                if kind != "hid":
+                    raise ValueError(f"adapter {name} is not a HID adapter")
+                current_options = current.options
+                enabled = bool(raw_instance.get("enabled", current.enabled))
+
+            options = self._normalized_hid_options(raw_instance, current_options)
+            if enabled and not options.get("inputs"):
+                raise ValueError(
+                    f"HID adapter {name} requires at least one input when enabled"
+                )
+            updated = AdapterConfig(enabled=enabled, options=options, kind="hid")
+            updates[name] = updated
+            self.config.adapters[name] = updated
+
+        removed_names = [*deleted_names]
+        for old_name in renamed_from:
+            if old_name not in removed_names:
+                removed_names.append(old_name)
+
+        persisted = False
+        persist_error = ""
+        if self.config_path is not None and (updates or removed_names):
+            try:
+                if updates:
+                    save_hid_adapter_configs(self.config_path, updates)
+                if removed_names:
+                    remove_hid_adapter_configs(self.config_path, removed_names)
+                persisted = True
+            except OSError as exc:
+                persist_error = str(exc)
+                LOGGER.warning(
+                    "HID adapter config applied at runtime but could not be persisted to %s: %s",
+                    self.config_path,
+                    exc,
+                )
+        elif self.config_path is None and (updates or removed_names):
+            persist_error = "no config path available"
+
+        for old_name, new_name, kind in runtime_renames:
+            await self._rename_runtime_adapter(old_name, new_name, kind)
+
+        for name in deleted_names:
+            adapter = self.hid_adapters.pop(name, None)
+            if adapter is not None:
+                if self._hid_learn_instance == name:
+                    self._hid_learn_instance = None
+                if adapter.running:
+                    await adapter.stop()
+                self._unregister_runtime_adapter(adapter)
+            self.config.adapters.pop(name, None)
+
+        for name, updated in updates.items():
+            await self._apply_hid_runtime_adapter(name, updated)
+
+        response = self.hid_adapters_config_payload()
+        response.update({"persisted": persisted, "persist_error": persist_error})
+        return response
+
+    async def apply_hid_learn_mode(self, payload: dict[str, Any]) -> dict[str, Any]:
+        if not isinstance(payload, dict):
+            raise ValueError("HID learn payload must be an object")
+
+        name = str(payload.get("name", "")).strip()
+        if not name:
+            raise ValueError("name is required")
+        active = bool(payload.get("active", False))
+
+        if active:
+            for instance_name, adapter in self.hid_adapters.items():
+                if instance_name != name:
+                    await adapter.set_learn_active(False)
+            adapter = await self._resolve_hid_runtime_adapter(name)
+            if not adapter.running:
+                raise ValueError(f"HID adapter {name} is not running")
+            await adapter.set_learn_active(True)
+            self._hid_learn_instance = name
+        else:
+            adapter = self.hid_adapters.get(name)
+            if adapter is not None:
+                await adapter.set_learn_active(False)
+            if self._hid_learn_instance == name:
+                self._hid_learn_instance = None
+
+        return self.hid_adapters_config_payload()
+
     def _rename_adapter_config_instance(
         self,
         old_name: str,
@@ -1450,6 +1784,15 @@ class WebInterface:
             if adapter is not None:
                 adapter.name = new_name
                 self.osc_adapters[new_name] = adapter
+            return
+
+        if kind == "hid":
+            adapter = self.hid_adapters.pop(old_name, None)
+            if adapter is not None:
+                adapter.name = new_name
+                self.hid_adapters[new_name] = adapter
+            if self._hid_learn_instance == old_name:
+                self._hid_learn_instance = new_name
             return
 
         if kind == "rtp_midi" and self.rtp_midi_manager is not None:

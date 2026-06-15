@@ -39,8 +39,45 @@ def evdev_code_name(event_type: int, code: int) -> str:
     _, ecodes = _require_evdev()
     for name, value in ecodes.ecodes.items():
         if value == code:
-            return name
+            for mapped_type, codes in ecodes.bytype.items():
+                if int(mapped_type) == int(event_type) and code in codes:
+                    return name
     return f"type{event_type}_code{code}"
+
+
+def list_input_devices() -> list[dict[str, Any]]:
+    """Return readable metadata for available evdev input device nodes."""
+
+    try:
+        evdev, _ = _require_evdev()
+    except ImportError:
+        return []
+
+    devices: list[dict[str, Any]] = []
+    for path in sorted(evdev.list_devices()):
+        try:
+            device = evdev.InputDevice(path)
+            info = device.info
+            devices.append(
+                {
+                    "path": path,
+                    "name": device.name,
+                    "vendor_id": f"0x{info.vendor:04x}",
+                    "product_id": f"0x{info.product:04x}",
+                }
+            )
+            device.close()
+        except (OSError, PermissionError):
+            continue
+    return devices
+
+
+def hid_available() -> bool:
+    try:
+        _require_evdev()
+    except ImportError:
+        return False
+    return True
 
 
 def resolve_device_path(options: dict[str, Any]) -> str:

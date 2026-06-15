@@ -53,23 +53,39 @@ sudo -u midijuggler /opt/midijuggler/venv/bin/python -m pip install -e "/opt/mid
 
 USB MIDI adapters use `mido` with `python-rtmidi` (the `midi` extra).
 
+HID input (gamepads, USB controllers) needs the `hid` extra (`evdev`). It is
+Linux-only and reads `/dev/input/event*`. See [`hid_input.md`](hid_input.md).
+
 Add the `rtp` extra only if you want the `python-zeroconf` fallback:
 
 ```bash
 sudo -u midijuggler /opt/midijuggler/venv/bin/python -m pip install -e "/opt/midijuggler/app[alsa,midi,rtp]"
 ```
 
+With HID input enabled:
+
+```bash
+sudo -u midijuggler /opt/midijuggler/venv/bin/python -m pip install -e "/opt/midijuggler/app[alsa,midi,hid]"
+```
+
+All common hardware extras together:
+
+```bash
+sudo -u midijuggler /opt/midijuggler/venv/bin/python -m pip install -e "/opt/midijuggler/app[alsa,midi,rtp,hid]"
+```
+
 Equivalent when run from the app directory:
 
 ```bash
 cd /opt/midijuggler/app
-sudo -u midijuggler /opt/midijuggler/venv/bin/python -m pip install -e ".[alsa,midi,rtp]"
+sudo -u midijuggler /opt/midijuggler/venv/bin/python -m pip install -e ".[alsa,midi,rtp,hid]"
 ```
 
-Local development on a Mac or PC uses the same extras from the repository root:
+Local development on a Mac or PC uses the same extras from the repository root
+(HID only applies on Linux; `evdev` is not available on macOS):
 
 ```bash
-pip install -e ".[alsa,midi,rtp]"
+pip install -e ".[alsa,midi,rtp,hid]"
 ```
 
 ### Troubleshooting `python-rtmidi` on Python 3.13
@@ -100,7 +116,7 @@ sudo systemctl restart midijuggler.service
 sudo useradd --system --home /opt/midijuggler --shell /usr/sbin/nologin midijuggler
 sudo mkdir -p /opt/midijuggler /etc/midijuggler
 sudo chown midijuggler:midijuggler /opt/midijuggler
-sudo usermod -aG gpio,audio midijuggler
+sudo usermod -aG gpio,audio,input midijuggler
 
 sudo -u midijuggler git clone https://github.com/skyslasher/midijuggler.git /opt/midijuggler/app
 sudo -u midijuggler python3 -m venv /opt/midijuggler/venv
@@ -133,12 +149,16 @@ poll_interval_ms = 5
 MIDIJuggler accepts BCM numbers here. On newer Raspberry Pi kernels, the
 deprecated sysfs GPIO interface may internally use global GPIO numbers with a
 `gpiochip` base offset; MIDIJuggler resolves that offset at startup.
-The systemd template also sets `SupplementaryGroups=gpio audio`. After changing
+The systemd template also sets `SupplementaryGroups=gpio audio input`. After changing
 group membership or the unit file, run `sudo systemctl daemon-reload` and
 restart the service so systemd picks up the new permissions.
 
 For protected GPIO footswitch wiring with 5 V polling voltage, see
 [`gpio_optocoupler_footswitch.md`](gpio_optocoupler_footswitch.md).
+
+For Linux HID / evdev input (gamepads, USB controllers), install the `hid` pip
+extra and add the service user to the `input` group. Configuration is TOML-only
+for now — see [`hid_input.md`](hid_input.md).
 
 For MIDI master clock and click configuration, see
 [`master_clock.md`](master_clock.md). Use `aplay -l` on the Pi to find the ALSA

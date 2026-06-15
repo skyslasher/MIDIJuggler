@@ -7,7 +7,7 @@ Wants=network-online.target
 Type=simple
 User=midijuggler
 Group=midijuggler
-SupplementaryGroups=gpio audio
+SupplementaryGroups=gpio audio input
 WorkingDirectory=/opt/midijuggler/app
 Environment=PYTHONUNBUFFERED=1
 Environment=MIDIJUGGLER_SCRIPTS_DIR=/opt/midijuggler/app/scripts

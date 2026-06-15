@@ -11,6 +11,7 @@ from pathlib import Path
 from midijuggler.adapters import build_adapters
 from midijuggler.adapters.base import Adapter
 from midijuggler.adapters.gpio import GpioAdapter
+from midijuggler.adapters.hid import HidAdapter
 from midijuggler.adapters.rtp_midi import RtpMidiAdapter
 from midijuggler.adapters.midi import MidiAdapter
 from midijuggler.adapters.osc import OscAdapter
@@ -79,6 +80,7 @@ class MIDIJugglerService:
             self.clock,
             self.master_clock,
             gpio_adapter=self._gpio_adapter(),
+            hid_adapters=self._hid_adapters(),
             midi_adapters=self._midi_adapters(),
             rtp_midi_adapters=self._rtp_midi_adapters(),
             osc_adapters=self._osc_adapters(),
@@ -243,6 +245,13 @@ class MIDIJugglerService:
             (adapter for adapter in self.adapters if isinstance(adapter, GpioAdapter)),
             None,
         )
+
+    def _hid_adapters(self) -> dict[str, HidAdapter]:
+        return {
+            adapter.name: adapter
+            for adapter in self.adapters
+            if isinstance(adapter, HidAdapter)
+        }
 
     def _midi_adapters(self) -> dict[str, MidiAdapter]:
         return {
