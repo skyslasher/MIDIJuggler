@@ -221,6 +221,49 @@ def test_click_and_midi_tick_share_the_same_transport_frame() -> None:
     assert click_events[0].position_ticks == 0
 
 
+def test_sleep_frame_returns_immediately_when_bpm_wake_is_pending() -> None:
+    async def scenario() -> float:
+        clock = MasterClock(MasterClockConfig(enabled=True), EventBus())
+        clock.running = True
+        clock._transport_wake.set()
+        started = asyncio.get_running_loop().time()
+        await clock._sleep_frame(clock._transport_wake)
+        return asyncio.get_running_loop().time() - started
+
+    elapsed = asyncio.run(scenario())
+
+    assert elapsed < 0.02
+
+
+def test_rapid_bpm_changes_keep_transport_frames_and_clicks_advancing() -> None:
+    async def scenario() -> tuple[int, int, list[ClickEvent]]:
+        bus = EventBus()
+        click_events: list[ClickEvent] = []
+        bus.subscribe(ClickEvent, lambda event: click_events.append(event))
+        clock = MasterClock(
+            MasterClockConfig(
+                enabled=True,
+                click_enabled=True,
+                click_interval="eighth",
+                bpm=240.0,
+            ),
+            bus,
+            click_player=FakeClickPlayer(),
+        )
+        await clock.start_transport(reset_position=True)
+        ticks_before = clock.position_ticks
+        for step in range(24):
+            await clock.set_bpm(240.0 + step * 0.5)
+            await asyncio.sleep(0)
+        await asyncio.sleep(0.15)
+        return ticks_before, clock.position_ticks, click_events
+
+    ticks_before, ticks_after, click_events = asyncio.run(scenario())
+
+    assert ticks_after > ticks_before
+    assert click_events
+
+
 def test_master_clock_start_command_while_running_does_not_reset_position() -> None:
     async def scenario() -> MasterClock:
         bus = EventBus()

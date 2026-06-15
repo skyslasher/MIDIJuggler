@@ -405,24 +405,24 @@ class MasterClock:
         )
 
     async def _sleep_frame(self, wake: asyncio.Event) -> None:
-        while self.running:
+        if not self.running:
+            return
+        if wake.is_set():
             wake.clear()
-            sleep_task = asyncio.create_task(asyncio.sleep(self._seconds_per_tick()))
-            wake_task = asyncio.create_task(wake.wait())
-            done, pending = await asyncio.wait(
-                {sleep_task, wake_task},
-                return_when=asyncio.FIRST_COMPLETED,
-            )
-            for task in pending:
+            return
+        sleep_task = asyncio.create_task(asyncio.sleep(self._seconds_per_tick()))
+        wake_task = asyncio.create_task(wake.wait())
+        await asyncio.wait(
+            {sleep_task, wake_task},
+            return_when=asyncio.FIRST_COMPLETED,
+        )
+        for task in (sleep_task, wake_task):
+            if not task.done():
                 task.cancel()
                 with contextlib.suppress(asyncio.CancelledError):
                     await task
-            if not self.running:
-                return
-            if wake.is_set():
-                wake.clear()
-                continue
-            return
+        if wake.is_set():
+            wake.clear()
 
     async def _replace_click_player(self, config: MasterClockConfig) -> None:
         previous = self.click_player
