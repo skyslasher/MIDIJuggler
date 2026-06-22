@@ -3784,7 +3784,7 @@ function defaultOscInstanceTemplate() {
   return {
     name: "",
     type: "osc",
-    enabled: true,
+    enabled: false,
     listen_host: "0.0.0.0",
     listen_port: 9000,
     remote_host: "",
@@ -3796,6 +3796,76 @@ function defaultOscInstanceTemplate() {
     desk_proxy_mode: false,
     echo_guard_ms: 30,
   };
+}
+
+function usedOscListenPorts(excludeCard = null) {
+  const ports = new Set();
+  for (const instance of oscAdaptersConfig?.instances || []) {
+    if (!instance.enabled) {
+      continue;
+    }
+    if (instance.listen_port) {
+      ports.add(Number(instance.listen_port));
+    }
+    if (instance.osc_port) {
+      ports.add(Number(instance.osc_port));
+    }
+  }
+  if (excludeCard) {
+    const listenPort = Number(excludeCard.querySelector('[data-field="listen_port"]')?.value || 0);
+    const oscPort = Number(excludeCard.querySelector('[data-field="osc_port"]')?.value || 0);
+    if (listenPort > 0) {
+      ports.delete(listenPort);
+    }
+    if (oscPort > 0) {
+      ports.delete(oscPort);
+    }
+  }
+  return ports;
+}
+
+function suggestedOscListenPort(preferred = 9000, excludeCard = null) {
+  const used = usedOscListenPorts(excludeCard);
+  let port = preferred;
+  while (used.has(port)) {
+    port += 1;
+  }
+  return port;
+}
+
+function suggestedOscInstanceNameFromTemplate() {
+  const used = usedOscInstanceNames();
+  for (const base of ["osc_desk", "osc_mixer", "osc_io"]) {
+    if (!used.has(base)) {
+      return base;
+    }
+  }
+  let suffix = 2;
+  while (used.has(`osc_desk_${suffix}`)) {
+    suffix += 1;
+  }
+  return `osc_desk_${suffix}`;
+}
+
+function buildNewOscInstanceTemplate() {
+  const listenPort = suggestedOscListenPort();
+  return {
+    ...defaultOscInstanceTemplate(),
+    name: suggestedOscInstanceNameFromTemplate(),
+    listen_port: listenPort,
+    osc_port: listenPort,
+  };
+}
+
+function validateOscAdapterInstanceName(name) {
+  const trimmed = String(name || "").trim();
+  if (!trimmed) {
+    return "instance name is required";
+  }
+  if (trimmed.includes(":") || /\s/.test(trimmed)) {
+    return "instance name cannot contain ':' or whitespace";
+  }
+  return "";
 }
 
 function deskModeFromInstance(instance) {
@@ -3862,7 +3932,9 @@ function updateOscCardDeskMode(card) {
   if (deskModeActive) {
     const portField = card.querySelector('[data-field="osc_port"]');
     if (portField && (!portField.value || portField.dataset.userEdited !== "true")) {
-      portField.value = String(deskOscDefaultPort(deskMode));
+      portField.value = String(
+        suggestedOscListenPort(deskOscDefaultPort(deskMode), card),
+      );
     }
   }
 
@@ -4039,6 +4111,7 @@ function deskModeFromDiscoveredDevice(device) {
 
 function createOscInstanceFromDiscoveredDesk(device) {
   const deskMode = deskModeFromDiscoveredDevice(device);
+  const listenPort = suggestedOscListenPort(deskOscDefaultPort(deskMode));
   const config = oscAdaptersConfig || {
     available_osc_libraries: [],
     instances: [],
@@ -4049,8 +4122,8 @@ function createOscInstanceFromDiscoveredDesk(device) {
     desk_mode: deskMode,
     osc_library: deskModeToLibraryId(deskMode),
     remote_host: device.ip,
-    osc_port: deskOscDefaultPort(deskMode),
-    listen_port: deskOscDefaultPort(deskMode),
+    osc_port: listenPort,
+    listen_port: listenPort,
   };
   const card = createOscAdapterCard(instance, config, { isNew: true });
   oscInstances.appendChild(card);
@@ -4358,6 +4431,12 @@ function deleteOscAdapterCard(card) {
 function saveOscAdapterCard(card) {
   const saveButton = card.querySelector(".midi-adapter-save");
   const wasNew = card.dataset.isNew === "true";
+  const { name } = adapterInstanceNameFromCard(card);
+  const nameError = validateOscAdapterInstanceName(name);
+  if (nameError) {
+    showMidiAdapterCardMessage(card, `error: ${nameError}`);
+    return;
+  }
 
   showMidiAdapterCardMessage(card, "saving...");
   saveButton.disabled = true;
@@ -4396,7 +4475,7 @@ function addOscAdapterCard() {
     instances: [],
   };
   oscInstances.appendChild(
-    createOscAdapterCard(defaultOscInstanceTemplate(), config, { isNew: true }),
+    createOscAdapterCard(buildNewOscInstanceTemplate(), config, { isNew: true }),
   );
   restoreOscDiscoverSelections();
 }
