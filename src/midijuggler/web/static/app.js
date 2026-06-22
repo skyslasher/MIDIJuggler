@@ -4472,6 +4472,8 @@ function updateMasterClickDeviceHint(config) {
     ? `Current device node: ${resolved}`
     : "Audio devices are matched by ALSA card name; card numbers may change.";
 }
+
+function collectMidiAdapterInstancesFrom(container) {
   return [...container.querySelectorAll(".midi-adapter-card")].map((card) =>
     collectMidiAdapterInstanceFrom(card),
   );
