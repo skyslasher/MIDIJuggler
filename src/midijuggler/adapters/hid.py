@@ -16,7 +16,9 @@ from midijuggler.events import AdapterStatusEvent, ControlEvent, HidEvent, HidLe
 from midijuggler.hid.codes import (
     evdev_code_name,
     keyboard_code_name,
+    lookup_input_device,
     normalize_evdev_code_name,
+    normalize_hid_device_options,
     resolve_device_path,
     resolve_evdev_code,
 )
@@ -139,8 +141,7 @@ class HidAdapter(Adapter):
         return EvdevHidReader(device_path, grab=self.grab_device)
 
     def _apply_options(self, options: dict[str, Any]) -> None:
-        normalized = dict(options)
-        self.device_path = resolve_device_path(normalized)
+        normalized = normalize_hid_device_options(dict(options))
         self.keystrokes = _parse_bool_option(normalized.get("keystrokes"), default=False)
         self.grab_device = _parse_bool_option(
             normalized.get("grab"),
@@ -152,18 +153,23 @@ class HidAdapter(Adapter):
         }
         self.config.options.clear()
         self.config.options.update(normalized)
+        self.device_path = self._resolve_runtime_device_path(normalized)
 
     async def start(self) -> None:
-        async with self._lock:
-            self._reader = self._reader_factory(self.device_path, self.inputs)
-            self._load_abs_ranges()
-
         self.running = True
         self._last_connection_detail = None
-        if self.inputs:
-            await self._publish_initial_states()
+
+        if not await self._ensure_reader():
+            LOGGER.warning(
+                "HID device not available for %s (%s); waiting for reconnect",
+                self.name,
+                self._device_label(),
+            )
+
         self._read_task = asyncio.create_task(self._read_loop(), name=f"hid-{self.name}")
-        await self._publish_connection_status("connected", force=True)
+
+        if self._reader is None:
+            await self._publish_connection_status("waiting", force=True)
 
     async def stop(self) -> None:
         self.running = False
@@ -187,9 +193,34 @@ class HidAdapter(Adapter):
             )
         )
 
+    def _resolve_runtime_device_path(self, options: dict[str, Any]) -> str:
+        with contextlib.suppress(ValueError, ImportError):
+            return resolve_device_path(options)
+        legacy = str(options.get("device", "")).strip()
+        return legacy
+
+    def _device_label(self) -> str:
+        matched = lookup_input_device(
+            vendor_id=self.config.options.get("vendor_id"),
+            product_id=self.config.options.get("product_id"),
+            device_path=self.device_path or None,
+        )
+        if matched is not None:
+            return (
+                f"{matched['name']} ({matched['vendor_id']}:{matched['product_id']}, "
+                f"{matched['path']})"
+            )
+        vendor_id = self.config.options.get("vendor_id")
+        product_id = self.config.options.get("product_id")
+        if vendor_id and product_id:
+            return f"{vendor_id}:{product_id}"
+        if self.device_path:
+            return self.device_path
+        return "unknown HID device"
+
     def _connection_detail(self, phase: str) -> str:
         mapped = len(self.inputs)
-        detail = f"HID device {self.device_path}"
+        detail = f"HID device {self._device_label()}"
         if mapped:
             detail += f" ({mapped} inputs)"
         else:
@@ -238,7 +269,13 @@ class HidAdapter(Adapter):
                 None,
                 lambda: self._reader_factory(self.device_path, self.inputs),
             )
-        except OSError:
+        except OSError as exc:
+            LOGGER.debug(
+                "HID device unavailable for %s (%s): %s",
+                self.name,
+                self.device_path,
+                exc,
+            )
             return False
 
         async with self._lock:
@@ -439,8 +476,16 @@ class HidAdapter(Adapter):
             )
 
     def config_payload(self) -> dict[str, Any]:
+        matched = lookup_input_device(
+            vendor_id=self.config.options.get("vendor_id"),
+            product_id=self.config.options.get("product_id"),
+            device_path=self.device_path or None,
+        )
         return {
-            "device": self.device_path,
+            "vendor_id": self.config.options.get("vendor_id", ""),
+            "product_id": self.config.options.get("product_id", ""),
+            "device_name": matched["name"] if matched is not None else "",
+            "resolved_device": self.device_path,
             "keystrokes": self.keystrokes,
             "grab": self.grab_device,
             "inputs": [

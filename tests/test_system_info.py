@@ -2,10 +2,15 @@ from pathlib import Path
 
 import pytest
 
-from midijuggler.system_info import list_click_wavs, parse_aconnect_ports, parse_aplay_devices
+from midijuggler.system_info import (
+    list_click_wavs,
+    normalize_midi_port_id,
+    parse_aconnect_ports,
+    parse_aplay_devices,
+)
 
 
-def test_parse_aplay_devices_returns_plughw_ids() -> None:
+def test_parse_aplay_devices_returns_stable_card_ids() -> None:
     devices = parse_aplay_devices(
         """
         **** List of PLAYBACK Hardware Devices ****
@@ -14,19 +19,17 @@ def test_parse_aplay_devices_returns_plughw_ids() -> None:
         """
     )
 
-    assert devices == [
-        {"id": "", "label": "default (software/mixed)", "mode": "alias"},
-        {
-            "id": "plughw:0,0",
-            "label": "Headphones / bcm2835 Headphones (plughw:0,0)",
-            "mode": "dmix",
-        },
-        {
-            "id": "plughw:1,0",
-            "label": "Device / USB Audio (plughw:1,0)",
-            "mode": "dmix",
-        },
-    ]
+    assert devices[0] == {
+        "id": "",
+        "label": "default (software/mixed)",
+        "mode": "alias",
+    }
+    assert devices[1]["id"] == "plughw:CARD=Headphones,DEV=0"
+    assert devices[1]["resolved_device"] == "plughw:0,0"
+    assert devices[1]["card_name"] == "Headphones"
+    assert devices[2]["id"] == "plughw:CARD=Device,DEV=0"
+    assert devices[2]["resolved_device"] == "plughw:1,0"
+    assert devices[2]["card_name"] == "Device"
 
 
 def test_parse_aconnect_ports_returns_all_client_addresses() -> None:
@@ -74,6 +77,21 @@ def test_parse_aconnect_ports_keeps_same_name_on_different_addresses() -> None:
     )
 
     assert [port["address"] for port in ports] == ["24:0", "24:1"]
+
+
+def test_normalize_midi_port_id_migrates_legacy_address(monkeypatch) -> None:
+    ports = parse_aconnect_ports(
+        """
+        client 24: 'X-TOUCHMINI' [type=kernel]
+            0 'X-TOUCH MINI'
+        """
+    )
+    monkeypatch.setattr(
+        "midijuggler.system_info.list_midi_input_ports",
+        lambda: ports,
+    )
+
+    assert normalize_midi_port_id("24:0", inputs=True) == "X-TOUCH MINI"
 
 
 def test_list_midi_input_ports_falls_back_to_aconnect_when_mido_is_empty(

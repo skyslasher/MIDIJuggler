@@ -330,6 +330,61 @@ def test_apply_midi_adapters_config_persists_sections(tmp_path: Path, monkeypatc
     assert 'session_name = "MIDIJuggler"' in saved_text
 
 
+def test_apply_midi_adapters_config_migrates_legacy_port_address(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    ports = [
+        {
+            "id": "X-TOUCH MINI",
+            "address": "24:0",
+            "label": "X-TOUCHMINI / X-TOUCH MINI (24:0)",
+            "client": "X-TOUCHMINI",
+        }
+    ]
+    _mock_midi_ports(monkeypatch, ports)
+    config_file = tmp_path / "config.toml"
+    config_file.write_text(
+        """
+        [adapters.midi]
+        enabled = true
+        input_port = "24:0"
+        output_port = "24:0"
+        """,
+        encoding="utf-8",
+    )
+    config = load_config(config_file)
+    interface = WebInterface(
+        config,
+        EventBus(),
+        ClockBpmTracker(),
+        MasterClock(config.master_clock, EventBus()),
+        config_path=config_file,
+    )
+
+    result = asyncio.run(
+        interface.apply_midi_adapters_config(
+            {
+                "instances": [
+                    {
+                        "name": "midi",
+                        "enabled": True,
+                        "input_port": "24:0",
+                        "output_port": "24:0",
+                    }
+                ]
+            }
+        )
+    )
+
+    saved = load_config(config_file)
+    midi = next(item for item in result["instances"] if item["name"] == "midi")
+    assert midi["input_port"] == "X-TOUCH MINI"
+    assert midi["output_port"] == "X-TOUCH MINI"
+    assert saved.adapters["midi"].options["input_port"] == "X-TOUCH MINI"
+    assert 'input_port = "24:0"' not in config_file.read_text(encoding="utf-8")
+
+
 def test_apply_midi_adapters_config_persists_listen_mode(tmp_path: Path, monkeypatch) -> None:
     _mock_midi_ports(monkeypatch, [])
     config_file = tmp_path / "config.toml"

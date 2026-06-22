@@ -3,6 +3,7 @@ from pathlib import Path
 from midijuggler.alsa import (
     alsa_mode_for_device,
     alsa_config_path_for_config,
+    normalize_alsa_output_device,
     render_master_clock_pcm,
     render_master_clock_dmix,
     write_master_clock_pcm_config,
@@ -35,8 +36,35 @@ def test_render_master_clock_pcm_uses_alias_for_soft_device() -> None:
     assert "type dmix" not in config
 
 
+def test_render_master_clock_dmix_supports_stable_card_device_id() -> None:
+    config = render_master_clock_dmix("plughw:CARD=Device,DEV=0")
+
+    assert 'pcm "hw:CARD=Device,DEV=0"' in config
+
+
+def test_normalize_alsa_output_device_migrates_legacy_plughw_id() -> None:
+    devices = [
+        {"id": "", "label": "default", "mode": "alias"},
+        {
+            "id": "plughw:CARD=Device,DEV=0",
+            "resolved_device": "plughw:1,0",
+            "card_number": "1",
+            "device_index": "0",
+            "card_name": "Device",
+            "device_name": "USB Audio",
+            "mode": "dmix",
+        },
+    ]
+
+    assert (
+        normalize_alsa_output_device("plughw:1,0", devices=devices)
+        == "plughw:CARD=Device,DEV=0"
+    )
+
+
 def test_alsa_mode_for_device_detects_hardware() -> None:
     assert alsa_mode_for_device("plughw:1,0") == "dmix"
+    assert alsa_mode_for_device("plughw:CARD=Device,DEV=0") == "dmix"
     assert alsa_mode_for_device("hw:1,0") == "dmix"
     assert alsa_mode_for_device("default") == "alias"
     assert alsa_mode_for_device("dmix") == "alias"

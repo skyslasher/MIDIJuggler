@@ -407,6 +407,45 @@ def test_hid_adapter_logs_once_when_device_disappears(
     assert warning_count == 1
 
 
+def test_hid_adapter_starts_when_device_missing_at_startup(
+    fake_evdev_codes: None,
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    def missing_device_factory(device_path: str, _inputs: list) -> FakeHidReader:
+        raise FileNotFoundError(2, "No such file or directory", device_path)
+
+    async def scenario() -> tuple[list[str], list[str]]:
+        from midijuggler.events import AdapterStatusEvent
+
+        bus = EventBus()
+        phases: list[str] = []
+        bus.subscribe(
+            AdapterStatusEvent,
+            lambda event: phases.append(str(event.connection_phase or "")),
+        )
+        adapter = HidAdapter(
+            name="encoder_key",
+            config=AdapterConfig(
+                enabled=True,
+                options={"device": "/dev/input/event2", "codes": ["BTN_A"]},
+            ),
+            bus=bus,
+            reader_factory=missing_device_factory,
+        )
+
+        with caplog.at_level("WARNING"):
+            await adapter.start()
+            await asyncio.sleep(0.01)
+            await adapter.stop()
+
+        return phases, [record.message for record in caplog.records]
+
+    phases, messages = asyncio.run(scenario())
+
+    assert "waiting" in phases
+    assert any("HID device not available" in message for message in messages)
+
+
 def test_hid_control_events_update_datapoint_store(fake_evdev_codes: None) -> None:
     async def scenario() -> float | None:
         bus = EventBus()

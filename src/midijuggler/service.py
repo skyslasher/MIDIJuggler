@@ -18,6 +18,7 @@ from midijuggler.adapters.osc import OscAdapter
 from midijuggler.alsa import (
     MASTER_CLOCK_PCM_NAME,
     alsa_config_path_for_config,
+    resolve_alsa_output_device,
     write_master_clock_pcm_config,
 )
 from midijuggler.clock import ClockBpmTracker
@@ -287,7 +288,10 @@ class MIDIJugglerService:
         if self.alsa_config_path is None:
             return
         try:
-            write_master_clock_pcm_config(self.alsa_config_path, audio_device)
+            write_master_clock_pcm_config(
+                self.alsa_config_path,
+                resolve_alsa_output_device(audio_device),
+            )
         except OSError:
             LOGGER.exception(
                 "could not write ALSA dmix config for master clock to %s",

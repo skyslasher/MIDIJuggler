@@ -1773,33 +1773,109 @@ function syncHidLearnState(config) {
   }
 }
 
+function hidInstanceDeviceKey(instance) {
+  if (instance.device_key) {
+    return instance.device_key;
+  }
+  if (instance.vendor_id && instance.product_id) {
+    return `${instance.vendor_id}:${instance.product_id}`;
+  }
+  return "";
+}
+
+function formatHidDeviceLabel(device) {
+  return `${device.name} (${device.vendor_id}:${device.product_id})`;
+}
+
 function createHidDeviceField(instance, config) {
+  const wrapper = document.createElement("div");
+  wrapper.className = "hid-device-field";
+
   const label = document.createElement("label");
   label.append(document.createTextNode("Device "));
   const select = document.createElement("select");
-  select.dataset.field = "device";
+  select.dataset.field = "device_key";
   const emptyOption = document.createElement("option");
   emptyOption.value = "";
   emptyOption.textContent = "Select input device...";
   select.appendChild(emptyOption);
+
+  let selectedKey = hidInstanceDeviceKey(instance);
+  if (!selectedKey && instance.device) {
+    const matched = (config.available_devices || []).find(
+      (device) => device.path === instance.device,
+    );
+    if (matched) {
+      selectedKey = `${matched.vendor_id}:${matched.product_id}`;
+    }
+  }
+
   for (const device of config.available_devices || []) {
     const option = document.createElement("option");
-    option.value = device.path;
-    option.textContent = `${device.name} (${device.path})`;
+    option.value = `${device.vendor_id}:${device.product_id}`;
+    option.textContent = formatHidDeviceLabel(device);
     select.appendChild(option);
   }
-  if (instance.device) {
-    const configured = [...select.options].some((option) => option.value === instance.device);
+
+  if (selectedKey) {
+    const configured = [...select.options].some((option) => option.value === selectedKey);
     if (!configured) {
       const option = document.createElement("option");
-      option.value = instance.device;
-      option.textContent = `${instance.device} (configured)`;
+      option.value = selectedKey;
+      const name = instance.device_name || "Configured device";
+      option.textContent = `${name} (${selectedKey}, unavailable)`;
       select.appendChild(option);
     }
-    select.value = instance.device;
+    select.value = selectedKey;
+  } else if (instance.device) {
+    const option = document.createElement("option");
+    option.value = "";
+    option.dataset.legacyPath = instance.device;
+    option.textContent = `${instance.device} (legacy path, re-select to migrate)`;
+    option.selected = true;
+    select.appendChild(option);
   }
+
   label.appendChild(select);
-  return label;
+  wrapper.appendChild(label);
+
+  const hint = document.createElement("p");
+  hint.className = "hint hid-device-hint";
+  hint.textContent = instance.resolved_device
+    ? `Current device node: ${instance.resolved_device}`
+    : "Devices are matched by USB vendor/product ID so event paths can change safely.";
+  wrapper.appendChild(hint);
+
+  return wrapper;
+}
+
+function hidDeviceSelectionFromCard(card) {
+  const select = card.querySelector('[data-field="device_key"]');
+  const value = select?.value.trim() || "";
+  if (!value) {
+    const legacyPath = select?.selectedOptions?.[0]?.dataset.legacyPath || "";
+    return {
+      vendor_id: "",
+      product_id: "",
+      device_key: "",
+      device: legacyPath,
+    };
+  }
+  const separator = value.indexOf(":");
+  if (separator === -1) {
+    return {
+      vendor_id: "",
+      product_id: "",
+      device_key: value,
+      device: "",
+    };
+  }
+  return {
+    vendor_id: value.slice(0, separator),
+    product_id: value.slice(separator + 1),
+    device_key: value,
+    device: "",
+  };
 }
 
 function createHidInputRow(input = {}) {
@@ -1880,11 +1956,15 @@ function hidInputsFromCard(card) {
 
 function hidAdapterCardPayload(card) {
   const namePayload = adapterInstanceNameFromCard(card);
+  const deviceSelection = hidDeviceSelectionFromCard(card);
   return {
     ...namePayload,
     type: "hid",
     enabled: card.querySelector('[data-field="enabled"]')?.checked ?? false,
-    device: card.querySelector('[data-field="device"]')?.value.trim() || "",
+    vendor_id: deviceSelection.vendor_id,
+    product_id: deviceSelection.product_id,
+    device_key: deviceSelection.device_key,
+    device: deviceSelection.device,
     keystrokes: card.querySelector('[data-field="keystrokes"]')?.checked ?? false,
     grab: card.querySelector('[data-field="grab"]')?.checked ?? false,
     inputs: hidInputsFromCard(card),
@@ -3263,6 +3343,11 @@ function createMidiAdapterCard(instance, config, options = {}) {
         "No input port",
       ),
     );
+    appendResolvedAddressHint(
+      body,
+      instance.resolved_input_address || "",
+      "Input ports are matched by name; ALSA client numbers may change.",
+    );
     body.appendChild(
       createSelectField(
         "Output port",
@@ -3273,6 +3358,11 @@ function createMidiAdapterCard(instance, config, options = {}) {
         instance.output_port || "",
         "No output port",
       ),
+    );
+    appendResolvedAddressHint(
+      body,
+      instance.resolved_output_address || "",
+      "Output ports are matched by name; ALSA client numbers may change.",
     );
     const libraryOptions = [
       { id: "", label: "No library" },
@@ -4359,7 +4449,29 @@ function createSelectField(labelText, fieldName, options, valueKey, labelKey, se
   return label;
 }
 
-function collectMidiAdapterInstancesFrom(container) {
+function appendResolvedAddressHint(container, resolvedAddress, fallbackText) {
+  const hint = document.createElement("p");
+  hint.className = "hint adapter-port-hint";
+  hint.textContent = resolvedAddress
+    ? `Current ALSA address: ${resolvedAddress}`
+    : fallbackText;
+  container.appendChild(hint);
+  return hint;
+}
+
+function updateMasterClickDeviceHint(config) {
+  const hint = document.querySelector("#master-click-device-hint");
+  if (!hint) {
+    return;
+  }
+  const selected = (config.available_audio_devices || []).find(
+    (device) => device.id === (config.click_audio_device || ""),
+  );
+  const resolved = selected?.resolved_device || config.click_audio_resolved_device || "";
+  hint.textContent = resolved
+    ? `Current device node: ${resolved}`
+    : "Audio devices are matched by ALSA card name; card numbers may change.";
+}
   return [...container.querySelectorAll(".midi-adapter-card")].map((card) =>
     collectMidiAdapterInstanceFrom(card),
   );
@@ -4394,6 +4506,7 @@ function renderMasterClockConfig(config) {
     config.click_audio_device || "",
     "default (software/mixed)",
   );
+  updateMasterClickDeviceHint(config);
 
   renderAdapterTargetList(masterOutputTargets, config.available_output_targets || []);
 }

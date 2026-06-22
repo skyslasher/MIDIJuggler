@@ -2,10 +2,103 @@
 
 from __future__ import annotations
 
+import re
 from pathlib import Path
+from typing import Any
 
 MASTER_CLOCK_PCM_NAME = "master_clock"
 SYSTEM_ALSA_CONFIG = "/usr/share/alsa/alsa.conf"
+
+CARD_DEVICE_PATTERN = re.compile(
+    r"^(?P<prefix>plug)?hw:CARD=(?P<card>[^,]+),DEV=(?P<device>\d+)$",
+    re.IGNORECASE,
+)
+NUMERIC_ALSA_DEVICE_PATTERN = re.compile(
+    r"^(?P<prefix>plug)?hw:(?P<card>\d+),(?P<device>\d+)$",
+    re.IGNORECASE,
+)
+
+
+def alsa_stable_device_id(
+    card_name: str,
+    device_index: int | str,
+    *,
+    plug: bool = True,
+) -> str:
+    """Return a stable ALSA device id based on card name instead of card number."""
+
+    prefix = "plughw" if plug else "hw"
+    card = card_name.strip()
+    return f"{prefix}:CARD={card},DEV={int(device_index)}"
+
+
+def lookup_alsa_output_device(
+    device: str,
+    devices: list[dict[str, Any]] | None = None,
+) -> dict[str, Any] | None:
+    from midijuggler.system_info import list_alsa_output_devices
+
+    listed = list_alsa_output_devices() if devices is None else devices
+    normalized = device.strip()
+    if not normalized:
+        return next((entry for entry in listed if not entry.get("id")), None)
+
+    for entry in listed:
+        if entry.get("id") == normalized:
+            return entry
+
+    card_match = CARD_DEVICE_PATTERN.match(normalized)
+    if card_match is not None:
+        card_name = card_match.group("card")
+        device_index = card_match.group("device")
+        for entry in listed:
+            if (
+                entry.get("card_name") == card_name
+                and str(entry.get("device_index")) == device_index
+            ):
+                return entry
+
+    numeric_match = NUMERIC_ALSA_DEVICE_PATTERN.match(normalized)
+    if numeric_match is not None:
+        card_number = numeric_match.group("card")
+        device_index = numeric_match.group("device")
+        for entry in listed:
+            if (
+                str(entry.get("card_number")) == card_number
+                and str(entry.get("device_index")) == device_index
+            ):
+                return entry
+
+    return None
+
+
+def normalize_alsa_output_device(
+    device: str,
+    devices: list[dict[str, Any]] | None = None,
+) -> str:
+    """Prefer stable CARD= device ids and migrate legacy plughw:N,M values."""
+
+    normalized = device.strip()
+    if not normalized:
+        return ""
+
+    if CARD_DEVICE_PATTERN.match(normalized):
+        return normalized
+
+    matched = lookup_alsa_output_device(normalized, devices=devices)
+    if matched is not None and matched.get("id"):
+        return str(matched["id"])
+
+    return normalized
+
+
+def resolve_alsa_output_device(
+    device: str,
+    devices: list[dict[str, Any]] | None = None,
+) -> str:
+    """Return the configured ALSA device string for playback."""
+
+    return normalize_alsa_output_device(device, devices=devices)
 
 
 def alsa_config_path_for_config(config_path: str | Path | None) -> Path | None:
@@ -98,6 +191,8 @@ def _render_alias_pcm(slave_pcm: str, pcm_name: str) -> str:
 
 
 def _is_hardware_pcm(device: str) -> bool:
+    if CARD_DEVICE_PATTERN.match(device):
+        return True
     return device.startswith("hw:") or device.startswith("plughw:")
 
 

@@ -6,6 +6,8 @@ from pathlib import Path
 import re
 import subprocess
 
+from midijuggler.alsa import alsa_stable_device_id
+
 
 def parse_aplay_devices(output: str) -> list[dict[str, str]]:
     devices: list[dict[str, str]] = [
@@ -23,10 +25,20 @@ def parse_aplay_devices(output: str) -> list[dict[str, str]]:
         device = match.group("device")
         card_name = match.group("card_name").strip()
         device_name = match.group("device_name").strip()
+        stable_id = alsa_stable_device_id(card_name, device)
+        resolved_device = f"plughw:{card},{device}"
         devices.append(
             {
-                "id": f"plughw:{card},{device}",
-                "label": f"{card_name} / {device_name} (plughw:{card},{device})",
+                "id": stable_id,
+                "resolved_device": resolved_device,
+                "card_number": card,
+                "device_index": device,
+                "card_name": card_name,
+                "device_name": device_name,
+                "label": (
+                    f"{card_name} / {device_name} "
+                    f"({stable_id}, current {resolved_device})"
+                ),
                 "mode": "dmix",
             }
         )
@@ -93,6 +105,59 @@ def parse_aconnect_ports(output: str) -> list[dict[str, str]]:
 
 def _port_open_name(port: dict[str, str]) -> str:
     return port.get("mido_name") or port["address"]
+
+
+def is_midi_port_address(port_name: str) -> bool:
+    return bool(_ADDRESS_PATTERN.match(port_name.strip()))
+
+
+def lookup_midi_port(
+    port_name: str,
+    *,
+    inputs: bool,
+    ports: list[dict[str, str]] | None = None,
+) -> dict[str, str] | None:
+    listed = list_midi_input_ports() if inputs else list_midi_output_ports()
+    if ports is not None:
+        listed = ports
+    normalized = port_name.strip()
+    if not normalized:
+        return None
+
+    if is_midi_port_address(normalized):
+        for port in listed:
+            if port["address"] == normalized or port.get("mido_name") == normalized:
+                return port
+
+    matches = _find_port_matches(normalized, listed)
+    return _pick_preferred_port(matches)
+
+
+def normalize_midi_port_id(
+    port_name: str,
+    *,
+    inputs: bool,
+    ports: list[dict[str, str]] | None = None,
+) -> str:
+    """Prefer stable MIDI port names and migrate legacy client:port addresses."""
+
+    normalized = port_name.strip()
+    if not normalized:
+        return ""
+
+    if is_midi_port_address(normalized):
+        matched = lookup_midi_port(normalized, inputs=inputs, ports=ports)
+        if matched is not None:
+            return matched["id"]
+
+    return normalized
+
+
+def enrich_midi_port_choice(port: dict[str, str]) -> dict[str, str]:
+    return {
+        **port,
+        "resolved_address": port.get("address", ""),
+    }
 
 
 def _find_port_matches(port_name: str, ports: list[dict[str, str]]) -> list[dict[str, str]]:

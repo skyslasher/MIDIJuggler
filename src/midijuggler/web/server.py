@@ -21,7 +21,12 @@ from midijuggler.adapters.hid import HidAdapter
 from midijuggler.adapters.midi import MidiAdapter
 from midijuggler.adapters.osc import OscAdapter
 from midijuggler.adapters.rtp_midi import RtpMidiAdapter
-from midijuggler.alsa import write_master_clock_pcm_config
+from midijuggler.alsa import (
+    lookup_alsa_output_device,
+    normalize_alsa_output_device,
+    resolve_alsa_output_device,
+    write_master_clock_pcm_config,
+)
 from midijuggler.clock import ClockBpmTracker
 from midijuggler.config import (
     DEFAULT_ADAPTERS,
@@ -46,7 +51,14 @@ from midijuggler.config import (
     save_osc_adapter_configs,
     save_hid_adapter_configs,
 )
-from midijuggler.hid.codes import hid_available, list_input_devices
+from midijuggler.hid.codes import (
+    hid_available,
+    hid_device_key,
+    list_input_devices,
+    lookup_input_device,
+    normalize_hid_device_options,
+    parse_hid_device_key,
+)
 from midijuggler.modules.io.hid import HidIOModule
 from midijuggler.modules.modifier.feedback_suppress import parse_feedback_suppress_ms
 from midijuggler.eventbus import EventBus
@@ -108,11 +120,14 @@ from midijuggler.system_hostname import (
     validate_hostname,
 )
 from midijuggler.system_info import (
+    enrich_midi_port_choice,
     list_alsa_output_devices,
     list_click_wavs,
     list_midi_input_ports,
     list_midi_output_ports,
     list_midi_ports,
+    lookup_midi_port,
+    normalize_midi_port_id,
 )
 
 LOGGER = logging.getLogger(__name__)
@@ -1435,9 +1450,45 @@ class WebInterface:
             return True
         return adapter.enabled or bool(adapter.options)
 
+    def _hid_device_fields(self, name: str, options: dict[str, Any]) -> dict[str, Any]:
+        normalized = normalize_hid_device_options(dict(options))
+        available_devices = list_input_devices()
+        matched = lookup_input_device(
+            vendor_id=normalized.get("vendor_id"),
+            product_id=normalized.get("product_id"),
+            device_path=str(normalized.get("device", "")).strip() or None,
+            devices=available_devices,
+        )
+        runtime_adapter = self.hid_adapters.get(name)
+        resolved_device = ""
+        if runtime_adapter is not None and runtime_adapter.device_path:
+            resolved_device = runtime_adapter.device_path
+        elif matched is not None:
+            resolved_device = matched["path"]
+
+        vendor_id = str(normalized.get("vendor_id", "")).strip()
+        product_id = str(normalized.get("product_id", "")).strip()
+        device_key = ""
+        if vendor_id and product_id:
+            with contextlib.suppress(ValueError):
+                device_key = hid_device_key(vendor_id, product_id)
+
+        device_name = matched["name"] if matched is not None else ""
+        legacy_device = str(normalized.get("device", "")).strip()
+
+        return {
+            "vendor_id": vendor_id,
+            "product_id": product_id,
+            "device_key": device_key,
+            "device_name": device_name,
+            "resolved_device": resolved_device,
+            "device": legacy_device,
+        }
+
     def _hid_instance_payload(self, name: str, adapter: AdapterConfig) -> dict[str, Any]:
         options = dict(adapter.options)
         runtime_adapter = self.hid_adapters.get(name)
+        device_fields = self._hid_device_fields(name, options)
         inputs = options.get("inputs")
         if not isinstance(inputs, list):
             inputs = []
@@ -1459,9 +1510,7 @@ class WebInterface:
             "enabled": adapter.enabled,
             "runtime_active": runtime_adapter is not None and runtime_adapter.running,
             "learn_active": self._hid_learn_instance == name,
-            "device": str(options.get("device", "")).strip(),
-            "vendor_id": options.get("vendor_id", ""),
-            "product_id": options.get("product_id", ""),
+            **device_fields,
             "keystrokes": bool(options.get("keystrokes", False)),
             "grab": bool(options.get("grab", options.get("keystrokes", False))),
             "inputs": normalized_inputs,
@@ -1472,18 +1521,13 @@ class WebInterface:
         payload: dict[str, Any],
         current: dict[str, Any],
     ) -> dict[str, Any]:
-        device = str(payload.get("device", current.get("device", ""))).strip()
         vendor_id = payload.get("vendor_id", current.get("vendor_id"))
         product_id = payload.get("product_id", current.get("product_id"))
-
-        options: dict[str, Any] = {}
-        if device:
-            options["device"] = device
-        elif vendor_id is not None and product_id is not None:
-            options["vendor_id"] = vendor_id
-            options["product_id"] = product_id
-        else:
-            raise ValueError("HID adapter requires device or vendor_id and product_id")
+        device = str(payload.get("device", current.get("device", ""))).strip()
+        device_key = str(payload.get("device_key", "")).strip()
+        if device_key and (vendor_id in (None, "") or product_id in (None, "")):
+            with contextlib.suppress(ValueError):
+                vendor_id, product_id = parse_hid_device_key(device_key)
 
         raw_inputs = payload.get("inputs", current.get("inputs", []))
         if not isinstance(raw_inputs, list):
@@ -1511,7 +1555,16 @@ class WebInterface:
                     "value_max": value_max,
                 }
             )
-        options["inputs"] = inputs
+
+        options: dict[str, Any] = {"inputs": inputs}
+        if vendor_id not in (None, "") and product_id not in (None, ""):
+            options["vendor_id"] = vendor_id
+            options["product_id"] = product_id
+        elif device:
+            options["device"] = device
+        else:
+            raise ValueError("HID adapter requires vendor_id and product_id or device")
+
         if "keystrokes" in payload or "keystrokes" in current:
             options["keystrokes"] = bool(
                 payload.get("keystrokes", current.get("keystrokes", False))
@@ -1523,7 +1576,7 @@ class WebInterface:
                     current.get("grab", options.get("keystrokes", False)),
                 )
             )
-        return options
+        return normalize_hid_device_options(options)
 
     async def _resolve_hid_runtime_adapter(self, name: str) -> HidAdapter:
         adapter = self.hid_adapters.get(name)
@@ -2214,7 +2267,12 @@ class WebInterface:
             "tap_tempo_min_taps": config.tap_tempo_min_taps,
             "bpm_step": config.bpm_step,
             "bpm_quantize": config.bpm_quantize,
-            "click_audio_device": config.click_audio_device,
+            "click_audio_device": normalize_alsa_output_device(
+                config.click_audio_device,
+            ),
+            "click_audio_resolved_device": self._resolved_audio_device(
+                config.click_audio_device,
+            ),
             "available_audio_devices": self._audio_devices(config.click_audio_device),
             "available_click_wavs": self._click_wavs(config.click_wav),
             "running": self.master_clock.running,
@@ -2231,7 +2289,7 @@ class WebInterface:
             try:
                 write_master_clock_pcm_config(
                     self.alsa_config_path,
-                    config.click_audio_device,
+                    resolve_alsa_output_device(config.click_audio_device),
                 )
             except OSError as exc:
                 alsa_config_error = str(exc)
@@ -2338,12 +2396,36 @@ class WebInterface:
         if runtime_connection is not None:
             payload["runtime_connection"] = runtime_connection
         if kind == "midi":
-            input_port = str(options.get("input_port", ""))
-            output_port = str(options.get("output_port", ""))
+            input_port = normalize_midi_port_id(
+                str(options.get("input_port", "")),
+                inputs=True,
+                ports=available_input_ports,
+            )
+            output_port = normalize_midi_port_id(
+                str(options.get("output_port", "")),
+                inputs=False,
+                ports=available_output_ports,
+            )
+            input_match = lookup_midi_port(
+                input_port,
+                inputs=True,
+                ports=available_input_ports,
+            )
+            output_match = lookup_midi_port(
+                output_port,
+                inputs=False,
+                ports=available_output_ports,
+            )
             payload.update(
                 {
                     "input_port": input_port,
                     "output_port": output_port,
+                    "resolved_input_address": (
+                        input_match.get("address", "") if input_match is not None else ""
+                    ),
+                    "resolved_output_address": (
+                        output_match.get("address", "") if output_match is not None else ""
+                    ),
                     "midi_library": str(options.get("midi_library", "")),
                     "feedback_refresh_interval": float(
                         options.get("feedback_refresh_interval", 0) or 0
@@ -2363,10 +2445,12 @@ class WebInterface:
                     "available_input_ports": self._midi_port_choices(
                         available_input_ports,
                         input_port,
+                        inputs=True,
                     ),
                     "available_output_ports": self._midi_port_choices(
                         available_output_ports,
                         output_port,
+                        inputs=False,
                     ),
                 }
             )
@@ -2378,7 +2462,16 @@ class WebInterface:
                 if self.rtp_midi_manager is not None
                 else []
             )
-            output_port = str(options.get("output_port", ""))
+            output_port = normalize_midi_port_id(
+                str(options.get("output_port", "")),
+                inputs=False,
+                ports=available_output_ports,
+            )
+            output_match = lookup_midi_port(
+                output_port,
+                inputs=False,
+                ports=available_output_ports,
+            )
             payload.update(
                 {
                     "role": role,
@@ -2386,9 +2479,13 @@ class WebInterface:
                     "port": int(options.get("port", 5004)),
                     "join_target": join_target,
                     "output_port": output_port,
+                    "resolved_output_address": (
+                        output_match.get("address", "") if output_match is not None else ""
+                    ),
                     "available_output_ports": self._midi_port_choices(
                         available_output_ports,
                         output_port,
+                        inputs=False,
                     ),
                     "available_rtp_sessions": self._rtp_session_choices(
                         joinable,
@@ -2420,16 +2517,37 @@ class WebInterface:
         self,
         ports: list[dict[str, str]],
         selected_port: str,
+        *,
+        inputs: bool,
     ) -> list[dict[str, str]]:
+        normalized_selected = normalize_midi_port_id(
+            selected_port,
+            inputs=inputs,
+            ports=ports,
+        )
         port_ids = {port["id"] for port in ports}
-        choices = list(ports)
-        if selected_port and selected_port not in port_ids:
+        choices = [enrich_midi_port_choice(port) for port in ports]
+        if normalized_selected and normalized_selected not in port_ids:
+            matched = lookup_midi_port(
+                normalized_selected,
+                inputs=inputs,
+                ports=ports,
+            )
+            label = f"{normalized_selected} (configured)"
+            if matched is not None:
+                label = (
+                    f"{matched.get('client', matched['id'])} / {matched['id']} "
+                    f"(current {matched.get('address', '')})"
+                )
             choices.append(
-                {
-                    "id": selected_port,
-                    "label": f"{selected_port} (configured)",
-                    "client": "",
-                }
+                enrich_midi_port_choice(
+                    {
+                        "id": normalized_selected,
+                        "label": label,
+                        "client": matched.get("client", "") if matched is not None else "",
+                        "address": matched.get("address", "") if matched is not None else "",
+                    }
+                )
             )
         return choices
 
@@ -2438,12 +2556,20 @@ class WebInterface:
         payload: dict[str, Any],
         current: dict[str, Any],
     ) -> dict[str, Any]:
+        available_input_ports = list_midi_input_ports()
+        available_output_ports = list_midi_output_ports()
         midi_library = str(payload.get("midi_library", current.get("midi_library", ""))).strip()
         options = {
-            "input_port": str(payload.get("input_port", current.get("input_port", ""))).strip(),
-            "output_port": str(
-                payload.get("output_port", current.get("output_port", ""))
-            ).strip(),
+            "input_port": normalize_midi_port_id(
+                str(payload.get("input_port", current.get("input_port", ""))).strip(),
+                inputs=True,
+                ports=available_input_ports,
+            ),
+            "output_port": normalize_midi_port_id(
+                str(payload.get("output_port", current.get("output_port", ""))).strip(),
+                inputs=False,
+                ports=available_output_ports,
+            ),
         }
         if midi_library:
             known_libraries = {library.id for library in list_midi_libraries()}
@@ -2505,9 +2631,11 @@ class WebInterface:
             payload.get("session_name", current.get("session_name", ""))
         ).strip()
         join_target = str(payload.get("join_target", current.get("join_target", ""))).strip()
-        output_port = str(
-            payload.get("output_port", current.get("output_port", ""))
-        ).strip()
+        output_port = normalize_midi_port_id(
+            str(payload.get("output_port", current.get("output_port", ""))).strip(),
+            inputs=False,
+            ports=list_midi_output_ports(),
+        )
 
         if role in {"host", "listen"}:
             if enabled and not session_name:
@@ -2686,7 +2814,9 @@ class WebInterface:
             click_wav=str(payload.get("click_wav", current.click_wav)),
             click_interval=click_interval,
             click_command="aplay",
-            click_audio_device=str(payload.get("click_audio_device", current.click_audio_device)),
+            click_audio_device=normalize_alsa_output_device(
+                str(payload.get("click_audio_device", current.click_audio_device)),
+            ),
             tap_tempo_min_taps=tap_tempo_min_taps,
             bpm_step=bpm_step,
             bpm_quantize=bpm_quantize,
@@ -2747,11 +2877,38 @@ class WebInterface:
             raise ValueError(f"unknown master clock {field_name}: {unknown_targets}")
         return input_targets
 
+    def _resolved_audio_device(self, selected_device: str) -> str:
+        matched = lookup_alsa_output_device(selected_device)
+        if matched is None:
+            return ""
+        return str(matched.get("resolved_device", ""))
+
     def _audio_devices(self, selected_device: str) -> list[dict[str, str]]:
         devices = list_alsa_output_devices()
+        normalized_selected = normalize_alsa_output_device(
+            selected_device,
+            devices=devices,
+        )
         ids = {device["id"] for device in devices}
-        if selected_device and selected_device not in ids:
-            devices.append({"id": selected_device, "label": f"{selected_device} (configured)"})
+        if normalized_selected and normalized_selected not in ids:
+            matched = lookup_alsa_output_device(normalized_selected, devices=devices)
+            label = f"{normalized_selected} (configured)"
+            if matched is not None:
+                label = (
+                    f"{matched.get('card_name', normalized_selected)} / "
+                    f"{matched.get('device_name', '')} "
+                    f"(current {matched.get('resolved_device', '')})"
+                ).strip()
+            devices.append(
+                {
+                    "id": normalized_selected,
+                    "label": label,
+                    "mode": matched.get("mode", "dmix") if matched is not None else "dmix",
+                    "resolved_device": (
+                        matched.get("resolved_device", "") if matched is not None else ""
+                    ),
+                }
+            )
         return devices
 
     def _click_wavs(self, selected_wav: str) -> list[dict[str, str]]:

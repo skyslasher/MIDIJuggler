@@ -105,7 +105,25 @@ def test_apply_master_clock_config_persists_section(tmp_path: Path) -> None:
     assert saved.master_clock.click_command == "aplay"
 
 
-def test_apply_master_clock_config_updates_alsa_dmix_config(tmp_path: Path) -> None:
+def test_apply_master_clock_config_updates_alsa_dmix_config(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(
+        "midijuggler.system_info.list_alsa_output_devices",
+        lambda: [
+            {"id": "", "label": "default", "mode": "alias"},
+            {
+                "id": "plughw:CARD=Device,DEV=0",
+                "resolved_device": "plughw:1,0",
+                "card_number": "1",
+                "device_index": "0",
+                "card_name": "Device",
+                "device_name": "USB Audio",
+                "mode": "dmix",
+            },
+        ],
+    )
     config_file = tmp_path / "config.toml"
     config_file.write_text("[master_clock]\nbpm = 120.0\n", encoding="utf-8")
     config = load_config(config_file)
@@ -133,7 +151,10 @@ def test_apply_master_clock_config_updates_alsa_dmix_config(tmp_path: Path) -> N
     )
 
     assert result["alsa_config_error"] == ""
-    assert 'pcm "hw:1,0"' in (tmp_path / "asoundrc").read_text(encoding="utf-8")
+    asoundrc = (tmp_path / "asoundrc").read_text(encoding="utf-8")
+    assert 'pcm "hw:CARD=Device,DEV=0"' in asoundrc
+    saved = load_config(config_file)
+    assert saved.master_clock.click_audio_device == "plughw:CARD=Device,DEV=0"
 
 
 def test_apply_master_clock_config_keeps_runtime_change_when_persisting_fails(

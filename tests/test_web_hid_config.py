@@ -34,17 +34,16 @@ def fake_evdev_codes(monkeypatch: pytest.MonkeyPatch) -> None:
 
     monkeypatch.setattr("midijuggler.adapters.hid.resolve_evdev_code", resolve)
     monkeypatch.setattr("midijuggler.web.server.hid_available", lambda: True)
-    monkeypatch.setattr(
-        "midijuggler.web.server.list_input_devices",
-        lambda: [
-            {
-                "path": "/dev/input/event0",
-                "name": "Test Gamepad",
-                "vendor_id": "0x046d",
-                "product_id": "0xc21f",
-            }
-        ],
-    )
+    devices = [
+        {
+            "path": "/dev/input/event0",
+            "name": "Test Gamepad",
+            "vendor_id": "0x046d",
+            "product_id": "0xc21f",
+        }
+    ]
+    monkeypatch.setattr("midijuggler.web.server.list_input_devices", lambda: devices)
+    monkeypatch.setattr("midijuggler.hid.codes.list_input_devices", lambda: devices)
 
 
 def test_hid_adapters_config_payload_lists_instances(fake_evdev_codes: None) -> None:
@@ -54,7 +53,8 @@ def test_hid_adapters_config_payload_lists_instances(fake_evdev_codes: None) -> 
                 "gamepad": {
                     "type": "hid",
                     "enabled": True,
-                    "device": "/dev/input/event0",
+                    "vendor_id": "0x046d",
+                    "product_id": "0xc21f",
                     "inputs": [{"code": "BTN_A", "control": "btn_a"}],
                 }
             }
@@ -72,8 +72,14 @@ def test_hid_adapters_config_payload_lists_instances(fake_evdev_codes: None) -> 
     assert payload["hid_available"] is True
     assert payload["available_devices"][0]["path"] == "/dev/input/event0"
     assert len(payload["instances"]) == 1
-    assert payload["instances"][0]["name"] == "gamepad"
-    assert payload["instances"][0]["inputs"][0]["code"] == "BTN_A"
+    instance = payload["instances"][0]
+    assert instance["name"] == "gamepad"
+    assert instance["vendor_id"] == "0x046d"
+    assert instance["product_id"] == "0xc21f"
+    assert instance["device_name"] == "Test Gamepad"
+    assert instance["device_key"] == "0x046d:0xc21f"
+    assert instance["resolved_device"] == "/dev/input/event0"
+    assert instance["inputs"][0]["code"] == "BTN_A"
 
 
 def test_apply_hid_adapters_config_persists_section(
@@ -115,7 +121,9 @@ def test_apply_hid_adapters_config_persists_section(
                     {
                         "name": "gamepad",
                         "enabled": True,
-                        "device": "/dev/input/event0",
+                        "vendor_id": "0x046d",
+                        "product_id": "0xc21f",
+                        "device_key": "0x046d:0xc21f",
                         "inputs": [
                             {
                                 "code": "BTN_A",
@@ -136,8 +144,16 @@ def test_apply_hid_adapters_config_persists_section(
         instance for instance in result["instances"] if instance["name"] == "gamepad"
     )
     assert gamepad["inputs"][0]["control"] == "button_a"
-    assert saved.adapters["gamepad"].options["inputs"][0]["control"] == "button_a"
-    assert "[[adapters.gamepad.inputs]]" in config_file.read_text(encoding="utf-8")
+    assert gamepad["vendor_id"] == "0x046d"
+    assert gamepad["product_id"] == "0xc21f"
+    assert gamepad["device_name"] == "Test Gamepad"
+    saved_options = saved.adapters["gamepad"].options
+    assert saved_options["vendor_id"] == "0x046d"
+    assert saved_options["product_id"] == "0xc21f"
+    assert "device" not in saved_options
+    assert saved_options["inputs"][0]["control"] == "button_a"
+    assert "vendor_id" in config_file.read_text(encoding="utf-8")
+    assert "device =" not in config_file.read_text(encoding="utf-8")
 
 
 def test_apply_hid_adapters_config_allows_enabled_without_inputs(
@@ -166,7 +182,9 @@ def test_apply_hid_adapters_config_allows_enabled_without_inputs(
                     {
                         "name": "encoder_key",
                         "enabled": True,
-                        "device": "/dev/input/event0",
+                        "vendor_id": "0x046d",
+                        "product_id": "0xc21f",
+                        "device_key": "0x046d:0xc21f",
                         "inputs": [],
                     }
                 ],
@@ -177,9 +195,66 @@ def test_apply_hid_adapters_config_allows_enabled_without_inputs(
 
     instance = next(item for item in result["instances"] if item["name"] == "encoder_key")
     assert instance["enabled"] is True
-    assert instance["device"] == "/dev/input/event0"
+    assert instance["vendor_id"] == "0x046d"
+    assert instance["product_id"] == "0xc21f"
+    assert instance["device_name"] == "Test Gamepad"
     assert instance["inputs"] == []
     assert interface.hid_adapters["encoder_key"].running is True
+
+
+def test_apply_hid_adapters_config_migrates_legacy_device_path(
+    tmp_path: Path,
+    fake_evdev_codes: None,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    def patched_hid_adapter(*args, **kwargs):
+        kwargs.setdefault("reader_factory", lambda _device_path, _inputs: FakeHidReader())
+        return HidAdapter(*args, **kwargs)
+
+    monkeypatch.setattr("midijuggler.web.server.HidAdapter", patched_hid_adapter)
+
+    config_file = tmp_path / "config.toml"
+    config_file.write_text(
+        """
+        [adapters.gamepad]
+        type = "hid"
+        enabled = true
+        device = "/dev/input/event0"
+        codes = ["BTN_A"]
+        """,
+        encoding="utf-8",
+    )
+    config = load_config(config_file)
+    interface = WebInterface(
+        config,
+        EventBus(),
+        ClockBpmTracker(),
+        MasterClock(config.master_clock, EventBus()),
+        config_path=config_file,
+    )
+
+    result = asyncio.run(
+        interface.apply_hid_adapters_config(
+            {
+                "instances": [
+                    {
+                        "name": "gamepad",
+                        "enabled": True,
+                        "device": "/dev/input/event0",
+                        "inputs": [{"code": "BTN_A", "control": "btn_a"}],
+                    }
+                ],
+                "deleted": [],
+            }
+        )
+    )
+
+    instance = next(item for item in result["instances"] if item["name"] == "gamepad")
+    assert instance["vendor_id"] == "0x046d"
+    assert instance["product_id"] == "0xc21f"
+    saved = load_config(config_file)
+    assert saved.adapters["gamepad"].options["vendor_id"] == "0x046d"
+    assert "device" not in saved.adapters["gamepad"].options
 
 
 def test_apply_hid_learn_mode_activates_adapter(
