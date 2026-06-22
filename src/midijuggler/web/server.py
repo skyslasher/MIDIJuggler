@@ -60,6 +60,7 @@ from midijuggler.hid.codes import (
     parse_hid_device_key,
 )
 from midijuggler.modules.io.hid import HidIOModule
+from midijuggler.modules.io.osc import OscIOModule
 from midijuggler.modules.modifier.feedback_suppress import parse_feedback_suppress_ms
 from midijuggler.eventbus import EventBus
 from midijuggler.events import AdapterStatusEvent, Event, MasterClockStateEvent, MidiMessageEvent
@@ -169,6 +170,7 @@ class WebInterface:
         self._runtime_adapters = runtime_adapters
         self.datapoint_store = datapoint_store
         self.modifier_graph = modifier_graph
+        self._osc_io_modules: dict[str, OscIOModule] | None = None
         self.learn = LearnController()
         self.config_path = Path(config_path) if config_path is not None else None
         self.alsa_config_path = (
@@ -178,6 +180,9 @@ class WebInterface:
         self._hid_learn_instance: str | None = None
         self._adapter_runtime_status: dict[str, dict[str, str]] = {}
         self.bus.subscribe("*", self._broadcast_event)
+
+    def bind_osc_io_modules(self, io_modules: dict[str, OscIOModule]) -> None:
+        self._osc_io_modules = io_modules
 
     def create_app(self) -> web.Application:
         app = web.Application()
@@ -1646,6 +1651,37 @@ class WebInterface:
         self.datapoint_store.unregister_module_except(name, keep)
         self.datapoint_store.register_many(specs)
 
+    async def _clear_osc_datapoints(self, name: str) -> None:
+        if self.datapoint_store is None:
+            return
+        module = None
+        if self._osc_io_modules is not None:
+            module = self._osc_io_modules.pop(name, None)
+        if module is not None and module.running:
+            await module.stop()
+        self.datapoint_store.unregister_module_except(name, set())
+
+    async def _refresh_osc_datapoints(self, name: str) -> None:
+        if self.datapoint_store is None:
+            return
+        adapter = self.osc_adapters.get(name)
+        if adapter is None or not adapter.config.enabled:
+            await self._clear_osc_datapoints(name)
+            return
+
+        module = None
+        if self._osc_io_modules is not None:
+            module = self._osc_io_modules.get(name)
+        if module is not None and module.running:
+            await module.stop()
+        else:
+            module = OscIOModule(adapter, self.datapoint_store, self.config)
+            if self._osc_io_modules is not None:
+                self._osc_io_modules[name] = module
+
+        self.datapoint_store.unregister_module_except(name, set())
+        await module.start()
+
     async def apply_hid_adapters_config(self, payload: dict[str, Any]) -> dict[str, Any]:
         if not isinstance(payload, dict):
             raise ValueError("HID adapter config payload must be an object")
@@ -2168,6 +2204,7 @@ class WebInterface:
                     await adapter.stop()
                 self._unregister_runtime_adapter(adapter)
             self.config.adapters.pop(name, None)
+            await self._clear_osc_datapoints(name)
 
         updates: dict[str, AdapterConfig] = {}
         renamed_from: list[str] = []
@@ -2237,9 +2274,15 @@ class WebInterface:
 
         for old_name, new_name, kind in runtime_renames:
             await self._rename_runtime_adapter(old_name, new_name, kind)
+            if kind == "osc":
+                await self._clear_osc_datapoints(old_name)
 
         for name, updated in updates.items():
             await self._apply_osc_runtime_adapter(name, updated)
+            if updated.enabled:
+                await self._refresh_osc_datapoints(name)
+            else:
+                await self._clear_osc_datapoints(name)
 
         response = self.osc_adapters_config_payload()
         response.update({"persisted": persisted, "persist_error": persist_error})

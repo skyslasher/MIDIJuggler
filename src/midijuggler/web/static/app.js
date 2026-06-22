@@ -493,6 +493,31 @@ function renderLearnDatapointSelects() {
   fillLearnPointSelect(learnTargetDatapoint, targetInstance, "output", previousTargetPoint);
 }
 
+function refreshMappingEditorSelects() {
+  if (mappingEditor.hidden) {
+    return;
+  }
+  const previousSourceInstance = mappingEditSourceInstance.value;
+  const previousSourcePoint = mappingEditSourceDatapoint.value;
+  const previousTargetInstance = mappingEditTargetInstance.value;
+  const previousTargetPoint = mappingEditTargetDatapoint.value;
+
+  fillLearnInstanceSelect(mappingEditSourceInstance, "input", previousSourceInstance);
+  fillLearnInstanceSelect(mappingEditTargetInstance, "output", previousTargetInstance);
+  fillLearnPointSelect(
+    mappingEditSourceDatapoint,
+    mappingEditSourceInstance.value,
+    "input",
+    previousSourcePoint,
+  );
+  fillLearnPointSelect(
+    mappingEditTargetDatapoint,
+    mappingEditTargetInstance.value,
+    "output",
+    previousTargetPoint,
+  );
+}
+
 function applyLearnSourceSelection(pointId) {
   if (!pointId || !isLearnSelectableMonitorPointId(pointId)) {
     return;
@@ -614,9 +639,7 @@ async function openMappingEditor(connection) {
   mappingEditorTitle.textContent = `Edit mapping: ${connection.id}`;
   mappingEditorMessage.textContent = "";
   mappingEditor.hidden = false;
-  if (!learnRegistryDatapoints.length) {
-    await loadLearnDatapoints();
-  }
+  await loadLearnDatapoints();
   populateMappingEditor(connection);
   mappingEditor.scrollIntoView({ behavior: "smooth", block: "nearest" });
 }
@@ -812,9 +835,22 @@ async function loadLearnDatapoints() {
     learnRegistryDatapoints = (payload.datapoints || []).filter(isLearnSelectableDatapoint);
     await preloadLearnMidiLibraries(learnRegistryDatapoints);
     renderLearnDatapointSelects();
+    refreshMappingEditorSelects();
     applyLearnSourceSelection(learnSourceDatapointId);
   } catch (error) {
     learnMessage.textContent = `error: could not load data points (${error.message})`;
+  }
+}
+
+async function refreshMappingDataAfterAdapterChange() {
+  await loadLearnDatapoints();
+  try {
+    const statusResponse = await fetch("/api/status");
+    if (statusResponse.ok) {
+      await preloadMonitorLibraries(await statusResponse.json());
+    }
+  } catch {
+    // keep datapoint refresh even if status refresh fails
   }
 }
 
@@ -2182,6 +2218,9 @@ function createHidAdapterCard(instance, config) {
 }
 
 function saveHidAdapterCard(card) {
+  if (!ensureValidAdapterInstanceName(card)) {
+    return;
+  }
   showHidAdapterCardMessage(card, "saving...");
   const savedName = card.dataset.instanceName;
   fetch("/api/hid-adapters", {
@@ -3246,6 +3285,26 @@ function createAdapterNameField(instance, defaultNames, { isNew = false } = {}) 
     isNew ? "" : instance.name || "",
   );
   const input = field.querySelector("input");
+  const hint = document.createElement("p");
+  hint.className = "hint adapter-name-hint";
+  hint.hidden = true;
+  field.appendChild(hint);
+
+  const refreshNameHint = () => {
+    const error = validateAdapterInstanceName(input?.value || "");
+    if (error && String(input?.value || "").trim()) {
+      hint.hidden = false;
+      hint.textContent = error;
+      input?.setCustomValidity(error);
+    } else {
+      hint.hidden = true;
+      hint.textContent = "";
+      input?.setCustomValidity("");
+    }
+  };
+  input?.addEventListener("input", refreshNameHint);
+  input?.addEventListener("blur", refreshNameHint);
+
   if (!isNew && defaultNames.has(instance.name)) {
     input.disabled = true;
     input.title = "Default instances cannot be renamed";
@@ -3703,6 +3762,10 @@ function saveMidiAdapterCard(card) {
   const saveButton = card.querySelector(".midi-adapter-save");
   const wasNew = card.dataset.isNew === "true";
 
+  if (!ensureValidAdapterInstanceName(card)) {
+    return;
+  }
+
   showMidiAdapterCardMessage(card, "saving...");
   saveButton.disabled = true;
 
@@ -3857,7 +3920,7 @@ function buildNewOscInstanceTemplate() {
   };
 }
 
-function validateOscAdapterInstanceName(name) {
+function validateAdapterInstanceName(name) {
   const trimmed = String(name || "").trim();
   if (!trimmed) {
     return "instance name is required";
@@ -3866,6 +3929,42 @@ function validateOscAdapterInstanceName(name) {
     return "instance name cannot contain ':' or whitespace";
   }
   return "";
+}
+
+function reportAdapterInstanceNameError(card, error) {
+  const text = `error: ${error}`;
+  const type = card.dataset.instanceType;
+  if (type === "osc") {
+    showMidiAdapterCardMessage(card, text);
+    if (oscMessage) {
+      oscMessage.textContent = text;
+    }
+    return;
+  }
+  if (type === "hid") {
+    showHidAdapterCardMessage(card, text);
+    if (hidMessage) {
+      hidMessage.textContent = text;
+    }
+    return;
+  }
+  showMidiAdapterCardMessage(card, text);
+  const panel = panelMessageForMidiKind(type);
+  if (panel) {
+    panel.textContent = text;
+  }
+}
+
+function ensureValidAdapterInstanceName(card) {
+  const { name } = adapterInstanceNameFromCard(card);
+  const error = validateAdapterInstanceName(name);
+  if (error) {
+    reportAdapterInstanceNameError(card, error);
+    const nameInput = card.querySelector('[data-field="adapter_name"]');
+    nameInput?.reportValidity?.();
+    return false;
+  }
+  return true;
 }
 
 function deskModeFromInstance(instance) {
@@ -4431,10 +4530,8 @@ function deleteOscAdapterCard(card) {
 function saveOscAdapterCard(card) {
   const saveButton = card.querySelector(".midi-adapter-save");
   const wasNew = card.dataset.isNew === "true";
-  const { name } = adapterInstanceNameFromCard(card);
-  const nameError = validateOscAdapterInstanceName(name);
-  if (nameError) {
-    showMidiAdapterCardMessage(card, `error: ${nameError}`);
+
+  if (!ensureValidAdapterInstanceName(card)) {
     return;
   }
 
@@ -4444,7 +4541,7 @@ function saveOscAdapterCard(card) {
   persistOscAdapterChanges({
     instances: [collectMidiAdapterInstanceFrom(card)],
   })
-    .then((config) => {
+    .then(async (config) => {
       oscAdaptersConfig = config;
       const status =
         config.persisted === false
@@ -4462,6 +4559,7 @@ function saveOscAdapterCard(card) {
         updateMidiAdapterCardDirtyState(card);
         showMidiAdapterCardMessage(card, status, { autoHide: true });
       }
+      await refreshMappingDataAfterAdapterChange();
     })
     .catch((error) => {
       showMidiAdapterCardMessage(card, `error: ${error.message}`);

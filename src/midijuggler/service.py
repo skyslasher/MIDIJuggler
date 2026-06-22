@@ -101,6 +101,7 @@ class MIDIJugglerService:
             self.master_clock,
             self.web,
         )
+        self.web.bind_osc_io_modules(self.io_modules)
         for module in self.module_registry.modules():
             if isinstance(module, ModifierGraph):
                 self.web.modifier_graph = module

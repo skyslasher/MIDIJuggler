@@ -6,6 +6,7 @@ import pytest
 
 from midijuggler.clock import ClockBpmTracker
 from midijuggler.config import load_config, parse_config
+from midijuggler.datapoint.store import DataPointStore
 from midijuggler.eventbus import EventBus
 from midijuggler.master_clock import MasterClock
 from midijuggler.web.server import WebInterface
@@ -347,6 +348,44 @@ def test_apply_osc_adapters_config_starts_new_enabled_instance() -> None:
     assert wing["runtime_active"] is True
     assert interface.osc_adapters["wing_foh"].running
     assert len(runtime_adapters) == 1
+
+
+def test_apply_osc_adapters_config_registers_datapoints_for_enabled_instance() -> None:
+    listen_port = _free_udp_port()
+    store = DataPointStore()
+    runtime_adapters = []
+    config = parse_config({"adapters": {}})
+    interface = WebInterface(
+        config,
+        EventBus(),
+        ClockBpmTracker(),
+        MasterClock(config.master_clock, EventBus()),
+        runtime_adapters=runtime_adapters,
+        datapoint_store=store,
+    )
+    io_modules: dict[str, object] = {}
+    interface.bind_osc_io_modules(io_modules)  # type: ignore[arg-type]
+
+    asyncio.run(
+        interface.apply_osc_adapters_config(
+            {
+                "instances": [
+                    {
+                        "name": "wing_foh",
+                        "enabled": True,
+                        "desk_mode": "wing",
+                        "listen_host": "127.0.0.1",
+                        "osc_port": listen_port,
+                        "remote_host": "192.168.10.48",
+                    }
+                ]
+            }
+        )
+    )
+
+    specs = store.registry_snapshot()
+    assert any(entry["id"].startswith("wing_foh.") for entry in specs)
+    assert "wing_foh" in io_modules
 
 
 def test_apply_osc_adapters_config_stops_disabled_instance() -> None:
