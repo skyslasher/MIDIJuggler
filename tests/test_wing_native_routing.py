@@ -3,7 +3,7 @@ from unittest.mock import AsyncMock
 
 import pytest
 
-from midijuggler.adapters.wing_native import WingNativeAdapter
+from midijuggler.adapters.wing_native import _FADER_SEND_INTERVAL_S, WingNativeAdapter
 from midijuggler.config import parse_config
 from midijuggler.datapoint.bridge import EventToDataPointBridge
 from midijuggler.datapoint.store import DataPointStore
@@ -99,6 +99,7 @@ def test_wing_native_io_module_sends_connection_targets_by_library_id() -> None:
         module, _registry = make_wing_io_module(config, adapter, store, "wing_native_foh")
         await module.start()
         await store.write(float_value("wing_native_foh.ch_1_fdr", 0.25))
+        await asyncio.sleep(_FADER_SEND_INTERVAL_S + 0.05)
         return adapter._client.set_float.await_count  # type: ignore[attr-defined]
 
     assert asyncio.run(scenario()) == 1
@@ -219,6 +220,7 @@ def test_forward_fader_move_reaches_wing_native_through_service() -> None:
         await service.event_bridge._on_control(
             ControlEvent(source="xtouch_mini", control="layer_a_fader", value=64.0)
         )
+        await asyncio.sleep(_FADER_SEND_INTERVAL_S + 0.05)
         return wing._client.set_float.await_args.args[1]  # type: ignore[union-attr]
 
     sent_value = asyncio.run(scenario())

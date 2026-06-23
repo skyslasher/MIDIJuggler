@@ -5,6 +5,7 @@ from __future__ import annotations
 import asyncio
 import contextlib
 import logging
+from dataclasses import dataclass
 from typing import Any
 
 from midijuggler.adapters.base import Adapter
@@ -16,7 +17,10 @@ from midijuggler.midi.echo_guard import (
     OscEchoGuard,
     parse_echo_guard_ms,
 )
-from midijuggler.modules.modifier.range_map import encode_wing_fader_wire
+from midijuggler.modules.modifier.range_map import (
+    decode_wing_fader_feedback,
+    encode_wing_fader_wire,
+)
 from midijuggler.wing.native.client import KEEPALIVE_INTERVAL_SECONDS, WingNativeClient
 from midijuggler.wing.native.connectivity import WingNativeConnectivity
 from midijuggler.wing.native.decoder import WingNodeData
@@ -26,7 +30,17 @@ LOGGER = logging.getLogger(__name__)
 
 _FADER_PATH_MARKER = "/fdr"
 _FEEDBACK_PUBLISH_INTERVAL_S = 1.0 / 15.0
+_FADER_SEND_INTERVAL_S = 1.0 / 60.0
 _FADER_FEEDBACK_DEADBAND = 0.01
+
+
+@dataclass(frozen=True)
+class _PendingFaderSend:
+    node_id: int
+    wire_value: float
+    raw: bool
+    display_value: float
+    target: str
 
 
 class WingNativeAdapter(Adapter):
@@ -45,6 +59,8 @@ class WingNativeAdapter(Adapter):
         self._pending_fader_feedback: dict[str, float] = {}
         self._fader_flush_tasks: dict[str, asyncio.Task[None]] = {}
         self._last_published_fader: dict[str, float] = {}
+        self._pending_fader_sends: dict[str, _PendingFaderSend] = {}
+        self._fader_send_tasks: dict[str, asyncio.Task[None]] = {}
         self._fader_output_ranges: dict[str, tuple[float, float]] = {}
 
     def clear_fader_output_ranges(self) -> None:
@@ -117,11 +133,19 @@ class WingNativeAdapter(Adapter):
 
     async def stop(self) -> None:
         self.running = False
-        for task in (*self._fader_flush_tasks.values(), self._warmup_task, self._read_task, self._keepalive_task):
+        for task in (
+            *self._fader_send_tasks.values(),
+            *self._fader_flush_tasks.values(),
+            self._warmup_task,
+            self._read_task,
+            self._keepalive_task,
+        ):
             if task is not None:
                 task.cancel()
                 with contextlib.suppress(asyncio.CancelledError):
                     await task
+        self._fader_send_tasks.clear()
+        self._pending_fader_sends.clear()
         self._fader_flush_tasks.clear()
         self._pending_fader_feedback.clear()
         self._warmup_task = None
@@ -172,9 +196,16 @@ class WingNativeAdapter(Adapter):
                 )
             else:
                 wire_value, raw = encode_wing_fader_wire(value)
-            await self._client.set_float(node_id, wire_value, raw=raw)
-        else:
-            await self._client.set_float(node_id, value, raw=False)
+            self._pending_fader_sends[address] = _PendingFaderSend(
+                node_id=node_id,
+                wire_value=wire_value,
+                raw=raw,
+                display_value=value,
+                target=event.target,
+            )
+            self._schedule_fader_send(address)
+            return
+        await self._client.set_float(node_id, value, raw=False)
         self._connectivity.note_send()
         self._echo_guard.record(address, value)
         await self.bus.publish(
@@ -187,6 +218,49 @@ class WingNativeAdapter(Adapter):
                 canonical_address=address,
             )
         )
+
+    def _schedule_fader_send(self, address: str) -> None:
+        if address in self._fader_send_tasks and not self._fader_send_tasks[address].done():
+            return
+        self._fader_send_tasks[address] = asyncio.create_task(
+            self._flush_fader_send(address),
+            name=f"wing-fader-send-{self.name}-{address}",
+        )
+
+    async def _flush_fader_send(self, address: str) -> None:
+        reschedule = False
+        try:
+            await asyncio.sleep(_FADER_SEND_INTERVAL_S)
+            if not self.running or self._client is None:
+                return
+            pending = self._pending_fader_sends.pop(address, None)
+            if pending is None:
+                return
+            await self._client.set_float(
+                pending.node_id,
+                pending.wire_value,
+                raw=pending.raw,
+            )
+            self._connectivity.note_send()
+            self._echo_guard.record(address, pending.wire_value)
+            await self.bus.publish(
+                OscMessageEvent(
+                    source=self.name,
+                    address=address,
+                    arguments=(pending.display_value,),
+                    target=pending.target,
+                    direction="output",
+                    canonical_address=address,
+                )
+            )
+        except asyncio.CancelledError:
+            raise
+        finally:
+            self._fader_send_tasks.pop(address, None)
+            if address in self._pending_fader_sends and self.running:
+                reschedule = True
+        if reschedule:
+            self._schedule_fader_send(address)
 
     async def _keepalive_loop(self) -> None:
         try:
@@ -241,13 +315,30 @@ class WingNativeAdapter(Adapter):
         if numeric_value is None:
             return
 
-        is_echo = self._echo_guard.is_echo(path, numeric_value)
-        if is_echo:
+        wire_value = numeric_value
+        if self._echo_guard.is_echo(path, wire_value):
             return
         if _FADER_PATH_MARKER in path:
+            numeric_value = self._feedback_units(path, wire_value, data.float_raw)
             await self._queue_fader_feedback(path, numeric_value)
             return
         await self._emit_feedback(path, numeric_value)
+
+    def _feedback_units(
+        self,
+        path: str,
+        wire_value: float,
+        wire_raw: bool | None,
+    ) -> float:
+        output_range = self._fader_output_ranges.get(path)
+        if output_range is None:
+            return wire_value
+        return decode_wing_fader_feedback(
+            wire_value,
+            output_min=output_range[0],
+            output_max=output_range[1],
+            wire_raw=wire_raw,
+        )
 
     async def _queue_fader_feedback(self, path: str, value: float) -> None:
         self._pending_fader_feedback[path] = value

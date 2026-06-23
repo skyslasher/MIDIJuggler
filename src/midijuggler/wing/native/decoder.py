@@ -22,6 +22,7 @@ class WingNodeData:
     float_value: float | None = None
     int_value: int | None = None
     string_value: str | None = None
+    float_raw: bool | None = None
 
 
 @dataclass(frozen=True)
@@ -112,7 +113,11 @@ class WingStreamDecoder:
             return [
                 (
                     WingDecodeKind.NODE_DATA,
-                    WingNodeData(self._current_node_id, float_value=value),
+                    WingNodeData(
+                        self._current_node_id,
+                        float_value=value,
+                        float_raw=(command == 0xD6),
+                    ),
                 )
             ]
         if command == 0xD3 and len(self._pending) >= 3:

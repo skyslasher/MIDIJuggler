@@ -107,6 +107,41 @@ def test_encode_wing_fader_wire_engineering_db_range() -> None:
     assert raw is False
 
 
+def test_decode_wing_fader_feedback_engineering_range() -> None:
+    from midijuggler.modules.modifier.range_map import decode_wing_fader_feedback
+
+    wire = db_to_fader_float(0.476)
+    assert decode_wing_fader_feedback(
+        wire,
+        output_min=-90.0,
+        output_max=10.0,
+        wire_raw=True,
+    ) == pytest.approx(0.476, abs=0.05)
+    assert decode_wing_fader_feedback(
+        0.476,
+        output_min=-90.0,
+        output_max=10.0,
+        wire_raw=False,
+    ) == pytest.approx(0.476)
+
+
+def test_decode_wing_fader_feedback_normalized_range() -> None:
+    from midijuggler.modules.modifier.range_map import decode_wing_fader_feedback
+
+    assert decode_wing_fader_feedback(
+        0.25,
+        output_min=0.0,
+        output_max=1.0,
+        wire_raw=True,
+    ) == pytest.approx(0.25)
+    assert decode_wing_fader_feedback(
+        -5.873,
+        output_min=0.0,
+        output_max=1.0,
+        wire_raw=False,
+    ) == pytest.approx(db_to_fader_float(-5.873))
+
+
 def test_encode_wing_fader_wire_fallback_without_range() -> None:
     from midijuggler.modules.modifier.range_map import encode_wing_fader_wire
 

@@ -70,6 +70,7 @@ def test_decoder_parses_spontaneous_float_update() -> None:
     assert len(data_events) == 1
     assert data_events[0].node_id == 0x01020304
     assert data_events[0].float_value == pytest.approx(0.75)
+    assert data_events[0].float_raw is False
 
 
 def test_parse_node_definition_reads_name_and_id() -> None:

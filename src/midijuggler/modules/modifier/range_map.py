@@ -119,6 +119,25 @@ def output_uses_fader_scale_curve(transform: RangeMapTransform) -> bool:
     return transform.output_min >= 0.0 and transform.output_max <= 1.0
 
 
+def decode_wing_fader_feedback(
+    value: float,
+    *,
+    output_min: float,
+    output_max: float,
+    wire_raw: bool | None = None,
+) -> float:
+    """Convert Wing native fader wire feedback to connection output units."""
+
+    transform = RangeMapTransform(output_min=output_min, output_max=output_max)
+    if output_uses_fader_scale_curve(transform):
+        if wire_raw is False and (value < 0.0 or value > 1.0):
+            return db_to_fader_float(value)
+        return value
+    if wire_raw is True or (wire_raw is None and 0.0 <= value <= 1.0):
+        return fader_float_to_db(value)
+    return value
+
+
 def encode_wing_fader_wire(
     value: float,
     *,
