@@ -10,6 +10,7 @@ import tomllib
 from midijuggler.datapoint.types import ConnectionSpec, ModifierKind
 from midijuggler.device.types import CustomPointSpec, DeviceConfig
 from midijuggler.modules.modifier.feedback_suppress import parse_feedback_suppress_ms
+from midijuggler.osc.desk_protocol import desk_mode_for_library
 
 
 @dataclass(frozen=True)
@@ -644,6 +645,7 @@ def parse_config(raw: dict[str, Any]) -> AppConfig:
 
     adapters = _parse_adapters(raw.get("adapters", {}))
     devices = _parse_devices(raw.get("devices", []), adapters)
+    devices = supplement_devices(devices, adapters)
     master_clock = _parse_master_clock(raw.get("master_clock", {}))
     connections = [
         _parse_connection(index, connection_raw)
@@ -799,6 +801,58 @@ def _validate_adapter_instance_name(instance_name: str) -> None:
         )
 
 
+def _adapter_qualifies_for_device_inference(
+    instance_name: str,
+    adapter: AdapterConfig,
+) -> bool:
+    if instance_name not in DEFAULT_ADAPTERS:
+        return True
+    return adapter.enabled or bool(adapter.options)
+
+
+def _infer_device_library(instance_name: str, adapter: AdapterConfig) -> tuple[str, str]:
+    kind = adapter.kind or instance_name
+    if kind in {"wing", "wing_native"}:
+        library = str(adapter.options.get("wing_library", "behringer_wing")).strip()
+        return library, "wing"
+    if kind == "midi":
+        library = str(adapter.options.get("midi_library", "")).strip()
+        return library, "midi"
+    if kind in {"gpio", "hid", "rtp_midi"}:
+        return "", kind
+    library = str(adapter.options.get("osc_library", "")).strip()
+    return library, "osc"
+
+
+def _infer_device_from_adapter(instance_name: str, adapter: AdapterConfig) -> DeviceConfig:
+    library, library_kind = _infer_device_library(instance_name, adapter)
+    return DeviceConfig(
+        id=instance_name,
+        adapter=instance_name,
+        library=library,
+        library_kind=library_kind,
+    )
+
+
+def supplement_devices(
+    devices: dict[str, DeviceConfig],
+    adapters: dict[str, AdapterConfig],
+) -> dict[str, DeviceConfig]:
+    """Add inferred devices for configured adapters not yet bound to a device."""
+
+    bound_adapters = {device.adapter for device in devices.values()}
+    supplemented = dict(devices)
+    for instance_name, adapter in adapters.items():
+        if instance_name in bound_adapters:
+            continue
+        if instance_name in supplemented:
+            continue
+        if not _adapter_qualifies_for_device_inference(instance_name, adapter):
+            continue
+        supplemented[instance_name] = _infer_device_from_adapter(instance_name, adapter)
+    return supplemented
+
+
 def _parse_devices(raw: Any, adapters: dict[str, AdapterConfig]) -> dict[str, DeviceConfig]:
     if raw is None:
         raw = []
@@ -908,6 +962,16 @@ def normalize_connection_endpoint(
     return f"{resolved}.{point}"
 
 
+def _library_shorthand(library_id: str) -> str:
+    desk_mode = desk_mode_for_library(library_id)
+    if desk_mode:
+        return desk_mode
+    for prefix in ("behringer_", "presonus_"):
+        if library_id.startswith(prefix):
+            return library_id[len(prefix) :]
+    return library_id
+
+
 def resolve_connection_device_module(
     module: str,
     devices: dict[str, DeviceConfig],
@@ -931,6 +995,16 @@ def resolve_connection_device_module(
     )
     if len(prefix_matches) == 1:
         return prefix_matches[0]
+
+    library_matches = sorted(
+        {
+            device.id
+            for device in devices.values()
+            if device.library and _library_shorthand(device.library) == module
+        }
+    )
+    if len(library_matches) == 1:
+        return library_matches[0]
     return None
 
 

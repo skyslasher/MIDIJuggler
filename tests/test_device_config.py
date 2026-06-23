@@ -77,6 +77,99 @@ def test_parse_config_normalizes_adapter_prefixed_connections() -> None:
     assert config.connections[0].source == "x32_foh./ch/01/mix/fader"
 
 
+def test_parse_config_infers_devices_when_devices_section_missing() -> None:
+    config = parse_config(
+        {
+            "adapters": {
+                "x32_foh": {
+                    "type": "osc",
+                    "enabled": True,
+                    "osc_library": "behringer_x32",
+                },
+                "xtouch_mini": {
+                    "type": "midi",
+                    "enabled": True,
+                    "midi_library": "behringer_xtouch_mini",
+                },
+            },
+            "connections": [
+                {
+                    "id": "learn-x32-ch-01-mix-fader-to-xtouch-mini-layer-a-encoder-1-led-ring",
+                    "source": "x32./ch/01/mix/fader",
+                    "target": "xtouch_mini.layer_a_encoder_1_led_ring",
+                }
+            ],
+        }
+    )
+
+    assert config.devices["x32_foh"].adapter == "x32_foh"
+    assert config.devices["x32_foh"].library == "behringer_x32"
+    assert config.devices["xtouch_mini"].library == "behringer_xtouch_mini"
+    assert config.connections[0].source == "x32_foh./ch/01/mix/fader"
+    assert config.connections[0].target == "xtouch_mini.layer_a_encoder_1_led_ring"
+
+
+def test_parse_config_normalizes_x32_shorthand_without_devices_section() -> None:
+    config = parse_config(
+        {
+            "adapters": {
+                "x32_foh": {
+                    "type": "osc",
+                    "enabled": True,
+                    "osc_library": "behringer_x32",
+                },
+            },
+            "connections": [
+                {
+                    "id": "legacy-prefix",
+                    "source": "x32./ch/01/mix/fader",
+                    "target": "x32_foh./ch/01/mix/fader",
+                }
+            ],
+        }
+    )
+
+    assert config.connections[0].source == "x32_foh./ch/01/mix/fader"
+
+
+def test_parse_config_supplements_missing_adapter_devices() -> None:
+    config = parse_config(
+        {
+            "adapters": {
+                "x32_foh": {
+                    "type": "osc",
+                    "enabled": True,
+                    "osc_library": "behringer_x32",
+                },
+                "xtouch_mini": {
+                    "type": "midi",
+                    "enabled": True,
+                    "midi_library": "behringer_xtouch_mini",
+                },
+            },
+            "devices": [
+                {
+                    "id": "x32_foh",
+                    "adapter": "x32_foh",
+                    "library": "behringer_x32",
+                    "library_kind": "osc",
+                }
+            ],
+            "connections": [
+                {
+                    "id": "midi-to-x32",
+                    "source": "xtouch_mini.layer_a_fader",
+                    "target": "x32./ch/01/mix/fader",
+                }
+            ],
+        }
+    )
+
+    assert "xtouch_mini" in config.devices
+    assert config.devices["xtouch_mini"].library == "behringer_xtouch_mini"
+    assert config.connections[0].target == "x32_foh./ch/01/mix/fader"
+
+
 def test_save_devices_round_trip(tmp_path) -> None:
     path = tmp_path / "config.toml"
     path.write_text(
