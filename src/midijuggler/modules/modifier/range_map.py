@@ -96,6 +96,23 @@ def encode_log_position(value: float) -> float:
     return db_to_fader_float(db)
 
 
+def apply_scale_curve_to_position(position: float, scale_curve: str) -> float:
+    if scale_curve == "log_to_linear":
+        return decode_log_position(position)
+    if scale_curve == "linear_to_log":
+        return encode_log_position(position)
+    return position
+
+
+def apply_output_scale_curve(mapped: float, transform: RangeMapTransform) -> float:
+    output_span = transform.output_max - transform.output_min
+    if output_span == 0.0:
+        return transform.output_min
+    position = (mapped - transform.output_min) / output_span
+    position = apply_scale_curve_to_position(position, transform.scale_curve)
+    return transform.output_min + position * output_span
+
+
 def apply_range_map(value: float, transform: RangeMapTransform) -> float:
     if transform.input_min == transform.input_max:
         raise ValueError("range map input range must not be empty")

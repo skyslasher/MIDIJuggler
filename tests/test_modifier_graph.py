@@ -172,6 +172,42 @@ def test_modifier_graph_applies_relative_encoder_delta() -> None:
     assert received[1] == pytest.approx(0.5 + 3.0 / 63.0)
 
 
+def test_modifier_graph_applies_each_repeated_relative_turn() -> None:
+    store = DataPointStore()
+    _register_relative_turn(store)
+    graph = ModifierGraph(
+        store,
+        [
+            ConnectionSpec(
+                id="encoder-to-wing",
+                source="xtouch_mini.layer_a_encoder_1_turn",
+                target="wing_native_foh.ch_1_fdr",
+                input_min=1.0,
+                input_max=127.0,
+                output_min=0.0,
+                output_max=1.0,
+            )
+        ],
+    )
+    received: list[float] = []
+
+    async def handler(value):
+        if value.float_value is not None and value.emit_outputs:
+            received.append(value.float_value)
+
+    store.subscribe("wing_native_foh.ch_1_fdr", handler)
+
+    async def scenario() -> None:
+        await graph.start()
+        for _ in range(3):
+            await store.write(float_value("xtouch_mini.layer_a_encoder_1_turn", 65.0))
+
+    asyncio.run(scenario())
+    assert len(received) == 3
+    assert received[0] == pytest.approx(0.5 + 1.0 / 63.0)
+    assert received[2] == pytest.approx(0.5 + 3.0 / 63.0)
+
+
 def test_modifier_graph_applies_mcu_encoder_delta() -> None:
     store = DataPointStore()
     _register_relative_turn(store, relative_encoding="mcu")

@@ -121,6 +121,11 @@ class DataPointStore:
     def _value_changed(self, key: str, value: DataPointValue) -> bool:
         if value.value_type == ValueType.MIDI_MESSAGE:
             return True
+        spec = self._specs.get(key)
+        if spec is not None and spec.input_mode == "relative":
+            return True
+        if key.rsplit(".", 1)[-1].endswith("_turn"):
+            return True
         previous = self._values.get(key)
         if previous is None:
             return True

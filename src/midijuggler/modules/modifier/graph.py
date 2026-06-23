@@ -21,9 +21,14 @@ from midijuggler.datapoint.types import (
 from midijuggler.modules.base import ModifierModule
 from midijuggler.modules.modifier.feedback_suppress import (
     FeedbackSuppressor,
+    control_group,
     reciprocal_feedback_pairs,
 )
-from midijuggler.modules.modifier.range_map import RangeMapTransform, apply_range_map
+from midijuggler.modules.modifier.range_map import (
+    RangeMapTransform,
+    apply_output_scale_curve,
+    apply_range_map,
+)
 from midijuggler.modules.modifier.relative_delta import (
     DEFAULT_RELATIVE_ENCODING,
     ENCODING_ABSOLUTE_DELTA,
@@ -119,11 +124,15 @@ class ModifierGraph(ModifierModule):
             now=value.timestamp,
         )
         for connection, transform in self._source_index.get(key, []):
-            suppress_target = self._feedback_suppressor.should_suppress_target(
-                connection.target,
-                now=value.timestamp,
-            )
-            if suppress_source or suppress_target:
+            force_desk_forward = _should_force_desk_forward(key, connection.target)
+            suppress_target = False
+            if not force_desk_forward:
+                suppress_target = self._feedback_suppressor.should_suppress_target(
+                    connection.target,
+                    now=value.timestamp,
+                )
+            effective_suppress_source = False if force_desk_forward else suppress_source
+            if effective_suppress_source or suppress_target:
                 LOGGER.debug(
                     "modifier_graph suppressed feedback %s -> %s",
                     connection.source,
@@ -133,12 +142,16 @@ class ModifierGraph(ModifierModule):
             if mapped is None:
                 continue
             current = self.store.float_value(connection.target)
-            if current is not None and abs(current - mapped) <= _compare_epsilon(
-                self.store,
-                connection.target,
+            if (
+                not force_desk_forward
+                and current is not None
+                and abs(current - mapped) <= _compare_epsilon(
+                    self.store,
+                    connection.target,
+                )
             ):
                 continue
-            emit_outputs = not (suppress_source or suppress_target)
+            emit_outputs = not (effective_suppress_source or suppress_target)
             await self.store.write(
                 float_value(
                     DataPointId.parse(connection.target),
@@ -185,6 +198,8 @@ class ModifierGraph(ModifierModule):
         )
         if mapped is None:
             return None
+        if transform.scale_curve != "linear":
+            mapped = apply_output_scale_curve(mapped, transform)
         self._relative_targets[accumulator_key] = mapped
         return mapped
 
@@ -242,3 +257,13 @@ def _numeric_value(value: DataPointValue) -> float | None:
 
 def _compare_epsilon(store: DataPointStore, target_key: str) -> float:
     return compare_epsilon(store.spec(target_key))
+
+
+def _should_force_desk_forward(source_key: str, target_key: str) -> bool:
+    """Always forward active controller input to desk targets."""
+
+    if control_group(target_key) is not None:
+        return False
+    if control_group(source_key) is not None:
+        return True
+    return source_key.rsplit(".", 1)[-1].endswith("_turn")

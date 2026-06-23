@@ -105,3 +105,30 @@ def test_midi_message_writes_always_propagate() -> None:
 
     asyncio.run(scenario())
     assert seen == 5
+
+
+def test_relative_turn_writes_always_propagate() -> None:
+    store = DataPointStore()
+    store.register(
+        DataPointSpec(
+            id=DataPointId("xtouch_mini", "layer_a_encoder_1_turn"),
+            value_type=ValueType.FLOAT,
+            direction=DataPointDirection.INPUT,
+            input_mode="relative",
+            protocol="midi",
+        )
+    )
+    seen = 0
+
+    async def handler(_value) -> None:
+        nonlocal seen
+        seen += 1
+
+    store.subscribe("xtouch_mini.layer_a_encoder_1_turn", handler)
+
+    async def scenario() -> None:
+        for _ in range(5):
+            await store.write(float_value("xtouch_mini.layer_a_encoder_1_turn", 65.0))
+
+    asyncio.run(scenario())
+    assert seen == 5
