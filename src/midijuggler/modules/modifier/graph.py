@@ -76,6 +76,8 @@ class ModifierGraph(ModifierModule):
         self._source_index.clear()
         self._passthrough_index.clear()
         for connection in self.connections:
+            if not connection.enabled:
+                continue
             if connection.modifier == ModifierKind.PASSTHROUGH:
                 self._passthrough_index.setdefault(connection.source, []).append(connection)
                 continue

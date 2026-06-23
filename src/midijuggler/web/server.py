@@ -449,6 +449,7 @@ class WebInterface:
                         output_max=float(item.get("output_max", 127.0)),
                         invert=bool(item.get("invert", False)),
                         scale_curve=scale_curve,
+                        enabled=bool(item.get("enabled", True)),
                     )
                 )
             except (KeyError, TypeError, ValueError) as exc:

@@ -388,6 +388,8 @@ def _format_connection_spec(connection: ConnectionSpec) -> str:
     ]
     if connection.scale_curve != "linear":
         lines.append(f"scale_curve = {_toml_string(connection.scale_curve)}")
+    if not connection.enabled:
+        lines.append(f"enabled = {_toml_bool(connection.enabled)}")
     return "\n".join(lines)
 
 
@@ -968,6 +970,8 @@ def normalize_connections(
                 output_min=connection.output_min,
                 output_max=connection.output_max,
                 invert=connection.invert,
+                scale_curve=connection.scale_curve,
+                enabled=connection.enabled,
             )
         )
     return normalized
@@ -1094,6 +1098,7 @@ def _parse_connection(index: int, raw: Any) -> ConnectionSpec:
         output_max=_as_float(raw.get("output_max", 127.0), f"connections[{index}].output_max"),
         invert=bool(raw.get("invert", False)),
         scale_curve=scale_curve,
+        enabled=bool(raw.get("enabled", True)),
     )
 
 

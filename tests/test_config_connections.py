@@ -38,3 +38,36 @@ def test_parse_runtime_and_connections() -> None:
     assert config.runtime.datapoint_routing is True
     assert len(config.connections) == 1
     assert config.connections[0].modifier == ModifierKind.RANGE_MAP
+
+
+def test_parse_connection_enabled_defaults_true() -> None:
+    config = parse_config(
+        {
+            "devices": [gpio_device(), midi_device("midi", adapter="midi")],
+            "connections": [
+                {
+                    "id": "gpio-to-midi",
+                    "source": "gpio.pin17",
+                    "target": "midi.cc_0_64",
+                }
+            ],
+        }
+    )
+    assert config.connections[0].enabled is True
+
+
+def test_parse_connection_enabled_false() -> None:
+    config = parse_config(
+        {
+            "devices": [gpio_device(), midi_device("midi", adapter="midi")],
+            "connections": [
+                {
+                    "id": "gpio-to-midi",
+                    "source": "gpio.pin17",
+                    "target": "midi.cc_0_64",
+                    "enabled": False,
+                }
+            ],
+        }
+    )
+    assert config.connections[0].enabled is False

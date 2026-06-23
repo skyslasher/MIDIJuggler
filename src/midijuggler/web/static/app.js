@@ -607,8 +607,9 @@ function setConnectionRouteSummary(title, connection) {
 }
 
 function connectionMeta(connection) {
+  const disabled = connection.enabled === false ? " · disabled" : "";
   if (connection.modifier === "passthrough") {
-    return `${connection.id} · passthrough`;
+    return `${connection.id} · passthrough${disabled}`;
   }
   const scale =
     connection.scale_curve && connection.scale_curve !== "linear"
@@ -617,7 +618,7 @@ function connectionMeta(connection) {
   return (
     `${connection.id} · range ${connection.input_min}-${connection.input_max}`
     + ` -> ${connection.output_min}-${connection.output_max}`
-    + `${connection.invert ? " · inverted" : ""}${scale}`
+    + `${connection.invert ? " · inverted" : ""}${scale}${disabled}`
   );
 }
 
@@ -684,6 +685,7 @@ function collectConnectionFromEditForm(form, connectionId) {
     output_max: Number(form.querySelector('[data-field="output_max"]')?.value),
     scale_curve: form.querySelector('[data-field="scale_curve"]')?.value || "linear",
     invert: Boolean(form.querySelector('[data-field="invert"]')?.checked),
+    enabled: Boolean(form.querySelector('[data-field="enabled"]')?.checked),
   };
 }
 
@@ -754,11 +756,20 @@ function createConnectionEditForm(connection) {
   invertLabel.append(invertInput, document.createTextNode(" Invert"));
   rangeFields.appendChild(invertLabel);
 
+  const enabledLabel = document.createElement("label");
+  enabledLabel.className = "inline-field";
+  const enabledInput = document.createElement("input");
+  enabledInput.type = "checkbox";
+  enabledInput.dataset.field = "enabled";
+  enabledInput.checked = connection.enabled !== false;
+  enabledLabel.append(enabledInput, document.createTextNode(" Enabled"));
+
   form.append(
     sourceGroup,
     targetGroup,
     createStackedField("Modifier", modifierSelect),
     rangeFields,
+    enabledLabel,
   );
 
   const sourceInstanceName = connection.source.split(".")[0];
@@ -791,6 +802,9 @@ function createConnectionListItem(connection) {
 
   const card = document.createElement("section");
   card.className = "midi-adapter-card connection-card";
+  if (connection.enabled === false) {
+    card.classList.add("connection-card-disabled");
+  }
   card.dataset.connectionId = connection.id;
 
   const isEditing = editingConnectionId === connection.id;
@@ -828,6 +842,17 @@ function createConnectionListItem(connection) {
 
     const actions = document.createElement("div");
     actions.className = "midi-adapter-card-actions";
+
+    const enabledLabel = document.createElement("label");
+    enabledLabel.className = "inline-field connection-enabled-toggle";
+    const enabledInput = document.createElement("input");
+    enabledInput.type = "checkbox";
+    enabledInput.checked = connection.enabled !== false;
+    enabledInput.addEventListener("change", () => {
+      void toggleConnectionEnabled(connection.id, enabledInput.checked);
+    });
+    enabledLabel.append(enabledInput, document.createTextNode(" Enabled"));
+    actions.appendChild(enabledLabel);
 
     const editButton = document.createElement("button");
     editButton.type = "button";
@@ -965,6 +990,21 @@ async function deleteMappingConnection(connectionId) {
       closeMappingEditor();
     }
   } catch (error) {
+    const message = connectionEditMessage();
+    if (message) {
+      message.textContent = `error: ${error.message}`;
+    }
+  }
+}
+
+async function toggleConnectionEnabled(connectionId, enabled) {
+  const nextConnections = storedConnections.map((connection) => (
+    connection.id === connectionId ? { ...connection, enabled } : connection
+  ));
+  try {
+    await saveStoredConnections(nextConnections);
+  } catch (error) {
+    renderMappingsList(storedConnections);
     const message = connectionEditMessage();
     if (message) {
       message.textContent = `error: ${error.message}`;

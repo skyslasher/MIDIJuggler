@@ -133,6 +133,7 @@ class ConnectionSpec:
     output_max: float = 127.0
     invert: bool = False
     scale_curve: str = "linear"
+    enabled: bool = True
 
     def as_dict(self) -> dict[str, Any]:
         payload = {
@@ -145,6 +146,7 @@ class ConnectionSpec:
             "output_min": self.output_min,
             "output_max": self.output_max,
             "invert": self.invert,
+            "enabled": self.enabled,
         }
         if self.scale_curve != "linear":
             payload["scale_curve"] = self.scale_curve

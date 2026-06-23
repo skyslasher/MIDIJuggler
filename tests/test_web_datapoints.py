@@ -165,6 +165,63 @@ target = "midi.cc_1_64"
     assert reloaded.connections[0].source == "gpio.pin18"
 
 
+def test_set_connections_config_persists_enabled_flag(tmp_path) -> None:
+    config_path = tmp_path / "config.toml"
+    config_path.write_text(
+        f"""
+[web]
+host = "127.0.0.1"
+port = 8080
+{BASE_DEVICES_TOML}
+[[connections]]
+id = "route"
+source = "gpio.pin17"
+target = "midi.cc_1_64"
+""".strip()
+        + "\n",
+        encoding="utf-8",
+    )
+    config = load_config(config_path)
+    interface = WebInterface(
+        config,
+        EventBus(),
+        ClockBpmTracker(),
+        MasterClock(config.master_clock, EventBus()),
+        config_path=config_path,
+    )
+
+    async def scenario() -> dict:
+        app = interface.create_app()
+        async with TestClient(TestServer(app)) as client:
+            response = await client.post(
+                "/api/connections",
+                json={
+                    "connections": [
+                        {
+                            "id": "route",
+                            "source": "gpio.pin17",
+                            "target": "midi.cc_1_64",
+                            "modifier": "range_map",
+                            "input_min": 0.0,
+                            "input_max": 1.0,
+                            "output_min": 0.0,
+                            "output_max": 127.0,
+                            "enabled": False,
+                        }
+                    ]
+                },
+            )
+            assert response.status == 200
+            return await response.json()
+
+    payload = asyncio.run(scenario())
+    assert payload["stored_connections"][0]["enabled"] is False
+
+    reloaded = load_config(config_path)
+    assert reloaded.connections[0].enabled is False
+    assert "enabled = false" in config_path.read_text(encoding="utf-8").lower()
+
+
 def test_delete_all_connections_clears_runtime_routing(tmp_path) -> None:
     from midijuggler.modules.modifier.graph import ModifierGraph
 

@@ -634,6 +634,14 @@ legend {
   overflow-anchor: none;
 }
 
+.connection-card-disabled {
+  opacity: 0.55;
+}
+
+.connection-card .connection-enabled-toggle {
+  margin-right: auto;
+}
+
 .connection-card .mapping-meta {
   color: #9fb5d9;
   font-size: 0.85rem;
