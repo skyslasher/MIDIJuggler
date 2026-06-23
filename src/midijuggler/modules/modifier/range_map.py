@@ -113,6 +113,37 @@ def apply_output_scale_curve(mapped: float, transform: RangeMapTransform) -> flo
     return transform.output_min + position * output_span
 
 
+def output_uses_fader_scale_curve(transform: RangeMapTransform) -> bool:
+    """Log fader curves apply to normalized 0..1 outputs, not engineering dB spans."""
+
+    return transform.output_min >= 0.0 and transform.output_max <= 1.0
+
+
+def encode_wing_fader_wire(
+    value: float,
+    *,
+    output_min: float | None = None,
+    output_max: float | None = None,
+) -> tuple[float, bool]:
+    """Encode a mapped fader value for Wing native wire protocol.
+
+    Returns ``(wire_value, raw)`` where ``raw=True`` selects normalized fader
+    encoding (0xD6) and ``raw=False`` selects engineering dB (0xD5).
+    """
+
+    if output_min is not None and output_max is not None:
+        transform = RangeMapTransform(output_min=output_min, output_max=output_max)
+        if output_uses_fader_scale_curve(transform):
+            if 0.0 <= value <= 1.0:
+                return value, True
+            return db_to_fader_float(value), True
+        return value, False
+
+    if value < 0.0 or value > 1.0:
+        return db_to_fader_float(value), True
+    return value, True
+
+
 def apply_range_map(value: float, transform: RangeMapTransform) -> float:
     if transform.input_min == transform.input_max:
         raise ValueError("range map input range must not be empty")

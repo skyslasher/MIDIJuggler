@@ -276,7 +276,7 @@ def test_modifier_graph_applies_absolute_encoder_delta() -> None:
 
     asyncio.run(scenario())
     assert len(received) == 2
-    assert received[0] == pytest.approx(0.5 + 1.0 / 63.0)
+    assert received[0] == pytest.approx(0.5 + 1.0 / 126.0)
     assert received[1] == pytest.approx(0.5)
 
 
@@ -315,8 +315,8 @@ def test_modifier_graph_relative_accumulator_ignores_echoed_target() -> None:
         await store.write(float_value("xtouch_mini.layer_a_encoder_1_turn", 66.0))
 
     asyncio.run(scenario())
-    assert received[0] == pytest.approx(0.5 + 1.0 / 63.0)
-    assert received[1] == pytest.approx(0.5 + 2.0 / 63.0)
+    assert received[0] == pytest.approx(0.5 + 1.0 / 126.0)
+    assert received[1] == pytest.approx(0.5 + 2.0 / 126.0)
 
 
 def test_modifier_graph_suppresses_encoder_feedback_during_turn() -> None:

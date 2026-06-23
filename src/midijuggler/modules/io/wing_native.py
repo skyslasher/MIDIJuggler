@@ -41,6 +41,28 @@ class WingNativeIOModule(IOModule):
 
     async def start(self) -> None:
         await super().start()
+        self.adapter.clear_fader_output_ranges()
+        connections = effective_connections(
+            self.config,
+            datapoint_routing=self.config.runtime.datapoint_routing,
+        )
+        for connection in connections:
+            parsed = DataPointId.parse(connection.target)
+            if parsed.module != self.name:
+                continue
+            for point in (parsed.point, self._library_address_for_point(parsed.point)):
+                if point is None:
+                    continue
+                address = point if point.startswith("/") else self._library_address_for_point(point)
+                if address is None:
+                    continue
+                if "/fdr" not in address:
+                    continue
+                self.adapter.register_fader_output_range(
+                    address,
+                    connection.output_min,
+                    connection.output_max,
+                )
         for point in self._output_points:
             self.store.subscribe(DataPointId(self.name, point), self._on_output_value)
         for point_id in self._configured_output_targets():

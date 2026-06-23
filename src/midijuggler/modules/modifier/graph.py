@@ -28,6 +28,7 @@ from midijuggler.modules.modifier.range_map import (
     RangeMapTransform,
     apply_output_scale_curve,
     apply_range_map,
+    output_uses_fader_scale_curve,
 )
 from midijuggler.modules.modifier.relative_delta import (
     DEFAULT_RELATIVE_ENCODING,
@@ -198,7 +199,7 @@ class ModifierGraph(ModifierModule):
         )
         if mapped is None:
             return None
-        if transform.scale_curve != "linear":
+        if transform.scale_curve != "linear" and output_uses_fader_scale_curve(transform):
             mapped = apply_output_scale_curve(mapped, transform)
         self._relative_targets[accumulator_key] = mapped
         return mapped

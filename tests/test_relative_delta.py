@@ -62,4 +62,22 @@ def test_apply_relative_delta_absolute_encoding() -> None:
         encoding="absolute_delta",
         last_value=63,
     )
-    assert mapped == pytest.approx(0.5 + 1.0 / 63.0)
+    assert mapped == pytest.approx(0.5 + 1.0 / 126.0)
+
+
+def test_apply_relative_delta_absolute_encoding_uses_connection_input_span() -> None:
+    transform = RangeMapTransform(
+        input_min=0.0,
+        input_max=127.0,
+        output_min=-90.0,
+        output_max=10.0,
+    )
+    current = 0.0
+    mapped = apply_relative_delta(
+        current,
+        64.0,
+        transform,
+        encoding="absolute_delta",
+        last_value=63,
+    )
+    assert mapped == pytest.approx(100.0 / 127.0)

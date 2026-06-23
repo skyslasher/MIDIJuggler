@@ -16,7 +16,7 @@ from midijuggler.midi.echo_guard import (
     OscEchoGuard,
     parse_echo_guard_ms,
 )
-from midijuggler.modules.modifier.range_map import db_to_fader_float
+from midijuggler.modules.modifier.range_map import encode_wing_fader_wire
 from midijuggler.wing.native.client import KEEPALIVE_INTERVAL_SECONDS, WingNativeClient
 from midijuggler.wing.native.connectivity import WingNativeConnectivity
 from midijuggler.wing.native.decoder import WingNodeData
@@ -45,6 +45,20 @@ class WingNativeAdapter(Adapter):
         self._pending_fader_feedback: dict[str, float] = {}
         self._fader_flush_tasks: dict[str, asyncio.Task[None]] = {}
         self._last_published_fader: dict[str, float] = {}
+        self._fader_output_ranges: dict[str, tuple[float, float]] = {}
+
+    def clear_fader_output_ranges(self) -> None:
+        self._fader_output_ranges.clear()
+
+    def register_fader_output_range(
+        self,
+        address: str,
+        output_min: float,
+        output_max: float,
+    ) -> None:
+        if not address.startswith("/"):
+            address = f"/{address}"
+        self._fader_output_ranges[address] = (output_min, output_max)
 
     def connectivity_snapshot(self) -> dict[str, Any]:
         if self._client is not None:
@@ -149,12 +163,16 @@ class WingNativeAdapter(Adapter):
 
         value = float(event.value)
         if _FADER_PATH_MARKER in address:
-            wire_value = (
-                value
-                if 0.0 <= value <= 1.0
-                else db_to_fader_float(value)
-            )
-            await self._client.set_float(node_id, wire_value, raw=True)
+            output_range = self._fader_output_ranges.get(address)
+            if output_range is not None:
+                wire_value, raw = encode_wing_fader_wire(
+                    value,
+                    output_min=output_range[0],
+                    output_max=output_range[1],
+                )
+            else:
+                wire_value, raw = encode_wing_fader_wire(value)
+            await self._client.set_float(node_id, wire_value, raw=raw)
         else:
             await self._client.set_float(node_id, value, raw=False)
         self._connectivity.note_send()

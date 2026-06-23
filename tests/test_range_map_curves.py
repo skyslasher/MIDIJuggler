@@ -70,3 +70,50 @@ def test_range_map_reads_scale_curve_from_connection() -> None:
     )
     transform = RangeMapTransform.from_connection(connection)
     assert transform.scale_curve == "log_to_linear"
+
+
+def test_output_uses_fader_scale_curve_only_for_normalized_outputs() -> None:
+    from midijuggler.modules.modifier.range_map import output_uses_fader_scale_curve
+
+    assert output_uses_fader_scale_curve(
+        RangeMapTransform(output_min=0.0, output_max=1.0)
+    )
+    assert not output_uses_fader_scale_curve(
+        RangeMapTransform(output_min=-90.0, output_max=10.0)
+    )
+
+
+def test_encode_wing_fader_wire_normalized_range() -> None:
+    from midijuggler.modules.modifier.range_map import encode_wing_fader_wire
+
+    wire, raw = encode_wing_fader_wire(0.25, output_min=0.0, output_max=1.0)
+    assert wire == pytest.approx(0.25)
+    assert raw is True
+
+    wire, raw = encode_wing_fader_wire(-5.873, output_min=0.0, output_max=1.0)
+    assert wire == pytest.approx(db_to_fader_float(-5.873))
+    assert raw is True
+
+
+def test_encode_wing_fader_wire_engineering_db_range() -> None:
+    from midijuggler.modules.modifier.range_map import encode_wing_fader_wire
+
+    wire, raw = encode_wing_fader_wire(-5.873, output_min=-90.0, output_max=10.0)
+    assert wire == pytest.approx(-5.873)
+    assert raw is False
+
+    wire, raw = encode_wing_fader_wire(0.476, output_min=-90.0, output_max=10.0)
+    assert wire == pytest.approx(0.476)
+    assert raw is False
+
+
+def test_encode_wing_fader_wire_fallback_without_range() -> None:
+    from midijuggler.modules.modifier.range_map import encode_wing_fader_wire
+
+    wire, raw = encode_wing_fader_wire(0.25)
+    assert wire == pytest.approx(0.25)
+    assert raw is True
+
+    wire, raw = encode_wing_fader_wire(-5.873)
+    assert wire == pytest.approx(db_to_fader_float(-5.873))
+    assert raw is True

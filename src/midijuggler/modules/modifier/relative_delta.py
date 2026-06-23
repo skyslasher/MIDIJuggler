@@ -52,13 +52,23 @@ def apply_relative_steps(
     current: float,
     delta_steps: int,
     transform: RangeMapTransform,
+    *,
+    encoding: str = ENCODING_OFFSET_BINARY,
 ) -> float | None:
     if delta_steps == 0:
         return None
     if transform.invert:
         delta_steps = -delta_steps
     span = transform.output_max - transform.output_min
-    step_size = span / 63.0
+    input_span = transform.input_max - transform.input_min
+    if input_span <= 0:
+        raise ValueError("range map input range must not be empty")
+    if encoding in {ENCODING_OFFSET_BINARY, ENCODING_MCU}:
+        # Standard relative encoders: 64 detents per revolution.
+        step_size = span / 63.0
+    else:
+        # Absolute encoder positions: one CC tick spans one connection input unit.
+        step_size = span / input_span
     next_value = current + delta_steps * step_size
     return min(max(next_value, transform.output_min), transform.output_max)
 
@@ -76,4 +86,4 @@ def apply_relative_delta(
         delta_steps = absolute_delta(last_value, step)
     else:
         delta_steps = relative_cc_delta(value, encoding=encoding)
-    return apply_relative_steps(current, delta_steps, transform)
+    return apply_relative_steps(current, delta_steps, transform, encoding=encoding)

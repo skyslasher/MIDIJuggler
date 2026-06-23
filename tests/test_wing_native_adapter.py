@@ -198,3 +198,98 @@ def test_wing_native_adapter_send_converts_fader_db_to_normalized_raw() -> None:
 
     assert wire_value == pytest.approx(db_to_fader_float(-5.873))
     assert raw is True
+
+
+def test_wing_native_adapter_send_uses_engineering_db_when_range_registered() -> None:
+    async def scenario() -> tuple[float, bool]:
+        bus = EventBus()
+        state = {"value": 0.0, "raw": True}
+
+        class FakeClient(WingNativeClient):
+            async def resolve_path(self, path: str) -> int:
+                return 99
+
+            async def set_float(
+                self,
+                node_id: int,
+                value: float,
+                *,
+                raw: bool = False,
+            ) -> None:
+                state["value"] = value
+                state["raw"] = raw
+
+        adapter = WingNativeAdapter(
+            name="wing_native_foh",
+            config=AdapterConfig(
+                enabled=True,
+                kind="wing_native",
+                options={"remote_host": "192.168.1.48"},
+            ),
+            bus=bus,
+        )
+        adapter._client = FakeClient("192.168.1.48")  # noqa: SLF001
+        adapter.running = True
+        adapter.register_fader_output_range("/ch/1/fdr", -90.0, 10.0)
+
+        await adapter.send(
+            MappedEvent(
+                source="datapoint",
+                target="wing_native_foh:/ch/1/fdr",
+                value=-5.873,
+            )
+        )
+        return state["value"], state["raw"]
+
+    wire_value, raw = asyncio.run(scenario())
+
+    assert wire_value == pytest.approx(-5.873)
+    assert raw is False
+
+
+def test_wing_native_adapter_send_small_positive_db_as_engineering_when_range_registered() -> None:
+    async def scenario() -> tuple[float, bool]:
+        bus = EventBus()
+        state = {"value": 0.0, "raw": True}
+
+        class FakeClient(WingNativeClient):
+            async def resolve_path(self, path: str) -> int:
+                return 99
+
+            async def set_float(
+                self,
+                node_id: int,
+                value: float,
+                *,
+                raw: bool = False,
+            ) -> None:
+                state["value"] = value
+                state["raw"] = raw
+
+        adapter = WingNativeAdapter(
+            name="wing_native_foh",
+            config=AdapterConfig(
+                enabled=True,
+                kind="wing_native",
+                options={"remote_host": "192.168.1.48"},
+            ),
+            bus=bus,
+        )
+        adapter._client = FakeClient("192.168.1.48")  # noqa: SLF001
+        adapter.running = True
+        adapter.register_fader_output_range("/ch/1/fdr", -90.0, 10.0)
+
+        await adapter.send(
+            MappedEvent(
+                source="datapoint",
+                target="wing_native_foh:/ch/1/fdr",
+                value=0.476,
+            )
+        )
+        return state["value"], state["raw"]
+
+    wire_value, raw = asyncio.run(scenario())
+
+    assert wire_value == pytest.approx(0.476)
+    assert raw is False
+    assert wire_value != pytest.approx(db_to_fader_float(0.476))
