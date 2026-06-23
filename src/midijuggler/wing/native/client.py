@@ -14,7 +14,6 @@ from midijuggler.wing.native.decoder import (
     WingStreamDecoder,
 )
 from midijuggler.wing.native.protocol import (
-    AUDIO_ENGINE_CHANNEL,
     CONTROL_ENGINE_CHANNEL,
     WING_NATIVE_PORT,
     encode_keepalive,
@@ -42,7 +41,7 @@ class _PendingNodeDefRequest:
 
 
 class WingNativeClient:
-    """Manage a Wing native TCP session (control channel for tree, audio for writes)."""
+    """Manage a Wing native TCP session on communication channel 1."""
 
     def __init__(
         self,
@@ -158,12 +157,10 @@ class WingNativeClient:
 
     async def set_float(self, node_id: int, value: float, *, raw: bool = False) -> None:
         async with self._lock:
-            await self._write_payload(encode_keepalive(AUDIO_ENGINE_CHANNEL))
             await self._write_payload(encode_set_float(node_id, value, raw=raw))
 
     async def set_int(self, node_id: int, value: int) -> None:
         async with self._lock:
-            await self._write_payload(encode_keepalive(AUDIO_ENGINE_CHANNEL))
             await self._write_payload(encode_set_int(node_id, value))
 
     async def read_events(self) -> list[tuple[WingDecodeKind, object]]:

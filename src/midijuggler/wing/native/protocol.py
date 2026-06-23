@@ -8,9 +8,9 @@ from typing import Iterable
 ESCAPE_CODE = 0xDF
 CHANNEL_ID_BASE = 0xD0
 NUM_CHANNELS = 14
-# Wing remote protocol: control/tree navigation uses channel 1, fader writes channel 2.
+# PDF table row 2 ("Audio Engine & Control") uses ChID 1, wire byte 0xD1 — not 0xD2.
 CONTROL_ENGINE_CHANNEL = 1
-AUDIO_ENGINE_CHANNEL = 2
+AUDIO_ENGINE_CHANNEL = 1
 WING_NATIVE_PORT = 2222
 
 

@@ -14,12 +14,7 @@ from midijuggler.wing.native.client import (
     _find_child,
 )
 from midijuggler.wing.native.decoder import WingDecodeKind, WingNodeDef
-from midijuggler.wing.native.protocol import (
-    AUDIO_ENGINE_CHANNEL,
-    encode_keepalive,
-    encode_request_node_definition,
-    encode_set_float,
-)
+from midijuggler.wing.native.protocol import encode_keepalive, encode_request_node_definition, encode_set_float
 
 
 def _node_def(*, node_id: int, name: str, parent_id: int = 0) -> WingNodeDef:
@@ -189,7 +184,7 @@ def test_concurrent_warmup_and_send_both_complete(
     assert node_id == 12
 
 
-def test_set_float_selects_audio_engine_channel_before_write() -> None:
+def test_set_float_writes_payload_without_channel_switch() -> None:
     async def scenario() -> list[bytes]:
         client = WingNativeClient("127.0.0.1")
         client._writer = _MockWriter()  # noqa: SLF001
@@ -200,15 +195,12 @@ def test_set_float_selects_audio_engine_channel_before_write() -> None:
             writes.append(payload)
 
         client._write_payload = capture_write  # type: ignore[method-assign]  # noqa: SLF001
-        await client.set_float(99, 0.25, raw=True)
+        await client.set_float(99, -5.873, raw=False)
         return writes
 
     writes = asyncio.run(scenario())
 
-    assert writes == [
-        encode_keepalive(AUDIO_ENGINE_CHANNEL),
-        encode_set_float(99, 0.25, raw=True),
-    ]
+    assert writes == [encode_set_float(99, -5.873, raw=False)]
 
 
 def test_wing_native_send_handles_resolve_timeout_gracefully(

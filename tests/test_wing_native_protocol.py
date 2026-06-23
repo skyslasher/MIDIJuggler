@@ -29,7 +29,7 @@ def test_encode_keepalive_selects_control_engine_channel() -> None:
 def test_encode_keepalive_can_select_audio_engine_channel() -> None:
     from midijuggler.wing.native.protocol import AUDIO_ENGINE_CHANNEL
 
-    assert encode_keepalive(AUDIO_ENGINE_CHANNEL) == bytes([0xDF, 0xD2])
+    assert encode_keepalive(AUDIO_ENGINE_CHANNEL) == bytes([0xDF, 0xD1])
 
 
 def test_encode_set_float_uses_node_hash_prefix() -> None:
@@ -62,7 +62,7 @@ def test_encode_request_child_node_definition() -> None:
 
 def test_decoder_parses_spontaneous_float_update() -> None:
     decoder = WingStreamDecoder()
-    events = decoder.feed(bytes([0xDF, 0xD2]) + encode_set_float(0x01020304, 0.75))
+    events = decoder.feed(bytes([0xDF, 0xD1]) + encode_set_float(0x01020304, 0.75))
 
     kinds = [kind for kind, _payload in events]
     assert WingDecodeKind.NODE_ID in kinds
