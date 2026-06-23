@@ -107,7 +107,7 @@ def poll_mido_input(port: Any, timeout: float = 0.05) -> Any | None:
         message = port.poll()
         if message is not None:
             return message
-        time.sleep(0.001)
+        time.sleep(0.005)
     return None
 
 

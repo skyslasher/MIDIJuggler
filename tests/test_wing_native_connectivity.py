@@ -2,7 +2,10 @@ import asyncio
 
 import pytest
 
-from midijuggler.adapters.wing_native import WingNativeAdapter
+from midijuggler.adapters.wing_native import (
+    _FEEDBACK_PUBLISH_INTERVAL_S,
+    WingNativeAdapter,
+)
 from midijuggler.config import AdapterConfig
 from midijuggler.eventbus import EventBus
 from midijuggler.events import AdapterStatusEvent
@@ -49,11 +52,17 @@ def test_wing_native_adapter_notes_feedback_without_status_publish() -> None:
         from midijuggler.wing.native.decoder import WingNodeData
 
         await adapter._publish_node_data(WingNodeData(99, float_value=0.5))  # noqa: SLF001
+        await asyncio.sleep(_FEEDBACK_PUBLISH_INTERVAL_S + 0.05)
         return adapter, events
 
     adapter, events = asyncio.run(scenario())
 
-    assert events == []
-    snapshot = adapter.connectivity_snapshot()
-    assert snapshot["last_feedback_path"] == "/ch/1/fdr"
-    assert snapshot["last_feedback_value"] == pytest.approx(0.5)
+    try:
+        assert events == []
+        snapshot = adapter.connectivity_snapshot()
+        assert snapshot["last_feedback_path"] == "/ch/1/fdr"
+        assert snapshot["last_feedback_value"] == pytest.approx(0.5)
+    finally:
+        adapter.running = False
+        for task in list(adapter._fader_flush_tasks.values()):  # noqa: SLF001
+            task.cancel()

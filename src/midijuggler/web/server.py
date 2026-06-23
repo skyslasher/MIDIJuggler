@@ -119,6 +119,11 @@ from midijuggler.datapoint.migrate import effective_connections, stored_connecti
 from midijuggler.datapoint.store import DataPointStore
 from midijuggler.datapoint.types import ConnectionSpec, ModifierKind, DataPointId, DataPointValue, ValueType, float_value
 from midijuggler.modules.modifier.graph import ModifierGraph
+from midijuggler.web.monitor_coalesce import (
+    MonitorCoalescer,
+    monitor_datapoint_key,
+    monitor_event_key,
+)
 from midijuggler.system_hostname import (
     apply_hostname,
     can_restart_service,
@@ -191,6 +196,7 @@ class WebInterface:
         self._websockets: set[web.WebSocketResponse] = set()
         self._hid_learn_instance: str | None = None
         self._adapter_runtime_status: dict[str, dict[str, str]] = {}
+        self._monitor_coalescer = MonitorCoalescer()
         self.bus.subscribe("*", self._broadcast_event)
 
     def bind_osc_io_modules(self, io_modules: dict[str, OscIOModule]) -> None:
@@ -262,7 +268,18 @@ class WebInterface:
         return web.Response(body=asset.read_bytes(), content_type=content_type)
 
     async def broadcast_datapoint_update(self, payload: dict[str, Any]) -> None:
-        await self._broadcast_payload({"type": "datapoint", "payload": payload})
+        if not self._websockets:
+            return
+        key = monitor_datapoint_key(payload)
+        if key is None:
+            await self._broadcast_payload({"type": "datapoint", "payload": payload})
+            return
+        await self._monitor_coalescer.offer(
+            key,
+            payload,
+            lambda item: self._broadcast_payload({"type": "datapoint", "payload": item}),
+            immediate=self.learn.state.enabled,
+        )
 
     def datapoints_payload(self) -> dict[str, Any]:
         if self.datapoint_store is None:
@@ -1055,7 +1072,18 @@ class WebInterface:
                 "detail": event.detail,
                 "connection_phase": event.connection_phase,
             }
-        await self._broadcast_payload({"type": "event", "payload": event.as_dict()})
+        payload = {"type": "event", "payload": event.as_dict()}
+        if self._websockets:
+            key = monitor_event_key(event)
+            if key is None:
+                await self._broadcast_payload(payload)
+            else:
+                await self._monitor_coalescer.offer(
+                    key,
+                    payload,
+                    self._broadcast_payload,
+                    immediate=self.learn.state.enabled,
+                )
         if isinstance(event, MasterClockStateEvent):
             await self._broadcast_payload(
                 {

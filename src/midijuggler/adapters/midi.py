@@ -352,9 +352,8 @@ class MidiAdapter(Adapter):
                         break
                     last_presence_check = now
 
-                message = await asyncio.to_thread(poll_mido_input, port, 0.05)
+                message = await asyncio.to_thread(poll_mido_input, port, 0.1)
                 if message is None:
-                    await asyncio.sleep(0.002)
                     continue
 
                 parsed = mido_message_to_status_data(message)

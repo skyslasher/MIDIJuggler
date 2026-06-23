@@ -2,7 +2,10 @@ import asyncio
 
 import pytest
 
-from midijuggler.adapters.wing_native import WingNativeAdapter
+from midijuggler.adapters.wing_native import (
+    _FEEDBACK_PUBLISH_INTERVAL_S,
+    WingNativeAdapter,
+)
 from midijuggler.config import AdapterConfig
 from midijuggler.eventbus import EventBus
 from midijuggler.events import AdapterStatusEvent, MappedEvent, OscMessageEvent
@@ -84,6 +87,8 @@ def test_wing_native_adapter_publishes_input_updates() -> None:
         from midijuggler.wing.native.decoder import WingNodeData
 
         await adapter._publish_node_data(WingNodeData(99, float_value=0.5))  # noqa: SLF001
+        await asyncio.sleep(_FEEDBACK_PUBLISH_INTERVAL_S + 0.05)
+        await adapter.stop()
         return events
 
     events = asyncio.run(scenario())

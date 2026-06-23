@@ -9,6 +9,7 @@ from collections import defaultdict, deque
 from collections.abc import Awaitable, Callable
 from typing import Any
 
+from midijuggler.datapoint.compare import float_values_differ
 from midijuggler.datapoint.types import DataPointId, DataPointSpec, DataPointValue, ValueType
 
 LOGGER = logging.getLogger(__name__)
@@ -126,7 +127,11 @@ class DataPointStore:
         if value.value_type != previous.value_type:
             return True
         if value.float_value is not None and previous.float_value is not None:
-            return abs(value.float_value - previous.float_value) > 1e-9
+            return float_values_differ(
+                previous.float_value,
+                value.float_value,
+                self._specs.get(key),
+            )
         if value.bool_value is not None and previous.bool_value is not None:
             return value.bool_value != previous.bool_value
         if value.int_value is not None and previous.int_value is not None:

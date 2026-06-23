@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import logging
 
+from midijuggler.datapoint.compare import compare_epsilon
 from midijuggler.datapoint.store import DataPointStore
 from midijuggler.datapoint.types import (
     ConnectionSpec,
@@ -240,12 +241,4 @@ def _numeric_value(value: DataPointValue) -> float | None:
 
 
 def _compare_epsilon(store: DataPointStore, target_key: str) -> float:
-    spec = store.spec(target_key)
-    if spec is None:
-        return 1e-9
-    span = float(spec.value_max) - float(spec.value_min)
-    if span > 10.0:
-        return max(0.001, span * 1e-4)
-    if span > 1.0:
-        return max(1e-6, span * 1e-5)
-    return 1e-9
+    return compare_epsilon(store.spec(target_key))

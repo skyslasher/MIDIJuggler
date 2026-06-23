@@ -5,7 +5,6 @@ from __future__ import annotations
 import asyncio
 import contextlib
 import logging
-import time
 from typing import Any
 
 from midijuggler.adapters.base import Adapter
@@ -25,8 +24,8 @@ from midijuggler.osc_library import get_osc_library
 LOGGER = logging.getLogger(__name__)
 
 _FADER_PATH_MARKER = "/fdr"
-_FEEDBACK_PUBLISH_INTERVAL_S = 1.0 / 30.0
-_FADER_FEEDBACK_DEADBAND = 0.001
+_FEEDBACK_PUBLISH_INTERVAL_S = 1.0 / 15.0
+_FADER_FEEDBACK_DEADBAND = 0.01
 
 
 class WingNativeAdapter(Adapter):
@@ -42,7 +41,9 @@ class WingNativeAdapter(Adapter):
         self._echo_guard = OscEchoGuard()
         self._connectivity = WingNativeConnectivity()
         self._last_status_detail = ""
-        self._feedback_publish_state: dict[str, tuple[float, float]] = {}
+        self._pending_fader_feedback: dict[str, float] = {}
+        self._fader_flush_tasks: dict[str, asyncio.Task[None]] = {}
+        self._last_published_fader: dict[str, float] = {}
 
     def connectivity_snapshot(self) -> dict[str, Any]:
         if self._client is not None:
@@ -101,11 +102,13 @@ class WingNativeAdapter(Adapter):
 
     async def stop(self) -> None:
         self.running = False
-        for task in (self._warmup_task, self._read_task, self._keepalive_task):
+        for task in (*self._fader_flush_tasks.values(), self._warmup_task, self._read_task, self._keepalive_task):
             if task is not None:
                 task.cancel()
                 with contextlib.suppress(asyncio.CancelledError):
                     await task
+        self._fader_flush_tasks.clear()
+        self._pending_fader_feedback.clear()
         self._warmup_task = None
         self._read_task = None
         self._keepalive_task = None
@@ -214,8 +217,47 @@ class WingNativeAdapter(Adapter):
         is_echo = self._echo_guard.is_echo(path, numeric_value)
         if is_echo:
             return
-        if not self._should_publish_feedback(path, numeric_value):
+        if _FADER_PATH_MARKER in path:
+            await self._queue_fader_feedback(path, numeric_value)
             return
+        await self._emit_feedback(path, numeric_value)
+
+    async def _queue_fader_feedback(self, path: str, value: float) -> None:
+        self._pending_fader_feedback[path] = value
+        if path in self._fader_flush_tasks and not self._fader_flush_tasks[path].done():
+            return
+        self._fader_flush_tasks[path] = asyncio.create_task(
+            self._flush_fader_feedback(path),
+            name=f"wing-fader-flush-{self.name}-{path}",
+        )
+
+    async def _flush_fader_feedback(self, path: str) -> None:
+        reschedule = False
+        try:
+            await asyncio.sleep(_FEEDBACK_PUBLISH_INTERVAL_S)
+            if not self.running:
+                return
+            value = self._pending_fader_feedback.pop(path, None)
+            if value is None:
+                return
+            last = self._last_published_fader.get(path)
+            if last is not None and abs(value - last) < _FADER_FEEDBACK_DEADBAND:
+                return
+            self._last_published_fader[path] = value
+            await self._emit_feedback(path, value)
+        except asyncio.CancelledError:
+            raise
+        finally:
+            self._fader_flush_tasks.pop(path, None)
+            if path in self._pending_fader_feedback and self.running:
+                reschedule = True
+        if reschedule:
+            self._fader_flush_tasks[path] = asyncio.create_task(
+                self._flush_fader_feedback(path),
+                name=f"wing-fader-flush-{self.name}-{path}",
+            )
+
+    async def _emit_feedback(self, path: str, numeric_value: float) -> None:
         self._connectivity.note_feedback(path, numeric_value)
         LOGGER.debug(
             "Wing native adapter %s input %s %s",
@@ -233,20 +275,6 @@ class WingNativeAdapter(Adapter):
                 echo_suppressed=False,
             )
         )
-
-    def _should_publish_feedback(self, path: str, value: float) -> bool:
-        if _FADER_PATH_MARKER not in path:
-            return True
-        now = time.monotonic()
-        previous = self._feedback_publish_state.get(path)
-        if previous is not None:
-            last_value, last_time = previous
-            if abs(value - last_value) < _FADER_FEEDBACK_DEADBAND:
-                return False
-            if now - last_time < _FEEDBACK_PUBLISH_INTERVAL_S:
-                return False
-        self._feedback_publish_state[path] = (value, now)
-        return True
 
     async def _warm_path_cache_task(self) -> None:
         try:
