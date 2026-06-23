@@ -123,7 +123,23 @@ class WingNativeAdapter(Adapter):
             LOGGER.warning("Wing native adapter %s is not running", self.name)
             return
 
-        node_id = await self._client.resolve_path(address)
+        try:
+            node_id = await self._client.resolve_path(address)
+        except TimeoutError:
+            LOGGER.warning(
+                "Wing native adapter %s timed out resolving %s",
+                self.name,
+                address,
+            )
+            return
+        except KeyError:
+            LOGGER.warning(
+                "Wing native adapter %s could not resolve %s",
+                self.name,
+                address,
+            )
+            return
+
         value = float(event.value)
         await self._client.set_float(node_id, value)
         self._connectivity.note_send()

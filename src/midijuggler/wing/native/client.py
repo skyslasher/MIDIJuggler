@@ -24,12 +24,20 @@ from midijuggler.wing.native.protocol import (
 
 LOGGER = logging.getLogger(__name__)
 KEEPALIVE_INTERVAL_SECONDS = 7.0
+LIST_CHILDREN_TIMEOUT_SECONDS = 5.0
+LIST_CHILDREN_DRAIN_TIMEOUT_SECONDS = 5.0
 
 
 @dataclass(frozen=True)
 class WingPathBinding:
     path: str
     node_id: int
+
+
+@dataclass
+class _PendingNodeDefRequest:
+    future: asyncio.Future[list[WingNodeDef]]
+    request_id: int
 
 
 class WingNativeClient:
@@ -50,7 +58,10 @@ class WingNativeClient:
         self._decoder = WingStreamDecoder()
         self._path_to_id: dict[str, int] = {}
         self._id_to_path: dict[int, str] = {}
-        self._pending_defs: asyncio.Future[list[WingNodeDef]] | None = None
+        self._pending_node_defs: _PendingNodeDefRequest | None = None
+        self._node_def_request_seq = 0
+        self._discard_node_defs_until_end = False
+        self._discard_node_defs_done: asyncio.Future[None] | None = None
         self._lock = asyncio.Lock()
 
     @property
@@ -100,14 +111,37 @@ class WingNativeClient:
 
     async def list_children(self, node_id: int) -> list[WingNodeDef]:
         async with self._lock:
+            await self._wait_for_stale_node_def_drain()
+            self._node_def_request_seq += 1
+            request_id = self._node_def_request_seq
             loop = asyncio.get_running_loop()
             pending: asyncio.Future[list[WingNodeDef]] = loop.create_future()
-            self._pending_defs = pending
+            self._pending_node_defs = _PendingNodeDefRequest(
+                future=pending,
+                request_id=request_id,
+            )
             await self._write(encode_request_node_definition(node_id, self.channel))
             try:
-                return await asyncio.wait_for(pending, timeout=5.0)
+                return await asyncio.wait_for(
+                    pending,
+                    timeout=LIST_CHILDREN_TIMEOUT_SECONDS,
+                )
+            except TimeoutError:
+                LOGGER.warning(
+                    "Wing native list_children timed out after %.1fs for node_id=%s",
+                    LIST_CHILDREN_TIMEOUT_SECONDS,
+                    node_id,
+                )
+                self._begin_stale_node_def_drain()
+                if not pending.done():
+                    pending.cancel()
+                raise
             finally:
-                self._pending_defs = None
+                if (
+                    self._pending_node_defs is not None
+                    and self._pending_node_defs.request_id == request_id
+                ):
+                    self._pending_node_defs = None
 
     async def set_float(self, node_id: int, value: float) -> None:
         await self._write(encode_set_float(node_id, value, channel=self.channel))
@@ -138,7 +172,15 @@ class WingNativeClient:
 
     def handle_events(self, events: list[tuple[WingDecodeKind, object]]) -> list[WingNodeDef | WingNodeData]:
         handled: list[WingNodeDef | WingNodeData] = []
-        pending = self._pending_defs
+        if self._discard_node_defs_until_end:
+            for kind, payload in events:
+                if kind == WingDecodeKind.NODE_DATA and isinstance(payload, WingNodeData):
+                    handled.append(payload)
+                elif kind == WingDecodeKind.REQUEST_END:
+                    self._finish_stale_node_def_drain()
+            return handled
+
+        pending_req = self._pending_node_defs
         collected: list[WingNodeDef] = []
         for kind, payload in events:
             if kind == WingDecodeKind.NODE_DEF and isinstance(payload, WingNodeDef):
@@ -146,9 +188,44 @@ class WingNativeClient:
                 handled.append(payload)
             elif kind == WingDecodeKind.NODE_DATA and isinstance(payload, WingNodeData):
                 handled.append(payload)
-            elif kind == WingDecodeKind.REQUEST_END and pending is not None and not pending.done():
-                pending.set_result(collected)
+            elif (
+                kind == WingDecodeKind.REQUEST_END
+                and pending_req is not None
+                and not pending_req.future.done()
+            ):
+                pending_req.future.set_result(collected)
         return handled
+
+    def _begin_stale_node_def_drain(self) -> None:
+        if self._discard_node_defs_until_end:
+            return
+        self._discard_node_defs_until_end = True
+        loop = asyncio.get_running_loop()
+        self._discard_node_defs_done = loop.create_future()
+
+    async def _wait_for_stale_node_def_drain(self) -> None:
+        if not self._discard_node_defs_until_end:
+            return
+        done = self._discard_node_defs_done
+        if done is None:
+            self._begin_stale_node_def_drain()
+            done = self._discard_node_defs_done
+        assert done is not None
+        try:
+            await asyncio.wait_for(done, timeout=LIST_CHILDREN_DRAIN_TIMEOUT_SECONDS)
+        except TimeoutError:
+            LOGGER.warning(
+                "Wing native timed out draining stale node-def response after %.1fs",
+                LIST_CHILDREN_DRAIN_TIMEOUT_SECONDS,
+            )
+            self._finish_stale_node_def_drain()
+
+    def _finish_stale_node_def_drain(self) -> None:
+        self._discard_node_defs_until_end = False
+        done = self._discard_node_defs_done
+        self._discard_node_defs_done = None
+        if done is not None and not done.done():
+            done.set_result(None)
 
     def _remember_path(self, path: str, node_id: int) -> None:
         normalized = _normalize_path(path)
