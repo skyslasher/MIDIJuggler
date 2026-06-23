@@ -563,6 +563,77 @@ legend {
   padding: 0;
 }
 
+.connections-table-header {
+  align-items: center;
+  display: grid;
+  gap: 0.45rem;
+  grid-template-columns: 1.25rem 1fr 1fr;
+  margin-bottom: 0.35rem;
+  padding: 0 0.7rem 0.45rem;
+}
+
+.connections-table-header[hidden] {
+  display: none;
+}
+
+.connections-table-chevron-spacer {
+  flex-shrink: 0;
+}
+
+.connections-sort-btn {
+  background: transparent;
+  border: none;
+  color: #9fb5d9;
+  cursor: pointer;
+  font-size: 0.8rem;
+  font-weight: 600;
+  padding: 0.25rem 0;
+  text-align: left;
+}
+
+.connections-sort-btn:hover {
+  color: #dbe6f8;
+}
+
+.connections-sort-btn.is-active {
+  color: #dbe6f8;
+}
+
+.connection-route-summary {
+  display: grid;
+  flex: 1;
+  gap: 0.45rem;
+  grid-template-columns: 1fr 1fr;
+  min-width: 0;
+  overflow: visible;
+  text-overflow: unset;
+  white-space: normal;
+}
+
+.connection-route-cell {
+  color: #dbe6f8;
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 0.9rem;
+  font-weight: 400;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.connection-route-source {
+  border-right: 1px solid #31405e;
+  padding-right: 0.45rem;
+}
+
+.connection-route-target {
+  padding-left: 0.1rem;
+}
+
+.connection-card {
+  overflow-anchor: none;
+}
+
 .connection-card .mapping-meta {
   color: #9fb5d9;
   font-size: 0.85rem;

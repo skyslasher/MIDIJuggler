@@ -66,6 +66,7 @@ const hidInstances = document.querySelector("#hid-instances");
 const hidAddButton = document.querySelector("#hid-add");
 const hidMessage = document.querySelector("#hid-message");
 const mappings = document.querySelector("#mappings");
+const connectionsTableHeader = document.querySelector("#connections-table-header");
 const feedbackSuppressMs = document.querySelector("#feedback-suppress-ms");
 const routingSettingsSave = document.querySelector("#routing-settings-save");
 const routingSettingsMessage = document.querySelector("#routing-settings-message");
@@ -149,6 +150,7 @@ let monitorDisplayMode = monitorDisplayModeSelect?.value || "library";
 let adapterLibraryConfig = {};
 let storedConnections = [];
 let editingConnectionId = "";
+let connectionSort = { column: "source", direction: "asc" };
 const monitorLibraryCache = { midi: {}, osc: {} };
 const adapterConnectionStatus = {};
 
@@ -552,8 +554,56 @@ function appendScaleCurveOptions(select, selectedValue = "linear") {
   select.value = selectedValue || "linear";
 }
 
-function connectionSummary(connection) {
-  return `${formatDatapointDisplay(connection.source)} -> ${formatDatapointDisplay(connection.target)}`;
+function connectionSortKey(connection, column) {
+  const pointId = column === "source" ? connection.source : connection.target;
+  return formatDatapointDisplay(pointId).toLowerCase();
+}
+
+function sortedConnections(connections) {
+  const { column, direction } = connectionSort;
+  return [...connections].sort((left, right) => {
+    const cmp = connectionSortKey(left, column).localeCompare(connectionSortKey(right, column));
+    return direction === "asc" ? cmp : -cmp;
+  });
+}
+
+function connectionSortIndicator(column) {
+  if (connectionSort.column !== column) {
+    return "";
+  }
+  return connectionSort.direction === "asc" ? " ↑" : " ↓";
+}
+
+function updateConnectionsTableHeader(connections) {
+  if (!connectionsTableHeader) {
+    return;
+  }
+  connectionsTableHeader.hidden = !connections.length;
+  for (const button of connectionsTableHeader.querySelectorAll(".connections-sort-btn")) {
+    const column = button.dataset.column;
+    const isActive = connectionSort.column === column;
+    button.classList.toggle("is-active", isActive);
+    const label = column === "source" ? "Source" : "Target";
+    button.textContent = `${label}${connectionSortIndicator(column)}`;
+    button.setAttribute(
+      "aria-sort",
+      isActive ? (connectionSort.direction === "asc" ? "ascending" : "descending") : "none",
+    );
+  }
+}
+
+function setConnectionRouteSummary(title, connection) {
+  title.className = "adapter-instance-title connection-route-summary";
+  title.replaceChildren();
+  const sourceCell = document.createElement("span");
+  sourceCell.className = "connection-route-cell connection-route-source";
+  sourceCell.textContent = formatDatapointDisplay(connection.source);
+  sourceCell.title = connection.source;
+  const targetCell = document.createElement("span");
+  targetCell.className = "connection-route-cell connection-route-target";
+  targetCell.textContent = formatDatapointDisplay(connection.target);
+  targetCell.title = connection.target;
+  title.append(sourceCell, targetCell);
 }
 
 function connectionMeta(connection) {
@@ -744,9 +794,9 @@ function createConnectionListItem(connection) {
   card.dataset.connectionId = connection.id;
 
   const isEditing = editingConnectionId === connection.id;
-  const accordion = createAdapterInstanceAccordion(connection.id);
+  const accordion = createAdapterInstanceAccordion("");
   const { body, title, details } = accordion;
-  title.textContent = connectionSummary(connection);
+  setConnectionRouteSummary(title, connection);
   details.open = isEditing;
 
   if (isEditing) {
@@ -805,7 +855,32 @@ function createConnectionListItem(connection) {
   return item;
 }
 
+function findConnectionListItem(connectionId) {
+  return mappings.querySelector(`[data-connection-id="${connectionId}"]`)?.closest(".mapping-item") ?? null;
+}
+
+function replaceConnectionListItem(connectionId) {
+  const connection = storedConnections.find((entry) => entry.id === connectionId);
+  if (!connection) {
+    renderMappingsList(storedConnections);
+    return;
+  }
+  const scrollY = window.scrollY;
+  const existingItem = findConnectionListItem(connectionId);
+  const newItem = createConnectionListItem(connection);
+  if (existingItem) {
+    existingItem.replaceWith(newItem);
+    window.scrollTo(0, scrollY);
+    requestAnimationFrame(() => {
+      window.scrollTo(0, scrollY);
+    });
+    return;
+  }
+  renderMappingsList(storedConnections);
+}
+
 function renderMappingsList(connections) {
+  updateConnectionsTableHeader(connections);
   mappings.replaceChildren();
   if (!connections.length) {
     const empty = document.createElement("li");
@@ -815,19 +890,24 @@ function renderMappingsList(connections) {
     return;
   }
 
-  for (const connection of connections) {
+  for (const connection of sortedConnections(connections)) {
     mappings.appendChild(createConnectionListItem(connection));
   }
 }
 
 async function openMappingEditor(connection) {
   editingConnectionId = connection.id;
+  replaceConnectionListItem(connection.id);
   await loadLearnDatapoints();
-  renderMappingsList(storedConnections);
 }
 
 function closeMappingEditor() {
+  const previousId = editingConnectionId;
   editingConnectionId = "";
+  if (previousId) {
+    replaceConnectionListItem(previousId);
+    return;
+  }
   renderMappingsList(storedConnections);
 }
 
@@ -5950,6 +6030,23 @@ function connect() {
     }
   });
 }
+
+connectionsTableHeader?.addEventListener("click", (event) => {
+  const button = event.target.closest(".connections-sort-btn");
+  if (!button) {
+    return;
+  }
+  const column = button.dataset.column;
+  if (!column) {
+    return;
+  }
+  if (connectionSort.column === column) {
+    connectionSort.direction = connectionSort.direction === "asc" ? "desc" : "asc";
+  } else {
+    connectionSort = { column, direction: "asc" };
+  }
+  renderMappingsList(storedConnections);
+});
 
 learnToggle.addEventListener("click", () => {
   const enabled = !learnMode;
