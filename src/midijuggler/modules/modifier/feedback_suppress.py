@@ -13,6 +13,9 @@ _ENCODER_TURN_PATTERN = re.compile(
 _ENCODER_FEEDBACK_PATTERN = re.compile(
     r"^(?P<module>[^.]+)\.(?P<layer>layer_[ab])_encoder_(?P<num>\d+)_(?:value|led_ring)$"
 )
+_FADER_PATTERN = re.compile(
+    r"^(?P<module>[^.]+)\.(?P<layer>layer_[ab])_fader(?:_(?P<num>\d+))?$"
+)
 
 
 def parse_feedback_suppress_ms(
@@ -47,6 +50,22 @@ def encoder_control_group(point_id: str) -> str | None:
             f"{feedback_match.group('layer')}_encoder_{feedback_match.group('num')}"
         )
     return None
+
+
+def fader_control_group(point_id: str) -> str | None:
+    match = _FADER_PATTERN.match(point_id)
+    if match is None:
+        return None
+    num = match.group("num")
+    suffix = f"_fader_{num}" if num is not None else "_fader"
+    return f"{match.group('module')}.{match.group('layer')}{suffix}"
+
+
+def control_group(point_id: str) -> str | None:
+    group = encoder_control_group(point_id)
+    if group is not None:
+        return group
+    return fader_control_group(point_id)
 
 
 def reciprocal_feedback_pairs(
@@ -97,7 +116,7 @@ class FeedbackSuppressor:
     def note_turn(self, source_point_id: str, *, now: float | None = None) -> None:
         if not self.enabled:
             return
-        group = encoder_control_group(source_point_id)
+        group = control_group(source_point_id)
         if group is None:
             return
         timestamp = time.monotonic() if now is None else now
@@ -137,7 +156,7 @@ class FeedbackSuppressor:
     def should_suppress_target(self, target_point_id: str, *, now: float | None = None) -> bool:
         if not self.enabled:
             return False
-        group = encoder_control_group(target_point_id)
+        group = control_group(target_point_id)
         if group is None:
             return False
         last_turn = self._last_turn_at.get(group)

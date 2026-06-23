@@ -5,6 +5,7 @@ from __future__ import annotations
 import asyncio
 import contextlib
 import logging
+import time
 from typing import Any
 
 from midijuggler.adapters.base import Adapter
@@ -23,6 +24,10 @@ from midijuggler.osc_library import get_osc_library
 
 LOGGER = logging.getLogger(__name__)
 
+_FADER_PATH_MARKER = "/fdr"
+_FEEDBACK_PUBLISH_INTERVAL_S = 1.0 / 30.0
+_FADER_FEEDBACK_DEADBAND = 0.001
+
 
 class WingNativeAdapter(Adapter):
     protocol = "Wing Native"
@@ -37,6 +42,7 @@ class WingNativeAdapter(Adapter):
         self._echo_guard = OscEchoGuard()
         self._connectivity = WingNativeConnectivity()
         self._last_status_detail = ""
+        self._feedback_publish_state: dict[str, tuple[float, float]] = {}
 
     def connectivity_snapshot(self) -> dict[str, Any]:
         if self._client is not None:
@@ -206,6 +212,17 @@ class WingNativeAdapter(Adapter):
             return
 
         is_echo = self._echo_guard.is_echo(path, numeric_value)
+        if is_echo:
+            return
+        if not self._should_publish_feedback(path, numeric_value):
+            return
+        self._connectivity.note_feedback(path, numeric_value)
+        LOGGER.debug(
+            "Wing native adapter %s input %s %s",
+            self.name,
+            path,
+            numeric_value,
+        )
         await self.bus.publish(
             OscMessageEvent(
                 source=self.name,
@@ -213,19 +230,23 @@ class WingNativeAdapter(Adapter):
                 arguments=(numeric_value,),
                 direction="input",
                 canonical_address=path,
-                echo_suppressed=is_echo,
+                echo_suppressed=False,
             )
         )
-        if is_echo:
-            return
-        self._connectivity.note_feedback(path, numeric_value)
-        await self._publish_connectivity_status()
-        LOGGER.info(
-            "Wing native adapter %s input %s %s",
-            self.name,
-            path,
-            numeric_value,
-        )
+
+    def _should_publish_feedback(self, path: str, value: float) -> bool:
+        if _FADER_PATH_MARKER not in path:
+            return True
+        now = time.monotonic()
+        previous = self._feedback_publish_state.get(path)
+        if previous is not None:
+            last_value, last_time = previous
+            if abs(value - last_value) < _FADER_FEEDBACK_DEADBAND:
+                return False
+            if now - last_time < _FEEDBACK_PUBLISH_INTERVAL_S:
+                return False
+        self._feedback_publish_state[path] = (value, now)
+        return True
 
     async def _warm_path_cache_task(self) -> None:
         try:

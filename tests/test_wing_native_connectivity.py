@@ -26,8 +26,8 @@ def test_wing_native_connectivity_snapshot_reports_feedback_age() -> None:
     assert snapshot["paths_cached"] == 12
 
 
-def test_wing_native_adapter_publishes_connectivity_status_on_feedback() -> None:
-    async def scenario() -> list[AdapterStatusEvent]:
+def test_wing_native_adapter_notes_feedback_without_status_publish() -> None:
+    async def scenario() -> tuple[WingNativeAdapter, list[AdapterStatusEvent]]:
         bus = EventBus()
         events: list[AdapterStatusEvent] = []
         bus.subscribe(AdapterStatusEvent, lambda event: events.append(event))
@@ -49,11 +49,11 @@ def test_wing_native_adapter_publishes_connectivity_status_on_feedback() -> None
         from midijuggler.wing.native.decoder import WingNodeData
 
         await adapter._publish_node_data(WingNodeData(99, float_value=0.5))  # noqa: SLF001
-        return events
+        return adapter, events
 
-    events = asyncio.run(scenario())
+    adapter, events = asyncio.run(scenario())
 
-    assert events
-    assert events[-1].connection_phase == "connected"
-    assert "/ch/1/fdr" in events[-1].detail
-    assert "last feedback" in events[-1].detail
+    assert events == []
+    snapshot = adapter.connectivity_snapshot()
+    assert snapshot["last_feedback_path"] == "/ch/1/fdr"
+    assert snapshot["last_feedback_value"] == pytest.approx(0.5)

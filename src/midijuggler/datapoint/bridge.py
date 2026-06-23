@@ -150,6 +150,7 @@ class EventToDataPointBridge:
             await self.store.write(
                 float_value(point_id, numeric_value, emit_outputs=False)
             )
+            return
         await self.store.write(value)
 
 
