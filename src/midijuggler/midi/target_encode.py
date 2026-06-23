@@ -43,6 +43,15 @@ def resolve_midi_target_parameter(
             if parameter.id == parameter_id and parameter.direction == "target"
         ]
     if not matches:
+        matches = [
+            parameter
+            for parameter in library.parameters
+            if parameter.id == parameter_id
+            and parameter.direction == "source"
+            and parameter.message_type == "control_change"
+            and parameter.category == "fader"
+        ]
+    if not matches:
         raise ValueError(
             f"unknown MIDI parameter {parameter_id!r} in library {library_id!r}"
         )
@@ -68,7 +77,14 @@ def encode_midi_target_message(
     *,
     adapter: AdapterConfig | None = None,
 ) -> tuple[int, tuple[int, ...]]:
-    if parameter.direction != "target":
+    if parameter.direction not in {"target", "source"}:
+        raise ValueError(f"MIDI parameter {parameter.id!r} is not an output target")
+    if (
+        parameter.direction == "source"
+        and not (
+            parameter.message_type == "control_change" and parameter.category == "fader"
+        )
+    ):
         raise ValueError(f"MIDI parameter {parameter.id!r} is not a target")
     if parameter.message_type == "sysex":
         raise ValueError(

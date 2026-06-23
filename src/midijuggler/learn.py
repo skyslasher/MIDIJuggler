@@ -294,12 +294,9 @@ def resolve_osc_target_address(
 ) -> str:
     adapter = config.adapters.get(adapter_name)
     if adapter is None:
-        raise ValueError(f"unknown OSC adapter: {adapter_name}")
+        raise ValueError(f"unknown desk adapter: {adapter_name}")
 
-    library_id = str(adapter.options.get("osc_library", "")).strip()
-    if not library_id:
-        raise ValueError(f"OSC adapter {adapter_name} has no osc_library configured")
-
+    library_id = _desk_library_id(adapter, adapter_name)
     library = get_osc_library(library_id)
     parameter = next(
         (entry for entry in library.parameters if entry.id == parameter_id),
@@ -307,12 +304,28 @@ def resolve_osc_target_address(
     )
     if parameter is None:
         raise ValueError(
-            f"unknown OSC parameter {parameter_id!r} in library {library_id!r}"
+            f"unknown desk parameter {parameter_id!r} in library {library_id!r}"
         )
     if parameter.direction != "target":
-        raise ValueError(f"OSC parameter {parameter_id!r} is not a target")
+        raise ValueError(f"desk parameter {parameter_id!r} is not a target")
 
     return parameter.address
+
+
+def _desk_library_id(adapter: AdapterConfig, adapter_name: str) -> str:
+    kind = adapter.kind or adapter_name
+    if kind == "wing_native":
+        library_id = str(adapter.options.get("wing_library", "behringer_wing")).strip()
+        if not library_id:
+            raise ValueError(
+                f"Wing native adapter {adapter_name} has no wing_library configured"
+            )
+        return library_id
+
+    library_id = str(adapter.options.get("osc_library", "")).strip()
+    if not library_id:
+        raise ValueError(f"OSC adapter {adapter_name} has no osc_library configured")
+    return library_id
 
 
 def lookup_midi_source_ranges(
@@ -345,12 +358,9 @@ def lookup_osc_target_ranges(
 ) -> tuple[float, float]:
     adapter = config.adapters.get(adapter_name)
     if adapter is None:
-        raise ValueError(f"unknown OSC adapter: {adapter_name}")
+        raise ValueError(f"unknown desk adapter: {adapter_name}")
 
-    library_id = str(adapter.options.get("osc_library", "")).strip()
-    if not library_id:
-        raise ValueError(f"OSC adapter {adapter_name} has no osc_library configured")
-
+    library_id = _desk_library_id(adapter, adapter_name)
     library = get_osc_library(library_id)
     parameter = next(
         (entry for entry in library.parameters if entry.id == parameter_id),
@@ -358,7 +368,7 @@ def lookup_osc_target_ranges(
     )
     if parameter is None:
         raise ValueError(
-            f"unknown OSC parameter {parameter_id!r} in library {library_id!r}"
+            f"unknown desk parameter {parameter_id!r} in library {library_id!r}"
         )
     return float(parameter.value_min), float(parameter.value_max)
 

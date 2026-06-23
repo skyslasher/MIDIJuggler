@@ -295,7 +295,7 @@ def test_reverse_connection_swaps_customized_ranges() -> None:
     forward = ConnectionSpec(
         id="fader-to-wing",
         source="xtouch_mini.layer_a_fader_1",
-        target="wing_native_foh./ch/1/fader",
+        target="wing_native_foh./ch/1/fdr",
         input_min=0.0,
         input_max=63.0,
         output_min=-90.0,
