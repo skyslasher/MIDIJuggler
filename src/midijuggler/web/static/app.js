@@ -1100,7 +1100,8 @@ function eventToDatapointId(event) {
     return `${event.source}.${control}`;
   }
   if (event.kind === "OscMessageEvent" && event.address) {
-    return `${event.source}.${event.address}`;
+    const address = event.canonical_address || event.address;
+    return `${event.source}.${address}`;
   }
   if (event.kind === "MidiMessageEvent" && event.control) {
     return `${event.source}.${event.control}`;
@@ -1126,7 +1127,8 @@ function monitorSourceKeyForEvent(event) {
     return `${event.source}:${control}`;
   }
   if (event.kind === "OscMessageEvent") {
-    return `${event.source}:${event.address}`;
+    const address = event.canonical_address || event.address;
+    return `${event.source}:${address}`;
   }
   if (event.kind === "MidiMessageEvent" && event.control) {
     return `${event.source}:${event.control}`;
@@ -1523,6 +1525,13 @@ function formatMonitorEventLine(event, time) {
     if (monitorDisplayMode === "manual" || isHidAdapterSource(event.source)) {
       return `[${time}] Control ${event.source}:${event.control} = ${event.value}`;
     }
+    if (event.control.startsWith("/") || adapterOscLibraryId(event.source)) {
+      const label = lookupOscParameterLabel(event.source, event.control);
+      if (label) {
+        return `[${time}] OSC input ${label} (${event.control}) = ${event.value}`;
+      }
+      return `[${time}] OSC input ${event.control} = ${event.value}`;
+    }
     const label =
       lookupMidiSourceLabel(event.source, event.control) ||
       lookupMidiTargetLabel(event.source, event.control);
@@ -1538,13 +1547,16 @@ function formatMonitorEventLine(event, time) {
   }
 
   if (event.kind === "OscMessageEvent") {
+    const direction = event.direction || "input";
+    const address = event.canonical_address || event.address;
+    const echoSuffix = event.echo_suppressed ? " (echo)" : "";
     if (monitorDisplayMode === "library") {
-      const label = lookupOscParameterLabel(event.source, event.address);
+      const label = lookupOscParameterLabel(event.source, address);
       if (label) {
-        return `[${time}] OSC ${event.direction} ${label} (${event.address}) ${JSON.stringify(event.arguments || [])}`;
+        return `[${time}] OSC ${direction} ${label} (${event.address}) ${JSON.stringify(event.arguments || [])}${echoSuffix}`;
       }
     }
-    return `[${time}] OSC ${event.direction} ${event.address} ${JSON.stringify(event.arguments || [])}`;
+    return `[${time}] OSC ${direction} ${event.address} ${JSON.stringify(event.arguments || [])}${echoSuffix}`;
   }
 
   return `[${time}] ${event.kind} from ${event.source}: ${JSON.stringify(event)}`;

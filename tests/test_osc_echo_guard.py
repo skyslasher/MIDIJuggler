@@ -20,9 +20,11 @@ def test_osc_echo_guard_filters_matching_input_within_window() -> None:
 
 
 def test_osc_adapter_ignores_recent_output_as_input(monkeypatch: pytest.MonkeyPatch) -> None:
-    async def scenario() -> list[ControlEvent]:
+    async def scenario() -> tuple[list[OscMessageEvent], list[ControlEvent]]:
         bus = EventBus()
+        osc_events: list[OscMessageEvent] = []
         controls: list[ControlEvent] = []
+        bus.subscribe(OscMessageEvent, lambda event: osc_events.append(event))
         bus.subscribe(ControlEvent, lambda event: controls.append(event))
 
         adapter = OscAdapter(
@@ -53,10 +55,13 @@ def test_osc_adapter_ignores_recent_output_as_input(monkeypatch: pytest.MonkeyPa
             _encode_osc_datagram("/ch/01/mix/fader", 0.6)
         )
 
-        return controls
+        return osc_events, controls
 
-    controls = asyncio.run(scenario())
+    osc_events, controls = asyncio.run(scenario())
 
+    assert len(osc_events) == 2
+    assert osc_events[0].echo_suppressed is True
+    assert osc_events[1].echo_suppressed is False
     assert len(controls) == 1
     assert controls[0].control == "/ch/01/mix/fader"
     assert controls[0].value == pytest.approx(0.6)

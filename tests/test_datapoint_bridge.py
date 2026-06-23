@@ -1,3 +1,5 @@
+import pytest
+
 from midijuggler.datapoint.bridge import (
     connection_from_legacy_mapping,
     legacy_source_to_datapoint,
@@ -19,6 +21,38 @@ def test_legacy_target_to_datapoint_for_midi_cc() -> None:
 
 def test_legacy_target_to_datapoint_for_osc_address() -> None:
     assert legacy_target_to_datapoint("desk:/ch/01/mix/level") == "desk./ch/01/mix/level"
+
+
+def test_osc_bridge_maps_wing_feedback_to_canonical_datapoint() -> None:
+    import asyncio
+
+    from midijuggler.datapoint.bridge import EventToDataPointBridge
+    from midijuggler.datapoint.store import DataPointStore
+    from midijuggler.eventbus import EventBus
+    from midijuggler.events import OscMessageEvent
+
+    store = DataPointStore()
+    bridge = EventToDataPointBridge(store, EventBus())
+    bridge.attach()
+
+    async def scenario() -> list[float | None]:
+        await bridge._on_osc_message(
+            OscMessageEvent(
+                source="wing_foh",
+                address="/ch/1/fdr~~~",
+                arguments=("-oo", 0.0, -144.0),
+                direction="input",
+                canonical_address="/ch/1/fdr",
+            )
+        )
+        return [
+            entry.float_value
+            for entry in store.history()
+            if str(entry.point_id) == "wing_foh./ch/1/fdr" and entry.float_value is not None
+        ]
+
+    values = asyncio.run(scenario())
+    assert values == [pytest.approx(0.0)]
 
 
 def test_connection_from_legacy_mapping() -> None:

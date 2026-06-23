@@ -112,6 +112,20 @@ def apply_desk_options(options: dict[str, Any]) -> dict[str, Any]:
     return normalized
 
 
+def normalize_desk_feedback_address(
+    desk: DeskProtocol | None,
+    address: str,
+) -> str:
+    """Map desk feedback paths to the canonical library control address."""
+
+    normalized = address.strip()
+    if not normalized or desk is None:
+        return normalized
+    if desk.protocol_id == "wing" and normalized.endswith("~~~"):
+        return normalized[:-3]
+    return normalized
+
+
 def sync_query_addresses(library_id: str) -> list[str]:
     """Return unique OSC addresses to query for a full library sync."""
 

@@ -147,6 +147,8 @@ class OscMessageEvent(Event):
     arguments: tuple[Any, ...] = ()
     target: str = ""
     direction: str = "input"
+    canonical_address: str = ""
+    echo_suppressed: bool = False
 
     def as_dict(self) -> dict[str, Any]:
         payload = super().as_dict()
@@ -156,6 +158,8 @@ class OscMessageEvent(Event):
                 "arguments": list(self.arguments),
                 "target": self.target,
                 "direction": self.direction,
+                "canonical_address": self.canonical_address or self.address,
+                "echo_suppressed": self.echo_suppressed,
             }
         )
         return payload

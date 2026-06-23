@@ -101,3 +101,12 @@ def _read_padded_string(data: bytes, offset: int) -> tuple[str, int]:
 def _pad4(data: bytes) -> bytes:
     padding = (4 - (len(data) % 4)) % 4
     return data + (b"\x00" * padding)
+
+
+def first_numeric_osc_argument(arguments: tuple[Any, ...] | list[Any]) -> float | None:
+    for argument in arguments:
+        if isinstance(argument, bool):
+            return 1.0 if argument else 0.0
+        if isinstance(argument, (int, float)):
+            return float(argument)
+    return None

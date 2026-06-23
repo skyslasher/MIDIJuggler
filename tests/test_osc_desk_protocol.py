@@ -5,6 +5,7 @@ from midijuggler.osc.desk_protocol import (
     desk_mode_for_library,
     desk_protocol_for_library,
     desk_subscribe_address,
+    normalize_desk_feedback_address,
     osc_library_for_desk_mode,
     sync_query_addresses,
 )
@@ -78,6 +79,14 @@ def test_desk_subscribe_address_for_wing_uses_event_subscription() -> None:
     assert wing.keepalive_address == "/*s~"
     assert desk_subscribe_address(wing, 2223) == "/%2223/*s~"
     assert desk_subscribe_address(wing, 0) == "/*s~"
+
+
+def test_normalize_desk_feedback_address_strips_wing_suffix() -> None:
+    wing = desk_protocol_for_library("behringer_wing")
+
+    assert wing is not None
+    assert normalize_desk_feedback_address(wing, "/ch/1/fdr~~~") == "/ch/1/fdr"
+    assert normalize_desk_feedback_address(wing, "/ch/1/fdr") == "/ch/1/fdr"
 
 
 def test_decode_wing_fader_feedback_message() -> None:

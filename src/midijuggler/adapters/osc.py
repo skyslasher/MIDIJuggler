@@ -29,9 +29,14 @@ from midijuggler.osc.desk_protocol import (
     apply_desk_options,
     desk_protocol_for_library,
     desk_subscribe_address,
+    normalize_desk_feedback_address,
     sync_query_addresses,
 )
-from midijuggler.osc.protocol import decode_messages, encode_message
+from midijuggler.osc.protocol import (
+    decode_messages,
+    encode_message,
+    first_numeric_osc_argument,
+)
 
 LOGGER = logging.getLogger(__name__)
 
@@ -183,28 +188,40 @@ class OscAdapter(Adapter):
             return
 
         for address, arguments in messages:
-            numeric_value = _first_numeric_argument(arguments)
-            if numeric_value is not None and self._echo_guard.is_echo(address, numeric_value):
-                LOGGER.debug(
-                    "OSC adapter %s ignored echo input %s %s",
-                    self.name,
-                    address,
-                    numeric_value,
-                )
-                continue
+            numeric_value = first_numeric_osc_argument(arguments)
+            canonical_address = normalize_desk_feedback_address(
+                self._desk_protocol,
+                address,
+            )
+            is_echo = False
+            if numeric_value is not None:
+                is_echo = self._echo_guard.is_echo(canonical_address, numeric_value)
+                if not is_echo and canonical_address != address:
+                    is_echo = self._echo_guard.is_echo(address, numeric_value)
+                if is_echo:
+                    LOGGER.debug(
+                        "OSC adapter %s ignored echo input %s %s",
+                        self.name,
+                        address,
+                        numeric_value,
+                    )
             await self.bus.publish(
                 OscMessageEvent(
                     source=self.name,
                     address=address,
                     arguments=arguments,
                     direction="input",
+                    canonical_address=canonical_address,
+                    echo_suppressed=is_echo,
                 )
             )
+            if is_echo:
+                continue
             if numeric_value is not None:
                 await self.bus.publish(
                     ControlEvent(
                         source=self.name,
-                        control=address,
+                        control=canonical_address,
                         value=numeric_value,
                     )
                 )
@@ -222,7 +239,7 @@ class OscAdapter(Adapter):
 
         payload = encode_message(normalized_address, arguments)
         self._transport.sendto(payload, (self._remote_host, self._remote_port))
-        numeric_value = _first_numeric_argument(tuple(arguments))
+        numeric_value = first_numeric_osc_argument(tuple(arguments))
         if numeric_value is not None:
             self._echo_guard.record(normalized_address, numeric_value)
         await self.bus.publish(
@@ -381,10 +398,3 @@ def _target_address(adapter_name: str, target: str) -> str | None:
     return remainder
 
 
-def _first_numeric_argument(arguments: tuple[Any, ...]) -> float | None:
-    for argument in arguments:
-        if isinstance(argument, bool):
-            return 1.0 if argument else 0.0
-        if isinstance(argument, (int, float)):
-            return float(argument)
-    return None
