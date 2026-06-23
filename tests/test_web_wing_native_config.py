@@ -42,8 +42,36 @@ def test_wing_native_adapters_config_payload_lists_instances() -> None:
     wing = payload["instances"][0]
     assert wing["remote_host"] == "192.168.10.48"
     assert wing["native_port"] == 2222
-    assert wing["wing_library"] == "behringer_wing"
+    assert wing["device_library"] == "behringer_wing"
+    assert wing["device_id"] == "wing_native_foh"
+    assert "wing_library" not in wing
     assert payload["available_wing_libraries"]
+
+
+def test_wing_native_instance_payload_includes_bound_device_library() -> None:
+    config = parse_config(
+        {
+            "adapters": {
+                "wing_native_foh": {
+                    "type": "wing_native",
+                    "enabled": True,
+                    "remote_host": "192.168.10.48",
+                },
+            },
+            "devices": [wing_device("wing_native_foh")],
+        }
+    )
+    interface = WebInterface(
+        config,
+        EventBus(),
+        ClockBpmTracker(),
+        MasterClock(config.master_clock, EventBus()),
+    )
+
+    wing = interface.wing_native_adapters_config_payload()["instances"][0]
+
+    assert wing["device_id"] == "wing_native_foh"
+    assert wing["device_library"] == "behringer_wing"
 
 
 def test_wing_native_adapters_config_hides_implicit_default_instance() -> None:
@@ -91,7 +119,6 @@ def test_apply_wing_native_adapters_config_persists_sections(tmp_path: Path) -> 
                         "enabled": False,
                         "remote_host": "10.0.0.48",
                         "native_port": 2222,
-                        "wing_library": "behringer_wing",
                         "echo_guard_ms": 50,
                     }
                 ]
@@ -160,7 +187,6 @@ def test_apply_wing_native_adapters_config_registers_datapoints_for_enabled_inst
                         "enabled": True,
                         "remote_host": "192.168.10.48",
                         "native_port": 2222,
-                        "wing_library": "behringer_wing",
                     }
                 ]
             }
@@ -172,7 +198,7 @@ def test_apply_wing_native_adapters_config_registers_datapoints_for_enabled_inst
     assert "wing_native_foh" in io_modules
 
 
-def test_apply_wing_native_adapters_config_rejects_non_wing_library() -> None:
+def test_apply_wing_native_adapters_config_ignores_payload_wing_library() -> None:
     config = parse_config({"adapters": {}})
     interface = WebInterface(
         config,
@@ -181,21 +207,24 @@ def test_apply_wing_native_adapters_config_rejects_non_wing_library() -> None:
         MasterClock(config.master_clock, EventBus()),
     )
 
-    with pytest.raises(ValueError, match="wing library must target a Wing desk"):
-        asyncio.run(
-            interface.apply_wing_native_adapters_config(
-                {
-                    "instances": [
-                        {
-                            "name": "wing_native_foh",
-                            "enabled": False,
-                            "remote_host": "192.168.10.48",
-                            "wing_library": "behringer_x32",
-                        }
-                    ]
-                }
-            )
+    result = asyncio.run(
+        interface.apply_wing_native_adapters_config(
+            {
+                "instances": [
+                    {
+                        "name": "wing_native_foh",
+                        "enabled": False,
+                        "remote_host": "192.168.10.48",
+                        "wing_library": "behringer_x32",
+                    }
+                ]
+            }
         )
+    )
+
+    saved = interface.config.adapters["wing_native_foh"].options
+    assert saved["wing_library"] == "behringer_wing"
+    assert result["instances"][0]["device_library"] == ""
 
 
 def test_apply_wing_native_adapters_config_can_delete_instance(tmp_path: Path) -> None:

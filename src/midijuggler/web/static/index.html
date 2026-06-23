@@ -224,9 +224,9 @@
         <article class="midi-device-panel">
           <h2>Wing Native</h2>
           <p class="hint">
-            Direct TCP connection to the Wing desk (port 2222). Use this instead of OSC for reliable
-            bidirectional feedback. Up to 16 native clients can connect simultaneously; OSC event
-            subscription is separate.
+            Direct TCP connection to the Wing desk (port 2222). Parameter paths come from the
+            Device bound to each instance. Up to 16 native clients can connect simultaneously;
+            OSC event subscription is separate.
           </p>
           <div id="wing-native-instances"></div>
           <button type="button" id="wing-native-add">Add Wing Native instance</button>
@@ -235,8 +235,10 @@
         <article class="midi-device-panel">
           <h2>MIDI</h2>
           <p class="hint">
-            Echo guard ignores input that matches recently sent output on the same path
-            (MIDI loopback or OSC desk echo). Set to 0 to disable. Default is 30&nbsp;ms.
+            ALSA MIDI ports for each instance. The control library (e.g. X-Touch Mini) is
+            configured on the bound Device, not here. Echo guard ignores input that matches
+            recently sent output on the same path (MIDI loopback or OSC desk echo). Set to 0 to
+            disable. Default is 30&nbsp;ms.
           </p>
           <div id="midi-instances"></div>
           <button type="button" id="midi-add">Add MIDI instance</button>

@@ -154,7 +154,10 @@ class MidiAdapter(Adapter):
         if self._feedback_refresh is not None:
             await self._feedback_refresh.stop()
             self._feedback_refresh = None
-        if not uses_xtouch_feedback_refresh(self.config):
+        if not uses_xtouch_feedback_refresh(
+            self.config,
+            library_id=self._resolve_midi_library_id(),
+        ):
             return
         self._feedback_refresh = XTouchFeedbackRefresh(self, self._app_config)
         self._feedback_refresh.configure(self.config, self._app_config)
@@ -195,8 +198,17 @@ class MidiAdapter(Adapter):
             )
         )
 
+    def _resolve_midi_library_id(self) -> str:
+        if self._app_config is not None:
+            library_id = DeviceRegistry.from_config(self._app_config).device_library_for_adapter(
+                self.name
+            )
+            if library_id:
+                return library_id
+        return str(self.config.options.get("midi_library", "")).strip()
+
     def _load_source_index(self) -> MidiSourceIndex | None:
-        library_id = str(self.config.options.get("midi_library", "")).strip()
+        library_id = self._resolve_midi_library_id()
         if not library_id:
             return None
 

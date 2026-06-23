@@ -1498,6 +1498,10 @@ function selectMonitorEvent(event, item) {
 }
 
 function adapterMidiLibraryId(adapterName) {
+  const fromDevice = deviceLibraryForAdapter(adapterName);
+  if (fromDevice) {
+    return fromDevice;
+  }
   return (adapterLibraryConfig[adapterName]?.midi_library || "").trim();
 }
 
@@ -1646,14 +1650,36 @@ async function preloadMonitorLibraries(status) {
   const midiLibraryIds = new Set();
   const oscLibraryIds = new Set();
 
+  for (const device of devicesConfig?.devices || []) {
+    const library = String(device.library || "").trim();
+    if (!library || !device.adapter) {
+      continue;
+    }
+    if (device.library_kind === "midi") {
+      adapterLibraryConfig[device.adapter] = {
+        ...(adapterLibraryConfig[device.adapter] || {}),
+        midi_library: library,
+      };
+      midiLibraryIds.add(library);
+    }
+    if (device.library_kind === "wing" || device.library_kind === "osc") {
+      if (device.library_kind === "osc") {
+        adapterLibraryConfig[device.adapter] = {
+          ...(adapterLibraryConfig[device.adapter] || {}),
+          osc_library: library,
+        };
+      }
+      oscLibraryIds.add(library);
+    }
+  }
+
   for (const [name, adapter] of Object.entries(status.adapters || {})) {
     const options = adapter.options || {};
-    const midiLibrary = String(options.midi_library || "").trim();
     const oscLibrary = String(options.osc_library || "").trim();
-    adapterLibraryConfig[name] = { midi_library: midiLibrary, osc_library: oscLibrary };
-    if (midiLibrary) {
-      midiLibraryIds.add(midiLibrary);
-    }
+    adapterLibraryConfig[name] = {
+      ...(adapterLibraryConfig[name] || {}),
+      osc_library: oscLibrary || adapterLibraryConfig[name]?.osc_library || "",
+    };
     if (oscLibrary) {
       oscLibraryIds.add(oscLibrary);
     }
@@ -1954,6 +1980,22 @@ function adapterOptionByName(name) {
   return (deviceAdapterOptions || []).find((entry) => entry.name === name) || null;
 }
 
+function boundDeviceForAdapter(adapterName) {
+  return (devicesConfig?.devices || []).find((device) => device.adapter === adapterName) || null;
+}
+
+function deviceLibraryForAdapter(adapterName) {
+  return String(boundDeviceForAdapter(adapterName)?.library || "").trim();
+}
+
+function adapterDeviceLibraryHint(adapterName) {
+  const device = boundDeviceForAdapter(adapterName);
+  if (device?.library) {
+    return `Control library: ${device.library} (device ${device.id})`;
+  }
+  return "Configure the control library on the Device bound to this adapter.";
+}
+
 function libraryOptionsForKind(kind) {
   if (kind === "osc" || kind === "wing") {
     return cachedOscLibraryList.map((library) => library.id || library.name);
@@ -2213,7 +2255,7 @@ function saveDeviceCard(card) {
       const status =
         config.persisted === false
           ? `saved for runtime only: ${config.persist_error}`
-          : "saved; restart service to reload all data points";
+          : "saved";
       if (wasNew) {
         renderDevicesConfig(config);
         if (devicesMessage) {
@@ -3183,7 +3225,6 @@ function defaultMidiInstanceTemplate(config) {
     enabled: false,
     input_port: "",
     output_port: "",
-    midi_library: "",
     feedback_refresh_interval: 0,
     echo_guard_ms: 30,
     midi_value_channel: 11,
@@ -3732,7 +3773,11 @@ function updateOscTestSendSection(card) {
 }
 
 function midiLibraryIdFromCard(card) {
-  return (card.querySelector('[data-field="midi_library"]')?.value || "").trim();
+  if (card.dataset.instanceType !== "midi") {
+    return "";
+  }
+  const { name } = adapterInstanceNameFromCard(card);
+  return deviceLibraryForAdapter(name);
 }
 
 function findMidiTestLibraryParameter(card, parameterId) {
@@ -4228,25 +4273,15 @@ function createMidiAdapterCard(instance, config, options = {}) {
       instance.resolved_output_address || "",
       "Output ports are matched by name; ALSA client numbers may change.",
     );
-    const libraryOptions = [
-      { id: "", label: "No library" },
-      ...(config.available_midi_libraries || []),
-    ];
-    const libraryField = createSelectField(
-      "MIDI library",
-      "midi_library",
-      libraryOptions,
-      "id",
-      "label",
-      instance.midi_library || "",
-      "No library",
-    );
-    libraryField.querySelector("select")?.addEventListener("change", () => {
-      card._midiTestLibraryCache = null;
-      updateMidiTestSendSection(card);
-      updateXtouchFeedbackRefreshVisibility();
-    });
-    body.appendChild(libraryField);
+    const deviceLibraryHint = document.createElement("p");
+    deviceLibraryHint.className = "hint adapter-device-library-hint";
+    const updateDeviceLibraryHint = () => {
+      const { name } = adapterInstanceNameFromCard(card);
+      deviceLibraryHint.textContent = adapterDeviceLibraryHint(name);
+    };
+    updateDeviceLibraryHint();
+    nameField.querySelector("input")?.addEventListener("input", updateDeviceLibraryHint);
+    body.appendChild(deviceLibraryHint);
     const echoGuardField = createNumberField(
       "Echo guard (ms)",
       "echo_guard_ms",
@@ -4292,13 +4327,19 @@ function createMidiAdapterCard(instance, config, options = {}) {
       1,
     );
     const updateXtouchFeedbackRefreshVisibility = () => {
-      const library = (libraryField.querySelector("select")?.value || "").trim();
-      const isXtouch = library === "behringer_xtouch_mini";
+      const { name } = adapterInstanceNameFromCard(card);
+      const isXtouch = deviceLibraryForAdapter(name) === "behringer_xtouch_mini";
       feedbackRefreshField.hidden = !isXtouch;
       valueChannelField.hidden = !isXtouch;
       displayChannelField.hidden = !isXtouch;
     };
     updateXtouchFeedbackRefreshVisibility();
+    nameField.querySelector("input")?.addEventListener("input", () => {
+      updateDeviceLibraryHint();
+      updateXtouchFeedbackRefreshVisibility();
+      card._midiTestLibraryCache = null;
+      updateMidiTestSendSection(card);
+    });
     body.appendChild(echoGuardWrap);
     body.appendChild(feedbackRefreshField);
     body.appendChild(valueChannelField);
@@ -5506,7 +5547,6 @@ function defaultWingNativeInstanceTemplate() {
     enabled: false,
     remote_host: "",
     native_port: 2222,
-    wing_library: "behringer_wing",
     echo_guard_ms: 30,
   };
 }
@@ -5668,17 +5708,15 @@ function createWingNativeAdapterCard(instance, config, options = {}) {
   enabledLabel.append(enabledInput, document.createTextNode(" Enabled"));
   body.appendChild(enabledLabel);
 
-  body.appendChild(
-    createSelectField(
-      "Wing library",
-      "wing_library",
-      config.available_wing_libraries || [],
-      "id",
-      "label",
-      instance.wing_library || "behringer_wing",
-      null,
-    ),
-  );
+  const deviceLibraryHint = document.createElement("p");
+  deviceLibraryHint.className = "hint adapter-device-library-hint";
+  const updateDeviceLibraryHint = () => {
+    const { name } = adapterInstanceNameFromCard(card);
+    deviceLibraryHint.textContent = adapterDeviceLibraryHint(name);
+  };
+  updateDeviceLibraryHint();
+  nameField.querySelector("input")?.addEventListener("input", updateDeviceLibraryHint);
+  body.appendChild(deviceLibraryHint);
 
   const remoteHostField = createTextField("Remote host", "remote_host", instance.remote_host || "");
   const discoverRow = document.createElement("div");

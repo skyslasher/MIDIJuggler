@@ -63,7 +63,9 @@ from midijuggler.hid.codes import (
     normalize_hid_device_options,
     parse_hid_device_key,
 )
+from midijuggler.modules.io.gpio import GpioIOModule
 from midijuggler.modules.io.hid import HidIOModule
+from midijuggler.modules.io.midi import MidiIOModule
 from midijuggler.modules.io.osc import OscIOModule
 from midijuggler.modules.io.wing_native import WingNativeIOModule
 from midijuggler.modules.modifier.feedback_suppress import parse_feedback_suppress_ms
@@ -341,8 +343,9 @@ class WebInterface:
                 )
             bound_adapters[device.adapter] = device.id
 
+        previous_device_ids = set(self.config.devices.keys())
         object.__setattr__(self.config, "devices", devices)
-        self.device_registry = DeviceRegistry.from_config(self.config)
+        self.device_registry.reload_from_config(self.config)
         persisted = False
         persist_error = ""
         if self.config_path is not None:
@@ -353,6 +356,10 @@ class WebInterface:
                 persist_error = str(exc)
         else:
             persist_error = "no config path available"
+
+        await self._refresh_device_datapoints_after_config_change(
+            set(previous_device_ids),
+        )
 
         response = self.devices_payload()
         response["persisted"] = persisted
@@ -1508,10 +1515,10 @@ class WebInterface:
             "runtime_active": runtime_adapter is not None and runtime_adapter.running,
             "remote_host": str(options.get("remote_host", "")).strip(),
             "native_port": int(options.get("native_port", 2222)),
-            "wing_library": str(options.get("wing_library", "behringer_wing")).strip(),
             "echo_guard_ms": int(
                 options.get("echo_guard_ms", DEFAULT_ECHO_GUARD_MS) or DEFAULT_ECHO_GUARD_MS
             ),
+            **self._adapter_device_payload_fields(name),
         }
         runtime_connection = self._adapter_runtime_connection(name)
         if runtime_connection is not None:
@@ -1586,18 +1593,52 @@ class WebInterface:
             options["desk_label"] = desk_label
         return apply_desk_options(options)
 
+    def _device_registry(self) -> DeviceRegistry:
+        return DeviceRegistry.from_config(self.config)
+
+    def _device_library_for_adapter(self, adapter_name: str) -> str:
+        return self._device_registry().device_library_for_adapter(adapter_name)
+
+    def _adapter_device_payload_fields(self, adapter_name: str) -> dict[str, str]:
+        device = self._device_registry().device_for_adapter(adapter_name)
+        if device is None:
+            return {"device_id": "", "device_library": ""}
+        return {
+            "device_id": device.id,
+            "device_library": str(device.library or "").strip(),
+        }
+
+    def _resolved_midi_library_id(
+        self,
+        adapter_name: str,
+        payload: dict[str, Any],
+        current: dict[str, Any],
+    ) -> str:
+        from_device = self._device_library_for_adapter(adapter_name)
+        if from_device:
+            return from_device
+        return str(payload.get("midi_library", current.get("midi_library", ""))).strip()
+
+    def _resolved_wing_library_id(self, adapter_name: str) -> str:
+        library = self._device_library_for_adapter(adapter_name)
+        if library:
+            known_libraries = {entry.id for entry in list_osc_libraries()}
+            if library in known_libraries and desk_mode_for_library(library) == "wing":
+                return library
+        return "behringer_wing"
+
     def _normalized_wing_native_options(
         self,
         payload: dict[str, Any],
         current: dict[str, Any],
+        *,
+        adapter_name: str = "",
     ) -> dict[str, Any]:
         native_port = int(payload.get("native_port", current.get("native_port", 2222)))
         if not 1 <= native_port <= 65535:
             raise ValueError("native_port must be between 1 and 65535")
 
-        wing_library = str(
-            payload.get("wing_library", current.get("wing_library", "behringer_wing"))
-        ).strip()
+        wing_library = self._resolved_wing_library_id(adapter_name)
         known_libraries = {library.id for library in list_osc_libraries()}
         if wing_library not in known_libraries:
             raise ValueError(f"unknown wing library: {wing_library}")
@@ -2032,6 +2073,103 @@ class WebInterface:
         adapter.config = updated
         adapter._apply_options(updated.options)  # noqa: SLF001
         self._unregister_runtime_adapter(adapter)
+
+    async def _refresh_device_datapoints_after_config_change(
+        self,
+        previous_device_ids: set[str],
+    ) -> None:
+        if self.datapoint_store is None:
+            return
+
+        current_device_ids = set(self.config.devices.keys())
+        for device_id in previous_device_ids - current_device_ids:
+            self.datapoint_store.unregister_module_except(device_id, set())
+
+        for adapter_name in sorted(self.config.adapters):
+            await self._refresh_device_datapoints_for_adapter(adapter_name)
+
+    async def _refresh_device_datapoints_for_adapter(self, adapter_name: str) -> None:
+        adapter_config = self.config.adapters.get(adapter_name)
+        if adapter_config is None:
+            return
+
+        kind = adapter_config.kind or adapter_name
+        if kind == "gpio":
+            self._refresh_gpio_datapoints(adapter_name)
+            return
+        if kind == "hid":
+            self._refresh_hid_datapoints(adapter_name)
+            return
+        if kind in {"midi", "rtp_midi"}:
+            self._refresh_midi_datapoints(adapter_name)
+            return
+        if kind == "osc":
+            await self._refresh_osc_datapoints(adapter_name)
+            return
+        if kind == "wing_native":
+            await self._refresh_wing_native_datapoints(adapter_name)
+
+    def _refresh_gpio_datapoints(self, name: str) -> None:
+        if self.datapoint_store is None:
+            return
+        device = self.device_registry.device_for_adapter(name)
+        if device is None:
+            self.datapoint_store.unregister_module_except(name, set())
+            return
+
+        adapter_config = self.config.adapters.get(name)
+        if adapter_config is None:
+            self.datapoint_store.unregister_module_except(device.id, set())
+            return
+
+        gpio_adapter = self.gpio_adapter
+        if gpio_adapter is None or gpio_adapter.name != name:
+            gpio_adapter = GpioAdapter(name=name, config=adapter_config, bus=self.bus)
+
+        module = GpioIOModule(
+            gpio_adapter,
+            device,
+            self.datapoint_store,
+            self.device_registry,
+        )
+        specs = module.datapoints()
+        keep = {str(spec.id) for spec in specs}
+        self.datapoint_store.unregister_module_except(device.id, keep)
+        self.datapoint_store.register_many(specs)
+
+    def _refresh_midi_datapoints(self, name: str) -> None:
+        if self.datapoint_store is None:
+            return
+        device = self.device_registry.device_for_adapter(name)
+        if device is None:
+            self.datapoint_store.unregister_module_except(name, set())
+            return
+
+        adapter_config = self.config.adapters.get(name)
+        if adapter_config is None:
+            self.datapoint_store.unregister_module_except(device.id, set())
+            return
+
+        adapter = self.midi_adapters.get(name) or self.rtp_midi_adapters.get(name)
+        if adapter is None:
+            adapter = MidiAdapter(
+                name=name,
+                config=adapter_config,
+                bus=self.bus,
+                app_config=self.config,
+            )
+
+        module = MidiIOModule(
+            adapter,
+            device,
+            self.datapoint_store,
+            self.config,
+            self.device_registry,
+        )
+        specs = module.datapoints()
+        keep = {str(spec.id) for spec in specs}
+        self.datapoint_store.unregister_module_except(device.id, keep)
+        self.datapoint_store.register_many(specs)
 
     def _refresh_hid_datapoints(self, name: str) -> None:
         if self.datapoint_store is None:
@@ -2594,7 +2732,11 @@ class WebInterface:
                 enabled = bool(raw_instance.get("enabled", current.enabled))
 
             if kind == "midi":
-                options = self._normalized_midi_options(raw_instance, current_options)
+                options = self._normalized_midi_options(
+                    raw_instance,
+                    current_options,
+                    adapter_name=name,
+                )
             else:
                 options = self._normalized_rtp_midi_options(
                     raw_instance,
@@ -2864,7 +3006,11 @@ class WebInterface:
                 current_options = current.options
                 enabled = bool(raw_instance.get("enabled", current.enabled))
 
-            options = self._normalized_wing_native_options(raw_instance, current_options)
+            options = self._normalized_wing_native_options(
+                raw_instance,
+                current_options,
+                adapter_name=name,
+            )
             updated = AdapterConfig(enabled=enabled, options=options, kind="wing_native")
             updates[name] = updated
             self.config.adapters[name] = updated
@@ -3090,7 +3236,6 @@ class WebInterface:
                     "resolved_output_address": (
                         output_match.get("address", "") if output_match is not None else ""
                     ),
-                    "midi_library": str(options.get("midi_library", "")),
                     "feedback_refresh_interval": float(
                         options.get("feedback_refresh_interval", 0) or 0
                     ),
@@ -3106,6 +3251,7 @@ class WebInterface:
                         options.get("echo_guard_ms", DEFAULT_ECHO_GUARD_MS)
                         or DEFAULT_ECHO_GUARD_MS
                     ),
+                    **self._adapter_device_payload_fields(name),
                     "available_input_ports": self._midi_port_choices(
                         available_input_ports,
                         input_port,
@@ -3219,10 +3365,12 @@ class WebInterface:
         self,
         payload: dict[str, Any],
         current: dict[str, Any],
+        *,
+        adapter_name: str = "",
     ) -> dict[str, Any]:
         available_input_ports = list_midi_input_ports()
         available_output_ports = list_midi_output_ports()
-        midi_library = str(payload.get("midi_library", current.get("midi_library", ""))).strip()
+        midi_library = self._resolved_midi_library_id(adapter_name, payload, current)
         options = {
             "input_port": normalize_midi_port_id(
                 str(payload.get("input_port", current.get("input_port", ""))).strip(),
@@ -3239,7 +3387,6 @@ class WebInterface:
             known_libraries = {library.id for library in list_midi_libraries()}
             if midi_library not in known_libraries:
                 raise ValueError(f"unknown MIDI library: {midi_library}")
-            options["midi_library"] = midi_library
         interval = parse_feedback_refresh_interval(
             payload.get(
                 "feedback_refresh_interval",
