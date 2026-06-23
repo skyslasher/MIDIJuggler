@@ -649,6 +649,7 @@ def parse_config(raw: dict[str, Any]) -> AppConfig:
         _parse_connection(index, connection_raw)
         for index, connection_raw in enumerate(raw.get("connections", []), start=1)
     ]
+    connections = normalize_connections(connections, devices)
     runtime = _parse_runtime(raw.get("runtime", {}))
     _validate_devices_and_connections(devices, adapters, connections)
 
@@ -864,6 +865,75 @@ def _parse_custom_point(device_index: int, point_index: int, raw: Any) -> Custom
     )
 
 
+def normalize_connections(
+    connections: list[ConnectionSpec],
+    devices: dict[str, DeviceConfig],
+) -> list[ConnectionSpec]:
+    """Rewrite legacy adapter-prefixed endpoints to configured device ids."""
+
+    normalized: list[ConnectionSpec] = []
+    for connection in connections:
+        source = normalize_connection_endpoint(connection.source, devices)
+        target = normalize_connection_endpoint(connection.target, devices)
+        if source == connection.source and target == connection.target:
+            normalized.append(connection)
+            continue
+        normalized.append(
+            ConnectionSpec(
+                id=connection.id,
+                source=source,
+                target=target,
+                modifier=connection.modifier,
+                input_min=connection.input_min,
+                input_max=connection.input_max,
+                output_min=connection.output_min,
+                output_max=connection.output_max,
+                invert=connection.invert,
+            )
+        )
+    return normalized
+
+
+def normalize_connection_endpoint(
+    endpoint: str,
+    devices: dict[str, DeviceConfig],
+) -> str:
+    module, separator, point = endpoint.partition(".")
+    if not separator or module in {"clock", "mapping"}:
+        return endpoint
+
+    resolved = resolve_connection_device_module(module, devices)
+    if resolved is None or resolved == module:
+        return endpoint
+    return f"{resolved}.{point}"
+
+
+def resolve_connection_device_module(
+    module: str,
+    devices: dict[str, DeviceConfig],
+) -> str | None:
+    if module in devices:
+        return module
+
+    adapter_to_device = {device.adapter: device.id for device in devices.values()}
+    if module in adapter_to_device:
+        return adapter_to_device[module]
+
+    prefix_matches = sorted(
+        {
+            device.id
+            for device in devices.values()
+            if device.id == module
+            or device.adapter == module
+            or device.id.startswith(f"{module}_")
+            or device.adapter.startswith(f"{module}_")
+        }
+    )
+    if len(prefix_matches) == 1:
+        return prefix_matches[0]
+    return None
+
+
 def _validate_devices_and_connections(
     devices: dict[str, DeviceConfig],
     adapters: dict[str, AdapterConfig],
@@ -884,9 +954,11 @@ def _validate_devices_and_connections(
             if module in {"clock", "mapping"}:
                 continue
             if module not in devices:
+                available = ", ".join(sorted(devices))
                 raise ValueError(
                     f"connection {connection.id!r} endpoint {endpoint!r} "
-                    f"must reference a configured device id"
+                    f"must reference a configured device id "
+                    f"(available: {available})"
                 )
 
 

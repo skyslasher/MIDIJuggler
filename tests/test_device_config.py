@@ -37,7 +37,7 @@ def test_parse_config_rejects_unknown_connection_device() -> None:
                 "connections": [
                     {
                         "id": "bad",
-                        "source": "gpio.pin17",
+                        "source": "desk.pin17",
                         "target": "foot_switches.pin17",
                     }
                 ],
@@ -45,8 +45,36 @@ def test_parse_config_rejects_unknown_connection_device() -> None:
         )
     except ValueError as exc:
         assert "device id" in str(exc)
+        assert "foot_switches" in str(exc)
     else:
         raise AssertionError("expected unknown device rejection")
+
+
+def test_parse_config_normalizes_adapter_prefixed_connections() -> None:
+    config = parse_config(
+        {
+            "adapters": {
+                "x32_foh": {"type": "osc", "enabled": True, "osc_library": "behringer_x32"},
+            },
+            "devices": [
+                {
+                    "id": "x32_foh",
+                    "adapter": "x32_foh",
+                    "library": "behringer_x32",
+                    "library_kind": "osc",
+                }
+            ],
+            "connections": [
+                {
+                    "id": "legacy-prefix",
+                    "source": "x32./ch/01/mix/fader",
+                    "target": "x32_foh./ch/01/mix/fader",
+                }
+            ],
+        }
+    )
+
+    assert config.connections[0].source == "x32_foh./ch/01/mix/fader"
 
 
 def test_save_devices_round_trip(tmp_path) -> None:
