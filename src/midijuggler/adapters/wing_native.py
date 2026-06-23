@@ -16,6 +16,7 @@ from midijuggler.midi.echo_guard import (
     OscEchoGuard,
     parse_echo_guard_ms,
 )
+from midijuggler.modules.modifier.range_map import db_to_fader_float
 from midijuggler.wing.native.client import KEEPALIVE_INTERVAL_SECONDS, WingNativeClient
 from midijuggler.wing.native.connectivity import WingNativeConnectivity
 from midijuggler.wing.native.decoder import WingNodeData
@@ -147,11 +148,15 @@ class WingNativeAdapter(Adapter):
             return
 
         value = float(event.value)
-        use_raw_fader = (
-            _FADER_PATH_MARKER in address
-            and 0.0 <= value <= 1.0
-        )
-        await self._client.set_float(node_id, value, raw=use_raw_fader)
+        if _FADER_PATH_MARKER in address:
+            wire_value = (
+                value
+                if 0.0 <= value <= 1.0
+                else db_to_fader_float(value)
+            )
+            await self._client.set_float(node_id, wire_value, raw=True)
+        else:
+            await self._client.set_float(node_id, value, raw=False)
         self._connectivity.note_send()
         self._echo_guard.record(address, value)
         await self.bus.publish(

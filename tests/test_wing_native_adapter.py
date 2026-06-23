@@ -9,6 +9,7 @@ from midijuggler.adapters.wing_native import (
 from midijuggler.config import AdapterConfig
 from midijuggler.eventbus import EventBus
 from midijuggler.events import AdapterStatusEvent, MappedEvent, OscMessageEvent
+from midijuggler.modules.modifier.range_map import db_to_fader_float
 from midijuggler.wing.native.client import WingNativeClient, WingPathBinding
 
 
@@ -153,10 +154,10 @@ def test_wing_native_adapter_send_resolves_path_and_records_output() -> None:
     assert output.address == "/ch/1/fdr"
 
 
-def test_wing_native_adapter_send_uses_engineering_float_for_fader_db() -> None:
-    async def scenario() -> bool:
+def test_wing_native_adapter_send_converts_fader_db_to_normalized_raw() -> None:
+    async def scenario() -> tuple[float, bool]:
         bus = EventBus()
-        state = {"raw": False}
+        state = {"value": 0.0, "raw": False}
 
         class FakeClient(WingNativeClient):
             async def resolve_path(self, path: str) -> int:
@@ -169,7 +170,7 @@ def test_wing_native_adapter_send_uses_engineering_float_for_fader_db() -> None:
                 *,
                 raw: bool = False,
             ) -> None:
-                assert value == pytest.approx(-5.873)
+                state["value"] = value
                 state["raw"] = raw
 
         adapter = WingNativeAdapter(
@@ -191,6 +192,9 @@ def test_wing_native_adapter_send_uses_engineering_float_for_fader_db() -> None:
                 value=-5.873,
             )
         )
-        return state["raw"]
+        return state["value"], state["raw"]
 
-    assert asyncio.run(scenario()) is False
+    wire_value, raw = asyncio.run(scenario())
+
+    assert wire_value == pytest.approx(db_to_fader_float(-5.873))
+    assert raw is True
