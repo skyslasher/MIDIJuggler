@@ -120,7 +120,7 @@ def test_osc_adapter_sends_mapped_events_to_remote() -> None:
 
 
 def test_osc_adapter_sends_wing_subscription_keepalive_to_desk() -> None:
-    async def scenario() -> tuple[str, tuple[Any, ...], tuple[str, int]]:
+    async def scenario() -> list[tuple[str, tuple[Any, ...]]]:
         sent: list[tuple[bytes, tuple[str, int]]] = []
 
         class FakeTransport:
@@ -143,14 +143,11 @@ def test_osc_adapter_sends_wing_subscription_keepalive_to_desk() -> None:
         adapter._transport = FakeTransport()  # noqa: SLF001
         await adapter._send_desk_keepalive()  # noqa: SLF001
 
-        address, arguments = decode_messages(sent[0][0])[0]
-        return address, arguments, sent[0][1]
+        return [decode_messages(item[0])[0] for item in sent]
 
-    address, arguments, target = asyncio.run(scenario())
+    messages = asyncio.run(scenario())
 
-    assert address == "/%2223/*s~"
-    assert arguments == ()
-    assert target == ("192.168.1.48", 2223)
+    assert [address for address, _arguments in messages] == ["/%2223/*s~", "/*s~"]
 
 
 def test_osc_adapter_sends_xremote_keepalive_to_desk() -> None:
@@ -311,3 +308,86 @@ def test_osc_adapter_proxy_forwards_client_and_desk_messages() -> None:
     assert sent[1][1] == ("192.168.1.10", 40000)
     assert b"/ch/1/fdr" in sent[0][0]
     assert b"/ch/1/fdr" in sent[1][0]
+
+
+def test_osc_adapter_accepts_wing_fader_feedback() -> None:
+    async def scenario() -> tuple[list[OscMessageEvent], list[ControlEvent]]:
+        bus = EventBus()
+        osc_events: list[OscMessageEvent] = []
+        control_events: list[ControlEvent] = []
+        bus.subscribe(OscMessageEvent, lambda event: osc_events.append(event))
+        bus.subscribe(ControlEvent, lambda event: control_events.append(event))
+
+        adapter = OscAdapter(
+            name="wing_foh",
+            config=AdapterConfig(
+                enabled=True,
+                kind="osc",
+                options={
+                    "osc_port": 2223,
+                    "remote_host": "192.168.1.48",
+                    "osc_library": "behringer_wing",
+                },
+            ),
+            bus=bus,
+        )
+
+        payload = encode_message("/ch/1/fdr~~~", ["-oo", 0.75, -1.0])
+        await adapter._handle_input_messages(payload)  # noqa: SLF001
+        return osc_events, control_events
+
+    osc_events, control_events = asyncio.run(scenario())
+
+    assert len(osc_events) == 1
+    assert osc_events[0].canonical_address == "/ch/1/fdr"
+    assert len(control_events) == 1
+    assert control_events[0].control == "/ch/1/fdr"
+    assert control_events[0].value == pytest.approx(0.75)
+
+
+def test_osc_adapter_prefixes_wing_outbound_address() -> None:
+    async def scenario() -> OscMessageEvent | None:
+        bus = EventBus()
+        output_events: list[OscMessageEvent] = []
+        bus.subscribe(OscMessageEvent, lambda event: output_events.append(event))
+
+        remote_port = _free_udp_port()
+        adapter = OscAdapter(
+            name="wing_foh",
+            config=AdapterConfig(
+                enabled=True,
+                kind="osc",
+                options={
+                    "listen_host": "127.0.0.1",
+                    "listen_port": 0,
+                    "remote_host": "127.0.0.1",
+                    "remote_port": remote_port,
+                    "osc_library": "behringer_wing",
+                },
+            ),
+            bus=bus,
+        )
+
+        await adapter.start()
+        await adapter.send(
+            MappedEvent(
+                source="mapping",
+                mapping_id="test",
+                target="wing_foh:/ch/1/fdr",
+                value=0.5,
+            )
+        )
+        await adapter.stop()
+
+        return next(
+            (event for event in output_events if event.direction == "output"),
+            None,
+        )
+
+    output_event = asyncio.run(scenario())
+
+    assert output_event is not None
+    assert output_event.address.startswith("/%")
+    assert output_event.address.endswith("/ch/1/fdr")
+    assert output_event.canonical_address == "/ch/1/fdr"
+    assert output_event.arguments == (pytest.approx(0.5),)

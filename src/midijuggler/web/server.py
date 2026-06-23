@@ -1833,13 +1833,13 @@ class WebInterface:
 
         module = None
         if self._osc_io_modules is not None:
-            module = self._osc_io_modules.get(name)
-        if module is not None and module.running:
-            await module.stop()
-        else:
-            module = OscIOModule(adapter, self.datapoint_store, self.config)
-            if self._osc_io_modules is not None:
-                self._osc_io_modules[name] = module
+            existing = self._osc_io_modules.get(name)
+            if existing is not None and existing.running:
+                await existing.stop()
+
+        module = OscIOModule(adapter, self.datapoint_store, self.config)
+        if self._osc_io_modules is not None:
+            self._osc_io_modules[name] = module
 
         self.datapoint_store.unregister_module_except(name, set())
         await module.start()

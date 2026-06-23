@@ -27,6 +27,7 @@ from midijuggler.midi.echo_guard import (
 from midijuggler.osc.desk_protocol import (
     DeskProtocol,
     apply_desk_options,
+    desk_outbound_address,
     desk_protocol_for_library,
     desk_subscribe_address,
     normalize_desk_feedback_address,
@@ -36,6 +37,7 @@ from midijuggler.osc.protocol import (
     decode_messages,
     encode_message,
     first_numeric_osc_argument,
+    wing_control_value,
 )
 
 LOGGER = logging.getLogger(__name__)
@@ -184,11 +186,17 @@ class OscAdapter(Adapter):
         try:
             messages = decode_messages(data)
         except ValueError:
-            LOGGER.debug("OSC adapter %s ignored invalid datagram", self.name)
+            preview = data[:32].hex()
+            LOGGER.warning(
+                "OSC adapter %s ignored invalid datagram (%s bytes): %s",
+                self.name,
+                len(data),
+                preview,
+            )
             return
 
         for address, arguments in messages:
-            numeric_value = first_numeric_osc_argument(arguments)
+            numeric_value = self._numeric_input_value(arguments)
             canonical_address = normalize_desk_feedback_address(
                 self._desk_protocol,
                 address,
@@ -217,6 +225,13 @@ class OscAdapter(Adapter):
             )
             if is_echo:
                 continue
+            LOGGER.info(
+                "OSC adapter %s input %s %s -> %s",
+                self.name,
+                address,
+                arguments,
+                canonical_address,
+            )
             if numeric_value is not None:
                 await self.bus.publish(
                     ControlEvent(
@@ -225,6 +240,11 @@ class OscAdapter(Adapter):
                         value=numeric_value,
                     )
                 )
+
+    def _numeric_input_value(self, arguments: tuple[Any, ...]) -> float | None:
+        if self._desk_protocol is not None and self._desk_protocol.protocol_id == "wing":
+            return wing_control_value(arguments)
+        return first_numeric_osc_argument(arguments)
 
     async def send_test_message(self, address: str, arguments: list[Any]) -> None:
         normalized_address = address.strip()
@@ -267,16 +287,28 @@ class OscAdapter(Adapter):
             LOGGER.warning("OSC adapter %s is not running and cannot send", self.name)
             return
 
-        payload = encode_message(address, [float(event.value)])
+        outbound_address = desk_outbound_address(
+            self._desk_protocol,
+            self._listen_port,
+            address,
+        )
+        payload = encode_message(outbound_address, [float(event.value)])
         self._transport.sendto(payload, (self._remote_host, self._remote_port))
-        self._echo_guard.record(address, float(event.value))
+        self._echo_guard.record(
+            normalize_desk_feedback_address(self._desk_protocol, address),
+            float(event.value),
+        )
         await self.bus.publish(
             OscMessageEvent(
                 source=self.name,
-                address=address,
+                address=outbound_address,
                 arguments=(float(event.value),),
                 target=event.target,
                 direction="output",
+                canonical_address=normalize_desk_feedback_address(
+                    self._desk_protocol,
+                    address,
+                ),
             )
         )
 
@@ -318,16 +350,23 @@ class OscAdapter(Adapter):
             return
         if self._transport is None:
             return
-        address = desk_subscribe_address(self._desk_protocol, self._listen_port)
-        payload = encode_message(address, [])
-        self._transport.sendto(payload, (self._remote_host, self._remote_port))
-        LOGGER.debug(
-            "OSC adapter %s sent desk subscription %s to %s:%s",
-            self.name,
-            address,
-            self._remote_host,
-            self._remote_port,
-        )
+        addresses = [desk_subscribe_address(self._desk_protocol, self._listen_port)]
+        if (
+            self._desk_protocol.protocol_id == "wing"
+            and self._listen_port > 0
+            and self._desk_protocol.keepalive_address not in addresses
+        ):
+            addresses.append(self._desk_protocol.keepalive_address)
+        for address in addresses:
+            payload = encode_message(address, [])
+            self._transport.sendto(payload, (self._remote_host, self._remote_port))
+            LOGGER.debug(
+                "OSC adapter %s sent desk subscription %s to %s:%s",
+                self.name,
+                address,
+                self._remote_host,
+                self._remote_port,
+            )
 
     async def _desk_sync(self) -> None:
         if self._desk_protocol is None or not self._remote_host or self._remote_port <= 0:

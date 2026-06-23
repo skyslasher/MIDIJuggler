@@ -6,7 +6,7 @@ from midijuggler.datapoint.types import ConnectionSpec, DataPointId, DataPointVa
 from midijuggler.datapoint.store import DataPointStore
 from midijuggler.eventbus import EventBus
 from midijuggler.events import ControlEvent, MasterClockStateEvent, MidiMessageEvent, OscMessageEvent
-from midijuggler.osc.protocol import first_numeric_osc_argument
+from midijuggler.osc.protocol import first_numeric_osc_argument, wing_control_value
 from midijuggler.mapping import MappingRule
 
 
@@ -144,6 +144,8 @@ class EventToDataPointBridge:
             osc_arguments=event.arguments,
         )
         numeric_value = first_numeric_osc_argument(event.arguments)
+        if event.address.endswith("~~~"):
+            numeric_value = wing_control_value(event.arguments)
         if numeric_value is not None:
             await self.store.write(
                 float_value(point_id, numeric_value, emit_outputs=False)

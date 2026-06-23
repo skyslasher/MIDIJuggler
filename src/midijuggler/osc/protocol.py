@@ -62,12 +62,19 @@ def _decode_message(data: bytes) -> tuple[str, tuple[Any, ...]]:
         raise ValueError("empty OSC message")
 
     address, offset = _read_padded_string(data, 0)
+    if offset >= len(data):
+        return address, ()
+
     type_tags, offset = _read_padded_string(data, offset)
+    if not type_tags:
+        return address, ()
     if not type_tags.startswith(","):
-        raise ValueError("OSC message missing type tag string")
+        return address, ()
 
     arguments: list[Any] = []
     for type_tag in type_tags[1:]:
+        if offset + 4 > len(data) and type_tag not in {"T", "F"}:
+            break
         if type_tag == "i":
             (value,) = struct.unpack(">i", data[offset : offset + 4])
             arguments.append(value)
@@ -79,6 +86,11 @@ def _decode_message(data: bytes) -> tuple[str, tuple[Any, ...]]:
         elif type_tag == "s":
             value, offset = _read_padded_string(data, offset)
             arguments.append(value)
+        elif type_tag == "b":
+            (size,) = struct.unpack(">i", data[offset : offset + 4])
+            offset += 4
+            blob_end = offset + size
+            offset = ((blob_end + 3) // 4) * 4
         elif type_tag == "T":
             arguments.append(True)
         elif type_tag == "F":
@@ -110,3 +122,18 @@ def first_numeric_osc_argument(arguments: tuple[Any, ...] | list[Any]) -> float 
         if isinstance(argument, (int, float)):
             return float(argument)
     return None
+
+
+def wing_control_value(arguments: tuple[Any, ...] | list[Any]) -> float | None:
+    """Return the normalized Wing control value from sff-style feedback."""
+
+    floats = [
+        float(argument)
+        for argument in arguments
+        if isinstance(argument, (int, float)) and not isinstance(argument, bool)
+    ]
+    if len(floats) >= 2:
+        return floats[0]
+    if floats:
+        return floats[-1]
+    return first_numeric_osc_argument(arguments)

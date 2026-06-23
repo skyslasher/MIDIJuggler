@@ -16,7 +16,6 @@ from midijuggler.datapoint.types import (
     float_value,
 )
 from midijuggler.events import MappedEvent
-from midijuggler.mapping import MappingRule
 from midijuggler.modules.base import IOModule
 from midijuggler.osc_library import get_osc_library
 

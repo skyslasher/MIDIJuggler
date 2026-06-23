@@ -78,6 +78,24 @@ def desk_subscribe_address(desk: DeskProtocol, listen_port: int = 0) -> str:
     return desk.keepalive_address
 
 
+def desk_outbound_address(
+    desk: DeskProtocol | None,
+    listen_port: int,
+    address: str,
+) -> str:
+    """Prefix Wing outbound commands so replies arrive on the bound local port."""
+
+    normalized = address.strip()
+    if not normalized.startswith("/"):
+        normalized = f"/{normalized}"
+    if desk is None or desk.protocol_id != "wing" or listen_port <= 0:
+        return normalized
+    prefix = f"/%{listen_port}"
+    if normalized.startswith(f"{prefix}/"):
+        return normalized
+    return f"{prefix}{normalized}"
+
+
 def apply_desk_options(options: dict[str, Any]) -> dict[str, Any]:
     """Normalize desk adapter options, coupling listen and remote ports."""
 

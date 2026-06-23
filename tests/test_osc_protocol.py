@@ -36,3 +36,20 @@ def test_decode_bundle_extracts_nested_messages() -> None:
 def test_decode_rejects_empty_message() -> None:
     with pytest.raises(ValueError, match="empty"):
         decode_messages(b"")
+
+
+def test_decode_message_without_type_tag() -> None:
+    address = b"/ch/1/fdr~~~"
+    payload = address + b"\x00" + b"\x00" * 3
+
+    address_text, arguments = decode_messages(payload)[0]
+
+    assert address_text == "/ch/1/fdr~~~"
+    assert arguments == ()
+
+
+def test_wing_control_value_prefers_normalized_float() -> None:
+    from midijuggler.osc.protocol import wing_control_value
+
+    assert wing_control_value(("-oo", 0.75, -1.0)) == pytest.approx(0.75)
+    assert wing_control_value((-144.0,)) == pytest.approx(-144.0)
