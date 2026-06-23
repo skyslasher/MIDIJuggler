@@ -69,22 +69,7 @@ const mappings = document.querySelector("#mappings");
 const feedbackSuppressMs = document.querySelector("#feedback-suppress-ms");
 const routingSettingsSave = document.querySelector("#routing-settings-save");
 const routingSettingsMessage = document.querySelector("#routing-settings-message");
-const mappingEditor = document.querySelector("#mapping-editor");
-const mappingEditorTitle = document.querySelector("#mapping-editor-title");
-const mappingEditSourceInstance = document.querySelector("#mapping-edit-source-instance");
-const mappingEditSourceDatapoint = document.querySelector("#mapping-edit-source-datapoint");
-const mappingEditTargetInstance = document.querySelector("#mapping-edit-target-instance");
-const mappingEditTargetDatapoint = document.querySelector("#mapping-edit-target-datapoint");
-const mappingEditModifier = document.querySelector("#mapping-edit-modifier");
-const mappingEditRangeFields = document.querySelector("#mapping-edit-range-fields");
-const mappingEditInputMin = document.querySelector("#mapping-edit-input-min");
-const mappingEditInputMax = document.querySelector("#mapping-edit-input-max");
-const mappingEditOutputMin = document.querySelector("#mapping-edit-output-min");
-const mappingEditOutputMax = document.querySelector("#mapping-edit-output-max");
-const mappingEditInvert = document.querySelector("#mapping-edit-invert");
-const mappingSave = document.querySelector("#mapping-save");
-const mappingCancel = document.querySelector("#mapping-cancel");
-const mappingEditorMessage = document.querySelector("#mapping-editor-message");
+const learnScaleCurve = document.querySelector("#learn-scale-curve");
 const oscLibraries = document.querySelector("#osc-libraries");
 const midiLibraries = document.querySelector("#midi-libraries");
 const events = document.querySelector("#events");
@@ -511,28 +496,7 @@ function renderLearnDatapointSelects() {
 }
 
 function refreshMappingEditorSelects() {
-  if (mappingEditor.hidden) {
-    return;
-  }
-  const previousSourceInstance = mappingEditSourceInstance.value;
-  const previousSourcePoint = mappingEditSourceDatapoint.value;
-  const previousTargetInstance = mappingEditTargetInstance.value;
-  const previousTargetPoint = mappingEditTargetDatapoint.value;
-
-  fillLearnInstanceSelect(mappingEditSourceInstance, "input", previousSourceInstance);
-  fillLearnInstanceSelect(mappingEditTargetInstance, "output", previousTargetInstance);
-  fillLearnPointSelect(
-    mappingEditSourceDatapoint,
-    mappingEditSourceInstance.value,
-    "input",
-    previousSourcePoint,
-  );
-  fillLearnPointSelect(
-    mappingEditTargetDatapoint,
-    mappingEditTargetInstance.value,
-    "output",
-    previousTargetPoint,
-  );
+  refreshInlineConnectionEditorSelects();
 }
 
 function applyLearnSourceSelection(pointId) {
@@ -566,6 +530,28 @@ function formatDatapointDisplay(pointId) {
   return `${pointId.slice(0, separatorIndex)}:${pointId.slice(separatorIndex + 1)}`;
 }
 
+const SCALE_CURVE_OPTIONS = [
+  { value: "linear", label: "Linear" },
+  { value: "log_to_linear", label: "Log fader → linear knob" },
+  { value: "linear_to_log", label: "Linear knob → log fader" },
+];
+
+function scaleCurveLabel(scaleCurve) {
+  const match = SCALE_CURVE_OPTIONS.find((option) => option.value === scaleCurve);
+  return match?.label || scaleCurve || "Linear";
+}
+
+function appendScaleCurveOptions(select, selectedValue = "linear") {
+  select.replaceChildren();
+  for (const optionData of SCALE_CURVE_OPTIONS) {
+    const option = document.createElement("option");
+    option.value = optionData.value;
+    option.textContent = optionData.label;
+    select.appendChild(option);
+  }
+  select.value = selectedValue || "linear";
+}
+
 function connectionSummary(connection) {
   return `${formatDatapointDisplay(connection.source)} -> ${formatDatapointDisplay(connection.target)}`;
 }
@@ -574,37 +560,224 @@ function connectionMeta(connection) {
   if (connection.modifier === "passthrough") {
     return `${connection.id} · passthrough`;
   }
+  const scale =
+    connection.scale_curve && connection.scale_curve !== "linear"
+      ? ` · ${scaleCurveLabel(connection.scale_curve)}`
+      : "";
   return (
     `${connection.id} · range ${connection.input_min}-${connection.input_max}`
     + ` -> ${connection.output_min}-${connection.output_max}`
-    + `${connection.invert ? " · inverted" : ""}`
+    + `${connection.invert ? " · inverted" : ""}${scale}`
   );
 }
 
-function renderMappingsList(connections) {
-  mappings.replaceChildren();
-  if (!connections.length) {
-    const empty = document.createElement("li");
-    empty.className = "mapping-item";
-    empty.textContent = "No connections configured.";
-    mappings.appendChild(empty);
+function syncConnectionEditRangeFieldsVisibility(form) {
+  const modifier = form.querySelector('[data-field="modifier"]')?.value;
+  const rangeFields = form.querySelector(".connection-edit-range-fields");
+  if (rangeFields) {
+    rangeFields.hidden = modifier === "passthrough";
+  }
+}
+
+function refreshInlineConnectionEditorSelects() {
+  if (!editingConnectionId) {
     return;
   }
+  const form = mappings.querySelector(
+    `[data-connection-id="${editingConnectionId}"] .connection-edit-form`,
+  );
+  if (!form) {
+    return;
+  }
+  const sourceInstance = form.querySelector('[data-field="source_instance"]');
+  const sourceDatapoint = form.querySelector('[data-field="source_datapoint"]');
+  const targetInstance = form.querySelector('[data-field="target_instance"]');
+  const targetDatapoint = form.querySelector('[data-field="target_datapoint"]');
+  if (!sourceInstance || !sourceDatapoint || !targetInstance || !targetDatapoint) {
+    return;
+  }
+  const previousSourceInstance = sourceInstance.value;
+  const previousSourcePoint = sourceDatapoint.value;
+  const previousTargetInstance = targetInstance.value;
+  const previousTargetPoint = targetDatapoint.value;
 
-  for (const connection of connections) {
-    const item = document.createElement("li");
-    item.className = "mapping-item";
+  fillLearnInstanceSelect(sourceInstance, "input", previousSourceInstance);
+  fillLearnInstanceSelect(targetInstance, "output", previousTargetInstance);
+  fillLearnPointSelect(
+    sourceDatapoint,
+    sourceInstance.value,
+    "input",
+    previousSourcePoint,
+  );
+  fillLearnPointSelect(
+    targetDatapoint,
+    targetInstance.value,
+    "output",
+    previousTargetPoint,
+  );
+}
 
-    const summary = document.createElement("div");
-    summary.className = "mapping-summary";
-    summary.textContent = connectionSummary(connection);
+function collectConnectionFromEditForm(form, connectionId) {
+  const source = form.querySelector('[data-field="source_datapoint"]')?.value;
+  const target = form.querySelector('[data-field="target_datapoint"]')?.value;
+  if (!source || !target) {
+    throw new Error("select source and target data points");
+  }
+  return {
+    id: connectionId,
+    source,
+    target,
+    modifier: form.querySelector('[data-field="modifier"]')?.value || "range_map",
+    input_min: Number(form.querySelector('[data-field="input_min"]')?.value),
+    input_max: Number(form.querySelector('[data-field="input_max"]')?.value),
+    output_min: Number(form.querySelector('[data-field="output_min"]')?.value),
+    output_max: Number(form.querySelector('[data-field="output_max"]')?.value),
+    scale_curve: form.querySelector('[data-field="scale_curve"]')?.value || "linear",
+    invert: Boolean(form.querySelector('[data-field="invert"]')?.checked),
+  };
+}
 
+function createStackedField(labelText, control) {
+  const label = document.createElement("label");
+  label.className = "stacked-field";
+  label.append(document.createTextNode(labelText));
+  label.appendChild(document.createElement("br"));
+  label.appendChild(control);
+  return label;
+}
+
+function createConnectionEditForm(connection) {
+  const form = document.createElement("div");
+  form.className = "connection-edit-form";
+
+  const sourceGroup = document.createElement("div");
+  sourceGroup.className = "learn-endpoint-group";
+  sourceGroup.innerHTML = `<h4 class="learn-endpoint-title">Source</h4>`;
+  const sourceInstance = document.createElement("select");
+  sourceInstance.dataset.field = "source_instance";
+  const sourceDatapoint = document.createElement("select");
+  sourceDatapoint.dataset.field = "source_datapoint";
+  sourceGroup.append(
+    createStackedField("Instance", sourceInstance),
+    createStackedField("Data point", sourceDatapoint),
+  );
+
+  const targetGroup = document.createElement("div");
+  targetGroup.className = "learn-endpoint-group";
+  targetGroup.innerHTML = `<h4 class="learn-endpoint-title">Target</h4>`;
+  const targetInstance = document.createElement("select");
+  targetInstance.dataset.field = "target_instance";
+  const targetDatapoint = document.createElement("select");
+  targetDatapoint.dataset.field = "target_datapoint";
+  targetGroup.append(
+    createStackedField("Instance", targetInstance),
+    createStackedField("Data point", targetDatapoint),
+  );
+
+  const modifierSelect = document.createElement("select");
+  modifierSelect.dataset.field = "modifier";
+  modifierSelect.innerHTML = `
+    <option value="range_map">Range map</option>
+    <option value="passthrough">Passthrough</option>
+  `;
+
+  const rangeFields = document.createElement("div");
+  rangeFields.className = "learn-range-fields connection-edit-range-fields";
+  rangeFields.append(
+    createNumberField("Input min", "input_min", connection.input_min ?? 0, -999999, 999999, "any"),
+    createNumberField("Input max", "input_max", connection.input_max ?? 127, -999999, 999999, "any"),
+    createNumberField("Output min", "output_min", connection.output_min ?? 0, -999999, 999999, "any"),
+    createNumberField("Output max", "output_max", connection.output_max ?? 127, -999999, 999999, "any"),
+  );
+
+  const scaleCurveSelect = document.createElement("select");
+  scaleCurveSelect.dataset.field = "scale_curve";
+  appendScaleCurveOptions(scaleCurveSelect, connection.scale_curve || "linear");
+  rangeFields.appendChild(createStackedField("Scaling", scaleCurveSelect));
+
+  const invertLabel = document.createElement("label");
+  invertLabel.className = "inline-field";
+  const invertInput = document.createElement("input");
+  invertInput.type = "checkbox";
+  invertInput.dataset.field = "invert";
+  invertInput.checked = Boolean(connection.invert);
+  invertLabel.append(invertInput, document.createTextNode(" Invert"));
+  rangeFields.appendChild(invertLabel);
+
+  form.append(
+    sourceGroup,
+    targetGroup,
+    createStackedField("Modifier", modifierSelect),
+    rangeFields,
+  );
+
+  const sourceInstanceName = connection.source.split(".")[0];
+  const targetInstanceName = connection.target.split(".")[0];
+  fillLearnInstanceSelect(sourceInstance, "input", sourceInstanceName);
+  fillLearnInstanceSelect(targetInstance, "output", targetInstanceName);
+  fillLearnPointSelect(sourceDatapoint, sourceInstanceName, "input", connection.source);
+  fillLearnPointSelect(targetDatapoint, targetInstanceName, "output", connection.target);
+  modifierSelect.value = connection.modifier || "range_map";
+  syncConnectionEditRangeFieldsVisibility(form);
+
+  sourceInstance.addEventListener("change", () => {
+    fillLearnPointSelect(sourceDatapoint, sourceInstance.value, "input", "");
+    sourceDatapoint.disabled = !sourceInstance.value;
+  });
+  targetInstance.addEventListener("change", () => {
+    fillLearnPointSelect(targetDatapoint, targetInstance.value, "output", "");
+    targetDatapoint.disabled = !targetInstance.value;
+  });
+  modifierSelect.addEventListener("change", () => syncConnectionEditRangeFieldsVisibility(form));
+  sourceDatapoint.disabled = !sourceInstance.value;
+  targetDatapoint.disabled = !targetInstance.value;
+
+  return form;
+}
+
+function createConnectionListItem(connection) {
+  const item = document.createElement("li");
+  item.className = "mapping-item";
+
+  const card = document.createElement("section");
+  card.className = "midi-adapter-card connection-card";
+  card.dataset.connectionId = connection.id;
+
+  const isEditing = editingConnectionId === connection.id;
+  const accordion = createAdapterInstanceAccordion(connection.id);
+  const { body, title, details } = accordion;
+  title.textContent = connectionSummary(connection);
+  details.open = isEditing;
+
+  if (isEditing) {
+    const actions = document.createElement("div");
+    actions.className = "midi-adapter-card-actions";
+
+    const saveButton = document.createElement("button");
+    saveButton.type = "button";
+    saveButton.className = "midi-adapter-save";
+    saveButton.textContent = "Save";
+    saveButton.addEventListener("click", () => saveMappingEditor());
+
+    const cancelButton = document.createElement("button");
+    cancelButton.type = "button";
+    cancelButton.textContent = "Cancel";
+    cancelButton.addEventListener("click", closeMappingEditor);
+
+    actions.append(saveButton, cancelButton);
+    prependAdapterBodySections(body, [actions]);
+    body.appendChild(createConnectionEditForm(connection));
+
+    const message = document.createElement("p");
+    message.className = "message connection-edit-message";
+    body.appendChild(message);
+  } else {
     const meta = document.createElement("div");
     meta.className = "mapping-meta";
     meta.textContent = connectionMeta(connection);
 
     const actions = document.createElement("div");
-    actions.className = "mapping-actions";
+    actions.className = "midi-adapter-card-actions";
 
     const editButton = document.createElement("button");
     editButton.type = "button";
@@ -618,72 +791,105 @@ function renderMappingsList(connections) {
 
     const deleteButton = document.createElement("button");
     deleteButton.type = "button";
-    deleteButton.className = "danger-button";
+    deleteButton.className = "midi-adapter-delete";
     deleteButton.textContent = "Delete";
     deleteButton.addEventListener("click", () => deleteMappingConnection(connection.id));
 
     actions.append(editButton, reverseButton, deleteButton);
-    item.append(summary, meta, actions);
-    mappings.appendChild(item);
+    prependAdapterBodySections(body, [actions]);
+    body.appendChild(meta);
   }
+
+  mountAdapterInstanceCard(card, accordion);
+  item.appendChild(card);
+  return item;
 }
 
-function syncMappingEditRangeFieldsVisibility() {
-  const showRanges = mappingEditModifier.value !== "passthrough";
-  mappingEditRangeFields.hidden = !showRanges;
-}
+function renderMappingsList(connections) {
+  mappings.replaceChildren();
+  if (!connections.length) {
+    const empty = document.createElement("li");
+    empty.className = "mapping-item";
+    empty.textContent = "No connections configured.";
+    mappings.appendChild(empty);
+    return;
+  }
 
-function populateMappingEditor(connection) {
-  const sourceInstance = connection.source.split(".")[0];
-  const targetInstance = connection.target.split(".")[0];
-
-  fillLearnInstanceSelect(mappingEditSourceInstance, "input", sourceInstance);
-  fillLearnInstanceSelect(mappingEditTargetInstance, "output", targetInstance);
-  fillLearnPointSelect(mappingEditSourceDatapoint, sourceInstance, "input", connection.source);
-  fillLearnPointSelect(mappingEditTargetDatapoint, targetInstance, "output", connection.target);
-
-  mappingEditModifier.value = connection.modifier || "range_map";
-  mappingEditInputMin.value = connection.input_min ?? 0;
-  mappingEditInputMax.value = connection.input_max ?? 127;
-  mappingEditOutputMin.value = connection.output_min ?? 0;
-  mappingEditOutputMax.value = connection.output_max ?? 127;
-  mappingEditInvert.checked = Boolean(connection.invert);
-  syncMappingEditRangeFieldsVisibility();
+  for (const connection of connections) {
+    mappings.appendChild(createConnectionListItem(connection));
+  }
 }
 
 async function openMappingEditor(connection) {
   editingConnectionId = connection.id;
-  mappingEditorTitle.textContent = `Edit connection: ${connection.id}`;
-  mappingEditorMessage.textContent = "";
-  mappingEditor.hidden = false;
   await loadLearnDatapoints();
-  populateMappingEditor(connection);
-  mappingEditor.scrollIntoView({ behavior: "smooth", block: "nearest" });
+  renderMappingsList(storedConnections);
 }
 
 function closeMappingEditor() {
   editingConnectionId = "";
-  mappingEditor.hidden = true;
-  mappingEditorMessage.textContent = "";
+  renderMappingsList(storedConnections);
 }
 
-function collectMappingEditorConnection() {
-  const source = mappingEditSourceDatapoint.value;
-  const target = mappingEditTargetDatapoint.value;
-  if (!source || !target) {
-    throw new Error("select source and target data points");
+function connectionEditMessage() {
+  if (!editingConnectionId) {
+    return null;
   }
-  return {
-    id: editingConnectionId,
-    source,
-    target,
-    modifier: mappingEditModifier.value,
-    input_min: Number(mappingEditInputMin.value),
-    input_max: Number(mappingEditInputMax.value),
-    output_min: Number(mappingEditOutputMin.value),
-    output_max: Number(mappingEditOutputMax.value),
-    invert: mappingEditInvert.checked,
-  };
+  return mappings.querySelector(
+    `[data-connection-id="${editingConnectionId}"] .connection-edit-message`,
+  );
+}
+
+async function saveMappingEditor() {
+  if (!editingConnectionId) {
+    return;
+  }
+  const form = mappings.querySelector(
+    `[data-connection-id="${editingConnectionId}"] .connection-edit-form`,
+  );
+  const message = connectionEditMessage();
+  if (!form) {
+    return;
+  }
+  if (message) {
+    message.textContent = "saving...";
+  }
+  let updatedConnection;
+  try {
+    updatedConnection = collectConnectionFromEditForm(form, editingConnectionId);
+  } catch (error) {
+    if (message) {
+      message.textContent = `error: ${error.message}`;
+    }
+    return;
+  }
+
+  const nextConnections = storedConnections.map((connection) => (
+    connection.id === editingConnectionId ? updatedConnection : connection
+  ));
+  try {
+    await saveStoredConnections(nextConnections);
+    closeMappingEditor();
+  } catch (error) {
+    if (message) {
+      message.textContent = `error: ${error.message}`;
+    }
+  }
+}
+
+async function deleteMappingConnection(connectionId) {
+  const nextConnections = storedConnections.filter((connection) => connection.id !== connectionId);
+  try {
+    await saveStoredConnections(nextConnections);
+    if (editingConnectionId === connectionId) {
+      closeMappingEditor();
+    }
+  } catch (error) {
+    const message = connectionEditMessage();
+    if (message) {
+      message.textContent = `error: ${error.message}`;
+    }
+  }
 }
 
 async function saveStoredConnections(connections) {
@@ -709,8 +915,11 @@ async function saveStoredConnections(connections) {
   } catch {
     // keep list update even if status refresh fails
   }
-  if (payload.persisted === false) {
-    mappingEditorMessage.textContent = `saved for runtime only: ${payload.persist_error}`;
+  if (payload.persisted === false && editingConnectionId) {
+    const message = connectionEditMessage();
+    if (message) {
+      message.textContent = `saved for runtime only: ${payload.persist_error}`;
+    }
   }
   return payload;
 }
@@ -740,47 +949,9 @@ async function saveRoutingSettings() {
   }
 }
 
-async function saveMappingEditor() {
-  if (!editingConnectionId) {
-    return;
-  }
-  mappingEditorMessage.textContent = "saving...";
-  let updatedConnection;
-  try {
-    updatedConnection = collectMappingEditorConnection();
-  } catch (error) {
-    mappingEditorMessage.textContent = `error: ${error.message}`;
-    return;
-  }
-
-  const nextConnections = storedConnections.map((connection) => (
-    connection.id === editingConnectionId ? updatedConnection : connection
-  ));
-  try {
-    await saveStoredConnections(nextConnections);
-    closeMappingEditor();
-  } catch (error) {
-    mappingEditorMessage.textContent = `error: ${error.message}`;
-  }
-}
-
-async function deleteMappingConnection(connectionId) {
-  const nextConnections = storedConnections.filter((connection) => connection.id !== connectionId);
-  mappingEditorMessage.textContent = "deleting...";
-  try {
-    await saveStoredConnections(nextConnections);
-    if (editingConnectionId === connectionId) {
-      closeMappingEditor();
-    }
-  } catch (error) {
-    mappingEditorMessage.textContent = `error: ${error.message}`;
-  }
-}
-
 async function createReverseMapping(connectionId) {
-  const messageTarget = learnMode ? learnMessage : mappingEditorMessage;
-  if (messageTarget) {
-    messageTarget.textContent = "creating feedback connection...";
+  if (learnMessage) {
+    learnMessage.textContent = "creating feedback connection...";
   }
   try {
     const response = await fetch("/api/connections/reverse", {
@@ -806,15 +977,15 @@ async function createReverseMapping(connectionId) {
     const feedbackText = created
       ? `created feedback connection ${created.id}`
       : "created feedback connection";
-    if (messageTarget) {
-      messageTarget.textContent =
+    if (learnMessage) {
+      learnMessage.textContent =
         payload.persisted === false
           ? `${feedbackText} (runtime only: ${payload.persist_error})`
           : feedbackText;
     }
   } catch (error) {
-    if (messageTarget) {
-      messageTarget.textContent = `error: ${error.message}`;
+    if (learnMessage) {
+      learnMessage.textContent = `error: ${error.message}`;
     }
   }
 }
@@ -997,6 +1168,7 @@ function completeLearnMapping() {
     input_max: Number(learnInputMax.value),
     output_min: Number(learnOutputMin.value),
     output_max: Number(learnOutputMax.value),
+    scale_curve: learnScaleCurve?.value || "linear",
     invert: learnInvert.checked,
   };
   if (!targetDatapoint && targetAdapter && parameterId) {
@@ -1412,7 +1584,7 @@ async function preloadMonitorLibraries(status) {
     ...[...oscLibraryIds].map((libraryId) => loadMonitorOscLibrary(libraryId)),
   ]);
   refreshMonitorDisplay();
-  if (learnMode || !mappingEditor.hidden) {
+  if (learnMode || editingConnectionId) {
     renderLearnDatapointSelects();
   }
 }
@@ -5843,19 +6015,6 @@ learnOscParameter.addEventListener("change", () => {
 learnCreate.addEventListener("click", completeLearnMapping);
 learnClear.addEventListener("click", clearLearnSource);
 
-mappingEditSourceInstance.addEventListener("change", () => {
-  fillLearnPointSelect(mappingEditSourceDatapoint, mappingEditSourceInstance.value, "input", "");
-});
-
-mappingEditTargetInstance.addEventListener("change", () => {
-  fillLearnPointSelect(mappingEditTargetDatapoint, mappingEditTargetInstance.value, "output", "");
-});
-
-mappingEditModifier.addEventListener("change", syncMappingEditRangeFieldsVisibility);
-mappingSave.addEventListener("click", () => {
-  saveMappingEditor();
-});
-mappingCancel.addEventListener("click", closeMappingEditor);
 routingSettingsSave?.addEventListener("click", () => {
   saveRoutingSettings();
 });

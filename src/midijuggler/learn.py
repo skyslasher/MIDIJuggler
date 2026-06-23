@@ -191,6 +191,7 @@ class LearnController:
         output_min: float = 0.0,
         output_max: float = 127.0,
         invert: bool = False,
+        scale_curve: str = "linear",
         connection_id: str | None = None,
     ) -> ConnectionSpec:
         DataPointId.parse(source_datapoint)
@@ -206,6 +207,7 @@ class LearnController:
             output_min=output_min,
             output_max=output_max,
             invert=invert,
+            scale_curve=scale_curve,
         )
 
 

@@ -28,6 +28,9 @@ class ModifierKind(str, Enum):
     PASSTHROUGH = "passthrough"
 
 
+SCALE_CURVES = frozenset({"linear", "log_to_linear", "linear_to_log"})
+
+
 @dataclass(frozen=True)
 class DataPointId:
     """Canonical identity: module_instance.point_id."""
@@ -129,9 +132,10 @@ class ConnectionSpec:
     output_min: float = 0.0
     output_max: float = 127.0
     invert: bool = False
+    scale_curve: str = "linear"
 
     def as_dict(self) -> dict[str, Any]:
-        return {
+        payload = {
             "id": self.id,
             "source": self.source,
             "target": self.target,
@@ -142,6 +146,9 @@ class ConnectionSpec:
             "output_max": self.output_max,
             "invert": self.invert,
         }
+        if self.scale_curve != "linear":
+            payload["scale_curve"] = self.scale_curve
+        return payload
 
 
 def float_value(

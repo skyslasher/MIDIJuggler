@@ -559,12 +559,17 @@ legend {
 }
 
 .mapping-item {
-  border: 1px solid #31405e;
-  border-radius: 10px;
-  display: grid;
-  gap: 0.5rem;
   list-style: none;
-  padding: 0.75rem;
+  padding: 0;
+}
+
+.connection-card .mapping-meta {
+  color: #9fb5d9;
+  font-size: 0.85rem;
+}
+
+.connection-card .connection-edit-message:empty {
+  display: none;
 }
 
 .mapping-summary {

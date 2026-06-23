@@ -117,7 +117,15 @@ from midijuggler.osc_library import get_osc_library, list_osc_libraries
 from midijuggler.datapoint.bridge import adapter_control_to_datapoint
 from midijuggler.datapoint.migrate import effective_connections, stored_connections
 from midijuggler.datapoint.store import DataPointStore
-from midijuggler.datapoint.types import ConnectionSpec, ModifierKind, DataPointId, DataPointValue, ValueType, float_value
+from midijuggler.datapoint.types import (
+    ConnectionSpec,
+    DataPointId,
+    DataPointValue,
+    ModifierKind,
+    SCALE_CURVES,
+    ValueType,
+    float_value,
+)
 from midijuggler.modules.modifier.graph import ModifierGraph
 from midijuggler.web.monitor_coalesce import (
     MonitorCoalescer,
@@ -416,6 +424,12 @@ class WebInterface:
             if not isinstance(item, dict):
                 return web.Response(text=f"connections[{index}] must be an object", status=400)
             try:
+                scale_curve = str(item.get("scale_curve", "linear")).strip() or "linear"
+                if scale_curve not in SCALE_CURVES:
+                    return web.Response(
+                        text=f"connections[{index}] unsupported scale_curve: {scale_curve!r}",
+                        status=400,
+                    )
                 connections.append(
                     ConnectionSpec(
                         id=str(item["id"]),
@@ -427,6 +441,7 @@ class WebInterface:
                         output_min=float(item.get("output_min", 0.0)),
                         output_max=float(item.get("output_max", 127.0)),
                         invert=bool(item.get("invert", False)),
+                        scale_curve=scale_curve,
                     )
                 )
             except (KeyError, TypeError, ValueError) as exc:
@@ -941,6 +956,9 @@ class WebInterface:
             fallback=(0.0, 127.0),
         )[1]))
         invert = bool(payload.get("invert", False))
+        scale_curve = str(payload.get("scale_curve", "linear")).strip() or "linear"
+        if scale_curve not in SCALE_CURVES:
+            raise ValueError(f"unsupported scale_curve: {scale_curve!r}")
 
         connection = self.learn.build_connection(
             source_datapoint=source_datapoint,
@@ -951,6 +969,7 @@ class WebInterface:
             output_min=output_min,
             output_max=output_max,
             invert=invert,
+            scale_curve=scale_curve,
             connection_id=str(payload.get("id", "")).strip() or None,
         )
 

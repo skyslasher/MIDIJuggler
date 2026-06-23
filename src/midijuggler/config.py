@@ -7,7 +7,7 @@ from pathlib import Path
 from typing import Any
 import tomllib
 
-from midijuggler.datapoint.types import ConnectionSpec, ModifierKind
+from midijuggler.datapoint.types import ConnectionSpec, ModifierKind, SCALE_CURVES
 from midijuggler.device.types import CustomPointSpec, DeviceConfig
 from midijuggler.modules.modifier.feedback_suppress import parse_feedback_suppress_ms
 from midijuggler.osc.desk_protocol import desk_mode_for_library
@@ -386,6 +386,8 @@ def _format_connection_spec(connection: ConnectionSpec) -> str:
         f"output_max = {connection.output_max}",
         f"invert = {_toml_bool(connection.invert)}",
     ]
+    if connection.scale_curve != "linear":
+        lines.append(f"scale_curve = {_toml_string(connection.scale_curve)}")
     return "\n".join(lines)
 
 
@@ -1075,6 +1077,13 @@ def _parse_connection(index: int, raw: Any) -> ConnectionSpec:
     except ValueError as exc:
         raise ValueError(f"connections[{index}] has unsupported modifier: {modifier}") from exc
 
+    scale_curve = str(raw.get("scale_curve", "linear")).strip() or "linear"
+    if scale_curve not in SCALE_CURVES:
+        raise ValueError(
+            f"connections[{index}] scale_curve must be one of: "
+            f"{', '.join(sorted(SCALE_CURVES))}"
+        )
+
     return ConnectionSpec(
         id=str(raw["id"]),
         source=str(raw["source"]),
@@ -1085,6 +1094,7 @@ def _parse_connection(index: int, raw: Any) -> ConnectionSpec:
         output_min=_as_float(raw.get("output_min", 0.0), f"connections[{index}].output_min"),
         output_max=_as_float(raw.get("output_max", 127.0), f"connections[{index}].output_max"),
         invert=bool(raw.get("invert", False)),
+        scale_curve=scale_curve,
     )
 
 
