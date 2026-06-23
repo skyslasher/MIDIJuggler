@@ -78,6 +78,8 @@ class WingStreamDecoder:
                 return self._consume_data_byte(ESCAPE_CODE)
             return []
         if byte == ESCAPE_CODE - 1:
+            if self._channel >= 0:
+                return self._consume_data_byte(ESCAPE_CODE)
             self._pending_escape = ESCAPE_CODE
             return []
         if CHANNEL_ID_BASE <= byte < CHANNEL_ID_BASE + NUM_CHANNELS:
@@ -85,8 +87,9 @@ class WingStreamDecoder:
             self._pending.clear()
             return []
         if self._channel >= 0:
-            self._pending_escape = byte
-            return []
+            events = self._consume_data_byte(ESCAPE_CODE)
+            events.extend(self._consume_data_byte(byte))
+            return events
         return []
 
     def _consume_data_byte(self, byte: int) -> list[tuple[WingDecodeKind, object]]:

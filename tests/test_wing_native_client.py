@@ -13,7 +13,7 @@ from midijuggler.wing.native.client import (
     WingNativeClient,
 )
 from midijuggler.wing.native.decoder import WingDecodeKind, WingNodeDef
-from midijuggler.wing.native.protocol import encode_request_node_definition
+from midijuggler.wing.native.protocol import encode_keepalive, encode_request_node_definition
 
 
 def _node_def(*, node_id: int, name: str, parent_id: int = 0) -> WingNodeDef:
@@ -76,7 +76,8 @@ def test_list_children_drains_stale_response_before_next_request(
         with pytest.raises(TimeoutError):
             await timed_out
 
-        assert len(writes) == 1
+        assert encode_keepalive() in writes
+        assert encode_request_node_definition(0) in writes
 
         stale = [
             (WingDecodeKind.NODE_DEF, _node_def(node_id=99, name="stale")),

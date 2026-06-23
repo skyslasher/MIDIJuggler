@@ -9,20 +9,12 @@ from midijuggler.events import AdapterStatusEvent, MappedEvent, OscMessageEvent
 from midijuggler.wing.native.client import WingNativeClient, WingPathBinding
 
 
-def test_wing_native_start_marks_connected_before_warmup_finishes(
+def test_wing_native_start_marks_connected_without_warmup(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    warmup_started = asyncio.Event()
-    allow_warmup_finish = asyncio.Event()
-
-    class SlowWarmupClient(WingNativeClient):
+    class ImmediateClient(WingNativeClient):
         async def connect(self) -> None:
             return
-
-        async def resolve_path(self, path: str) -> int:
-            warmup_started.set()
-            await allow_warmup_finish.wait()
-            return 1
 
         async def read_events(self) -> list[tuple[object, object]]:
             await asyncio.sleep(3600)
@@ -33,7 +25,7 @@ def test_wing_native_start_marks_connected_before_warmup_finishes(
 
     monkeypatch.setattr(
         "midijuggler.adapters.wing_native.WingNativeClient",
-        SlowWarmupClient,
+        ImmediateClient,
     )
 
     async def scenario() -> tuple[WingNativeAdapter, list[AdapterStatusEvent]]:
@@ -60,14 +52,13 @@ def test_wing_native_start_marks_connected_before_warmup_finishes(
 
     try:
         assert adapter.running is True
+        assert adapter._warmup_task is None  # noqa: SLF001
         assert adapter.connectivity_snapshot()["connection_phase"] == "connected"
-        assert warmup_started.is_set()
         assert any(
             event.connection_phase == "connected"
             for event in status_events
         )
     finally:
-        allow_warmup_finish.set()
         asyncio.run(adapter.stop())
 
 

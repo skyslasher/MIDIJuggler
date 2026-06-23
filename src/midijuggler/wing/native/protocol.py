@@ -44,45 +44,35 @@ def encode_node_id(node_id: int, suffix: int | None = None) -> bytes:
     return bytes(payload)
 
 
-def encode_channel_payload(channel: int, payload: bytes) -> bytes:
+def encode_channel_select(channel: int = AUDIO_ENGINE_CHANNEL) -> bytes:
     if channel < 1 or channel > NUM_CHANNELS:
         raise ValueError(f"invalid Wing native channel: {channel}")
-    return bytes([ESCAPE_CODE, CHANNEL_ID_BASE + channel]) + _escape_payload(payload)
-
-
-def encode_keepalive(channel: int = AUDIO_ENGINE_CHANNEL) -> bytes:
     return bytes([ESCAPE_CODE, CHANNEL_ID_BASE + channel])
 
 
-def encode_request_node_definition(node_id: int = 0, channel: int = AUDIO_ENGINE_CHANNEL) -> bytes:
+def encode_channel_payload(channel: int, payload: bytes) -> bytes:
+    return encode_channel_select(channel) + _escape_payload(payload)
+
+
+def encode_keepalive(channel: int = AUDIO_ENGINE_CHANNEL) -> bytes:
+    return encode_channel_select(channel)
+
+
+def encode_request_node_definition(node_id: int = 0) -> bytes:
     if node_id == 0:
-        payload = bytes([0xDA, 0xDD])
-    else:
-        payload = encode_node_id(node_id, 0xDD)
-    return encode_channel_payload(channel, payload)
+        return bytes([0xDA, 0xDD])
+    return encode_node_id(node_id, 0xDD)
 
 
-def encode_request_node_data(node_id: int, channel: int = AUDIO_ENGINE_CHANNEL) -> bytes:
-    payload = encode_node_id(node_id, 0xDC)
-    return encode_channel_payload(channel, payload)
+def encode_request_node_data(node_id: int) -> bytes:
+    return encode_node_id(node_id, 0xDC)
 
 
-def encode_set_float(
-    node_id: int,
-    value: float,
-    *,
-    channel: int = AUDIO_ENGINE_CHANNEL,
-) -> bytes:
-    payload = encode_node_id(node_id, 0xD5) + struct.pack(">f", value)
-    return encode_channel_payload(channel, payload)
+def encode_set_float(node_id: int, value: float) -> bytes:
+    return encode_node_id(node_id, 0xD5) + struct.pack(">f", value)
 
 
-def encode_set_int(
-    node_id: int,
-    value: int,
-    *,
-    channel: int = AUDIO_ENGINE_CHANNEL,
-) -> bytes:
+def encode_set_int(node_id: int, value: int) -> bytes:
     payload = bytearray(encode_node_id(node_id))
     if 0 <= value <= 0x3F:
         payload.append(value)
@@ -90,4 +80,4 @@ def encode_set_int(
         payload.extend([0xD3, *struct.pack(">h", value)])
     else:
         payload.extend([0xD4, *struct.pack(">i", value)])
-    return encode_channel_payload(channel, bytes(payload))
+    return bytes(payload)

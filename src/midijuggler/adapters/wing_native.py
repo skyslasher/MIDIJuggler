@@ -79,10 +79,6 @@ class WingNativeAdapter(Adapter):
         self._connectivity.note_connected(self._remote_host, self._native_port)
         self._connectivity.paths_cached = self._client.path_cache_size
         await self._publish_connectivity_status(force=True)
-        self._warmup_task = asyncio.create_task(
-            self._warm_path_cache_task(),
-            name=f"wing-native-warmup-{self.name}",
-        )
 
     async def reload(self, config: AdapterConfig) -> None:
         previous_host = self._remote_host
