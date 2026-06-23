@@ -26,6 +26,20 @@ def test_encode_legacy_cc_datapoint_uses_one_based_channel() -> None:
     assert data == (64, 64)
 
 
+def test_encode_legacy_program_datapoint_uses_one_based_channel() -> None:
+    status, data = encode_legacy_midi_target_point("program_11_1", 1.0)
+
+    assert status == 0xCA
+    assert data == (1,)
+
+
+def test_encode_legacy_program_target_uses_one_based_channel() -> None:
+    status, data = encode_legacy_midi_target_point("program:11:1", 1.0)
+
+    assert status == 0xCA
+    assert data == (1,)
+
+
 def test_encode_mapped_midi_target_for_xtouch_library_parameter() -> None:
     config = parse_config(
         {

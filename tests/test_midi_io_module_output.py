@@ -66,6 +66,104 @@ def test_midi_io_module_sends_connection_targets_without_library(
     assert output_event.data == (64, 80)
 
 
+def test_midi_io_module_sends_program_change_connection_target_without_library(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    async def scenario() -> MidiMessageEvent | None:
+        config = parse_config(
+            {
+                "adapters": {
+                    "gpio": {"enabled": True, "pins": [17]},
+                    "xtouch_mini": {
+                        "enabled": True,
+                        "type": "midi",
+                        "input_port": "X-TOUCH MINI",
+                        "output_port": "X-TOUCH MINI",
+                    },
+                },
+                "devices": [
+                    gpio_device(),
+                    midi_device("xtouch_mini"),
+                ],
+                "connections": [
+                    {
+                        "id": "gpio-to-xtouch-program",
+                        "source": "gpio.pin17",
+                        "target": "xtouch_mini.program_11_1",
+                        "input_min": 0.0,
+                        "input_max": 1.0,
+                        "output_min": 0.0,
+                        "output_max": 1.0,
+                    }
+                ],
+            }
+        )
+        bus = EventBus()
+        events: list[MidiMessageEvent] = []
+        bus.subscribe(MidiMessageEvent, lambda event: events.append(event))
+
+        store = DataPointStore()
+        module, adapter, _registry = make_midi_io_module(config, store, bus=bus)
+        monkeypatch.setattr(
+            adapter,
+            "send_midi_message",
+            lambda event: events.append(event),
+        )
+
+        await module.start()
+        await store.write(float_value("xtouch_mini.program_11_1", 1.0))
+        return next((event for event in events if event.direction == "output"), None)
+
+    output_event = asyncio.run(scenario())
+
+    assert output_event is not None
+    assert output_event.status == 0xCA
+    assert output_event.data == (1,)
+
+
+def test_midi_io_module_sends_program_change_library_parameter(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    async def scenario() -> MidiMessageEvent | None:
+        config = parse_config(
+            {
+                "adapters": {
+                    "xtouch_mini": {
+                        "enabled": True,
+                        "type": "midi",
+                        "input_port": "X-TOUCH MINI",
+                        "output_port": "X-TOUCH MINI",
+                        "midi_library": "behringer_xtouch_mini",
+                    }
+                },
+                "devices": [
+                    midi_device("xtouch_mini", library="behringer_xtouch_mini"),
+                ],
+            }
+        )
+        bus = EventBus()
+        events: list[MidiMessageEvent] = []
+        bus.subscribe(MidiMessageEvent, lambda event: events.append(event))
+
+        store = DataPointStore()
+        module, adapter, _registry = make_midi_io_module(config, store, bus=bus)
+        monkeypatch.setattr(
+            adapter,
+            "send_midi_message",
+            lambda event: events.append(event),
+        )
+
+        await module.start()
+        await store.write(float_value("xtouch_mini.select_layer_b", 1.0))
+        return next((event for event in events if event.direction == "output"), None)
+
+    output_event = asyncio.run(scenario())
+
+    assert output_event is not None
+    assert output_event.status == 0xCA
+    assert output_event.data == (1,)
+
+
 def test_midi_io_module_does_not_echo_input_sourced_datapoint_writes() -> None:
     config = parse_config(
         {
@@ -190,6 +288,51 @@ def test_bridge_midi_control_event_does_not_emit_outputs() -> None:
 
     assert len(captured) == 1
     assert captured[0].float_value == 64.0
+    assert captured[0].emit_outputs is False
+
+
+def test_bridge_midi_program_change_input_writes_datapoint_without_emitting_outputs() -> None:
+    config = parse_config(
+        {
+            "adapters": {
+                "xtouch_mini": {
+                    "enabled": True,
+                    "type": "midi",
+                    "input_port": "X-TOUCH MINI",
+                    "output_port": "X-TOUCH MINI",
+                }
+            },
+            "devices": [midi_device("xtouch_mini")],
+        }
+    )
+    store = DataPointStore()
+    bus = EventBus()
+    registry = DeviceRegistry.from_config(config)
+    bridge = EventToDataPointBridge(store, bus, registry)
+    captured: list[DataPointValue] = []
+
+    async def capture(value: DataPointValue) -> None:
+        captured.append(value)
+
+    store.subscribe(DataPointId("xtouch_mini", "program_10_1"), capture)
+    bridge.attach()
+
+    async def scenario() -> None:
+        await bus.publish(
+            MidiMessageEvent(
+                source="xtouch_mini",
+                status=0xCA,
+                data=(1,),
+                direction="input",
+            )
+        )
+
+    asyncio.run(scenario())
+
+    assert len(captured) == 1
+    assert captured[0].value_type == ValueType.MIDI_MESSAGE
+    assert captured[0].midi_status == 0xCA
+    assert captured[0].midi_data == (1,)
     assert captured[0].emit_outputs is False
 
 

@@ -50,6 +50,20 @@ def test_xtouch_mini_matches_control_change_and_note() -> None:
     assert button_release[0].value == 0.0
 
 
+def test_xtouch_mini_matches_program_change() -> None:
+    index = build_source_index(get_midi_library("behringer_xtouch_mini"))
+
+    assert index.match(0xC0 | 10, (0,)) == []
+    assert index.match(0xC0 | 10, (1,)) == []
+
+
+def test_format_raw_midi_control_program_change() -> None:
+    from midijuggler.midi.library_match import extract_midi_value, format_raw_midi_control
+
+    assert format_raw_midi_control(0xCA, (1,)) == "program_10_1"
+    assert extract_midi_value(0xCA, (1,)) == 1.0
+
+
 def test_faderport_port_filter_limits_pitch_bend_matches() -> None:
     library = get_midi_library("presonus_faderport")
     port_1 = build_source_index(library, "port_1")

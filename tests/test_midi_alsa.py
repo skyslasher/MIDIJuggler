@@ -20,6 +20,12 @@ def test_parse_aseqdump_line_control_change() -> None:
     ) == (0xB0, (7, 100))
 
 
+def test_parse_aseqdump_line_program_change() -> None:
+    assert parse_aseqdump_line(
+        " 24:0   Program change          0, program 1"
+    ) == (0xC0, (1,))
+
+
 def test_parse_aseqdump_line_clock() -> None:
     assert parse_aseqdump_line(" 24:0   Clock") == (0xF8, ())
 
