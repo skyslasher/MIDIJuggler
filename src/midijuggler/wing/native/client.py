@@ -101,9 +101,19 @@ class WingNativeClient:
                 node_id = self._path_to_id[current_path]
                 continue
             children = await self.list_children(node_id)
-            match = next((child for child in children if child.name == part), None)
+            match = _find_child(children, part, node_id)
             if match is None:
-                raise KeyError(f"Wing path segment {part!r} not found under {current_path!r}")
+                available = sorted(
+                    {
+                        child.name
+                        for child in children
+                        if child.parent_id == node_id and child.name
+                    }
+                )
+                hint = f"; available: {', '.join(available[:12])}" if available else ""
+                raise KeyError(
+                    f"Wing path segment {part!r} not found under {current_path!r}{hint}"
+                )
             node_id = match.node_id
             self._remember_path(current_path, node_id)
         self._remember_path(normalized, node_id)
@@ -247,3 +257,43 @@ def _normalize_path(path: str) -> str:
     if len(normalized) > 1 and normalized.endswith("/"):
         normalized = normalized.rstrip("/")
     return normalized
+
+
+def _segment_name_candidates(part: str) -> list[str]:
+    candidates = [part]
+    if not part.startswith("$"):
+        candidates.append(f"${part}")
+    if part.isdigit():
+        number = int(part)
+        candidates.extend(
+            [
+                str(number),
+                f"{number:02d}",
+                f"{number:03d}",
+            ]
+        )
+    seen: set[str] = set()
+    ordered: list[str] = []
+    for candidate in candidates:
+        if candidate and candidate not in seen:
+            seen.add(candidate)
+            ordered.append(candidate)
+    return ordered
+
+
+def _find_child(
+    children: list[WingNodeDef],
+    part: str,
+    parent_id: int,
+) -> WingNodeDef | None:
+    scoped = [child for child in children if child.parent_id == parent_id]
+    for candidate in _segment_name_candidates(part):
+        match = next((child for child in scoped if child.name == candidate), None)
+        if match is not None:
+            return match
+    if part.isdigit():
+        wanted = int(part)
+        for child in scoped:
+            if child.index == wanted:
+                return child
+    return None

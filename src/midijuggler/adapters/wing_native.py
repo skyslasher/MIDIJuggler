@@ -128,11 +128,12 @@ class WingNativeAdapter(Adapter):
                 address,
             )
             return
-        except KeyError:
+        except KeyError as exc:
             LOGGER.warning(
-                "Wing native adapter %s could not resolve %s",
+                "Wing native adapter %s could not resolve %s: %s",
                 self.name,
                 address,
+                exc,
             )
             return
 

@@ -11,6 +11,7 @@ from midijuggler.wing.native.client import (
     LIST_CHILDREN_DRAIN_TIMEOUT_SECONDS,
     LIST_CHILDREN_TIMEOUT_SECONDS,
     WingNativeClient,
+    _find_child,
 )
 from midijuggler.wing.native.decoder import WingDecodeKind, WingNodeDef
 from midijuggler.wing.native.protocol import encode_keepalive, encode_request_node_definition
@@ -56,6 +57,18 @@ def short_list_children_timeouts(
         "midijuggler.wing.native.client.LIST_CHILDREN_DRAIN_TIMEOUT_SECONDS",
         0.5,
     )
+
+
+def test_find_child_filters_by_parent_and_supports_dollar_prefix() -> None:
+    ch = _node_def(node_id=10, name="ch", parent_id=0)
+    channel = _node_def(node_id=11, name="1", parent_id=10)
+    fdr = _node_def(node_id=12, name="$fdr", parent_id=11)
+    other_one = _node_def(node_id=99, name="1", parent_id=0)
+    children = [ch, channel, fdr, other_one]
+
+    assert _find_child(children, "ch", 0) == ch
+    assert _find_child(children, "1", 10) == channel
+    assert _find_child(children, "fdr", 11) == fdr
 
 
 def test_list_children_drains_stale_response_before_next_request(
@@ -112,9 +125,9 @@ def test_concurrent_warmup_and_send_both_complete(
 
         requested_nodes: asyncio.Queue[int] = asyncio.Queue()
         resolve_responses = {
-            0: _node_def(node_id=10, name="ch"),
-            10: _node_def(node_id=11, name="1"),
-            11: _node_def(node_id=12, name="fdr"),
+            0: _node_def(node_id=10, name="ch", parent_id=0),
+            10: _node_def(node_id=11, name="1", parent_id=10),
+            11: _node_def(node_id=12, name="$fdr", parent_id=11),
         }
 
         async def capture_write(payload: bytes) -> None:
