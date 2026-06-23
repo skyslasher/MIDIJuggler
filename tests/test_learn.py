@@ -250,7 +250,7 @@ def test_reverse_connection_maps_encoder_turn_to_value() -> None:
     assert feedback.output_max == 127.0
 
 
-def test_reverse_connection_uses_registry_ranges_for_feedback_target() -> None:
+def test_reverse_connection_preserves_forward_input_ranges_for_feedback() -> None:
     from midijuggler.datapoint.store import DataPointStore
     from midijuggler.datapoint.types import (
         ConnectionSpec,
@@ -284,5 +284,27 @@ def test_reverse_connection_uses_registry_ranges_for_feedback_target() -> None:
 
     feedback = reverse_connection(forward, store)
 
-    assert feedback.output_min == 0.0
+    assert feedback.output_min == 1.0
     assert feedback.output_max == 127.0
+
+
+def test_reverse_connection_swaps_customized_ranges() -> None:
+    from midijuggler.datapoint.types import ConnectionSpec
+    from midijuggler.learn import reverse_connection
+
+    forward = ConnectionSpec(
+        id="fader-to-wing",
+        source="xtouch_mini.layer_a_fader_1",
+        target="wing_native_foh./ch/1/fader",
+        input_min=0.0,
+        input_max=63.0,
+        output_min=-90.0,
+        output_max=10.0,
+    )
+
+    feedback = reverse_connection(forward)
+
+    assert feedback.input_min == -90.0
+    assert feedback.input_max == 10.0
+    assert feedback.output_min == 0.0
+    assert feedback.output_max == 63.0

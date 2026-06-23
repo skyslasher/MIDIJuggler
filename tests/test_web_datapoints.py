@@ -369,6 +369,8 @@ invert = false
     assert feedback["target"] == "xtouch_mini.layer_a_encoder_1_value"
     assert feedback["input_min"] == 0.0
     assert feedback["input_max"] == 1.0
+    assert feedback["output_min"] == 1.0
+    assert feedback["output_max"] == 127.0
 
     reloaded = load_config(config_path)
     assert len(reloaded.connections) == 2

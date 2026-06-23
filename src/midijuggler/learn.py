@@ -461,11 +461,6 @@ def reverse_connection(
         connection.target,
         store,
     )
-    output_min, output_max = lookup_datapoint_ranges(
-        store,
-        feedback_target,
-        fallback=(connection.input_min, connection.input_max),
-    )
     resolved_id = connection_id or make_mapping_id(
         f"{connection.id}-feedback",
         feedback_target,
@@ -479,7 +474,7 @@ def reverse_connection(
         modifier=connection.modifier,
         input_min=connection.output_min,
         input_max=connection.output_max,
-        output_min=output_min,
-        output_max=output_max,
+        output_min=connection.input_min,
+        output_max=connection.input_max,
         invert=connection.invert,
     )
