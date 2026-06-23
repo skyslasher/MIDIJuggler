@@ -35,6 +35,37 @@ def test_desk_identity_uses_x32_network_name() -> None:
     assert desk_identity(desk) == "x32:X32-02-4A-53"
 
 
+def test_status_payload_includes_discovered_desks() -> None:
+    from midijuggler.osc.desk_tracker import OscDeskDiscoveryManager
+
+    config = parse_config({"adapters": {}})
+    interface = WebInterface(
+        config,
+        EventBus(),
+        ClockBpmTracker(),
+        MasterClock(config.master_clock, EventBus()),
+    )
+    tracker = OscDeskDiscoveryManager(interface)
+    tracker.remember_desks(
+        [
+            DiscoveredDesk(
+                protocol="wing",
+                ip="192.168.10.48",
+                name="FOH Desk",
+                model="ngc-full",
+                serial="SN123",
+                firmware="4.12.0",
+            )
+        ]
+    )
+    interface.osc_desk_tracker = tracker
+
+    payload = interface._status_payload()
+
+    assert len(payload["osc_discovered_desks"]) == 1
+    assert payload["osc_discovered_desks"][0]["identity"] == "wing:SN123"
+
+
 def test_sync_osc_desk_addresses_relocates_bound_instance(tmp_path: Path) -> None:
     config_path = tmp_path / "config.toml"
     config_path.write_text(

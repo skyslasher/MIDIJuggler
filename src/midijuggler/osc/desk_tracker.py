@@ -41,6 +41,15 @@ class OscDeskDiscoveryManager:
     async def start(self) -> None:
         await self.scan_once()
         self._task = asyncio.create_task(self._loop(), name="osc-desk-discovery")
+        asyncio.create_task(self._startup_rescan(), name="osc-desk-startup-rescan")
+
+    async def _startup_rescan(self) -> None:
+        for delay in (5.0, 20.0):
+            await asyncio.sleep(delay)
+            try:
+                await self.scan_once()
+            except Exception:
+                LOGGER.exception("OSC desk startup rescan failed after %.0fs", delay)
 
     async def stop(self) -> None:
         if self._task is None:
@@ -53,7 +62,19 @@ class OscDeskDiscoveryManager:
     async def scan_once(self) -> dict[str, Any]:
         desks = await discover_desks()
         self._last_desks = desks
-        return await self._web.sync_osc_desk_addresses(desks)
+        result = await self._web.sync_osc_desk_addresses(desks)
+        await self._web.broadcast_status()
+        if desks:
+            LOGGER.info(
+                "OSC desk discovery found %s desk(s): %s",
+                len(desks),
+                ", ".join(
+                    f"{desk.protocol} {desk.ip}"
+                    + (f" ({desk.name})" if desk.name else "")
+                    for desk in desks
+                ),
+            )
+        return result
 
     async def _loop(self) -> None:
         while True:

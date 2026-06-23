@@ -382,6 +382,9 @@ class WebInterface:
             raise ValueError("data point store is unavailable")
         await self.datapoint_store.write(float_value(point_id, value))
 
+    async def broadcast_status(self) -> None:
+        await self._broadcast_payload({"type": "status", "payload": self._status_payload()})
+
     async def status(self, request: web.Request) -> web.Response:
         return web.json_response(self._status_payload())
 

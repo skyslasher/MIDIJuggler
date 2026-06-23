@@ -243,6 +243,9 @@ function renderStatus(status) {
   if (feedbackSuppressMs && status.feedback_suppress_ms != null) {
     feedbackSuppressMs.value = String(status.feedback_suppress_ms);
   }
+  if (Array.isArray(status.osc_discovered_desks)) {
+    rememberDiscoveredOscDesks(status.osc_discovered_desks);
+  }
 
   preloadMonitorLibraries(status);
   applyAdapterRuntimeConnectionsFromStatus(status.adapters || {});
@@ -4299,8 +4302,7 @@ function populateAllOscDiscoverSelects(devices) {
 }
 
 function rememberDiscoveredOscDesks(devices) {
-  if (!Array.isArray(devices) || !devices.length) {
-    updateGlobalOscDiscoverOptions([]);
+  if (!Array.isArray(devices)) {
     return;
   }
   discoveredOscDesks = devices.slice();
