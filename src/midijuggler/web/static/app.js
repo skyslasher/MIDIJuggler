@@ -1820,15 +1820,16 @@ function formatMonitorEventLine(event, time) {
 
   if (event.kind === "OscMessageEvent") {
     const direction = event.direction || "input";
+    const transport = monitorTransportLabel(event.source);
     const address = event.canonical_address || event.address;
     const echoSuffix = event.echo_suppressed ? " (echo)" : "";
     if (monitorDisplayMode === "library") {
       const label = lookupOscParameterLabel(event.source, address);
       if (label) {
-        return `[${time}] OSC ${direction} ${label} (${event.address}) ${JSON.stringify(event.arguments || [])}${echoSuffix}`;
+        return `[${time}] ${transport} ${direction} ${label} (${event.address}) ${JSON.stringify(event.arguments || [])}${echoSuffix}`;
       }
     }
-    return `[${time}] OSC ${direction} ${event.address} ${JSON.stringify(event.arguments || [])}${echoSuffix}`;
+    return `[${time}] ${transport} ${direction} ${event.address} ${JSON.stringify(event.arguments || [])}${echoSuffix}`;
   }
 
   return `[${time}] ${event.kind} from ${event.source}: ${JSON.stringify(event)}`;
@@ -1836,6 +1837,17 @@ function formatMonitorEventLine(event, time) {
 
 function isHidAdapterSource(source) {
   return (hidAdaptersConfig?.instances || []).some((instance) => instance.name === source);
+}
+
+function isWingNativeAdapterSource(source) {
+  return (wingNativeAdaptersConfig?.instances || []).some((instance) => instance.name === source);
+}
+
+function monitorTransportLabel(source) {
+  if (isWingNativeAdapterSource(source)) {
+    return "Wing Native";
+  }
+  return "OSC";
 }
 
 function shouldShowMonitorEvent(event) {
