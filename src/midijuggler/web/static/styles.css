@@ -273,6 +273,10 @@ legend {
   grid-template-columns: 1.4fr 1fr auto;
 }
 
+.device-card .device-card-message:empty {
+  display: none;
+}
+
 .midi-adapter-card {
   background: #101827;
   border: 1px solid #31405e;

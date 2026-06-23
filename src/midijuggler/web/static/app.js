@@ -125,7 +125,6 @@ const systemRestartMessage = document.querySelector("#system-restart-message");
 const deviceInstances = document.querySelector("#device-instances");
 const deviceAdd = document.querySelector("#device-add");
 const devicesFillAdapters = document.querySelector("#devices-fill-adapters");
-const devicesSave = document.querySelector("#devices-save");
 const devicesMessage = document.querySelector("#devices-message");
 const connectionState = document.querySelector("#connection-state");
 
@@ -1737,10 +1736,18 @@ function applyAdapterDefaultsToDeviceCard(card) {
   }
   if (idField && !idField.value.trim()) {
     idField.value = adapterName;
+    idField.dispatchEvent(new Event("input", { bubbles: true }));
   }
 }
 
-function createDeviceCustomPointRow(point = {}) {
+function deviceInstanceSummaryLabel(device, isNew) {
+  if (isNew) {
+    return "New device";
+  }
+  return device.id || "Unnamed device";
+}
+
+function createDeviceCustomPointRow(point = {}, onDirty = null) {
   const row = document.createElement("div");
   row.className = "device-custom-point-row";
   row.innerHTML = `
@@ -1761,47 +1768,281 @@ function createDeviceCustomPointRow(point = {}) {
   row.querySelector('[data-field="point_direction"]').value = point.direction || "bidirectional";
   row.querySelector(".device-custom-point-remove").addEventListener("click", () => {
     row.remove();
+    onDirty?.();
   });
+  if (onDirty) {
+    for (const element of row.querySelectorAll("[data-field]")) {
+      element.addEventListener("input", onDirty);
+      element.addEventListener("change", onDirty);
+    }
+  }
   return row;
 }
 
-function createDeviceCard(device = {}) {
-  const card = document.createElement("div");
+function collectDeviceFromCard(card) {
+  const customPoints = [...card.querySelectorAll(".device-custom-point-row")]
+    .map((row) => {
+      const id = row.querySelector('[data-field="point_id"]')?.value.trim();
+      if (!id) {
+        return null;
+      }
+      return {
+        id,
+        direction: row.querySelector('[data-field="point_direction"]')?.value || "bidirectional",
+      };
+    })
+    .filter(Boolean);
+  const device = {
+    id: card.querySelector('[data-field="id"]')?.value.trim() || "",
+    adapter: card.querySelector('[data-field="adapter"]')?.value.trim() || "",
+    label: card.querySelector('[data-field="label"]')?.value.trim() || "",
+    library: card.querySelector('[data-field="library"]')?.value.trim() || "",
+    library_kind: card.querySelector('[data-field="library_kind"]')?.value.trim() || "",
+  };
+  if (customPoints.length) {
+    device.custom_points = customPoints;
+  }
+  return device;
+}
+
+function deviceCardStateSignature(card) {
+  return JSON.stringify(collectDeviceFromCard(card));
+}
+
+function showDeviceCardMessage(card, text, { autoHide = false } = {}) {
+  const message = card.querySelector(".device-card-message");
+  if (!message) {
+    return;
+  }
+  message.textContent = text;
+  if (!autoHide || !text) {
+    return;
+  }
+  window.setTimeout(() => {
+    if (message.textContent === text) {
+      message.textContent = "";
+    }
+  }, MIDI_ADAPTER_MESSAGE_HIDE_MS);
+}
+
+function updateDeviceCardDirtyState(card) {
+  const saveButton = card.querySelector(".midi-adapter-save");
+  if (!saveButton) {
+    return;
+  }
+  const isDirty = deviceCardStateSignature(card) !== card.dataset.savedState;
+  saveButton.disabled = !isDirty;
+}
+
+function validateDeviceCard(card) {
+  const idInput = card.querySelector('[data-field="id"]');
+  const adapterSelect = card.querySelector('[data-field="adapter"]');
+  const id = idInput?.value.trim() || "";
+  const adapter = adapterSelect?.value.trim() || "";
+  if (!id) {
+    showDeviceCardMessage(card, "device id is required");
+    idInput?.focus();
+    return false;
+  }
+  if (/[:\s]/.test(id)) {
+    showDeviceCardMessage(card, "device id cannot contain ':' or whitespace");
+    idInput?.focus();
+    return false;
+  }
+  if (!adapter) {
+    showDeviceCardMessage(card, "adapter instance is required");
+    adapterSelect?.focus();
+    return false;
+  }
+  return true;
+}
+
+function persistDevices(devices) {
+  return fetch("/api/devices", {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({ devices }),
+  }).then(async (response) => {
+    if (!response.ok) {
+      throw new Error(await response.text());
+    }
+    return response.json();
+  });
+}
+
+function attachDeviceCardControls(card) {
+  const saveButton = card.querySelector(".midi-adapter-save");
+  saveButton?.addEventListener("click", () => saveDeviceCard(card));
+
+  const markDirty = () => {
+    showDeviceCardMessage(card, "");
+    updateDeviceCardDirtyState(card);
+  };
+
+  for (const element of card.querySelectorAll("[data-field]")) {
+    element.addEventListener("input", markDirty);
+    element.addEventListener("change", markDirty);
+  }
+
+  card._markDirty = markDirty;
+  card.dataset.savedState = deviceCardStateSignature(card);
+  updateDeviceCardDirtyState(card);
+}
+
+function confirmDeviceDelete(card) {
+  if (card.dataset.isNew === "true") {
+    const id = card.querySelector('[data-field="id"]')?.value.trim();
+    const label = id ? `"${id}"` : "this new device";
+    return window.confirm(`Discard ${label}?`);
+  }
+  const id = card.dataset.deviceId || card.querySelector('[data-field="id"]')?.value.trim();
+  return window.confirm(`Delete device "${id}"? This cannot be undone.`);
+}
+
+function deleteDeviceCard(card) {
+  if (!confirmDeviceDelete(card)) {
+    return;
+  }
+
+  if (card.dataset.isNew === "true") {
+    card.remove();
+    if (!deviceInstances.querySelector(".device-card") && devicesMessage) {
+      devicesMessage.textContent = "";
+    }
+    return;
+  }
+
+  card.remove();
+  const devices = collectDevicesFromCards();
+  if (devicesMessage) {
+    devicesMessage.textContent = "deleting...";
+  }
+
+  persistDevices(devices)
+    .then((config) => {
+      renderDevicesConfig(config);
+      if (devicesMessage) {
+        devicesMessage.textContent = "deleted";
+      }
+      return loadLearnDatapoints().catch(() => null);
+    })
+    .catch((error) => {
+      if (devicesMessage) {
+        devicesMessage.textContent = `error: ${error.message}`;
+      }
+      return loadDevicesConfig();
+    });
+}
+
+function saveDeviceCard(card) {
+  if (!validateDeviceCard(card)) {
+    return;
+  }
+
+  const wasNew = card.dataset.isNew === "true";
+  const saveButton = card.querySelector(".midi-adapter-save");
+  showDeviceCardMessage(card, "saving...");
+  saveButton.disabled = true;
+
+  persistDevices(collectDevicesFromCards())
+    .then((config) => {
+      const status =
+        config.persisted === false
+          ? `saved for runtime only: ${config.persist_error}`
+          : "saved; restart service to reload all data points";
+      if (wasNew) {
+        renderDevicesConfig(config);
+        if (devicesMessage) {
+          devicesMessage.textContent = status;
+        }
+      } else {
+        card.dataset.deviceId = collectDeviceFromCard(card).id;
+        card.dataset.savedState = deviceCardStateSignature(card);
+        updateDeviceCardDirtyState(card);
+        showDeviceCardMessage(card, status, { autoHide: true });
+      }
+      return loadLearnDatapoints().catch(() => null);
+    })
+    .catch((error) => {
+      showDeviceCardMessage(card, `error: ${error.message}`);
+      updateDeviceCardDirtyState(card);
+    });
+}
+
+function createDeviceCard(device = {}, options = {}) {
+  const isNew = Boolean(options.isNew);
+  const card = document.createElement("section");
   card.className = "midi-adapter-card device-card";
-  card.innerHTML = `
-    <div class="device-fields">
-      <label class="stacked-field">
-        Device id
-        <input data-field="id" type="text" autocomplete="off" spellcheck="false" />
-      </label>
-      <label class="stacked-field">
-        Adapter instance
-        <select data-field="adapter"></select>
-      </label>
-      <label class="stacked-field">
-        Label
-        <input data-field="label" type="text" autocomplete="off" spellcheck="false" />
-      </label>
-      <label class="stacked-field">
-        Library kind
-        <select data-field="library_kind"></select>
-      </label>
-      <label class="stacked-field">
-        Library
-        <select data-field="library"></select>
-      </label>
-      <details>
-        <summary>Custom data points</summary>
-        <div class="custom-points-list"></div>
-        <button type="button" class="device-custom-point-add">Add custom point</button>
-      </details>
-    </div>
-    <div class="midi-adapter-card-actions">
-      <button type="button" class="device-remove">Remove device</button>
-    </div>
+  card.dataset.deviceId = device.id || "";
+  if (isNew) {
+    card.dataset.isNew = "true";
+  }
+
+  const accordion = createAdapterInstanceAccordion(
+    deviceInstanceSummaryLabel(device, isNew),
+  );
+  const { body, title, details } = accordion;
+  if (isNew) {
+    details.open = true;
+  }
+
+  const actions = document.createElement("div");
+  actions.className = "midi-adapter-card-actions";
+
+  const saveButton = document.createElement("button");
+  saveButton.type = "button";
+  saveButton.className = "midi-adapter-save";
+  saveButton.textContent = "Save";
+  saveButton.disabled = !isNew;
+  actions.appendChild(saveButton);
+
+  const deleteButton = document.createElement("button");
+  deleteButton.type = "button";
+  deleteButton.className = "midi-adapter-delete";
+  deleteButton.textContent = "Delete";
+  wireAdapterDeleteButton(deleteButton, card, () => deleteDeviceCard(card), {
+    panelMessage: devicesMessage,
+  });
+  actions.appendChild(deleteButton);
+
+  const fields = document.createElement("div");
+  fields.className = "device-fields";
+  fields.innerHTML = `
+    <label class="stacked-field">
+      Device id
+      <input data-field="id" type="text" autocomplete="off" spellcheck="false" />
+    </label>
+    <label class="stacked-field">
+      Adapter instance
+      <select data-field="adapter"></select>
+    </label>
+    <label class="stacked-field">
+      Label
+      <input data-field="label" type="text" autocomplete="off" spellcheck="false" />
+    </label>
+    <label class="stacked-field">
+      Library kind
+      <select data-field="library_kind"></select>
+    </label>
+    <label class="stacked-field">
+      Library
+      <select data-field="library"></select>
+    </label>
+    <details>
+      <summary>Custom data points</summary>
+      <div class="custom-points-list"></div>
+      <button type="button" class="device-custom-point-add">Add custom point</button>
+    </details>
   `;
 
-  const adapterSelect = card.querySelector('[data-field="adapter"]');
+  prependAdapterBodySections(body, [actions]);
+  body.appendChild(fields);
+
+  const message = document.createElement("p");
+  message.className = "message device-card-message";
+  body.appendChild(message);
+
+  const adapterSelect = fields.querySelector('[data-field="adapter"]');
   adapterSelect.replaceChildren();
   const placeholder = document.createElement("option");
   placeholder.value = "";
@@ -1816,7 +2057,7 @@ function createDeviceCard(device = {}) {
     adapterSelect.appendChild(option);
   }
 
-  const kindSelect = card.querySelector('[data-field="library_kind"]');
+  const kindSelect = fields.querySelector('[data-field="library_kind"]');
   for (const kind of DEVICE_LIBRARY_KINDS) {
     const option = document.createElement("option");
     option.value = kind;
@@ -1824,39 +2065,51 @@ function createDeviceCard(device = {}) {
     kindSelect.appendChild(option);
   }
 
-  card.querySelector('[data-field="id"]').value = device.id || "";
-  card.querySelector('[data-field="adapter"]').value = device.adapter || "";
-  card.querySelector('[data-field="label"]').value = device.label || "";
-  card.querySelector('[data-field="library_kind"]').value = device.library_kind || "";
+  const idInput = fields.querySelector('[data-field="id"]');
+  idInput.value = device.id || "";
+  adapterSelect.value = device.adapter || "";
+  fields.querySelector('[data-field="label"]').value = device.label || "";
+  kindSelect.value = device.library_kind || "";
   fillDeviceLibrarySelect(
-    card.querySelector('[data-field="library"]'),
+    fields.querySelector('[data-field="library"]'),
     device.library_kind || adapterOptionByName(device.adapter)?.library_kind || "",
     device.library || "",
   );
 
-  const customPointsList = card.querySelector(".custom-points-list");
+  bindDeviceInstanceTitle(title, idInput, { isNew });
+
+  const customPointsList = fields.querySelector(".custom-points-list");
+  const markDirty = () => {
+    showDeviceCardMessage(card, "");
+    updateDeviceCardDirtyState(card);
+  };
   for (const point of device.custom_points || []) {
-    customPointsList.appendChild(createDeviceCustomPointRow(point));
+    customPointsList.appendChild(createDeviceCustomPointRow(point, markDirty));
   }
 
-  adapterSelect.addEventListener("change", () => applyAdapterDefaultsToDeviceCard(card));
+  adapterSelect.addEventListener("change", () => {
+    applyAdapterDefaultsToDeviceCard(card);
+    markDirty();
+  });
   kindSelect.addEventListener("change", () => {
     fillDeviceLibrarySelect(
-      card.querySelector('[data-field="library"]'),
+      fields.querySelector('[data-field="library"]'),
       kindSelect.value,
-      card.querySelector('[data-field="library"]').value,
+      fields.querySelector('[data-field="library"]').value,
     );
+    markDirty();
   });
-  card.querySelector(".device-custom-point-add").addEventListener("click", () => {
-    customPointsList.appendChild(createDeviceCustomPointRow());
-  });
-  card.querySelector(".device-remove").addEventListener("click", () => {
-    card.remove();
+  fields.querySelector(".device-custom-point-add").addEventListener("click", () => {
+    customPointsList.appendChild(createDeviceCustomPointRow({}, markDirty));
+    markDirty();
   });
 
   if (!device.id && device.adapter) {
     applyAdapterDefaultsToDeviceCard(card);
   }
+
+  mountAdapterInstanceCard(card, accordion);
+  attachDeviceCardControls(card);
   return card;
 }
 
@@ -1878,33 +2131,7 @@ function renderDevicesConfig(config) {
 }
 
 function collectDevicesFromCards() {
-  const devices = [];
-  for (const card of deviceInstances.querySelectorAll(".device-card")) {
-    const customPoints = [...card.querySelectorAll(".device-custom-point-row")]
-      .map((row) => {
-        const id = row.querySelector('[data-field="point_id"]')?.value.trim();
-        if (!id) {
-          return null;
-        }
-        return {
-          id,
-          direction: row.querySelector('[data-field="point_direction"]')?.value || "bidirectional",
-        };
-      })
-      .filter(Boolean);
-    const device = {
-      id: card.querySelector('[data-field="id"]')?.value.trim() || "",
-      adapter: card.querySelector('[data-field="adapter"]')?.value.trim() || "",
-      label: card.querySelector('[data-field="label"]')?.value.trim() || "",
-      library: card.querySelector('[data-field="library"]')?.value.trim() || "",
-      library_kind: card.querySelector('[data-field="library_kind"]')?.value.trim() || "",
-    };
-    if (customPoints.length) {
-      device.custom_points = customPoints;
-    }
-    devices.push(device);
-  }
-  return devices;
+  return [...deviceInstances.querySelectorAll(".device-card")].map(collectDeviceFromCard);
 }
 
 function addMissingDevicesFromAdapters() {
@@ -1920,12 +2147,15 @@ function addMissingDevicesFromAdapters() {
       deviceInstances.replaceChildren();
     }
     deviceInstances.appendChild(
-      createDeviceCard({
-        id: adapter.name,
-        adapter: adapter.name,
-        library: adapter.library,
-        library_kind: adapter.library_kind,
-      }),
+      createDeviceCard(
+        {
+          id: adapter.name,
+          adapter: adapter.name,
+          library: adapter.library,
+          library_kind: adapter.library_kind,
+        },
+        { isNew: true },
+      ),
     );
     existingAdapters.add(adapter.name);
     added += 1;
@@ -1948,34 +2178,6 @@ function loadDevicesConfig() {
     .then((config) => {
       renderDevicesConfig(config);
       return config;
-    });
-}
-
-function saveDevicesConfig() {
-  const devices = collectDevicesFromCards();
-  devicesMessage.textContent = "saving...";
-  return fetch("/api/devices", {
-    method: "POST",
-    headers: { "content-type": "application/json" },
-    body: JSON.stringify({ devices }),
-  })
-    .then(async (response) => {
-      if (!response.ok) {
-        throw new Error(await response.text());
-      }
-      return response.json();
-    })
-    .then((config) => {
-      renderDevicesConfig(config);
-      if (config.persisted === false) {
-        devicesMessage.textContent = `saved for runtime only: ${config.persist_error}`;
-      } else {
-        devicesMessage.textContent = "devices saved; restart service to reload all data points";
-      }
-      return loadLearnDatapoints().catch(() => null);
-    })
-    .catch((error) => {
-      devicesMessage.textContent = `error: ${error.message}`;
     });
 }
 
@@ -3592,6 +3794,16 @@ function bindAdapterInstanceTitle(title, nameInput, { isNew = false } = {}) {
   nameInput?.addEventListener("input", update);
   nameInput?.addEventListener("change", update);
   return update;
+}
+
+function bindDeviceInstanceTitle(title, idInput, { isNew = false } = {}) {
+  const fallback = isNew ? "New device" : "Unnamed device";
+  const update = () => {
+    title.textContent = (idInput?.value || "").trim() || fallback;
+  };
+  idInput?.addEventListener("input", update);
+  idInput?.addEventListener("change", update);
+  update();
 }
 
 function prependAdapterBodySections(body, sections) {
@@ -5702,7 +5914,7 @@ deviceAdd?.addEventListener("click", () => {
   if (deviceInstances.querySelector(".hint")) {
     deviceInstances.replaceChildren();
   }
-  deviceInstances.appendChild(createDeviceCard());
+  deviceInstances.appendChild(createDeviceCard({}, { isNew: true }));
   if (devicesMessage) {
     devicesMessage.textContent = "";
   }
@@ -5710,10 +5922,6 @@ deviceAdd?.addEventListener("click", () => {
 
 devicesFillAdapters?.addEventListener("click", () => {
   addMissingDevicesFromAdapters();
-});
-
-devicesSave?.addEventListener("click", () => {
-  saveDevicesConfig();
 });
 
 systemHostnameSave?.addEventListener("click", () => {
