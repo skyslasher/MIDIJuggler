@@ -3,13 +3,15 @@ from pathlib import Path
 
 from aiohttp.test_utils import TestClient, TestServer
 
+from midijuggler.adapters.gpio import GpioAdapter
 from midijuggler.clock import ClockBpmTracker
 from midijuggler.config import load_config, parse_config
+from midijuggler.datapoint.store import DataPointStore
 from midijuggler.eventbus import EventBus
 from midijuggler.master_clock import MasterClock
 from midijuggler.web.server import WebInterface
 
-from conftest import gpio_device, osc_device
+from conftest import gpio_device, midi_custom_point, midi_device, osc_device
 
 
 def _interface(config_path: Path) -> WebInterface:
@@ -116,3 +118,128 @@ def test_devices_api_rejects_duplicate_adapter_binding(tmp_path) -> None:
             return response.status
 
     assert asyncio.run(scenario()) == 400
+
+
+def test_set_devices_config_refreshes_gpio_datapoints(tmp_path) -> None:
+    config_path = tmp_path / "config.toml"
+    config_path.write_text(
+        """
+[adapters.gpio]
+enabled = true
+pins = [17]
+""".strip()
+        + "\n",
+        encoding="utf-8",
+    )
+    config = load_config(config_path)
+    store = DataPointStore()
+    interface = WebInterface(
+        config,
+        EventBus(),
+        ClockBpmTracker(),
+        MasterClock(config.master_clock, EventBus()),
+        gpio_adapter=GpioAdapter("gpio", config.adapters["gpio"], EventBus()),
+        datapoint_store=store,
+        config_path=config_path,
+    )
+
+    async def scenario() -> list[dict]:
+        app = interface.create_app()
+        async with TestClient(TestServer(app)) as client:
+            before = await (await client.get("/api/datapoints")).json()
+            assert not any(
+                entry["id"].startswith("foot_switches.")
+                for entry in before["datapoints"]
+            )
+
+            response = await client.post(
+                "/api/devices",
+                json={"devices": [gpio_device("foot_switches", adapter="gpio")]},
+            )
+            assert response.status == 200
+
+            after = await (await client.get("/api/datapoints")).json()
+            return after["datapoints"]
+
+    datapoints = asyncio.run(scenario())
+    assert any(entry["id"] == "foot_switches.pin17" for entry in datapoints)
+
+
+def test_set_devices_config_refreshes_midi_custom_points() -> None:
+    config = parse_config(
+        {
+            "adapters": {"midi": {"enabled": True}},
+            "devices": [],
+        }
+    )
+    store = DataPointStore()
+    interface = WebInterface(
+        config,
+        EventBus(),
+        ClockBpmTracker(),
+        MasterClock(config.master_clock, EventBus()),
+        datapoint_store=store,
+    )
+
+    async def scenario() -> list[dict]:
+        app = interface.create_app()
+        async with TestClient(TestServer(app)) as client:
+            response = await client.post(
+                "/api/devices",
+                json={
+                    "devices": [
+                        {
+                            **midi_device("midi_controller", adapter="midi"),
+                            "custom_points": [midi_custom_point("cc_1_64")],
+                        }
+                    ]
+                },
+            )
+            assert response.status == 200
+            payload = await (await client.get("/api/datapoints")).json()
+            return payload["datapoints"]
+
+    datapoints = asyncio.run(scenario())
+    assert any(entry["id"] == "midi_controller.cc_1_64" for entry in datapoints)
+
+
+def test_set_devices_config_unregisters_removed_device_datapoints(tmp_path) -> None:
+    config_path = tmp_path / "config.toml"
+    config_path.write_text(
+        """
+[adapters.gpio]
+enabled = true
+pins = [17]
+""".strip()
+        + "\n",
+        encoding="utf-8",
+    )
+    config = load_config(config_path)
+    store = DataPointStore()
+    interface = WebInterface(
+        config,
+        EventBus(),
+        ClockBpmTracker(),
+        MasterClock(config.master_clock, EventBus()),
+        gpio_adapter=GpioAdapter("gpio", config.adapters["gpio"], EventBus()),
+        datapoint_store=store,
+        config_path=config_path,
+    )
+
+    async def scenario() -> list[dict]:
+        app = interface.create_app()
+        async with TestClient(TestServer(app)) as client:
+            response = await client.post(
+                "/api/devices",
+                json={"devices": [gpio_device("foot_switches", adapter="gpio")]},
+            )
+            assert response.status == 200
+
+            response = await client.post("/api/devices", json={"devices": []})
+            assert response.status == 200
+
+            payload = await (await client.get("/api/datapoints")).json()
+            return payload["datapoints"]
+
+    datapoints = asyncio.run(scenario())
+    assert not any(entry["id"].startswith("foot_switches.") for entry in datapoints)

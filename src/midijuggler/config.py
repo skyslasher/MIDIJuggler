@@ -815,8 +815,7 @@ def _adapter_qualifies_for_device_inference(
 def _infer_device_library(instance_name: str, adapter: AdapterConfig) -> tuple[str, str]:
     kind = adapter.kind or instance_name
     if kind in {"wing", "wing_native"}:
-        library = str(adapter.options.get("wing_library", "behringer_wing")).strip()
-        return library, "wing"
+        return "behringer_wing", "wing"
     if kind == "midi":
         library = str(adapter.options.get("midi_library", "")).strip()
         return library, "midi"

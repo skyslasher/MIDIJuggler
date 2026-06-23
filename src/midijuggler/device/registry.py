@@ -29,6 +29,19 @@ class DeviceRegistry:
     def from_config(cls, config: AppConfig) -> DeviceRegistry:
         return cls(config.devices, config.adapters)
 
+    def reload_from_config(self, config: AppConfig) -> None:
+        """Replace registry contents from the current app config."""
+        self._devices = dict(config.devices)
+        self._adapters = config.adapters
+        self._adapter_to_device = {}
+        for device in self._devices.values():
+            if device.adapter in self._adapter_to_device:
+                existing = self._adapter_to_device[device.adapter]
+                raise ValueError(
+                    f"adapter {device.adapter!r} is already bound to device {existing!r}"
+                )
+            self._adapter_to_device[device.adapter] = device.id
+
     def devices(self) -> list[DeviceConfig]:
         return list(self._devices.values())
 
@@ -46,6 +59,12 @@ class DeviceRegistry:
         if device_id is None:
             return None
         return self._devices.get(device_id)
+
+    def device_library_for_adapter(self, adapter_name: str) -> str:
+        device = self.device_for_adapter(adapter_name)
+        if device is None:
+            return ""
+        return str(device.library or "").strip()
 
     def require_device_for_adapter(self, adapter_name: str) -> DeviceConfig:
         device = self.device_for_adapter(adapter_name)

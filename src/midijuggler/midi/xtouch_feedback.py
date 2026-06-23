@@ -19,9 +19,16 @@ LOGGER = logging.getLogger(__name__)
 PROGRAM_CHANGE = 0xC0
 
 
-def uses_xtouch_feedback_refresh(config: AdapterConfig) -> bool:
-    library_id = str(config.options.get("midi_library", "")).strip()
-    return library_id == XTOUCH_MINI_LIBRARY_ID
+def uses_xtouch_feedback_refresh(
+    config: AdapterConfig,
+    *,
+    library_id: str | None = None,
+) -> bool:
+    resolved = (
+        str(library_id or "").strip()
+        or str(config.options.get("midi_library", "")).strip()
+    )
+    return resolved == XTOUCH_MINI_LIBRARY_ID
 
 
 def feedback_refresh_interval_seconds(config: AdapterConfig) -> float:
