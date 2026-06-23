@@ -11,6 +11,8 @@ from midijuggler.eventbus import EventBus
 from midijuggler.master_clock import MasterClock
 from midijuggler.web.server import WebInterface
 
+from conftest import wing_device
+
 
 def test_wing_native_adapters_config_payload_lists_instances() -> None:
     config = parse_config(
@@ -117,14 +119,26 @@ def test_apply_wing_native_adapters_config_registers_datapoints_for_enabled_inst
                         "enabled": True,
                         "remote_host": "192.168.10.48",
                     }
-                }
+                },
+                "devices": [wing_device("wing_native_foh")],
             }
         ).adapters["wing_native_foh"],
         bus=EventBus(),
     )
     adapter.running = True
 
-    config = parse_config({"adapters": {}})
+    config = parse_config(
+        {
+            "adapters": {
+                "wing_native_foh": {
+                    "type": "wing_native",
+                    "enabled": False,
+                    "remote_host": "192.168.10.48",
+                }
+            },
+            "devices": [wing_device("wing_native_foh")],
+        }
+    )
     interface = WebInterface(
         config,
         EventBus(),

@@ -131,6 +131,12 @@ class ModifierGraph(ModifierModule):
             mapped = self._map_value(key, numeric, connection.target, transform)
             if mapped is None:
                 continue
+            current = self.store.float_value(connection.target)
+            if current is not None and abs(current - mapped) <= _compare_epsilon(
+                self.store,
+                connection.target,
+            ):
+                continue
             emit_outputs = not (suppress_source or suppress_target)
             await self.store.write(
                 float_value(
@@ -231,3 +237,15 @@ def _numeric_value(value: DataPointValue) -> float | None:
     if value.bool_value is not None:
         return 1.0 if value.bool_value else 0.0
     return None
+
+
+def _compare_epsilon(store: DataPointStore, target_key: str) -> float:
+    spec = store.spec(target_key)
+    if spec is None:
+        return 1e-9
+    span = float(spec.value_max) - float(spec.value_min)
+    if span > 10.0:
+        return max(0.001, span * 1e-4)
+    if span > 1.0:
+        return max(1e-6, span * 1e-5)
+    return 1e-9

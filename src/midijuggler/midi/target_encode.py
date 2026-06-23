@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from midijuggler.config import AdapterConfig, AppConfig
+from midijuggler.device.registry import DeviceRegistry
 from midijuggler.midi.library_match import _parameter_matches_port, resolve_library_port
 from midijuggler.midi.xtouch_channels import resolve_parameter_midi_channel
 from midijuggler.midi_library import MidiParameter, get_midi_library
@@ -16,16 +17,15 @@ PITCH_BEND = 0xE0
 
 def resolve_midi_target_parameter(
     config: AppConfig,
-    adapter_name: str,
+    device_registry: DeviceRegistry,
+    device_id: str,
     parameter_id: str,
 ) -> MidiParameter:
-    adapter = config.adapters.get(adapter_name)
-    if adapter is None:
-        raise ValueError(f"unknown MIDI adapter: {adapter_name}")
-
-    library_id = str(adapter.options.get("midi_library", "")).strip()
+    device = device_registry.require(device_id)
+    adapter = device_registry.adapter_for_device(device_id)
+    library_id = device.library.strip()
     if not library_id:
-        raise ValueError(f"MIDI adapter {adapter_name} has no midi_library configured")
+        raise ValueError(f"device {device_id} has no library configured")
 
     library = get_midi_library(library_id)
     library_port = resolve_library_port(adapter)
@@ -57,17 +57,23 @@ def resolve_midi_target_parameter(
         )
     if len(matches) > 1:
         raise ValueError(
-            f"MIDI parameter {parameter_id!r} is ambiguous for adapter {adapter_name}"
+            f"MIDI parameter {parameter_id!r} is ambiguous for device {device_id}"
         )
     return matches[0]
 
 
 def lookup_midi_target_ranges(
     config: AppConfig,
-    adapter_name: str,
+    device_registry: DeviceRegistry,
+    device_id: str,
     parameter_id: str,
 ) -> tuple[float, float]:
-    parameter = resolve_midi_target_parameter(config, adapter_name, parameter_id)
+    parameter = resolve_midi_target_parameter(
+        config,
+        device_registry,
+        device_id,
+        parameter_id,
+    )
     return float(parameter.value_min), float(parameter.value_max)
 
 
@@ -143,28 +149,35 @@ def _scaled_midi_value(parameter: MidiParameter, value: float) -> int:
     return int(round(clamped))
 
 
-def adapter_has_midi_library(adapter: AdapterConfig | None) -> bool:
-    if adapter is None:
+def adapter_has_midi_library(device_registry: DeviceRegistry, device_id: str) -> bool:
+    device = device_registry.get(device_id)
+    if device is None:
         return False
-    return bool(str(adapter.options.get("midi_library", "")).strip())
+    return bool(device.library.strip())
 
 
 def encode_mapped_midi_target(
     config: AppConfig,
-    adapter_name: str,
+    device_registry: DeviceRegistry,
+    device_id: str,
     target_point: str,
     value: float,
 ) -> tuple[int, tuple[int, ...]]:
     """Encode a mapped MIDI target such as ``cc:1:64`` or a library parameter id."""
 
     try:
-        parameter = resolve_midi_target_parameter(config, adapter_name, target_point)
+        parameter = resolve_midi_target_parameter(
+            config,
+            device_registry,
+            device_id,
+            target_point,
+        )
     except ValueError:
         encoded = encode_legacy_midi_target_point(target_point, value)
         if encoded is None:
             raise ValueError(f"unsupported MIDI target point {target_point!r}")
         return encoded
-    adapter = config.adapters.get(adapter_name)
+    adapter = device_registry.adapter_for_device(device_id)
     return encode_midi_target_message(parameter, value, adapter=adapter)
 
 

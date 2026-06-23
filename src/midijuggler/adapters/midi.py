@@ -37,6 +37,8 @@ from midijuggler.midi.library_match import (
     resolve_incoming_controls,
     resolve_library_port,
 )
+from midijuggler.device.lookup import device_id_for_adapter
+from midijuggler.device.registry import DeviceRegistry
 from midijuggler.midi.target_encode import encode_mapped_midi_target
 from midijuggler.midi.xtouch_feedback import (
     XTouchFeedbackRefresh,
@@ -446,9 +448,12 @@ class MidiAdapter(Adapter):
             raise ValueError(
                 f"MIDI adapter {self.name} cannot send feedback without app config"
             )
+        device_id = device_id_for_adapter(self._app_config, self.name)
+        registry = DeviceRegistry.from_config(self._app_config)
         status, data = encode_mapped_midi_target(
             self._app_config,
-            self.name,
+            registry,
+            device_id,
             point,
             value,
         )
@@ -476,9 +481,12 @@ class MidiAdapter(Adapter):
             )
             return
         try:
+            device_id = device_id_for_adapter(self._app_config, self.name)
+            registry = DeviceRegistry.from_config(self._app_config)
             status, data = encode_mapped_midi_target(
                 self._app_config,
-                self.name,
+                registry,
+                device_id,
                 point,
                 event.value,
             )

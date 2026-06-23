@@ -6,6 +6,7 @@ import logging
 
 from midijuggler.config import AdapterConfig
 from midijuggler.datapoint.types import ConnectionSpec, ModifierKind
+from midijuggler.device.types import DeviceConfig
 
 LOGGER = logging.getLogger(__name__)
 
@@ -30,18 +31,19 @@ def adapter_has_midi_output_port(adapter: AdapterConfig) -> bool:
 
 def usable_clock_output_targets(
     configured_targets: list[str],
+    devices: dict[str, DeviceConfig],
     adapters: dict[str, AdapterConfig],
 ) -> list[str]:
-    routable = {
-        name
-        for name, adapter in adapters.items()
-        if adapter_has_midi_output_port(adapter)
-    }
+    routable: set[str] = set()
+    for device_id, device in devices.items():
+        adapter = adapters.get(device.adapter)
+        if adapter is not None and adapter_has_midi_output_port(adapter):
+            routable.add(device_id)
     usable = [target for target in configured_targets if target in routable]
     dropped = [target for target in configured_targets if target not in routable]
     if dropped:
         LOGGER.warning(
-            "ignoring master clock output targets without configured MIDI ports: %s",
+            "ignoring master clock output targets without configured MIDI devices: %s",
             ", ".join(dropped),
         )
     return usable
@@ -49,14 +51,14 @@ def usable_clock_output_targets(
 
 def clock_output_connections(output_targets: list[str]) -> list[ConnectionSpec]:
     connections: list[ConnectionSpec] = []
-    for adapter_name in output_targets:
+    for device_id in output_targets:
         for point in CLOCK_MIDI_OUTPUT_POINTS:
             label = point.removeprefix("midi_").replace("_", "-")
             connections.append(
                 ConnectionSpec(
-                    id=f"clock-{label}-to-{adapter_name}",
+                    id=f"clock-{label}-to-{device_id}",
                     source=f"clock.{point}",
-                    target=f"{adapter_name}.midi_out",
+                    target=f"{device_id}.midi_out",
                     modifier=ModifierKind.PASSTHROUGH,
                 )
             )

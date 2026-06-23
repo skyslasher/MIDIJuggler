@@ -1,6 +1,7 @@
 import pytest
 
 from midijuggler.config import AdapterConfig, parse_config
+from midijuggler.device.registry import DeviceRegistry
 from midijuggler.midi.library_match import build_source_index
 from midijuggler.midi.target_encode import encode_mapped_midi_target
 from midijuggler.midi.xtouch_channels import (
@@ -70,6 +71,9 @@ def test_build_source_index_uses_configured_xtouch_value_channel() -> None:
     assert matches[0].control_id == "layer_a_encoder_1_turn"
 
 
+from conftest import midi_device
+
+
 def test_encode_mapped_midi_target_uses_configured_xtouch_channels() -> None:
     config = parse_config(
         {
@@ -81,18 +85,24 @@ def test_encode_mapped_midi_target_uses_configured_xtouch_channels() -> None:
                     "midi_value_channel": 4,
                     "midi_display_channel": 8,
                 }
-            }
+            },
+            "devices": [
+                midi_device("xtouch_mini", library="behringer_xtouch_mini"),
+            ],
         }
     )
+    registry = DeviceRegistry.from_config(config)
 
     value_status, value_data = encode_mapped_midi_target(
         config,
+        registry,
         "xtouch_mini",
         "layer_a_encoder_1_value",
         64.0,
     )
     ring_status, ring_data = encode_mapped_midi_target(
         config,
+        registry,
         "xtouch_mini",
         "layer_a_encoder_1_led_ring",
         5.0,

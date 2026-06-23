@@ -159,6 +159,9 @@ def test_refresh_loop_resends_cached_values() -> None:
     adapter.send_feedback_target.assert_any_await("layer_a_top_button_1_led", 1.0)
 
 
+from conftest import xtouch_devices_config
+
+
 def test_send_feedback_target_marks_monitor_events_as_refresh(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -166,17 +169,7 @@ def test_send_feedback_target_marks_monitor_events_as_refresh(
     from midijuggler.eventbus import EventBus
     from midijuggler.events import MidiMessageEvent
 
-    config = parse_config(
-        {
-            "adapters": {
-                "xtouch_mini": {
-                    "enabled": True,
-                    "type": "midi",
-                    "midi_library": "behringer_xtouch_mini",
-                }
-            }
-        }
-    )
+    config = parse_config(xtouch_devices_config())
     adapter = MidiAdapter(
         "xtouch_mini",
         config.adapters["xtouch_mini"],
@@ -210,16 +203,7 @@ def test_midi_adapter_remembers_feedback_on_send(monkeypatch: pytest.MonkeyPatch
     from midijuggler.events import MappedEvent
 
     config = parse_config(
-        {
-            "adapters": {
-                "xtouch_mini": {
-                    "enabled": True,
-                    "type": "midi",
-                    "midi_library": "behringer_xtouch_mini",
-                    "feedback_refresh_interval": 0.1,
-                }
-            }
-        }
+        xtouch_devices_config(feedback_refresh_interval=0.1)
     )
     adapter = MidiAdapter(
         "xtouch_mini",

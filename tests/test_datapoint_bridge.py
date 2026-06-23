@@ -7,7 +7,8 @@ from midijuggler.datapoint.bridge import (
     mapping_from_connection,
     migrate_mappings_to_connections,
 )
-from midijuggler.datapoint.migrate import resolved_user_connections, stored_connections
+from midijuggler.datapoint.migrate import stored_connections
+from midijuggler.device.registry import DeviceRegistry
 from midijuggler.mapping import MappingRule
 
 
@@ -26,13 +27,23 @@ def test_legacy_target_to_datapoint_for_osc_address() -> None:
 def test_osc_bridge_maps_wing_feedback_to_canonical_datapoint() -> None:
     import asyncio
 
+    from midijuggler.config import parse_config
     from midijuggler.datapoint.bridge import EventToDataPointBridge
     from midijuggler.datapoint.store import DataPointStore
     from midijuggler.eventbus import EventBus
     from midijuggler.events import OscMessageEvent
 
+    from conftest import wing_device
+
+    config = parse_config(
+        {
+            "adapters": {"wing_foh": {"enabled": True, "type": "wing_native"}},
+            "devices": [wing_device("wing_foh")],
+        }
+    )
     store = DataPointStore()
-    bridge = EventToDataPointBridge(store, EventBus())
+    registry = DeviceRegistry.from_config(config)
+    bridge = EventToDataPointBridge(store, EventBus(), registry)
     bridge.attach()
 
     async def scenario() -> list[float | None]:
@@ -101,14 +112,7 @@ def test_mapping_from_connection_roundtrip() -> None:
     assert restored == rule
 
 
-def test_stored_connections_prefers_explicit_connections() -> None:
-    rules = [
-        MappingRule(
-            id="legacy",
-            source="gpio:pin17",
-            target="midi:cc:1:64",
-        )
-    ]
+def test_stored_connections_returns_explicit_connections() -> None:
     from midijuggler.datapoint.types import ConnectionSpec
 
     explicit = [
@@ -118,19 +122,6 @@ def test_stored_connections_prefers_explicit_connections() -> None:
             target="midi.cc_1_65",
         )
     ]
-    resolved = stored_connections(rules, explicit)
+    resolved = stored_connections(explicit)
     assert len(resolved) == 1
     assert resolved[0].id == "modern"
-
-
-def test_resolved_user_connections_honors_cleared_state() -> None:
-    rules = [
-        MappingRule(
-            id="legacy",
-            source="gpio:pin17",
-            target="midi:cc:1:64",
-        )
-    ]
-
-    assert resolved_user_connections([], []) == []
-    assert len(resolved_user_connections(rules, [])) == 1

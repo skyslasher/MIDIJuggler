@@ -3,11 +3,7 @@ host = "0.0.0.0"
 port = 8080
 
 [runtime]
-# Routing uses the data-point store and [[connections]] by default.
-# Legacy [[mappings]] are still accepted and converted automatically when
-# [[connections]] is empty. Set to false to use the legacy MappingEngine path.
 datapoint_routing = true
-# Pause desk-to-controller encoder feedback briefly after encoder turns (ms, 0 = off).
 feedback_suppress_ms = 500
 
 [master_clock]
@@ -16,10 +12,9 @@ bpm = 120.0
 bpm_min = 40.0
 bpm_max = 240.0
 auto_start = false
-output_targets = ["midi"]
+output_targets = ["midi_out"]
 send_transport = true
 
-# Optional audio click via ALSA and a USB sound card (pyalsaaudio or aplay).
 click_enabled = false
 click_wav = "/etc/midijuggler/click.wav"
 click_interval = "quarter"
@@ -29,16 +24,13 @@ click_audio_device = ""
 
 # Route clock control via [[connections]], for example:
 # source = "osc:/midijuggler/clock/bpm" -> target = "clock.bpm_set"
-# source = "midi:cc:1:64" -> target = "clock.start"
+# source = "foot_switches.pin17" -> target = "clock.start"
 
 [adapters.osc]
 enabled = true
 listen_host = "0.0.0.0"
 listen_port = 9000
 
-# Additional OSC/MIDI/RTP-MIDI instances use their own table name and a type.
-# The table name becomes the routing prefix in mappings, for example
-# source = "osc_pedalboard:/pedal/expression".
 [adapters.osc_pedalboard]
 type = "osc"
 enabled = false
@@ -51,7 +43,6 @@ enabled = false
 listen_host = "0.0.0.0"
 osc_port = 10023
 remote_host = "192.168.10.32"
-osc_library = "behringer_x32"
 desk_sync_on_connect = false
 echo_guard_ms = 30
 
@@ -61,7 +52,6 @@ enabled = false
 listen_host = "0.0.0.0"
 osc_port = 2223
 remote_host = "192.168.10.48"
-osc_library = "behringer_wing"
 desk_sync_on_connect = false
 desk_proxy_mode = false
 
@@ -70,7 +60,6 @@ type = "wing_native"
 enabled = false
 remote_host = "192.168.10.48"
 native_port = 2222
-wing_library = "behringer_wing"
 echo_guard_ms = 30
 
 [adapters.midi]
@@ -89,17 +78,13 @@ type = "midi"
 enabled = false
 input_port = "PreSonus FP16 Port 1"
 output_port = "PreSonus FP16 Port 1"
-midi_library = "presonus_faderport"
 
 [adapters.xtouch_mini]
 type = "midi"
 enabled = false
 input_port = "X-TOUCH MINI"
 output_port = "X-TOUCH MINI"
-midi_library = "behringer_xtouch_mini"
-# Ignore MIDI input matching recent output on the same port (ms, 0 = off).
 echo_guard_ms = 30
-# Periodically re-send cached LED feedback for hidden layers (0 = off, 0.1s steps).
 feedback_refresh_interval = 0
 
 [adapters.rtp_midi]
@@ -117,8 +102,6 @@ port = 5005
 
 [adapters.gpio]
 enabled = true
-# The number of GPIO inputs is the number of entries in this list.
-# BCM numbering is used, matching Raspberry Pi GPIO labels.
 pins = [17, 27, 22]
 active_low = true
 bounce_ms = 25
@@ -131,70 +114,112 @@ vendor_id = "0x046d"
 product_id = "0xc21f"
 codes = ["BTN_A", "BTN_B", "ABS_X", "ABS_Y"]
 
-[[mappings]]
+[[devices]]
+id = "foot_switches"
+adapter = "gpio"
+library_kind = "gpio"
+
+[[devices]]
+id = "midi_out"
+adapter = "midi"
+library_kind = "midi"
+
+[[devices.custom_points]]
+id = "cc_1_64"
+direction = "bidirectional"
+value_min = 0.0
+value_max = 127.0
+protocol = "midi"
+
+[[devices]]
+id = "osc_main"
+adapter = "osc"
+library_kind = "osc"
+
+[[devices]]
+id = "x32_foh"
+adapter = "x32_foh"
+library = "behringer_x32"
+library_kind = "osc"
+
+[[devices]]
+id = "wing_foh"
+adapter = "wing_foh"
+library = "behringer_wing"
+library_kind = "osc"
+
+[[devices]]
+id = "wing_native_foh"
+adapter = "wing_native_foh"
+library = "behringer_wing"
+library_kind = "wing"
+
+[[devices]]
+id = "faderport"
+adapter = "faderport"
+library = "presonus_faderport"
+library_kind = "midi"
+
+[[devices]]
+id = "xtouch_mini"
+adapter = "xtouch_mini"
+library = "behringer_xtouch_mini"
+library_kind = "midi"
+
+[[connections]]
 id = "gpio-footswitch-to-midi-cc"
-source = "gpio:pin17"
-target = "midi:cc:1:64"
+source = "foot_switches.pin17"
+target = "midi_out.cc_1_64"
 input_min = 0.0
 input_max = 1.0
 output_min = 0.0
 output_max = 127.0
 invert = false
 
-[[mappings]]
-id = "osc-expression-inverted"
-source = "osc:/pedal/expression"
-target = "rtp_midi:cc:1:11"
-input_min = 0.0
-input_max = 1.0
-output_min = 0.0
-output_max = 127.0
-invert = true
-
-[[mappings]]
+[[connections]]
 id = "gpio-to-x32-channel-01-bus-01-send"
-source = "gpio:pin27"
-target = "x32_foh:/ch/01/mix/01/level"
+source = "foot_switches.pin27"
+target = "x32_foh./ch/01/mix/01/level"
 input_min = 0.0
 input_max = 1.0
 output_min = 0.0
 output_max = 1.0
 invert = false
 
-[[mappings]]
+[[connections]]
 id = "gpio-to-wing-channel-1-bus-1-send"
-source = "gpio:pin22"
-target = "wing_foh:/ch/1/send/1/lvl"
+source = "foot_switches.pin22"
+target = "wing_foh./ch/1/send/1/lvl"
 input_min = 0.0
 input_max = 1.0
 output_min = 0.0
 output_max = 1.0
 invert = false
 
-[[mappings]]
+[[connections]]
 id = "faderport-channel-1-to-x32-monitor-send"
-source = "faderport:ch_1_fader"
-target = "x32_foh:/ch/01/mix/01/level"
+source = "faderport.ch_1_fader"
+target = "x32_foh./ch/01/mix/01/level"
 input_min = 0.0
 input_max = 16383.0
 output_min = 0.0
 output_max = 1.0
 invert = false
 
-[[mappings]]
+[[connections]]
 id = "xtouch-mini-encoder-1-to-x32-monitor-send"
-source = "xtouch_mini:layer_a_encoder_1_turn"
-target = "x32_foh:/ch/01/mix/01/level"
+source = "xtouch_mini.layer_a_encoder_1_turn"
+target = "x32_foh./ch/01/mix/01/level"
 input_min = 0.0
 input_max = 127.0
 output_min = 0.0
 output_max = 1.0
 invert = false
 
-[[mappings]]
+[[connections]]
 id = "clock-eighth-ms-to-delay-time"
-source = "clock:eighth_ms"
-target = "osc:/fx/delay/time_ms"
+source = "clock.eighth_ms"
+target = "osc_main./fx/delay/time_ms"
 input_min = 50.0
 input_max = 1000.0
 output_min = 50.0

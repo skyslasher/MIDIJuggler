@@ -6,7 +6,10 @@ from midijuggler.adapters.midi import MidiAdapter
 from midijuggler.config import AdapterConfig, parse_config
 from midijuggler.eventbus import EventBus
 from midijuggler.events import MappedEvent, MidiMessageEvent
+from midijuggler.device.registry import DeviceRegistry
 from midijuggler.midi.target_encode import encode_legacy_midi_target_point, encode_mapped_midi_target
+
+from conftest import midi_device
 
 
 def test_encode_legacy_cc_target_uses_one_based_channel() -> None:
@@ -32,12 +35,17 @@ def test_encode_mapped_midi_target_for_xtouch_library_parameter() -> None:
                     "type": "midi",
                     "midi_library": "behringer_xtouch_mini",
                 }
-            }
+            },
+            "devices": [
+                midi_device("xtouch_mini", library="behringer_xtouch_mini"),
+            ],
         }
     )
+    registry = DeviceRegistry.from_config(config)
 
     status, data = encode_mapped_midi_target(
         config,
+        registry,
         "xtouch_mini",
         "layer_a_encoder_1_led_ring",
         14.0,
@@ -60,7 +68,8 @@ def test_midi_adapter_send_emits_encoded_midi_message(
                         "input_port": "X-TOUCH MINI",
                         "output_port": "X-TOUCH MINI",
                     }
-                }
+                },
+                "devices": [midi_device("xtouch_mini")],
             }
         )
         bus = EventBus()

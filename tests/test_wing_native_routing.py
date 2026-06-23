@@ -10,12 +10,15 @@ from midijuggler.datapoint.store import DataPointStore
 from midijuggler.datapoint.types import float_value
 from midijuggler.eventbus import EventBus
 from midijuggler.events import ControlEvent, OscMessageEvent
+from midijuggler.device.registry import DeviceRegistry
 from midijuggler.learn import resolve_osc_target_address, resolve_target_datapoint
 from midijuggler.modules.io.midi import MidiIOModule
 from midijuggler.modules.io.wing_native import WingNativeIOModule
 from midijuggler.modules.modifier.graph import ModifierGraph
 from midijuggler.service import MIDIJugglerService
 from midijuggler.wing.native.client import WingNativeClient, WingPathBinding
+
+from conftest import make_wing_io_module, midi_device, wing_device
 
 
 def test_resolve_target_datapoint_supports_wing_native_library() -> None:
@@ -28,15 +31,19 @@ def test_resolve_target_datapoint_supports_wing_native_library() -> None:
                     "remote_host": "192.168.1.48",
                     "wing_library": "behringer_wing",
                 }
-            }
+            },
+            "devices": [wing_device("wing_native_foh")],
         }
     )
+    registry = DeviceRegistry.from_config(config)
+    device = registry.require_device_for_adapter("wing_native_foh")
 
-    assert resolve_osc_target_address(config, "wing_native_foh", "ch_1_fdr") == "/ch/1/fdr"
+    assert resolve_osc_target_address(config, device, "ch_1_fdr") == "/ch/1/fdr"
     assert resolve_target_datapoint(
         config,
         target_adapter="wing_native_foh",
         target_parameter_id="ch_1_fdr",
+        device_registry=registry,
     ) == "wing_native_foh./ch/1/fdr"
 
 
@@ -51,8 +58,19 @@ def test_wing_native_io_module_sends_connection_targets_by_library_id() -> None:
                         "enabled": True,
                         "remote_host": "192.168.1.48",
                         "wing_library": "behringer_wing",
-                    }
+                    },
+                    "xtouch_mini": {
+                        "type": "midi",
+                        "enabled": True,
+                        "input_port": "X-TOUCH MINI",
+                        "output_port": "X-TOUCH MINI",
+                        "midi_library": "behringer_xtouch_mini",
+                    },
                 },
+                "devices": [
+                    wing_device("wing_native_foh"),
+                    midi_device("xtouch_mini", library="behringer_xtouch_mini"),
+                ],
                 "connections": [
                     {
                         "id": "fader-to-wing",
@@ -78,7 +96,7 @@ def test_wing_native_io_module_sends_connection_targets_by_library_id() -> None:
         adapter._client.set_float = AsyncMock()  # type: ignore[method-assign]
         adapter.running = True
 
-        module = WingNativeIOModule(adapter, store, config)
+        module, _registry = make_wing_io_module(config, adapter, store, "wing_native_foh")
         await module.start()
         await store.write(float_value("wing_native_foh.ch_1_fdr", 0.25))
         return adapter._client.set_float.await_count  # type: ignore[attr-defined]
@@ -106,6 +124,10 @@ def test_wing_native_feedback_routes_to_xtouch_fader() -> None:
                         "midi_library": "behringer_xtouch_mini",
                     },
                 },
+                "devices": [
+                    wing_device("wing_native_foh"),
+                    midi_device("xtouch_mini", library="behringer_xtouch_mini"),
+                ],
                 "connections": [
                     {
                         "id": "wing-to-fader",
@@ -168,6 +190,10 @@ def test_forward_fader_move_reaches_wing_native_through_service() -> None:
                         "midi_library": "behringer_xtouch_mini",
                     },
                 },
+                "devices": [
+                    wing_device("wing_native_foh"),
+                    midi_device("xtouch_mini", library="behringer_xtouch_mini"),
+                ],
                 "connections": [
                     {
                         "id": "fader-to-wing",

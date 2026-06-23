@@ -40,8 +40,8 @@ from midijuggler.config import (
     _validate_bpm_step,
     _validate_bpm_quantize,
     parse_config,
+    save_devices,
     save_gpio_adapter_options,
-    save_mappings,
     save_connections,
     save_master_clock_config,
     save_runtime_config,
@@ -77,10 +77,10 @@ from midijuggler.learn import (
     resolve_target_datapoint,
     reverse_connection,
     upsert_connection,
-    upsert_mapping_rule,
 )
-from midijuggler.osc_library import get_osc_library
-from midijuggler.mapping import MappingEngine
+from midijuggler.device.export import export_device, export_devices, import_device, import_devices
+from midijuggler.device.registry import DeviceRegistry
+from midijuggler.device.types import DeviceConfig
 from midijuggler.midi.target_encode import (
     encode_midi_target_message,
     lookup_midi_target_ranges,
@@ -113,8 +113,7 @@ from midijuggler.osc.discovery import (
     discovery_scan_networks,
 )
 from midijuggler.osc_library import get_osc_library, list_osc_libraries
-from midijuggler.datapoint.bridge import legacy_source_to_datapoint
-from midijuggler.datapoint.bridge import mapping_from_connection
+from midijuggler.datapoint.bridge import adapter_control_to_datapoint
 from midijuggler.datapoint.migrate import effective_connections, stored_connections
 from midijuggler.datapoint.store import DataPointStore
 from midijuggler.datapoint.types import ConnectionSpec, ModifierKind, DataPointId, DataPointValue, ValueType, float_value
@@ -158,9 +157,9 @@ class WebInterface:
         rtp_midi_adapters: dict[str, RtpMidiAdapter] | None = None,
         osc_adapters: dict[str, OscAdapter] | None = None,
         wing_native_adapters: dict[str, WingNativeAdapter] | None = None,
-        mapping_engine: MappingEngine | None = None,
         rtp_midi_manager: RtpMidiManager | None = None,
         runtime_adapters: list[Adapter] | None = None,
+        device_registry: DeviceRegistry | None = None,
         config_path: str | Path | None = None,
         alsa_config_path: str | Path | None = None,
         datapoint_store: DataPointStore | None = None,
@@ -176,8 +175,8 @@ class WebInterface:
         self.rtp_midi_adapters = rtp_midi_adapters or {}
         self.osc_adapters = osc_adapters or {}
         self.wing_native_adapters = wing_native_adapters or {}
-        self.mapping_engine = mapping_engine
         self.rtp_midi_manager = rtp_midi_manager
+        self.device_registry = device_registry or DeviceRegistry.from_config(config)
         self._runtime_adapters = runtime_adapters
         self.datapoint_store = datapoint_store
         self.modifier_graph = modifier_graph
@@ -234,6 +233,10 @@ class WebInterface:
         app.router.add_post("/api/learn/source", self.select_learn_source)
         app.router.add_post("/api/learn/complete", self.complete_learn_mapping)
         app.router.add_get("/api/datapoints", self.datapoints_config)
+        app.router.add_get("/api/devices", self.devices_config)
+        app.router.add_post("/api/devices", self.set_devices_config)
+        app.router.add_get("/api/devices/export", self.export_devices_config)
+        app.router.add_post("/api/devices/import", self.import_devices_config)
         app.router.add_get("/api/connections", self.connections_config)
         app.router.add_post("/api/connections", self.set_connections_config)
         app.router.add_post("/api/connections/reverse", self.reverse_connection_config)
@@ -271,6 +274,86 @@ class WebInterface:
     async def datapoints_config(self, request: web.Request) -> web.Response:
         return web.json_response(self.datapoints_payload())
 
+    def devices_payload(self) -> dict[str, Any]:
+        return {
+            "devices": [device.as_dict() for device in self.config.devices.values()],
+        }
+
+    async def devices_config(self, request: web.Request) -> web.Response:
+        return web.json_response(self.devices_payload())
+
+    async def set_devices_config(self, request: web.Request) -> web.Response:
+        payload = await request.json()
+        raw_devices = payload.get("devices", [])
+        if not isinstance(raw_devices, list):
+            return web.Response(text="devices must be a list", status=400)
+        try:
+            imported = import_devices(raw_devices)
+        except ValueError as exc:
+            return web.Response(text=str(exc), status=400)
+
+        devices = {device.id: device for device in imported}
+        for device in devices.values():
+            if device.adapter not in self.config.adapters:
+                return web.Response(
+                    text=f"device {device.id!r} references unknown adapter {device.adapter!r}",
+                    status=400,
+                )
+
+        object.__setattr__(self.config, "devices", devices)
+        self.device_registry = DeviceRegistry.from_config(self.config)
+        persisted = False
+        persist_error = ""
+        if self.config_path is not None:
+            try:
+                save_devices(self.config_path, devices)
+                persisted = True
+            except OSError as exc:
+                persist_error = str(exc)
+        else:
+            persist_error = "no config path available"
+
+        response = self.devices_payload()
+        response["persisted"] = persisted
+        response["persist_error"] = persist_error
+        return web.json_response(response)
+
+    async def export_devices_config(self, request: web.Request) -> web.Response:
+        return web.json_response(
+            {"devices": export_devices(list(self.config.devices.values()))}
+        )
+
+    async def import_devices_config(self, request: web.Request) -> web.Response:
+        payload = await request.json()
+        try:
+            imported = import_devices(payload.get("devices", payload))
+        except ValueError as exc:
+            return web.Response(text=str(exc), status=400)
+
+        merged = dict(self.config.devices)
+        for device in imported:
+            merged[device.id] = device
+        object.__setattr__(self.config, "devices", merged)
+
+        persisted = False
+        persist_error = ""
+        if self.config_path is not None:
+            try:
+                save_devices(self.config_path, merged)
+                persisted = True
+            except OSError as exc:
+                persist_error = str(exc)
+        else:
+            persist_error = "no config path available"
+
+        return web.json_response(
+            {
+                "devices": export_devices(list(merged.values())),
+                "persisted": persisted,
+                "persist_error": persist_error,
+            }
+        )
+
     def connections_payload(self) -> dict[str, Any]:
         stored = self._stored_connections()
         return {
@@ -282,11 +365,8 @@ class WebInterface:
 
     def _effective_connections(self) -> list[ConnectionSpec]:
         return effective_connections(
-            self.config.mappings,
-            self.config.connections,
+            self.config,
             datapoint_routing=self.config.runtime.datapoint_routing,
-            master_clock=self.config.master_clock,
-            adapters=self.config.adapters,
         )
 
     async def connections_config(self, request: web.Request) -> web.Response:
@@ -358,12 +438,6 @@ class WebInterface:
         if self.config_path is not None:
             try:
                 save_connections(self.config_path, updated_connections)
-                mappings_to_save = (
-                    []
-                    if self.config.runtime.datapoint_routing
-                    else list(self.config.mappings)
-                )
-                save_mappings(self.config_path, mappings_to_save)
                 persisted = True
             except OSError as exc:
                 persist_error = str(exc)
@@ -783,7 +857,7 @@ class WebInterface:
             raise ValueError("datapoint or event payload is required")
 
         source = resolve_monitor_source(self.config, event)
-        self.learn.select_source(source)
+        self.learn.select_source(source, device_registry=self.device_registry)
         return self._status_payload()
 
     async def apply_learn_mapping(self, payload: dict[str, Any]) -> dict[str, Any]:
@@ -791,7 +865,11 @@ class WebInterface:
         if not source_datapoint and self.learn.state.source_datapoint:
             source_datapoint = self.learn.state.source_datapoint
         if not source_datapoint and self.learn.state.source is not None:
-            source_datapoint = legacy_source_to_datapoint(self.learn.state.source.key)
+            source_datapoint = adapter_control_to_datapoint(
+                self.learn.state.source.adapter,
+                self.learn.state.source.control,
+                self.device_registry,
+            )
         if not source_datapoint:
             raise ValueError("learn mode has no captured source")
 
@@ -800,6 +878,7 @@ class WebInterface:
             target_datapoint=str(payload.get("target_datapoint", "")).strip(),
             target_adapter=str(payload.get("target_adapter", "")).strip(),
             target_parameter_id=str(payload.get("parameter_id", "")).strip(),
+            device_registry=self.device_registry,
         )
 
         modifier_raw = str(payload.get("modifier", ModifierKind.RANGE_MAP.value)).strip()
@@ -842,11 +921,6 @@ class WebInterface:
             connection_id=str(payload.get("id", "")).strip() or None,
         )
 
-        use_datapoint_routing = self.config.runtime.datapoint_routing
-        created_mapping: dict[str, Any] | None = None
-        if not use_datapoint_routing:
-            created_mapping = mapping_from_connection(connection).__dict__
-
         updated_connections = upsert_connection(self.config.connections, connection)
         self._apply_stored_connections(updated_connections)
 
@@ -855,12 +929,6 @@ class WebInterface:
         if self.config_path is not None:
             try:
                 save_connections(self.config_path, updated_connections)
-                mappings_to_save = (
-                    []
-                    if use_datapoint_routing
-                    else list(self.config.mappings)
-                )
-                save_mappings(self.config_path, mappings_to_save)
                 persisted = True
             except OSError as exc:
                 persist_error = str(exc)
@@ -877,7 +945,6 @@ class WebInterface:
         response.update(
             {
                 "created_connection": connection.as_dict(),
-                "created_mapping": created_mapping,
                 "persisted": persisted,
                 "persist_error": persist_error,
             }
@@ -885,17 +952,10 @@ class WebInterface:
         return response
 
     def _stored_connections(self) -> list[ConnectionSpec]:
-        return stored_connections(self.config.mappings, self.config.connections)
+        return stored_connections(self.config.connections)
 
     def _apply_stored_connections(self, connections: list[ConnectionSpec]) -> None:
         object.__setattr__(self.config, "connections", list(connections))
-        if not self.config.runtime.datapoint_routing:
-            updated_mappings = [
-                mapping_from_connection(connection) for connection in connections
-            ]
-            self.config.mappings[:] = updated_mappings
-            if self.mapping_engine is not None:
-                self.mapping_engine.replace_rules(updated_mappings)
         self._apply_runtime_connections()
 
     def _persist_stored_connections(
@@ -906,12 +966,6 @@ class WebInterface:
             return False, "no config path available"
         try:
             save_connections(self.config_path, connections)
-            mappings = (
-                []
-                if self.config.runtime.datapoint_routing
-                else [mapping_from_connection(connection) for connection in connections]
-            )
-            save_mappings(self.config_path, mappings)
             return True, ""
         except OSError as exc:
             LOGGER.warning(
@@ -931,11 +985,8 @@ class WebInterface:
         user_connections = self._stored_connections()
         self.modifier_graph.replace_connections(
             effective_connections(
-                [],
-                user_connections,
+                self.config,
                 datapoint_routing=self.config.runtime.datapoint_routing,
-                master_clock=self.config.master_clock,
-                adapters=self.config.adapters,
             )
         )
 
@@ -1043,11 +1094,7 @@ class WebInterface:
                 if self.osc_desk_tracker is not None
                 else []
             ),
-            "mappings": (
-                [rule.__dict__ for rule in self.config.mappings]
-                if not self.config.runtime.datapoint_routing
-                else []
-            ),
+            "devices": [device.as_dict() for device in self.config.devices.values()],
             "stored_connections": [
                 connection.as_dict() for connection in self._stored_connections()
             ],
@@ -1187,10 +1234,17 @@ class WebInterface:
         if parameter_id:
             if kind != "midi":
                 raise ValueError("parameter_id is only supported for midi adapters")
-            parameter = resolve_midi_target_parameter(self.config, name, parameter_id)
+            device = self.device_registry.require_device_for_adapter(name)
+            parameter = resolve_midi_target_parameter(
+                self.config,
+                self.device_registry,
+                device.id,
+                parameter_id,
+            )
             value_min, value_max = lookup_midi_target_ranges(
                 self.config,
-                name,
+                self.device_registry,
+                device.id,
                 parameter_id,
             )
             if "value" not in payload:
@@ -1233,14 +1287,16 @@ class WebInterface:
         parameter_id: str,
         payload: dict[str, Any],
     ) -> tuple[str, list[Any], str]:
-        address = resolve_osc_target_address(self.config, name, parameter_id)
+        device = self.device_registry.require_device_for_adapter(name)
+        address = resolve_osc_target_address(self.config, device, parameter_id)
         value_min, value_max = lookup_osc_target_ranges(self.config, name, parameter_id)
 
-        adapter = self.config.adapters.get(name)
-        if adapter is None:
-            raise ValueError(f"unknown OSC adapter instance: {name}")
-
-        library_id = str(adapter.options.get("osc_library", "")).strip()
+        library_id = device.library.strip()
+        if not library_id:
+            adapter = self.config.adapters.get(name)
+            if adapter is None:
+                raise ValueError(f"unknown OSC adapter instance: {name}")
+            library_id = str(adapter.options.get("osc_library", "")).strip()
         library = get_osc_library(library_id)
         parameter = next(
             (entry for entry in library.parameters if entry.id == parameter_id),
@@ -1921,10 +1977,14 @@ class WebInterface:
         if adapter is None:
             self.datapoint_store.unregister_module_except(name, set())
             return
-        module = HidIOModule(adapter, self.datapoint_store)
+        device = self.device_registry.device_for_adapter(name)
+        if device is None:
+            self.datapoint_store.unregister_module_except(name, set())
+            return
+        module = HidIOModule(adapter, device, self.datapoint_store, self.device_registry)
         specs = module.datapoints()
         keep = {str(spec.id) for spec in specs}
-        self.datapoint_store.unregister_module_except(name, keep)
+        self.datapoint_store.unregister_module_except(device.id, keep)
         self.datapoint_store.register_many(specs)
 
     async def _clear_osc_datapoints(self, name: str) -> None:
@@ -1945,17 +2005,28 @@ class WebInterface:
             await self._clear_osc_datapoints(name)
             return
 
+        device = self.device_registry.device_for_adapter(name)
+        if device is None:
+            await self._clear_osc_datapoints(name)
+            return
+
         module = None
         if self._osc_io_modules is not None:
             existing = self._osc_io_modules.get(name)
             if existing is not None and existing.running:
                 await existing.stop()
 
-        module = OscIOModule(adapter, self.datapoint_store, self.config)
+        module = OscIOModule(
+            adapter,
+            device,
+            self.datapoint_store,
+            self.config,
+            self.device_registry,
+        )
         if self._osc_io_modules is not None:
             self._osc_io_modules[name] = module
 
-        self.datapoint_store.unregister_module_except(name, set())
+        self.datapoint_store.unregister_module_except(device.id, set())
         await module.start()
 
     async def _clear_wing_native_datapoints(self, name: str) -> None:
@@ -1976,16 +2047,27 @@ class WebInterface:
             await self._clear_wing_native_datapoints(name)
             return
 
+        device = self.device_registry.device_for_adapter(name)
+        if device is None:
+            await self._clear_wing_native_datapoints(name)
+            return
+
         if self._osc_io_modules is not None:
             existing = self._osc_io_modules.get(name)
             if existing is not None and existing.running:
                 await existing.stop()
 
-        module = WingNativeIOModule(adapter, self.datapoint_store, self.config)
+        module = WingNativeIOModule(
+            adapter,
+            device,
+            self.datapoint_store,
+            self.config,
+            self.device_registry,
+        )
         if self._osc_io_modules is not None:
             self._osc_io_modules[name] = module
 
-        self.datapoint_store.unregister_module_except(name, set())
+        self.datapoint_store.unregister_module_except(device.id, set())
         await module.start()
 
     async def apply_hid_adapters_config(self, payload: dict[str, Any]) -> dict[str, Any]:

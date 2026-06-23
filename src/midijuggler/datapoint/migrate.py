@@ -1,56 +1,40 @@
-"""Migration helpers from legacy mappings to data-point connections."""
+"""Connection resolution for data-point routing."""
 
 from __future__ import annotations
 
-from midijuggler.config import AdapterConfig, MasterClockConfig
-from midijuggler.datapoint.bridge import migrate_mappings_to_connections
+from midijuggler.config import AppConfig
 from midijuggler.datapoint.clock_connections import (
     merge_clock_output_connections,
     usable_clock_output_targets,
 )
 from midijuggler.datapoint.types import ConnectionSpec
-from midijuggler.mapping import MappingRule
-
-LEGACY_MAPPING_DEPRECATION = (
-    "[[mappings]] remain supported; prefer [[connections]] with datapoint ids "
-    "when runtime.datapoint_routing is enabled."
-)
 
 
-def resolved_user_connections(
-    mappings: list[MappingRule],
-    connections: list[ConnectionSpec],
-) -> list[ConnectionSpec]:
-    """Resolve configured user connections without resurrecting cleared mappings."""
+def stored_connections(connections: list[ConnectionSpec]) -> list[ConnectionSpec]:
+    """Return configured user connections."""
 
-    if connections or not mappings:
-        return list(connections)
-    return migrate_mappings_to_connections(mappings)
+    return list(connections)
 
 
-def stored_connections(
-    mappings: list[MappingRule],
-    connections: list[ConnectionSpec],
-) -> list[ConnectionSpec]:
-    """Return user-defined connections, migrating legacy mappings when needed."""
+def resolved_user_connections(connections: list[ConnectionSpec]) -> list[ConnectionSpec]:
+    """Backward-compatible alias for stored_connections."""
 
-    return resolved_user_connections(mappings, connections)
+    return stored_connections(connections)
 
 
 def effective_connections(
-    mappings: list[MappingRule],
-    connections: list[ConnectionSpec],
+    config: AppConfig,
     *,
-    datapoint_routing: bool = False,
-    master_clock: MasterClockConfig | None = None,
-    adapters: dict[str, AdapterConfig] | None = None,
+    datapoint_routing: bool = True,
 ) -> list[ConnectionSpec]:
-    """Return explicit connections, migrated mappings, and optional clock defaults."""
+    """Return explicit connections and optional clock defaults."""
 
-    resolved = resolved_user_connections(mappings, connections)
-    if not datapoint_routing or master_clock is None:
+    resolved = list(config.connections)
+    if not datapoint_routing:
         return resolved
-    output_targets = list(master_clock.output_targets)
-    if adapters is not None:
-        output_targets = usable_clock_output_targets(output_targets, adapters)
+    output_targets = usable_clock_output_targets(
+        list(config.master_clock.output_targets),
+        config.devices,
+        config.adapters,
+    )
     return merge_clock_output_connections(resolved, output_targets)

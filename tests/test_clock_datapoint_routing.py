@@ -24,7 +24,10 @@ from midijuggler.master_clock import MIDI_START, MIDI_TIMING_CLOCK, MasterClock
 from midijuggler.modules.build import build_module_registry
 from midijuggler.modules.generator.master_clock import MasterClockGenerator
 from midijuggler.modules.modifier.graph import ModifierGraph
+from midijuggler.device.registry import DeviceRegistry
 from midijuggler.web.server import WebInterface
+
+from conftest import midi_device
 
 
 def test_modifier_graph_passthrough_relays_repeated_midi_clock_ticks() -> None:
@@ -95,6 +98,7 @@ def test_midi_io_module_sends_midi_out_messages(monkeypatch: pytest.MonkeyPatch)
         {
             "runtime": {"datapoint_routing": True},
             "adapters": {"midi": {"enabled": True, "output_port": "MIDI Out"}},
+            "devices": [midi_device("midi", adapter="midi")],
         }
     )
     bus = EventBus()
@@ -109,6 +113,7 @@ def test_midi_io_module_sends_midi_out_messages(monkeypatch: pytest.MonkeyPatch)
     monkeypatch.setattr(adapter, "send_midi_message", capture)
 
     async def scenario() -> None:
+        registry = DeviceRegistry.from_config(config)
         _, io_modules = build_module_registry(
             config,
             store,
@@ -121,7 +126,9 @@ def test_midi_io_module_sends_midi_out_messages(monkeypatch: pytest.MonkeyPatch)
                 ClockBpmTracker(),
                 MasterClock(config.master_clock, bus),
                 datapoint_store=store,
+                device_registry=registry,
             ),
+            registry,
         )
         await io_modules["midi"].start()
         await store.write(midi_message_value("midi.midi_out", MIDI_START))
@@ -143,6 +150,7 @@ def test_master_clock_datapoint_routing_reaches_midi_adapter(
                 "send_transport": True,
             },
             "adapters": {"midi": {"enabled": True, "output_port": "MIDI Out"}},
+            "devices": [midi_device("midi", adapter="midi")],
         }
     )
     bus = EventBus()
@@ -158,6 +166,7 @@ def test_master_clock_datapoint_routing_reaches_midi_adapter(
     master_clock = MasterClock(config.master_clock, bus)
 
     async def scenario() -> None:
+        device_registry = DeviceRegistry.from_config(config)
         registry, _io_modules = build_module_registry(
             config,
             store,
@@ -170,7 +179,9 @@ def test_master_clock_datapoint_routing_reaches_midi_adapter(
                 ClockBpmTracker(),
                 master_clock,
                 datapoint_store=store,
+                device_registry=device_registry,
             ),
+            device_registry,
         )
         clock_gen = next(
             module

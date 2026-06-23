@@ -14,7 +14,7 @@ from midijuggler.config import (
 )
 
 
-def test_parse_config_reads_web_adapters_and_mappings() -> None:
+def test_parse_config_reads_web_adapters_and_connections() -> None:
     config = parse_config(
         {
             "web": {"host": "127.0.0.1", "port": 9090},
@@ -24,12 +24,19 @@ def test_parse_config_reads_web_adapters_and_mappings() -> None:
                 "output_targets": ["midi", "rtp_midi"],
                 "click_interval": "eighth",
             },
-            "adapters": {"gpio": {"enabled": True, "pins": [17]}},
-            "mappings": [
+            "adapters": {
+                "gpio": {"enabled": True, "pins": [17]},
+                "midi": {"enabled": True},
+            },
+            "devices": [
+                {"id": "gpio", "adapter": "gpio", "library_kind": "gpio"},
+                {"id": "midi", "adapter": "midi", "library_kind": "midi"},
+            ],
+            "connections": [
                 {
                     "id": "switch",
-                    "source": "gpio:pin17",
-                    "target": "midi:cc:1:64",
+                    "source": "gpio.pin17",
+                    "target": "midi.cc_1_64",
                     "invert": True,
                 }
             ],
@@ -46,8 +53,8 @@ def test_parse_config_reads_web_adapters_and_mappings() -> None:
     assert config.adapters["gpio"].kind == "gpio"
     assert config.adapters["gpio"].options["pins"] == [17]
     assert config.adapters["osc"].enabled is False
-    assert config.mappings[0].id == "switch"
-    assert config.mappings[0].invert is True
+    assert config.connections[0].id == "switch"
+    assert config.connections[0].invert is True
 
 
 def test_parse_config_supports_named_adapter_instances() -> None:
@@ -92,14 +99,29 @@ def test_load_config_reads_toml_file(tmp_path: Path) -> None:
         host = "0.0.0.0"
         port = 8081
 
-        [[mappings]]
+        [adapters.midi]
+        enabled = true
+
+        [[devices]]
+        id = "osc"
+        adapter = "osc"
+        library_kind = "osc"
+
+        [[devices]]
+        id = "midi"
+        adapter = "midi"
+        library_kind = "midi"
+
+        [[connections]]
         id = "pedal"
-        source = "osc:/pedal"
-        target = "midi:cc:1:11"
+        source = "osc.pedal"
+        target = "midi.cc_1_11"
+        modifier = "range_map"
         input_min = 0.0
         input_max = 1.0
         output_min = 0.0
         output_max = 127.0
+        invert = false
         """,
         encoding="utf-8",
     )
@@ -107,7 +129,7 @@ def test_load_config_reads_toml_file(tmp_path: Path) -> None:
     config = load_config(config_file)
 
     assert config.web.port == 8081
-    assert config.mappings[0].target == "midi:cc:1:11"
+    assert config.connections[0].target == "midi.cc_1_11"
 
 
 def test_save_gpio_adapter_options_replaces_gpio_section(tmp_path: Path) -> None:
@@ -293,9 +315,24 @@ def test_save_master_clock_config_replaces_master_clock_section(tmp_path: Path) 
     assert saved_lines[click_device_index + 2].strip() == "[adapters.gpio]"
 
 
-def test_parse_config_rejects_incomplete_mapping() -> None:
+def test_parse_config_rejects_mappings_section() -> None:
+    with pytest.raises(ValueError, match="mappings"):
+        parse_config(
+            {
+                "mappings": [
+                    {"id": "broken", "source": "gpio:pin17", "target": "midi:cc:1:64"}
+                ]
+            }
+        )
+
+
+def test_parse_config_rejects_incomplete_connection() -> None:
     with pytest.raises(ValueError, match="missing required fields"):
-        parse_config({"mappings": [{"id": "broken", "source": "gpio:pin17"}]})
+        parse_config(
+            {
+                "connections": [{"id": "broken", "source": "gpio.pin17"}],
+            }
+        )
 
 
 def test_parse_config_rejects_invalid_master_clock_interval() -> None:
@@ -345,8 +382,8 @@ def test_parse_config_migrates_legacy_usb_midi_adapter_tables() -> None:
     config = parse_config(
         {
             "master_clock": {
-                "output_targets": ["usb_midi"],
-                "midi_input_targets": ["usb_midi"],
+                "output_targets": ["midi"],
+                "midi_input_targets": ["midi"],
             },
             "adapters": {
                 "usb_midi": {
@@ -358,12 +395,18 @@ def test_parse_config_migrates_legacy_usb_midi_adapter_tables() -> None:
                     "type": "usb_midi",
                     "enabled": False,
                 },
+                "gpio": {"enabled": True, "pins": [17]},
             },
-            "mappings": [
+            "devices": [
+                {"id": "midi", "adapter": "midi", "library_kind": "midi"},
+                {"id": "usb_stage", "adapter": "usb_stage", "library_kind": "midi"},
+                {"id": "gpio", "adapter": "gpio", "library_kind": "gpio"},
+            ],
+            "connections": [
                 {
                     "id": "legacy-target",
-                    "source": "gpio:pin17",
-                    "target": "usb_midi:cc:1:64",
+                    "source": "gpio.pin17",
+                    "target": "midi.cc_1_64",
                 }
             ],
         }
@@ -375,7 +418,7 @@ def test_parse_config_migrates_legacy_usb_midi_adapter_tables() -> None:
     assert config.adapters["usb_stage"].kind == "midi"
     assert config.master_clock.output_targets == ["midi"]
     assert config.master_clock.midi_input_targets == ["midi"]
-    assert config.mappings[0].target == "midi:cc:1:64"
+    assert config.connections[0].target == "midi.cc_1_64"
 
 
 def test_parse_config_rejects_mismatched_default_adapter_type() -> None:

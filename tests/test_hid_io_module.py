@@ -9,6 +9,8 @@ from midijuggler.eventbus import EventBus
 from midijuggler.modules.io.hid import HidIOModule
 from midijuggler.service import MIDIJugglerService
 
+from conftest import hid_device, make_hid_io_module
+
 
 class FakeHidReader:
     def read_one(self):
@@ -32,17 +34,27 @@ def fake_evdev_codes(monkeypatch: pytest.MonkeyPatch) -> None:
 
 
 def test_hid_io_module_registers_input_datapoints(fake_evdev_codes: None) -> None:
+    config = parse_config(
+        {
+            "adapters": {
+                "gamepad": {
+                    "enabled": True,
+                    "type": "hid",
+                    "device": "/dev/input/event0",
+                    "codes": ["BTN_A"],
+                }
+            },
+            "devices": [hid_device("gamepad")],
+        }
+    )
     bus = EventBus()
     adapter = HidAdapter(
         name="gamepad",
-        config=AdapterConfig(
-            enabled=True,
-            options={"device": "/dev/input/event0", "codes": ["BTN_A"]},
-        ),
+        config=config.adapters["gamepad"],
         bus=bus,
         reader_factory=lambda _device_path, _inputs: FakeHidReader(),
     )
-    module = HidIOModule(adapter, DataPointStore())
+    module, _registry = make_hid_io_module(config, adapter, DataPointStore(), "gamepad")
 
     specs = module.datapoints()
 
@@ -64,7 +76,8 @@ def test_build_module_registry_includes_hid_datapoints(fake_evdev_codes: None) -
                     "device": "/dev/input/event0",
                     "codes": ["BTN_A"],
                 }
-            }
+            },
+            "devices": [hid_device("gamepad")],
         }
     )
     service = MIDIJugglerService(config)

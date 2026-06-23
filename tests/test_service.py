@@ -157,6 +157,9 @@ def test_emit_midi_output_does_not_recurse_through_service_handler(
     assert asyncio.run(scenario()) == 1
 
 
+from conftest import midi_device
+
+
 def test_service_filters_disabled_master_clock_output_targets() -> None:
     service = MIDIJugglerService(
         parse_config(
@@ -172,6 +175,10 @@ def test_service_filters_disabled_master_clock_output_targets() -> None:
                     },
                     "rtp_midi": {"enabled": False},
                 },
+                "devices": [
+                    midi_device("midi", adapter="midi"),
+                    midi_device("rtp_midi", adapter="rtp_midi"),
+                ],
             }
         )
     )

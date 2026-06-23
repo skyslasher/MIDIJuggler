@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import logging
+
 from midijuggler.adapters.base import Adapter
 from midijuggler.adapters.gpio import GpioAdapter
 from midijuggler.adapters.hid import HidAdapter
@@ -12,6 +14,7 @@ from midijuggler.adapters.wing_native import WingNativeAdapter
 from midijuggler.config import AppConfig
 from midijuggler.datapoint.migrate import effective_connections
 from midijuggler.datapoint.store import DataPointStore
+from midijuggler.device.registry import DeviceRegistry
 from midijuggler.eventbus import EventBus
 from midijuggler.master_clock import MasterClock
 from midijuggler.modules.generator.master_clock import MasterClockGenerator
@@ -26,6 +29,8 @@ from midijuggler.modules.modifier.graph import ModifierGraph
 from midijuggler.modules.registry import ModuleRegistry
 from midijuggler.web.server import WebInterface
 
+LOGGER = logging.getLogger(__name__)
+
 
 def build_module_registry(
     config: AppConfig,
@@ -34,38 +39,47 @@ def build_module_registry(
     adapters: list[Adapter],
     master_clock: MasterClock,
     web: WebInterface,
-) -> tuple[ModuleRegistry, dict[str, MidiIOModule | OscIOModule | RtpMidiIOModule | WingNativeIOModule]]:
+    device_registry: DeviceRegistry,
+) -> tuple[
+    ModuleRegistry,
+    dict[str, MidiIOModule | OscIOModule | RtpMidiIOModule | WingNativeIOModule],
+]:
     registry = ModuleRegistry()
     io_modules: dict[str, MidiIOModule | OscIOModule | RtpMidiIOModule | WingNativeIOModule] = {}
 
     for adapter in adapters:
+        device = device_registry.device_for_adapter(adapter.name)
+        if device is None:
+            if adapter.config.enabled:
+                LOGGER.warning(
+                    "adapter %s is enabled but has no bound device; skipping I/O module",
+                    adapter.name,
+                )
+            continue
         if isinstance(adapter, GpioAdapter):
-            registry.add(GpioIOModule(adapter, store))
+            registry.add(GpioIOModule(adapter, device, store, device_registry))
         elif isinstance(adapter, HidAdapter):
-            registry.add(HidIOModule(adapter, store))
+            registry.add(HidIOModule(adapter, device, store, device_registry))
         elif isinstance(adapter, MidiAdapter):
-            module = MidiIOModule(adapter, store, config)
+            module = MidiIOModule(adapter, device, store, config, device_registry)
             registry.add(module)
             io_modules[adapter.name] = module
         elif isinstance(adapter, OscAdapter):
-            module = OscIOModule(adapter, store, config)
+            module = OscIOModule(adapter, device, store, config, device_registry)
             registry.add(module)
             io_modules[adapter.name] = module
         elif isinstance(adapter, RtpMidiAdapter):
-            module = RtpMidiIOModule(adapter, store, config)
+            module = RtpMidiIOModule(adapter, device, store, config, device_registry)
             registry.add(module)
             io_modules[adapter.name] = module
         elif isinstance(adapter, WingNativeAdapter):
-            module = WingNativeIOModule(adapter, store, config)
+            module = WingNativeIOModule(adapter, device, store, config, device_registry)
             registry.add(module)
             io_modules[adapter.name] = module
 
     connections = effective_connections(
-        config.mappings,
-        config.connections,
+        config,
         datapoint_routing=config.runtime.datapoint_routing,
-        master_clock=config.master_clock,
-        adapters=config.adapters,
     )
     registry.add(
         ModifierGraph(

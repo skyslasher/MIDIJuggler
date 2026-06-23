@@ -7,8 +7,8 @@ from pathlib import Path
 from typing import Any
 import tomllib
 
-from midijuggler.mapping import MappingRule
 from midijuggler.datapoint.types import ConnectionSpec, ModifierKind
+from midijuggler.device.types import CustomPointSpec, DeviceConfig
 from midijuggler.modules.modifier.feedback_suppress import parse_feedback_suppress_ms
 
 
@@ -63,8 +63,8 @@ class AppConfig:
     web: WebConfig = field(default_factory=WebConfig)
     runtime: RuntimeConfig = field(default_factory=RuntimeConfig)
     adapters: dict[str, AdapterConfig] = field(default_factory=dict)
+    devices: dict[str, DeviceConfig] = field(default_factory=dict)
     master_clock: MasterClockConfig = field(default_factory=MasterClockConfig)
-    mappings: list[MappingRule] = field(default_factory=list)
     connections: list[ConnectionSpec] = field(default_factory=list)
 
 
@@ -228,6 +228,22 @@ def save_mappings(path: str | Path, mappings: list[MappingRule]) -> None:
     temp_path.replace(config_path)
 
 
+def save_devices(path: str | Path, devices: dict[str, DeviceConfig]) -> None:
+    """Persist device definitions in a TOML config file."""
+
+    config_path = Path(path)
+    text = _remove_device_sections(config_path.read_text(encoding="utf-8"))
+    ordered = [devices[key] for key in sorted(devices)]
+    if ordered:
+        text = text.rstrip() + "\n\n" + _format_devices_section(ordered)
+    else:
+        text = text.rstrip() + "\n"
+
+    temp_path = config_path.with_suffix(config_path.suffix + ".tmp")
+    temp_path.write_text(text, encoding="utf-8")
+    temp_path.replace(config_path)
+
+
 def save_connections(path: str | Path, connections: list[ConnectionSpec]) -> None:
     """Persist connection specs in a TOML config file."""
 
@@ -254,6 +270,77 @@ def save_runtime_config(path: str | Path, runtime: RuntimeConfig) -> None:
     temp_path = config_path.with_suffix(config_path.suffix + ".tmp")
     temp_path.write_text(new_text, encoding="utf-8")
     temp_path.replace(config_path)
+
+
+def _remove_device_sections(text: str) -> str:
+    lines = text.splitlines()
+    kept: list[str] = []
+    index = 0
+    while index < len(lines):
+        if lines[index].strip() == "[[devices]]":
+            index += 1
+            while index < len(lines):
+                stripped = lines[index].strip()
+                if stripped == "[[devices]]":
+                    break
+                if (
+                    stripped.startswith("[")
+                    and stripped.endswith("]")
+                    and stripped != "[[devices]]"
+                ):
+                    break
+                index += 1
+            continue
+        kept.append(lines[index])
+        index += 1
+    return "\n".join(kept).rstrip() + "\n"
+
+
+def _format_devices_section(devices: list[DeviceConfig]) -> str:
+    blocks = [_format_device_config(device) for device in devices]
+    return "\n\n".join(blocks) + "\n"
+
+
+def _format_device_config(device: DeviceConfig) -> str:
+    lines = [
+        "[[devices]]",
+        f"id = {_toml_string(device.id)}",
+        f"adapter = {_toml_string(device.adapter)}",
+    ]
+    if device.label:
+        lines.append(f"label = {_toml_string(device.label)}")
+    if device.library:
+        lines.append(f"library = {_toml_string(device.library)}")
+    if device.library_kind:
+        lines.append(f"library_kind = {_toml_string(device.library_kind)}")
+    for point in device.custom_points:
+        lines.extend(_format_custom_point_lines(point))
+    return "\n".join(lines)
+
+
+def _format_custom_point_lines(point: CustomPointSpec) -> list[str]:
+    lines = [
+        "",
+        "[[devices.custom_points]]",
+        f"id = {_toml_string(point.id)}",
+    ]
+    if point.value_type != "float":
+        lines.append(f"value_type = {_toml_string(point.value_type)}")
+    if point.direction != "bidirectional":
+        lines.append(f"direction = {_toml_string(point.direction)}")
+    if point.label:
+        lines.append(f"label = {_toml_string(point.label)}")
+    if point.value_min != 0.0:
+        lines.append(f"value_min = {point.value_min}")
+    if point.value_max != 127.0:
+        lines.append(f"value_max = {point.value_max}")
+    if point.protocol:
+        lines.append(f"protocol = {_toml_string(point.protocol)}")
+    if point.input_mode:
+        lines.append(f"input_mode = {_toml_string(point.input_mode)}")
+    if point.relative_encoding:
+        lines.append(f"relative_encoding = {_toml_string(point.relative_encoding)}")
+    return lines
 
 
 def _remove_connection_sections(text: str) -> str:
@@ -545,6 +632,10 @@ def _normalize_legacy_usb_midi(raw: dict[str, Any]) -> None:
 
 def parse_config(raw: dict[str, Any]) -> AppConfig:
     _normalize_legacy_usb_midi(raw)
+    if raw.get("mappings"):
+        raise ValueError(
+            "[[mappings]] is no longer supported; configure [[devices]] and [[connections]]"
+        )
     web_raw = raw.get("web", {})
     web = WebConfig(
         host=str(web_raw.get("host", "0.0.0.0")),
@@ -552,24 +643,21 @@ def parse_config(raw: dict[str, Any]) -> AppConfig:
     )
 
     adapters = _parse_adapters(raw.get("adapters", {}))
+    devices = _parse_devices(raw.get("devices", []), adapters)
     master_clock = _parse_master_clock(raw.get("master_clock", {}))
-
-    mappings = [
-        _parse_mapping(index, mapping_raw)
-        for index, mapping_raw in enumerate(raw.get("mappings", []), start=1)
-    ]
     connections = [
         _parse_connection(index, connection_raw)
         for index, connection_raw in enumerate(raw.get("connections", []), start=1)
     ]
     runtime = _parse_runtime(raw.get("runtime", {}))
+    _validate_devices_and_connections(devices, adapters, connections)
 
     return AppConfig(
         web=web,
         runtime=runtime,
         adapters=adapters,
+        devices=devices,
         master_clock=master_clock,
-        mappings=mappings,
         connections=connections,
     )
 
@@ -710,25 +798,96 @@ def _validate_adapter_instance_name(instance_name: str) -> None:
         )
 
 
-def _parse_mapping(index: int, raw: Any) -> MappingRule:
+def _parse_devices(raw: Any, adapters: dict[str, AdapterConfig]) -> dict[str, DeviceConfig]:
+    if raw is None:
+        raw = []
+    if not isinstance(raw, list):
+        raise ValueError("devices must be a list of [[devices]] tables")
+
+    devices: dict[str, DeviceConfig] = {}
+    for index, item in enumerate(raw, start=1):
+        device = _parse_device(index, item)
+        if device.id in devices:
+            raise ValueError(f"devices[{index}] duplicates device id {device.id!r}")
+        if device.adapter not in adapters:
+            raise ValueError(
+                f"devices[{index}] references unknown adapter {device.adapter!r}"
+            )
+        devices[device.id] = device
+    return devices
+
+
+def _parse_device(index: int, raw: Any) -> DeviceConfig:
     if not isinstance(raw, dict):
-        raise ValueError(f"mappings[{index}] must be a table")
+        raise ValueError(f"devices[{index}] must be a table")
 
-    required = ("id", "source", "target")
-    missing = [key for key in required if not raw.get(key)]
-    if missing:
-        raise ValueError(f"mappings[{index}] missing required fields: {', '.join(missing)}")
+    device_id = str(raw.get("id", "")).strip()
+    adapter = str(raw.get("adapter", "")).strip()
+    if not device_id:
+        raise ValueError(f"devices[{index}] missing required field: id")
+    if not adapter:
+        raise ValueError(f"devices[{index}] missing required field: adapter")
+    if ":" in device_id or any(character.isspace() for character in device_id):
+        raise ValueError(f"devices[{index}].id cannot contain ':' or whitespace")
 
-    return MappingRule(
-        id=str(raw["id"]),
-        source=str(raw["source"]),
-        target=str(raw["target"]),
-        input_min=_as_float(raw.get("input_min", 0.0), f"mappings[{index}].input_min"),
-        input_max=_as_float(raw.get("input_max", 1.0), f"mappings[{index}].input_max"),
-        output_min=_as_float(raw.get("output_min", 0.0), f"mappings[{index}].output_min"),
-        output_max=_as_float(raw.get("output_max", 127.0), f"mappings[{index}].output_max"),
-        invert=bool(raw.get("invert", False)),
+    custom_points = tuple(
+        _parse_custom_point(index, point_index, point_raw)
+        for point_index, point_raw in enumerate(raw.get("custom_points", []), start=1)
     )
+    return DeviceConfig(
+        id=device_id,
+        adapter=adapter,
+        library=str(raw.get("library", "")).strip(),
+        library_kind=str(raw.get("library_kind", "")).strip(),
+        label=str(raw.get("label", "")).strip(),
+        custom_points=custom_points,
+    )
+
+
+def _parse_custom_point(device_index: int, point_index: int, raw: Any) -> CustomPointSpec:
+    field_name = f"devices[{device_index}].custom_points[{point_index}]"
+    if not isinstance(raw, dict):
+        raise ValueError(f"{field_name} must be a table")
+    point_id = str(raw.get("id", "")).strip()
+    if not point_id:
+        raise ValueError(f"{field_name} missing required field: id")
+    return CustomPointSpec(
+        id=point_id,
+        value_type=str(raw.get("value_type", "float")),
+        direction=str(raw.get("direction", "bidirectional")),
+        label=str(raw.get("label", "")),
+        value_min=_as_float(raw.get("value_min", 0.0), f"{field_name}.value_min"),
+        value_max=_as_float(raw.get("value_max", 127.0), f"{field_name}.value_max"),
+        protocol=str(raw.get("protocol", "")),
+        input_mode=str(raw.get("input_mode", "")),
+        relative_encoding=str(raw.get("relative_encoding", "")),
+    )
+
+
+def _validate_devices_and_connections(
+    devices: dict[str, DeviceConfig],
+    adapters: dict[str, AdapterConfig],
+    connections: list[ConnectionSpec],
+) -> None:
+    adapter_bindings: dict[str, str] = {}
+    for device in devices.values():
+        if device.adapter in adapter_bindings:
+            raise ValueError(
+                f"adapter {device.adapter!r} is bound to multiple devices "
+                f"({adapter_bindings[device.adapter]!r} and {device.id!r})"
+            )
+        adapter_bindings[device.adapter] = device.id
+
+    for connection in connections:
+        for endpoint in (connection.source, connection.target):
+            module = endpoint.partition(".")[0]
+            if module in {"clock", "mapping"}:
+                continue
+            if module not in devices:
+                raise ValueError(
+                    f"connection {connection.id!r} endpoint {endpoint!r} "
+                    f"must reference a configured device id"
+                )
 
 
 def _parse_connection(index: int, raw: Any) -> ConnectionSpec:

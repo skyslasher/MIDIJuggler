@@ -9,85 +9,43 @@ from midijuggler.config import AppConfig
 from midijuggler.datapoint.migrate import effective_connections
 from midijuggler.datapoint.store import DataPointStore
 from midijuggler.datapoint.types import (
-    DataPointDirection,
     DataPointId,
-    DataPointSpec,
     DataPointValue,
     ValueType,
-    float_value,
 )
+from midijuggler.device.points import MIDI_OUT_POINT, build_device_datapoints
+from midijuggler.device.registry import DeviceRegistry
+from midijuggler.device.types import DeviceConfig
 from midijuggler.events import MidiMessageEvent
-from midijuggler.midi.library_match import resolve_library_port
 from midijuggler.midi.target_encode import encode_mapped_midi_target
-from midijuggler.midi_library import get_midi_library
 from midijuggler.modules.base import IOModule
 
 LOGGER = logging.getLogger(__name__)
-MIDI_OUT_POINT = "midi_out"
 
 
 class MidiIOModule(IOModule):
-    """Expose MIDI library parameters and raw controls as data points."""
+    """Send device data points to a bound MIDI adapter."""
 
     def __init__(
         self,
         adapter: MidiAdapter,
+        device: DeviceConfig,
         store: DataPointStore,
         config: AppConfig,
+        device_registry: DeviceRegistry,
     ) -> None:
-        super().__init__(adapter.name, store)
+        super().__init__(device.id, store)
         self.adapter = adapter
+        self.device = device
         self.config = config
-        self._output_points: set[str] = set()
+        self.device_registry = device_registry
+        adapter_config = device_registry.adapter_for_device(device.id)
+        _, self._output_points = build_device_datapoints(device, adapter_config)
 
-    def datapoints(self) -> list[DataPointSpec]:
-        specs: list[DataPointSpec] = []
-        library_id = str(self.adapter.config.options.get("midi_library", "")).strip()
-        if library_id:
-            try:
-                library = get_midi_library(library_id)
-            except KeyError:
-                library = None
-            if library is not None:
-                library_port = resolve_library_port(self.adapter.config)
-                for parameter in library.parameters:
-                    direction = (
-                        DataPointDirection.INPUT
-                        if parameter.direction == "source"
-                        else DataPointDirection.OUTPUT
-                    )
-                    specs.append(
-                        DataPointSpec(
-                            id=DataPointId(self.name, parameter.id),
-                            value_type=ValueType.FLOAT,
-                            direction=direction,
-                            label=parameter.label,
-                            value_min=float(parameter.value_min),
-                            value_max=float(parameter.value_max),
-                            protocol="midi",
-                            input_mode=(
-                                parameter.value_type
-                                if parameter.direction == "source"
-                                else ""
-                            ),
-                            relative_encoding=(
-                                parameter.relative_encoding
-                                if parameter.direction == "source"
-                                else ""
-                            ),
-                        )
-                    )
-                    if direction == DataPointDirection.OUTPUT:
-                        self._output_points.add(parameter.id)
-        specs.append(
-            DataPointSpec(
-                id=DataPointId(self.name, MIDI_OUT_POINT),
-                value_type=ValueType.MIDI_MESSAGE,
-                direction=DataPointDirection.INPUT,
-                label="MIDI output",
-                protocol="midi",
-            )
-        )
+    def datapoints(self) -> list:
+        adapter_config = self.device_registry.adapter_for_device(self.device.id)
+        specs, output_points = build_device_datapoints(self.device, adapter_config)
+        self._output_points = output_points
         return specs
 
     async def start(self) -> None:
@@ -109,11 +67,8 @@ class MidiIOModule(IOModule):
 
     def _configured_output_targets(self) -> list[DataPointId]:
         connections = effective_connections(
-            self.config.mappings,
-            self.config.connections,
+            self.config,
             datapoint_routing=self.config.runtime.datapoint_routing,
-            master_clock=self.config.master_clock,
-            adapters=self.config.adapters,
         )
         targets: list[DataPointId] = []
         for connection in connections:
@@ -130,7 +85,7 @@ class MidiIOModule(IOModule):
             return
         await self.adapter.send_midi_message(
             MidiMessageEvent(
-                source=self.name,
+                source=self.adapter.name,
                 status=value.midi_status,
                 data=tuple(value.midi_data or ()),
                 direction="output",
@@ -146,6 +101,7 @@ class MidiIOModule(IOModule):
         try:
             status, data = encode_mapped_midi_target(
                 self.config,
+                self.device_registry,
                 self.name,
                 value.point_id.point,
                 value.float_value,
@@ -155,10 +111,10 @@ class MidiIOModule(IOModule):
             return
         await self.adapter.send_midi_message(
             MidiMessageEvent(
-                source=self.name,
+                source=self.adapter.name,
                 status=status,
                 data=data,
-                target=f"{self.name}:{value.point_id.point}",
+                target=f"{self.adapter.name}:{value.point_id.point}",
                 direction="output",
             )
         )

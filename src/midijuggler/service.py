@@ -29,15 +29,14 @@ from midijuggler.datapoint.store import DataPointStore
 from midijuggler.eventbus import EventBus
 from midijuggler.events import (
     BpmChangedEvent,
-    ControlEvent,
     MasterClockCommandEvent,
     MidiClockEvent,
     MidiMessageEvent,
-    MappedEvent,
     OscMessageEvent,
 )
 from midijuggler.master_clock import MIDI_TIMING_CLOCK, MasterClock
-from midijuggler.mapping import MappingEngine
+from midijuggler.device.registry import DeviceRegistry
+from midijuggler.device.lookup import device_id_for_adapter
 from midijuggler.modules.build import build_module_registry
 from midijuggler.modules.modifier.graph import ModifierGraph
 from midijuggler.modules.io.midi import MidiIOModule
@@ -62,10 +61,7 @@ class MIDIJugglerService:
         self.bus = EventBus()
         self.datapoint_store = DataPointStore()
         self.clock = ClockBpmTracker()
-        self._legacy_routing = not config.runtime.datapoint_routing
-        self.mapping = (
-            MappingEngine(config.mappings) if self._legacy_routing else None
-        )
+        self.device_registry = DeviceRegistry.from_config(config)
         self.rtp_midi_manager = RtpMidiManager()
         self.adapters = build_adapters(
             config.adapters,
@@ -91,16 +87,20 @@ class MIDIJugglerService:
             rtp_midi_adapters=self._rtp_midi_adapters(),
             osc_adapters=self._osc_adapters(),
             wing_native_adapters=self._wing_native_adapters(),
-            mapping_engine=self.mapping,
             rtp_midi_manager=self.rtp_midi_manager,
             runtime_adapters=self.adapters,
+            device_registry=self.device_registry,
             config_path=self.config_path,
             alsa_config_path=self.alsa_config_path,
             datapoint_store=self.datapoint_store,
         )
         self.osc_desk_tracker = OscDeskDiscoveryManager(self.web)
         self.web.osc_desk_tracker = self.osc_desk_tracker
-        self.event_bridge = EventToDataPointBridge(self.datapoint_store, self.bus)
+        self.event_bridge = EventToDataPointBridge(
+            self.datapoint_store,
+            self.bus,
+            self.device_registry,
+        )
         self.module_registry, self.io_modules = build_module_registry(
             config,
             self.datapoint_store,
@@ -108,6 +108,7 @@ class MIDIJugglerService:
             self.adapters,
             self.master_clock,
             self.web,
+            self.device_registry,
         )
         self.web.bind_osc_io_modules(self.io_modules)
         for module in self.module_registry.modules():
@@ -124,9 +125,6 @@ class MIDIJugglerService:
         self._runner = None
 
         self.bus.subscribe(MidiClockEvent, self._track_clock)
-        if self._legacy_routing:
-            self.bus.subscribe(ControlEvent, self._map_control)
-            self.bus.subscribe(MappedEvent, self._route_mapped_event)
         self.bus.subscribe(MidiMessageEvent, self._handle_midi_message)
         self.bus.subscribe(OscMessageEvent, self._handle_osc_message)
         self.bus.subscribe(MasterClockCommandEvent, self._handle_master_clock_command)
@@ -175,18 +173,6 @@ class MIDIJugglerService:
         bpm = self.clock.tick(event.timestamp)
         if bpm is not None:
             await self.bus.publish(BpmChangedEvent(source="clock", bpm=bpm))
-
-    async def _map_control(self, event: ControlEvent) -> None:
-        if self.mapping is None:
-            return
-        await self.bus.publish_many(self.mapping.map_event(event))
-
-    async def _route_mapped_event(self, event: MappedEvent) -> None:
-        adapter = self._adapter_for_target(event.target)
-        if adapter is None:
-            LOGGER.warning("no enabled adapter for target %s", event.target)
-            return
-        await adapter.send(event)
 
     async def _handle_midi_message(self, event: MidiMessageEvent) -> None:
         if (
@@ -294,6 +280,7 @@ class MIDIJugglerService:
 
         output_targets = usable_clock_output_targets(
             self.config.master_clock.output_targets,
+            self.config.devices,
             self.config.adapters,
         )
         return replace(self.config.master_clock, output_targets=output_targets)

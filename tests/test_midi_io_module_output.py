@@ -8,9 +8,11 @@ from midijuggler.config import parse_config
 from midijuggler.datapoint.bridge import EventToDataPointBridge
 from midijuggler.datapoint.store import DataPointStore
 from midijuggler.datapoint.types import DataPointId, DataPointValue, ValueType, float_value
+from midijuggler.device.registry import DeviceRegistry
 from midijuggler.eventbus import EventBus
 from midijuggler.events import ControlEvent, MidiMessageEvent, OscMessageEvent
-from midijuggler.modules.io.midi import MidiIOModule
+
+from conftest import gpio_device, make_midi_io_module, midi_device
 
 
 def test_midi_io_module_sends_connection_targets_without_library(
@@ -20,18 +22,23 @@ def test_midi_io_module_sends_connection_targets_without_library(
         config = parse_config(
             {
                 "adapters": {
+                    "gpio": {"enabled": True, "pins": [17]},
                     "xtouch_mini": {
                         "enabled": True,
                         "type": "midi",
                         "input_port": "X-TOUCH MINI",
                         "output_port": "X-TOUCH MINI",
-                    }
+                    },
                 },
-                "mappings": [
+                "devices": [
+                    gpio_device(),
+                    midi_device("xtouch_mini"),
+                ],
+                "connections": [
                     {
                         "id": "gpio-to-xtouch-cc",
-                        "source": "gpio:pin17",
-                        "target": "xtouch_mini:cc:1:64",
+                        "source": "gpio.pin17",
+                        "target": "xtouch_mini.cc_1_64",
                     }
                 ],
             }
@@ -40,20 +47,14 @@ def test_midi_io_module_sends_connection_targets_without_library(
         events: list[MidiMessageEvent] = []
         bus.subscribe(MidiMessageEvent, lambda event: events.append(event))
 
-        adapter = MidiAdapter(
-            "xtouch_mini",
-            config.adapters["xtouch_mini"],
-            bus,
-            app_config=config,
-        )
+        store = DataPointStore()
+        module, adapter, _registry = make_midi_io_module(config, store, bus=bus)
         monkeypatch.setattr(
             adapter,
             "send_midi_message",
             lambda event: events.append(event),
         )
 
-        store = DataPointStore()
-        module = MidiIOModule(adapter, store, config)
         await module.start()
         await store.write(float_value("xtouch_mini.cc_1_64", 80.0))
         return next((event for event in events if event.direction == "output"), None)
@@ -76,13 +77,15 @@ def test_midi_io_module_does_not_echo_input_sourced_datapoint_writes() -> None:
                     "output_port": "X-TOUCH MINI",
                     "midi_library": "behringer_xtouch_mini",
                 }
-            }
+            },
+            "devices": [
+                midi_device("xtouch_mini", library="behringer_xtouch_mini"),
+            ],
         }
     )
     store = DataPointStore()
     bus = EventBus()
-    adapter = MidiAdapter("xtouch_mini", config.adapters["xtouch_mini"], bus, app_config=config)
-    module = MidiIOModule(adapter, store, config)
+    module, adapter, _registry = make_midi_io_module(config, store, bus=bus)
     store.register_many(module.datapoints())
     adapter.send_midi_message = AsyncMock()
 
@@ -117,13 +120,15 @@ def test_midi_io_module_remembers_feedback_without_emitting(
                     "midi_library": "behringer_xtouch_mini",
                     "feedback_refresh_interval": 0.1,
                 }
-            }
+            },
+            "devices": [
+                midi_device("xtouch_mini", library="behringer_xtouch_mini"),
+            ],
         }
     )
     store = DataPointStore()
     bus = EventBus()
-    adapter = MidiAdapter("xtouch_mini", config.adapters["xtouch_mini"], bus, app_config=config)
-    module = MidiIOModule(adapter, store, config)
+    module, adapter, _registry = make_midi_io_module(config, store, bus=bus)
     store.register_many(module.datapoints())
     adapter.send_midi_message = AsyncMock()
     adapter._feedback_refresh = XTouchFeedbackRefresh(adapter, config)
@@ -146,9 +151,24 @@ def test_midi_io_module_remembers_feedback_without_emitting(
 
 
 def test_bridge_midi_control_event_does_not_emit_outputs() -> None:
+    config = parse_config(
+        {
+            "adapters": {
+                "xtouch_mini": {
+                    "enabled": True,
+                    "type": "midi",
+                    "midi_library": "behringer_xtouch_mini",
+                }
+            },
+            "devices": [
+                midi_device("xtouch_mini", library="behringer_xtouch_mini"),
+            ],
+        }
+    )
     store = DataPointStore()
     bus = EventBus()
-    bridge = EventToDataPointBridge(store, bus)
+    registry = DeviceRegistry.from_config(config)
+    bridge = EventToDataPointBridge(store, bus, registry)
     captured: list[DataPointValue] = []
 
     async def capture(value: DataPointValue) -> None:
@@ -174,9 +194,18 @@ def test_bridge_midi_control_event_does_not_emit_outputs() -> None:
 
 
 def test_bridge_skips_osc_control_events() -> None:
+    config = parse_config(
+        {
+            "adapters": {
+                "x32": {"enabled": True, "type": "osc", "osc_library": "behringer_x32"}
+            },
+            "devices": [{"id": "x32", "adapter": "x32", "library": "behringer_x32", "library_kind": "osc"}],
+        }
+    )
     store = DataPointStore()
     bus = EventBus()
-    bridge = EventToDataPointBridge(store, bus)
+    registry = DeviceRegistry.from_config(config)
+    bridge = EventToDataPointBridge(store, bus, registry)
     captured: list[DataPointValue] = []
 
     async def capture(value: DataPointValue) -> None:
@@ -222,24 +251,25 @@ def test_bridge_midi_control_event_does_not_echo_output_subscribed_target(
                     "output_port": "X-TOUCH MINI",
                     "midi_library": "behringer_xtouch_mini",
                 }
-            }
+            },
+            "devices": [
+                midi_device("xtouch_mini", library="behringer_xtouch_mini"),
+            ],
         }
     )
     bus = EventBus()
     events: list[MidiMessageEvent] = []
     bus.subscribe(MidiMessageEvent, lambda event: events.append(event))
 
-    adapter = MidiAdapter("xtouch_mini", config.adapters["xtouch_mini"], bus, app_config=config)
+    store = DataPointStore()
+    module, adapter, registry = make_midi_io_module(config, store, bus=bus)
     monkeypatch.setattr(
         adapter,
         "send_midi_message",
         lambda event: events.append(event),
     )
-
-    store = DataPointStore()
-    module = MidiIOModule(adapter, store, config)
     store.register_many(module.datapoints())
-    bridge = EventToDataPointBridge(store, bus)
+    bridge = EventToDataPointBridge(store, bus, registry)
 
     async def scenario() -> list[MidiMessageEvent]:
         await module.start()

@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from midijuggler.datapoint.types import ConnectionSpec, DataPointId, DataPointValue, ModifierKind, ValueType, float_value, midi_message_value
 from midijuggler.datapoint.store import DataPointStore
+from midijuggler.device.registry import DeviceRegistry
 from midijuggler.eventbus import EventBus
 from midijuggler.events import ControlEvent, MasterClockStateEvent, MidiMessageEvent, OscMessageEvent
 from midijuggler.osc.protocol import first_numeric_osc_argument, wing_control_value
@@ -82,9 +83,15 @@ def mapping_from_connection(connection: ConnectionSpec) -> MappingRule:
 class EventToDataPointBridge:
     """Mirror legacy bus events into the data-point store."""
 
-    def __init__(self, store: DataPointStore, bus: EventBus) -> None:
+    def __init__(
+        self,
+        store: DataPointStore,
+        bus: EventBus,
+        device_registry: DeviceRegistry,
+    ) -> None:
         self.store = store
         self.bus = bus
+        self.device_registry = device_registry
 
     def attach(self) -> None:
         self.bus.subscribe(ControlEvent, self._on_control)
@@ -112,7 +119,8 @@ class EventToDataPointBridge:
                 float_value(DataPointId("clock", "bpm"), event.value, emit_outputs=False)
             )
             return
-        point_id = DataPointId(module=event.source, point=event.control)
+        module = self._module_for_adapter(event.source)
+        point_id = DataPointId(module=module, point=event.control)
         await self.store.write(float_value(point_id, event.value, emit_outputs=False))
 
     async def _on_midi_message(self, event: MidiMessageEvent) -> None:
@@ -125,7 +133,7 @@ class EventToDataPointBridge:
         if event.direction != "input":
             return
         point_id = DataPointId(
-            module=event.source,
+            module=self._module_for_adapter(event.source),
             point=_midi_message_point_id(event),
         )
         await self.store.write(
@@ -136,7 +144,8 @@ class EventToDataPointBridge:
         if event.direction != "input" or event.echo_suppressed:
             return
         address = event.canonical_address or event.address
-        point_id = DataPointId(module=event.source, point=address)
+        module = self._module_for_adapter(event.source)
+        point_id = DataPointId(module=module, point=address)
         value = DataPointValue(
             point_id=point_id,
             value_type=ValueType.OSC_MESSAGE,
@@ -152,6 +161,22 @@ class EventToDataPointBridge:
             )
             return
         await self.store.write(value)
+
+
+    def _module_for_adapter(self, adapter_name: str) -> str:
+        device = self.device_registry.device_for_adapter(adapter_name)
+        if device is None:
+            raise ValueError(f"no device configured for adapter {adapter_name!r}")
+        return device.id
+
+
+def adapter_control_to_datapoint(
+    adapter_name: str,
+    control: str,
+    device_registry: DeviceRegistry,
+) -> str:
+    device = device_registry.require_device_for_adapter(adapter_name)
+    return str(DataPointId(device.id, control))
 
 
 def _midi_message_point_id(event: MidiMessageEvent) -> str:

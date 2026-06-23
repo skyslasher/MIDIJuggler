@@ -4,9 +4,24 @@ from pathlib import Path
 from midijuggler.clock import ClockBpmTracker
 from midijuggler.config import load_config, parse_config
 from midijuggler.eventbus import EventBus
-from midijuggler.mapping import MappingEngine
 from midijuggler.master_clock import MasterClock
 from midijuggler.web.server import WebInterface
+
+from conftest import midi_device, osc_device
+
+LEARN_DEVICES_TOML = """
+[[devices]]
+id = "xtouch_mini"
+adapter = "xtouch_mini"
+library = "behringer_xtouch_mini"
+library_kind = "midi"
+
+[[devices]]
+id = "x32_foh"
+adapter = "x32_foh"
+library = "behringer_x32"
+library_kind = "osc"
+"""
 
 
 def test_select_learn_source_from_monitor_event_updates_status_payload() -> None:
@@ -23,7 +38,11 @@ def test_select_learn_source_from_monitor_event_updates_status_payload() -> None
                     "enabled": True,
                     "osc_library": "behringer_x32",
                 },
-            }
+            },
+            "devices": [
+                midi_device("xtouch_mini", library="behringer_xtouch_mini"),
+                osc_device("x32_foh", "behringer_x32"),
+            ],
         }
     )
     interface = WebInterface(
@@ -31,7 +50,6 @@ def test_select_learn_source_from_monitor_event_updates_status_payload() -> None
         EventBus(),
         ClockBpmTracker(),
         MasterClock(config.master_clock, EventBus()),
-        mapping_engine=MappingEngine(config.mappings),
     )
     interface.learn.set_enabled(True)
 
@@ -73,8 +91,8 @@ midi_library = "behringer_xtouch_mini"
 type = "osc"
 enabled = true
 osc_library = "behringer_x32"
-""".strip()
-        + "\n",
+"""
+        + LEARN_DEVICES_TOML,
         encoding="utf-8",
     )
     config = load_config(config_path)
@@ -113,7 +131,6 @@ osc_library = "behringer_x32"
     assert interface.learn.state.phase == "waiting_source"
 
     reloaded = load_config(config_path)
-    assert reloaded.mappings == []
     assert reloaded.connections[0].source == "xtouch_mini.layer_a_fader"
     assert reloaded.connections[0].target == "x32_foh./ch/01/mix/01/level"
 
@@ -155,8 +172,8 @@ midi_library = "behringer_xtouch_mini"
 type = "osc"
 enabled = true
 osc_library = "behringer_x32"
-""".strip()
-        + "\n",
+"""
+        + LEARN_DEVICES_TOML,
         encoding="utf-8",
     )
     config = load_config(config_path)
@@ -181,7 +198,7 @@ osc_library = "behringer_x32"
 
     assert result["persisted"] is True
     assert result["created_connection"]["modifier"] == "passthrough"
-    assert result["created_mapping"] is None
+    assert result.get("created_mapping") is None
     assert len(config.connections) == 1
 
     reloaded = load_config(config_path)

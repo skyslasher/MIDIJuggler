@@ -144,6 +144,9 @@ def test_send_osc_adapter_test_message_reports_disabled_instance() -> None:
         )
 
 
+from conftest import midi_device, osc_device, xtouch_devices_config
+
+
 def test_send_osc_adapter_test_message_resolves_library_parameter() -> None:
     async def scenario() -> tuple[dict[str, object], OscMessageEvent | None]:
         listen_port = _free_udp_port()
@@ -176,7 +179,8 @@ def test_send_osc_adapter_test_message_resolves_library_parameter() -> None:
                         "type": "osc",
                         **adapter_config.options,
                     }
-                }
+                },
+                "devices": [osc_device("wing_foh", "behringer_wing", library_kind="wing")],
             }
         )
         interface = WebInterface(
@@ -243,7 +247,10 @@ def test_send_midi_adapter_test_message_resolves_library_parameter(
                         "output_port": "X-Touch Mini",
                         "midi_library": "behringer_xtouch_mini",
                     }
-                }
+                },
+                "devices": [
+                    midi_device("xtouch_mini", library="behringer_xtouch_mini"),
+                ],
             }
         )
         interface = WebInterface(
@@ -284,19 +291,7 @@ def test_send_midi_adapter_test_message_caches_feedback_for_refresh(
 ) -> None:
     async def scenario() -> dict[str, float]:
         bus = EventBus()
-        config = parse_config(
-            {
-                "adapters": {
-                    "xtouch_mini": {
-                        "enabled": True,
-                        "type": "midi",
-                        "output_port": "X-Touch Mini",
-                        "midi_library": "behringer_xtouch_mini",
-                        "feedback_refresh_interval": 1.0,
-                    }
-                }
-            }
-        )
+        config = parse_config(xtouch_devices_config(feedback_refresh_interval=1.0))
         adapter = MidiAdapter(
             name="xtouch_mini",
             config=config.adapters["xtouch_mini"],

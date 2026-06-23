@@ -60,6 +60,8 @@ def test_encode_midi_target_message_control_change_encoder_value() -> None:
 
 
 def test_resolve_midi_target_parameter_uses_adapter_library() -> None:
+    from midijuggler.device.registry import DeviceRegistry
+
     config = parse_config(
         {
             "adapters": {
@@ -68,12 +70,25 @@ def test_resolve_midi_target_parameter_uses_adapter_library() -> None:
                     "type": "midi",
                     "midi_library": "behringer_xtouch_mini",
                 }
-            }
+            },
+            "devices": [
+                {
+                    "id": "xtouch_mini",
+                    "adapter": "xtouch_mini",
+                    "library": "behringer_xtouch_mini",
+                    "library_kind": "midi",
+                }
+            ],
         }
     )
+    registry = DeviceRegistry.from_config(config)
 
-    parameter = resolve_midi_target_parameter(config, "xtouch_mini", "select_layer_b")
-    minimum, maximum = lookup_midi_target_ranges(config, "xtouch_mini", "select_layer_b")
+    parameter = resolve_midi_target_parameter(
+        config, registry, "xtouch_mini", "select_layer_b"
+    )
+    minimum, maximum = lookup_midi_target_ranges(
+        config, registry, "xtouch_mini", "select_layer_b"
+    )
 
     assert parameter.label == "Select Layer B"
     assert minimum == 1

@@ -7,6 +7,9 @@ from midijuggler.master_clock import MasterClock
 from midijuggler.web.server import WebInterface
 
 
+from conftest import midi_device
+
+
 def test_select_learn_source_from_monitor_midi_message() -> None:
     config = parse_config(
         {
@@ -16,7 +19,10 @@ def test_select_learn_source_from_monitor_midi_message() -> None:
                     "enabled": True,
                     "midi_library": "behringer_xtouch_mini",
                 }
-            }
+            },
+            "devices": [
+                midi_device("xtouch_mini", library="behringer_xtouch_mini"),
+            ],
         }
     )
     interface = WebInterface(

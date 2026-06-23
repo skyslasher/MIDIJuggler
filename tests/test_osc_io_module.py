@@ -4,6 +4,8 @@ from midijuggler.config import parse_config
 from midijuggler.datapoint.types import DataPointDirection
 from midijuggler.service import MIDIJugglerService
 
+from conftest import make_osc_io_module, osc_device
+
 
 def test_osc_target_parameters_register_as_bidirectional_sources() -> None:
     config = parse_config(
@@ -14,7 +16,8 @@ def test_osc_target_parameters_register_as_bidirectional_sources() -> None:
                     "enabled": True,
                     "osc_library": "behringer_x32",
                 }
-            }
+            },
+            "devices": [osc_device("x32_foh", "behringer_x32")],
         }
     )
     service = MIDIJugglerService(config)
@@ -40,7 +43,6 @@ def test_osc_io_module_does_not_echo_input_sourced_datapoint_writes() -> None:
     from midijuggler.datapoint.store import DataPointStore
     from midijuggler.datapoint.types import float_value
     from midijuggler.eventbus import EventBus
-    from midijuggler.modules.io.osc import OscIOModule
 
     config = parse_config(
         {
@@ -50,13 +52,13 @@ def test_osc_io_module_does_not_echo_input_sourced_datapoint_writes() -> None:
                     "enabled": True,
                     "osc_library": "behringer_x32",
                 }
-            }
+            },
+            "devices": [osc_device("x32_foh", "behringer_x32")],
         }
     )
     store = DataPointStore()
     bus = EventBus()
-    adapter = OscAdapter("x32_foh", config.adapters["x32_foh"], bus)
-    module = OscIOModule(adapter, store, config)
+    module, adapter, _registry = make_osc_io_module(config, store, "x32_foh", bus=bus)
     store.register_many(module.datapoints())
     adapter.send = AsyncMock()
 

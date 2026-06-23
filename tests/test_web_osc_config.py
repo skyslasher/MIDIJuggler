@@ -354,7 +354,21 @@ def test_apply_osc_adapters_config_registers_datapoints_for_enabled_instance() -
     listen_port = _free_udp_port()
     store = DataPointStore()
     runtime_adapters = []
-    config = parse_config({"adapters": {}})
+    config = parse_config(
+        {
+            "adapters": {
+                "wing_foh": {"type": "osc", "enabled": False},
+            },
+            "devices": [
+                {
+                    "id": "wing_foh",
+                    "adapter": "wing_foh",
+                    "library": "behringer_wing",
+                    "library_kind": "wing",
+                }
+            ],
+        }
+    )
     interface = WebInterface(
         config,
         EventBus(),

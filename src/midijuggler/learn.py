@@ -7,10 +7,11 @@ from dataclasses import dataclass
 from typing import Any
 
 from midijuggler.config import AdapterConfig, AppConfig
-from midijuggler.datapoint.bridge import legacy_source_to_datapoint, legacy_target_to_datapoint
+from midijuggler.datapoint.bridge import adapter_control_to_datapoint, legacy_target_to_datapoint
 from midijuggler.datapoint.types import ConnectionSpec, DataPointId, ModifierKind
 from midijuggler.datapoint.store import DataPointStore
-from midijuggler.mapping import MappingRule
+from midijuggler.device.registry import DeviceRegistry
+from midijuggler.device.types import DeviceConfig
 from midijuggler.midi.library_match import (
     MidiSourceIndex,
     build_source_index,
@@ -86,11 +87,28 @@ class LearnController:
         )
         return self._state
 
-    def select_source(self, source: LearnSource) -> LearnState:
+    def select_source(
+        self,
+        source: LearnSource,
+        *,
+        device_registry: DeviceRegistry | None = None,
+    ) -> LearnState:
         if not self._state.enabled:
             raise ValueError("learn mode is disabled")
 
-        source_datapoint = legacy_source_to_datapoint(source.key)
+        if device_registry is not None:
+            if device_registry.get(source.adapter) is not None:
+                source_datapoint = str(
+                    DataPointId(source.adapter, source.control)
+                )
+            else:
+                source_datapoint = adapter_control_to_datapoint(
+                    source.adapter,
+                    source.control,
+                    device_registry,
+                )
+        else:
+            source_datapoint = f"{source.adapter}.{source.control}"
         self._state = LearnState(
             enabled=True,
             phase="waiting_target",
@@ -132,12 +150,14 @@ class LearnController:
         target_adapter: str,
         target_parameter_id: str,
         mapping_id: str | None = None,
-    ) -> MappingRule:
-        target_address = resolve_osc_target_address(
-            config,
-            target_adapter,
-            target_parameter_id,
-        )
+        device_registry: DeviceRegistry | None = None,
+    ) -> ConnectionSpec:
+        registry = device_registry or DeviceRegistry.from_config(config)
+        source_device = registry.require_device_for_adapter(source.adapter)
+        target_device = registry.require_device_for_adapter(target_adapter)
+        source_datapoint = str(DataPointId(source_device.id, source.control))
+        target_address = resolve_osc_target_address(config, target_device, target_parameter_id)
+        target_datapoint = str(DataPointId(target_device.id, target_address))
         input_min, input_max = lookup_midi_source_ranges(
             config,
             source.adapter,
@@ -148,11 +168,11 @@ class LearnController:
             target_adapter,
             target_parameter_id,
         )
-        rule_id = mapping_id or make_mapping_id(source.key, f"{target_adapter}:{target_address}")
-        return MappingRule(
+        rule_id = mapping_id or make_mapping_id(source_datapoint, target_datapoint)
+        return ConnectionSpec(
             id=rule_id,
-            source=source.key,
-            target=f"{target_adapter}:{target_address}",
+            source=source_datapoint,
+            target=target_datapoint,
             input_min=input_min,
             input_max=input_max,
             output_min=output_min,
@@ -215,7 +235,7 @@ def resolve_monitor_source(config: AppConfig, event: dict[str, Any]) -> LearnSou
         status = int(event.get("status", 0))
         data = tuple(int(value) for value in event.get("data", []))
         matches = resolve_incoming_controls(
-            build_midi_source_index_for_adapter(adapter),
+            build_midi_source_index_for_adapter(config, adapter_name),
             status,
             data,
         )
@@ -266,8 +286,11 @@ def resolve_monitor_source(config: AppConfig, event: dict[str, Any]) -> LearnSou
     raise ValueError(f"unsupported monitor event kind: {kind!r}")
 
 
-def build_midi_source_index_for_adapter(adapter: AdapterConfig) -> MidiSourceIndex | None:
-    library_id = str(adapter.options.get("midi_library", "")).strip()
+def build_midi_source_index_for_device(
+    device: DeviceConfig,
+    adapter: AdapterConfig,
+) -> MidiSourceIndex | None:
+    library_id = device.library.strip()
     if not library_id:
         return None
 
@@ -277,6 +300,19 @@ def build_midi_source_index_for_adapter(adapter: AdapterConfig) -> MidiSourceInd
         return None
 
     return build_source_index(library, resolve_library_port(adapter), adapter=adapter)
+
+
+def build_midi_source_index_for_adapter(
+    config: AppConfig,
+    adapter_name: str,
+) -> MidiSourceIndex | None:
+    device = DeviceRegistry.from_config(config).device_for_adapter(adapter_name)
+    if device is None:
+        return None
+    adapter = config.adapters.get(adapter_name)
+    if adapter is None:
+        return None
+    return build_midi_source_index_for_device(device, adapter)
 
 
 def make_mapping_id(source: str, target: str) -> str:
@@ -289,14 +325,14 @@ def make_mapping_id(source: str, target: str) -> str:
 
 def resolve_osc_target_address(
     config: AppConfig,
-    adapter_name: str,
+    device: DeviceConfig,
     parameter_id: str,
 ) -> str:
-    adapter = config.adapters.get(adapter_name)
+    adapter = config.adapters.get(device.adapter)
     if adapter is None:
-        raise ValueError(f"unknown desk adapter: {adapter_name}")
+        raise ValueError(f"unknown adapter for device {device.id!r}")
 
-    library_id = _desk_library_id(adapter, adapter_name)
+    library_id = _device_library_id(device, adapter)
     library = get_osc_library(library_id)
     parameter = next(
         (entry for entry in library.parameters if entry.id == parameter_id),
@@ -310,6 +346,26 @@ def resolve_osc_target_address(
         raise ValueError(f"desk parameter {parameter_id!r} is not a target")
 
     return parameter.address
+
+
+def _device_library_id(device: DeviceConfig, adapter: AdapterConfig) -> str:
+    if device.library:
+        return device.library
+    kind = device.library_kind or adapter.kind or device.adapter
+    if kind in {"wing", "wing_native"}:
+        library_id = str(adapter.options.get("wing_library", "behringer_wing")).strip()
+        if not library_id:
+            raise ValueError(f"device {device.id} has no wing library configured")
+        return library_id
+    if kind == "midi":
+        library_id = str(adapter.options.get("midi_library", "")).strip()
+        if not library_id:
+            raise ValueError(f"device {device.id} has no midi library configured")
+        return library_id
+    library_id = str(adapter.options.get("osc_library", "")).strip()
+    if not library_id:
+        raise ValueError(f"device {device.id} has no osc library configured")
+    return library_id
 
 
 def _desk_library_id(adapter: AdapterConfig, adapter_name: str) -> str:
@@ -333,13 +389,14 @@ def lookup_midi_source_ranges(
     adapter_name: str,
     control_id: str,
 ) -> tuple[float, float]:
+    device = DeviceRegistry.from_config(config).device_for_adapter(adapter_name)
     adapter = config.adapters.get(adapter_name)
-    if adapter is None:
+    if device is None or adapter is None:
         return 0.0, 127.0
 
-    library_id = str(adapter.options.get("midi_library", "")).strip()
+    library_id = device.library.strip()
     if not library_id:
-        return _default_source_ranges(adapter_name, control_id)
+        return _default_source_ranges(device.id, control_id)
 
     library = get_midi_library(library_id)
     parameter = next(
@@ -356,11 +413,12 @@ def lookup_osc_target_ranges(
     adapter_name: str,
     parameter_id: str,
 ) -> tuple[float, float]:
+    device = DeviceRegistry.from_config(config).require_device_for_adapter(adapter_name)
     adapter = config.adapters.get(adapter_name)
     if adapter is None:
         raise ValueError(f"unknown desk adapter: {adapter_name}")
 
-    library_id = _desk_library_id(adapter, adapter_name)
+    library_id = _device_library_id(device, adapter)
     library = get_osc_library(library_id)
     parameter = next(
         (entry for entry in library.parameters if entry.id == parameter_id),
@@ -377,18 +435,6 @@ def _default_source_ranges(adapter_name: str, control_id: str) -> tuple[float, f
     if adapter_name == "gpio" or control_id.startswith("pin"):
         return 0.0, 1.0
     return 0.0, 127.0
-
-
-def upsert_mapping_rule(
-    mappings: list[MappingRule],
-    rule: MappingRule,
-) -> list[MappingRule]:
-    """Replace an existing rule with the same source or id, otherwise append."""
-
-    updated = [existing for existing in mappings if existing.source != rule.source]
-    updated = [existing for existing in updated if existing.id != rule.id]
-    updated.append(rule)
-    return updated
 
 
 def upsert_connection(
@@ -411,6 +457,7 @@ def resolve_target_datapoint(
     target_datapoint: str = "",
     target_adapter: str = "",
     target_parameter_id: str = "",
+    device_registry: DeviceRegistry | None = None,
 ) -> str:
     normalized = str(target_datapoint).strip()
     if normalized:
@@ -422,8 +469,12 @@ def resolve_target_datapoint(
     if not adapter_name or not parameter_id:
         raise ValueError("target_datapoint or target_adapter and parameter_id are required")
 
-    target_address = resolve_osc_target_address(config, adapter_name, parameter_id)
-    return legacy_target_to_datapoint(f"{adapter_name}:{target_address}")
+    registry = device_registry or DeviceRegistry.from_config(config)
+    device = registry.require_device_for_adapter(adapter_name)
+    target_address = resolve_osc_target_address(config, device, parameter_id)
+    if target_address.startswith("/"):
+        return str(DataPointId(device.id, target_address))
+    return str(DataPointId(device.id, target_address))
 
 
 def lookup_datapoint_ranges(

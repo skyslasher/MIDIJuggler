@@ -10,6 +10,8 @@ from midijuggler.config import AdapterConfig, AppConfig
 from midijuggler.eventbus import EventBus
 from midijuggler.events import AdapterStatusEvent, MappedEvent, MidiMessageEvent
 from midijuggler.midi.output import send_midi_message_to_port
+from midijuggler.device.lookup import device_id_for_adapter
+from midijuggler.device.registry import DeviceRegistry
 from midijuggler.midi.target_encode import encode_mapped_midi_target
 from midijuggler.system_info import resolve_midi_output_port_address
 
@@ -105,9 +107,12 @@ class RtpMidiAdapter(Adapter):
             )
             return
         try:
+            device_id = device_id_for_adapter(self._app_config, self.name)
+            registry = DeviceRegistry.from_config(self._app_config)
             status, data = encode_mapped_midi_target(
                 self._app_config,
-                self.name,
+                registry,
+                device_id,
                 point,
                 event.value,
             )

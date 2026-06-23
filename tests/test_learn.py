@@ -4,10 +4,10 @@ from midijuggler.learn import (
     LearnSource,
     resolve_monitor_source,
     upsert_connection,
-    upsert_mapping_rule,
 )
-from midijuggler.datapoint.types import ModifierKind
-from midijuggler.mapping import MappingRule
+from midijuggler.datapoint.types import ConnectionSpec, ModifierKind
+
+from conftest import midi_device, osc_device
 
 
 def test_learn_controller_selects_control_source() -> None:
@@ -96,7 +96,10 @@ def test_resolve_monitor_source_from_midi_message() -> None:
                     "enabled": True,
                     "midi_library": "behringer_xtouch_mini",
                 }
-            }
+            },
+            "devices": [
+                midi_device("xtouch_mini", library="behringer_xtouch_mini"),
+            ],
         }
     )
     source = resolve_monitor_source(
@@ -127,7 +130,11 @@ def test_build_mapping_uses_library_ranges() -> None:
                     "enabled": True,
                     "osc_library": "behringer_x32",
                 },
-            }
+            },
+            "devices": [
+                midi_device("xtouch_mini", library="behringer_xtouch_mini"),
+                osc_device("x32_foh", "behringer_x32"),
+            ],
         }
     )
     controller = LearnController()
@@ -144,34 +151,34 @@ def test_build_mapping_uses_library_ranges() -> None:
     )
     assert controller.state.source is not None
 
-    rule = controller.build_mapping(
+    connection = controller.build_mapping(
         config,
         source=controller.state.source,
         target_adapter="x32_foh",
         target_parameter_id="ch_01_bus_01_send",
     )
 
-    assert rule.source == "xtouch_mini:layer_a_fader"
-    assert rule.target == "x32_foh:/ch/01/mix/01/level"
-    assert rule.input_min == 0.0
-    assert rule.input_max == 127.0
-    assert rule.output_min == 0.0
-    assert rule.output_max == 1.0
+    assert connection.source == "xtouch_mini.layer_a_fader"
+    assert connection.target == "x32_foh./ch/01/mix/01/level"
+    assert connection.input_min == 0.0
+    assert connection.input_max == 127.0
+    assert connection.output_min == 0.0
+    assert connection.output_max == 1.0
 
 
-def test_upsert_mapping_rule_replaces_same_source() -> None:
-    existing = MappingRule(
+def test_upsert_connection_replaces_same_source() -> None:
+    existing = ConnectionSpec(
         id="old",
-        source="xtouch_mini:layer_a_fader",
-        target="x32_foh:/ch/01/mix/02/level",
+        source="gpio.pin17",
+        target="x32_foh./ch/01/mix/02/level",
     )
-    replacement = MappingRule(
+    replacement = ConnectionSpec(
         id="new",
-        source="xtouch_mini:layer_a_fader",
-        target="x32_foh:/ch/01/mix/01/level",
+        source="gpio.pin17",
+        target="x32_foh./ch/01/mix/01/level",
     )
 
-    updated = upsert_mapping_rule([existing], replacement)
+    updated = upsert_connection([existing], replacement)
 
     assert len(updated) == 1
     assert updated[0].id == "new"
@@ -203,9 +210,7 @@ def test_build_connection_uses_modifier_and_ranges() -> None:
     assert connection.modifier == ModifierKind.PASSTHROUGH
 
 
-def test_upsert_connection_replaces_same_source() -> None:
-    from midijuggler.datapoint.types import ConnectionSpec
-
+def test_upsert_connection_replaces_same_source_id() -> None:
     existing = ConnectionSpec(
         id="old",
         source="gpio.pin17",
@@ -224,7 +229,6 @@ def test_upsert_connection_replaces_same_source() -> None:
 
 
 def test_reverse_connection_maps_encoder_turn_to_value() -> None:
-    from midijuggler.datapoint.types import ConnectionSpec
     from midijuggler.learn import reverse_connection, suggest_feedback_target
 
     forward = ConnectionSpec(
@@ -253,7 +257,6 @@ def test_reverse_connection_maps_encoder_turn_to_value() -> None:
 def test_reverse_connection_preserves_forward_input_ranges_for_feedback() -> None:
     from midijuggler.datapoint.store import DataPointStore
     from midijuggler.datapoint.types import (
-        ConnectionSpec,
         DataPointDirection,
         DataPointId,
         DataPointSpec,
@@ -289,7 +292,6 @@ def test_reverse_connection_preserves_forward_input_ranges_for_feedback() -> Non
 
 
 def test_reverse_connection_swaps_customized_ranges() -> None:
-    from midijuggler.datapoint.types import ConnectionSpec
     from midijuggler.learn import reverse_connection
 
     forward = ConnectionSpec(

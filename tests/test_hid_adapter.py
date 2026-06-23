@@ -448,9 +448,26 @@ def test_hid_adapter_starts_when_device_missing_at_startup(
 
 def test_hid_control_events_update_datapoint_store(fake_evdev_codes: None) -> None:
     async def scenario() -> float | None:
+        from midijuggler.config import parse_config
+        from midijuggler.device.registry import DeviceRegistry
+
+        config = parse_config(
+            {
+                "adapters": {
+                    "gamepad": {
+                        "enabled": True,
+                        "type": "hid",
+                        "device": "/dev/input/event0",
+                        "codes": ["BTN_A"],
+                    }
+                },
+                "devices": [{"id": "gamepad", "adapter": "gamepad", "library_kind": "hid"}],
+            }
+        )
         bus = EventBus()
         store = DataPointStore()
-        bridge = EventToDataPointBridge(store, bus)
+        registry = DeviceRegistry.from_config(config)
+        bridge = EventToDataPointBridge(store, bus, registry)
         bridge.attach()
 
         reader = FakeHidReader(

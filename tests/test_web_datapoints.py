@@ -4,15 +4,47 @@ import pytest
 from aiohttp.test_utils import TestClient, TestServer
 
 from midijuggler.clock import ClockBpmTracker
-from midijuggler.config import parse_config
+from midijuggler.config import load_config, parse_config
 from midijuggler.datapoint.store import DataPointStore
 from midijuggler.eventbus import EventBus
 from midijuggler.master_clock import MasterClock
 from midijuggler.web.server import WebInterface
 
+from conftest import gpio_device, midi_custom_point, midi_device
+
+BASE_DEVICES_TOML = """
+[adapters.gpio]
+enabled = true
+pins = [17, 18]
+
+[adapters.midi]
+enabled = true
+
+[[devices]]
+id = "gpio"
+adapter = "gpio"
+library_kind = "gpio"
+
+[[devices]]
+id = "midi"
+adapter = "midi"
+library_kind = "midi"
+
+[[devices.custom_points]]
+id = "cc_1_64"
+
+[[devices.custom_points]]
+id = "cc_1_65"
+"""
+
 
 def test_datapoints_api_returns_registry() -> None:
-    config = parse_config({"adapters": {"osc": {"enabled": True}}})
+    config = parse_config(
+        {
+            "adapters": {"osc": {"enabled": True}},
+            "devices": [{"id": "osc", "adapter": "osc", "library_kind": "osc"}],
+        }
+    )
     store = DataPointStore()
     interface = WebInterface(
         config,
@@ -34,16 +66,27 @@ def test_datapoints_api_returns_registry() -> None:
     assert "values" in payload
 
 
-def test_connections_api_includes_legacy_mappings() -> None:
+def test_connections_api_includes_stored_connections() -> None:
     config = parse_config(
         {
-            "mappings": [
+            "adapters": {
+                "gpio": {"enabled": True, "pins": [17]},
+                "midi": {"enabled": True},
+            },
+            "devices": [
+                gpio_device(),
+                {
+                    **midi_device("midi", adapter="midi"),
+                    "custom_points": [midi_custom_point("cc_1_64")],
+                },
+            ],
+            "connections": [
                 {
                     "id": "test",
-                    "source": "gpio:pin17",
-                    "target": "midi:cc:1:64",
+                    "source": "gpio.pin17",
+                    "target": "midi.cc_1_64",
                 }
-            ]
+            ],
         }
     )
     interface = WebInterface(
@@ -61,24 +104,17 @@ def test_connections_api_includes_legacy_mappings() -> None:
 
 
 def test_set_connections_config_updates_runtime_and_persists(tmp_path) -> None:
-    from midijuggler.config import load_config
-
     config_path = tmp_path / "config.toml"
     config_path.write_text(
-        """
+        f"""
 [web]
 host = "127.0.0.1"
 port = 8080
-
-[[mappings]]
+{BASE_DEVICES_TOML}
+[[connections]]
 id = "old"
-source = "gpio:pin17"
-target = "midi:cc:1:64"
-input_min = 0.0
-input_max = 1.0
-output_min = 0.0
-output_max = 127.0
-invert = false
+source = "gpio.pin17"
+target = "midi.cc_1_64"
 """.strip()
         + "\n",
         encoding="utf-8",
@@ -122,82 +158,23 @@ invert = false
 
     status = interface._status_payload()
     assert status["stored_connections"][0]["source"] == "gpio.pin18"
-    assert status["mappings"] == []
+    assert "devices" in status
 
     reloaded = load_config(config_path)
     assert reloaded.connections[0].id == "updated"
     assert reloaded.connections[0].source == "gpio.pin18"
-    assert reloaded.mappings == []
-
-
-def test_set_connections_config_syncs_legacy_mappings_when_routing_disabled(
-    tmp_path,
-) -> None:
-    from midijuggler.config import load_config
-    from midijuggler.mapping import MappingEngine
-
-    config_path = tmp_path / "config.toml"
-    config_path.write_text(
-        """
-[runtime]
-datapoint_routing = false
-
-[[mappings]]
-id = "old"
-source = "gpio:pin17"
-target = "midi:cc:1:64"
-""".strip()
-        + "\n",
-        encoding="utf-8",
-    )
-    config = load_config(config_path)
-    mapping_engine = MappingEngine(config.mappings)
-    interface = WebInterface(
-        config,
-        EventBus(),
-        ClockBpmTracker(),
-        MasterClock(config.master_clock, EventBus()),
-        mapping_engine=mapping_engine,
-        config_path=config_path,
-    )
-
-    async def scenario() -> None:
-        app = interface.create_app()
-        async with TestClient(TestServer(app)) as client:
-            response = await client.post(
-                "/api/connections",
-                json={
-                    "connections": [
-                        {
-                            "id": "updated",
-                            "source": "gpio.pin18",
-                            "target": "midi.cc_1_65",
-                            "modifier": "range_map",
-                        }
-                    ]
-                },
-            )
-            assert response.status == 200
-
-    asyncio.run(scenario())
-    assert len(mapping_engine.rules) == 1
-    assert mapping_engine.rules[0].source == "gpio:pin18"
-    reloaded = load_config(config_path)
-    assert reloaded.mappings[0].source == "gpio:pin18"
 
 
 def test_delete_all_connections_clears_runtime_routing(tmp_path) -> None:
-    from midijuggler.config import load_config
-    from midijuggler.mapping import MappingEngine
     from midijuggler.modules.modifier.graph import ModifierGraph
 
     config_path = tmp_path / "config.toml"
     config_path.write_text(
-        """
+        f"""
 [web]
 host = "127.0.0.1"
 port = 8080
-
+{BASE_DEVICES_TOML}
 [[connections]]
 id = "route"
 source = "gpio.pin17"
@@ -213,7 +190,6 @@ invert = false
         encoding="utf-8",
     )
     config = load_config(config_path)
-    mapping_engine = MappingEngine(config.mappings)
     store = DataPointStore()
     graph = ModifierGraph(store, config.connections)
     interface = WebInterface(
@@ -221,7 +197,6 @@ invert = false
         EventBus(),
         ClockBpmTracker(),
         MasterClock(config.master_clock, EventBus()),
-        mapping_engine=mapping_engine,
         datapoint_store=store,
         modifier_graph=graph,
         config_path=config_path,
@@ -235,7 +210,6 @@ invert = false
 
     asyncio.run(scenario())
 
-    assert mapping_engine.rules == ()
     assert interface._stored_connections() == []
     assert graph.connections == []
 
@@ -255,17 +229,15 @@ def test_connections_api_includes_feedback_suppress_ms() -> None:
 
 
 def test_set_connections_config_persists_feedback_suppress_ms(tmp_path) -> None:
-    from midijuggler.config import load_config
-    from midijuggler.datapoint.store import DataPointStore
     from midijuggler.modules.modifier.graph import ModifierGraph
 
     config_path = tmp_path / "config.toml"
     config_path.write_text(
-        """
+        f"""
 [runtime]
 datapoint_routing = true
 feedback_suppress_ms = 500
-
+{BASE_DEVICES_TOML}
 [[connections]]
 id = "route"
 source = "gpio.pin17"
@@ -318,14 +290,34 @@ invert = false
 
 
 def test_reverse_connection_api_creates_feedback_mapping(tmp_path) -> None:
-    from midijuggler.config import load_config
-
     config_path = tmp_path / "config.toml"
     config_path.write_text(
         """
 [web]
 host = "127.0.0.1"
 port = 8080
+
+[adapters.xtouch_mini]
+type = "midi"
+enabled = true
+midi_library = "behringer_xtouch_mini"
+
+[adapters.x32_foh]
+type = "osc"
+enabled = true
+osc_library = "behringer_x32"
+
+[[devices]]
+id = "xtouch_mini"
+adapter = "xtouch_mini"
+library = "behringer_xtouch_mini"
+library_kind = "midi"
+
+[[devices]]
+id = "x32_foh"
+adapter = "x32_foh"
+library = "behringer_x32"
+library_kind = "osc"
 
 [[connections]]
 id = "encoder-to-fader"
