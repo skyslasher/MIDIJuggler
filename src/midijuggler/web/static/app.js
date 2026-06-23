@@ -201,7 +201,7 @@ function renderStatus(status) {
   const displayedBpm = status.master_clock?.bpm || status.bpm;
   bpm.textContent = displayedBpm ? displayedBpm.toFixed(1) : "--";
   learnMode = Boolean(status.learn_mode);
-  learnToggle.textContent = learnMode ? "Close mapping" : "Create mapping";
+  learnToggle.textContent = learnMode ? "Close connection" : "Create connection";
   learnToggle.classList.toggle("active-button", learnMode);
   learnOscInstances = status.osc_instances || [];
   learnPhase = status.learn?.phase || "idle";
@@ -572,7 +572,7 @@ function renderMappingsList(connections) {
   if (!connections.length) {
     const empty = document.createElement("li");
     empty.className = "mapping-item";
-    empty.textContent = "No mappings configured.";
+    empty.textContent = "No connections configured.";
     mappings.appendChild(empty);
     return;
   }
@@ -599,7 +599,7 @@ function renderMappingsList(connections) {
 
     const reverseButton = document.createElement("button");
     reverseButton.type = "button";
-    reverseButton.textContent = "Reverse mapping";
+    reverseButton.textContent = "Reverse connection";
     reverseButton.addEventListener("click", () => createReverseMapping(connection.id));
 
     const deleteButton = document.createElement("button");
@@ -639,7 +639,7 @@ function populateMappingEditor(connection) {
 
 async function openMappingEditor(connection) {
   editingConnectionId = connection.id;
-  mappingEditorTitle.textContent = `Edit mapping: ${connection.id}`;
+  mappingEditorTitle.textContent = `Edit connection: ${connection.id}`;
   mappingEditorMessage.textContent = "";
   mappingEditor.hidden = false;
   await loadLearnDatapoints();
@@ -766,7 +766,7 @@ async function deleteMappingConnection(connectionId) {
 async function createReverseMapping(connectionId) {
   const messageTarget = learnMode ? learnMessage : mappingEditorMessage;
   if (messageTarget) {
-    messageTarget.textContent = "creating feedback mapping...";
+    messageTarget.textContent = "creating feedback connection...";
   }
   try {
     const response = await fetch("/api/connections/reverse", {
@@ -790,8 +790,8 @@ async function createReverseMapping(connectionId) {
     }
     const created = payload.created_connection;
     const feedbackText = created
-      ? `created feedback mapping ${created.id}`
-      : "created feedback mapping";
+      ? `created feedback connection ${created.id}`
+      : "created feedback connection";
     if (messageTarget) {
       messageTarget.textContent =
         payload.persisted === false
@@ -1149,10 +1149,10 @@ function updateMonitorLearnHint() {
   }
   if (learnPhase === "waiting_target" && (learnSourceDatapointId || learnSourceKey)) {
     const sourceLabel = formatDatapointDisplay(learnSourceDatapointId || learnSourceKey);
-    learnMonitorHint.textContent = `Source selected: ${sourceLabel}. Click another message to change it, or pick target data points in the Mappings card.`;
+    learnMonitorHint.textContent = `Source selected: ${sourceLabel}. Click another message to change it, or pick target data points in the Connections card.`;
     return;
   }
-  learnMonitorHint.textContent = "Create mapping: click a monitor message or choose source instance and data point in the Mappings card.";
+  learnMonitorHint.textContent = "Create connection: click a monitor message or choose source instance and data point in the Connections card.";
 }
 
 function refreshMonitorEventLearnState() {
@@ -1164,7 +1164,7 @@ function refreshMonitorEventLearnState() {
     const selectable = learnMode && isLearnSelectableEvent(event);
     item.classList.toggle("monitor-event-selectable", selectable);
     if (selectable) {
-      item.title = "Select as mapping source";
+      item.title = "Select as connection source";
       item.onclick = () => selectMonitorEvent(event, item);
     } else {
       item.removeAttribute("title");
@@ -1625,7 +1625,7 @@ function appendEvent(event) {
 
   if (learnMode && isLearnSelectableEvent(event)) {
     item.classList.add("monitor-event-selectable");
-    item.title = "Select as mapping source";
+    item.title = "Select as connection source";
     item.onclick = () => selectMonitorEvent(event, item);
   }
 

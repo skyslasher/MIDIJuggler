@@ -6,7 +6,6 @@ import logging
 
 from midijuggler.adapters.midi import MidiAdapter
 from midijuggler.config import AppConfig
-from midijuggler.datapoint.bridge import legacy_target_to_datapoint
 from midijuggler.datapoint.migrate import effective_connections
 from midijuggler.datapoint.store import DataPointStore
 from midijuggler.datapoint.types import (
@@ -17,8 +16,7 @@ from midijuggler.datapoint.types import (
     ValueType,
     float_value,
 )
-from midijuggler.events import MappedEvent, MidiMessageEvent
-from midijuggler.mapping import MappingRule
+from midijuggler.events import MidiMessageEvent
 from midijuggler.midi.library_match import resolve_library_port
 from midijuggler.midi.target_encode import encode_mapped_midi_target
 from midijuggler.midi_library import get_midi_library
@@ -164,28 +162,3 @@ class MidiIOModule(IOModule):
                 direction="output",
             )
         )
-
-    async def send_mapped_event(self, event: MappedEvent) -> None:
-        point_id = _mapped_target_to_point_id(event.target)
-        if point_id is None:
-            return
-        await self.store.write(float_value(point_id, event.value))
-
-    async def apply_mapping_output(self, rule: MappingRule, value: float) -> None:
-        point_id = DataPointId.parse(legacy_target_to_datapoint(rule.target))
-        await self.store.write(float_value(point_id, value))
-
-
-def _mapped_target_to_point_id(target: str) -> DataPointId | None:
-    module, separator, point = target.partition(":")
-    if not separator:
-        return None
-    if point.startswith("cc:"):
-        parts = point.split(":")
-        if len(parts) == 3:
-            channel = int(parts[1]) - 1
-            controller = int(parts[2])
-            return DataPointId(module, f"cc_{channel}_{controller}")
-    if not point.startswith(("cc_", "note_", "program_")):
-        return DataPointId(module, point.replace(":", "_"))
-    return DataPointId(module, point)

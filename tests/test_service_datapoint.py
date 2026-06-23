@@ -42,6 +42,26 @@ def test_service_skips_legacy_mapping_when_datapoint_routing_enabled(
 
     asyncio.run(scenario())
     assert published == []
+    assert service.mapping is None
+
+
+def test_service_uses_mapping_engine_when_legacy_routing_enabled() -> None:
+    config = parse_config(
+        {
+            "runtime": {"datapoint_routing": False},
+            "adapters": {"gpio": {"enabled": False}},
+            "mappings": [
+                {
+                    "id": "test",
+                    "source": "gpio:pin17",
+                    "target": "midi:cc:1:64",
+                }
+            ],
+        }
+    )
+    service = MIDIJugglerService(config)
+    assert service.mapping is not None
+    assert len(service.mapping.rules) == 1
 
 
 def test_build_module_registry_includes_gpio_datapoints() -> None:

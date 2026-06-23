@@ -870,10 +870,13 @@ class WebInterface:
 
     def _apply_stored_connections(self, connections: list[ConnectionSpec]) -> None:
         object.__setattr__(self.config, "connections", list(connections))
-        updated_mappings = [mapping_from_connection(connection) for connection in connections]
-        self.config.mappings[:] = updated_mappings
-        if self.mapping_engine is not None:
-            self.mapping_engine.replace_rules(updated_mappings)
+        if not self.config.runtime.datapoint_routing:
+            updated_mappings = [
+                mapping_from_connection(connection) for connection in connections
+            ]
+            self.config.mappings[:] = updated_mappings
+            if self.mapping_engine is not None:
+                self.mapping_engine.replace_rules(updated_mappings)
         self._apply_runtime_connections()
 
     def _persist_stored_connections(
@@ -1020,7 +1023,11 @@ class WebInterface:
                 if self.osc_desk_tracker is not None
                 else []
             ),
-            "mappings": [rule.__dict__ for rule in self.config.mappings],
+            "mappings": (
+                [rule.__dict__ for rule in self.config.mappings]
+                if not self.config.runtime.datapoint_routing
+                else []
+            ),
             "stored_connections": [
                 connection.as_dict() for connection in self._stored_connections()
             ],

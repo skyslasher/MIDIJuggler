@@ -78,13 +78,11 @@ osc_library = "behringer_x32"
         encoding="utf-8",
     )
     config = load_config(config_path)
-    mapping_engine = MappingEngine(config.mappings)
     interface = WebInterface(
         config,
         EventBus(),
         ClockBpmTracker(),
         MasterClock(config.master_clock, EventBus()),
-        mapping_engine=mapping_engine,
         config_path=config_path,
     )
     interface.learn.set_enabled(True)
@@ -111,7 +109,7 @@ osc_library = "behringer_x32"
 
     assert result["persisted"] is True
     assert result["created_connection"]["target"] == "x32_foh./ch/01/mix/01/level"
-    assert len(mapping_engine.rules) == 1
+    assert len(interface.config.connections) == 1
     assert interface.learn.state.phase == "waiting_source"
 
     reloaded = load_config(config_path)

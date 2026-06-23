@@ -90,15 +90,3 @@ class OscIOModule(IOModule):
                 value=value.float_value,
             )
         )
-
-    async def send_mapped_event(self, event: MappedEvent) -> None:
-        module, separator, point = event.target.partition(":")
-        if not separator:
-            return
-        await self.store.write(float_value(DataPointId(module, point), event.value))
-
-    async def apply_mapping_output(self, rule: MappingRule, value: float) -> None:
-        from midijuggler.datapoint.bridge import legacy_target_to_datapoint
-
-        point_id = DataPointId.parse(legacy_target_to_datapoint(rule.target))
-        await self.store.write(float_value(point_id, value))

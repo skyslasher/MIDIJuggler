@@ -61,7 +61,10 @@ class MIDIJugglerService:
         self.bus = EventBus()
         self.datapoint_store = DataPointStore()
         self.clock = ClockBpmTracker()
-        self.mapping = MappingEngine(config.mappings)
+        self._legacy_routing = not config.runtime.datapoint_routing
+        self.mapping = (
+            MappingEngine(config.mappings) if self._legacy_routing else None
+        )
         self.rtp_midi_manager = RtpMidiManager()
         self.adapters = build_adapters(
             config.adapters,
@@ -119,8 +122,9 @@ class MIDIJugglerService:
         self._runner = None
 
         self.bus.subscribe(MidiClockEvent, self._track_clock)
-        self.bus.subscribe(ControlEvent, self._map_control)
-        self.bus.subscribe(MappedEvent, self._route_mapped_event)
+        if self._legacy_routing:
+            self.bus.subscribe(ControlEvent, self._map_control)
+            self.bus.subscribe(MappedEvent, self._route_mapped_event)
         self.bus.subscribe(MidiMessageEvent, self._handle_midi_message)
         self.bus.subscribe(OscMessageEvent, self._handle_osc_message)
         self.bus.subscribe(MasterClockCommandEvent, self._handle_master_clock_command)
@@ -171,20 +175,11 @@ class MIDIJugglerService:
             await self.bus.publish(BpmChangedEvent(source="clock", bpm=bpm))
 
     async def _map_control(self, event: ControlEvent) -> None:
-        if self.config.runtime.datapoint_routing:
+        if self.mapping is None:
             return
         await self.bus.publish_many(self.mapping.map_event(event))
 
     async def _route_mapped_event(self, event: MappedEvent) -> None:
-        if self.config.runtime.datapoint_routing:
-            adapter_name = event.target.split(":", 1)[0]
-            io_module = self.io_modules.get(adapter_name)
-            if io_module is not None:
-                await io_module.send_mapped_event(event)
-                return
-            LOGGER.warning("no data-point I/O module for target %s", event.target)
-            return
-
         adapter = self._adapter_for_target(event.target)
         if adapter is None:
             LOGGER.warning("no enabled adapter for target %s", event.target)
