@@ -8,7 +8,8 @@ from typing import Iterable
 ESCAPE_CODE = 0xDF
 CHANNEL_ID_BASE = 0xD0
 NUM_CHANNELS = 14
-AUDIO_ENGINE_CHANNEL = 1
+# Wing remote protocol: audio-engine parameters (faders, etc.) use comm channel 2.
+AUDIO_ENGINE_CHANNEL = 2
 WING_NATIVE_PORT = 2222
 
 
@@ -68,8 +69,11 @@ def encode_request_node_data(node_id: int) -> bytes:
     return encode_node_id(node_id, 0xDC)
 
 
-def encode_set_float(node_id: int, value: float) -> bytes:
-    return encode_node_id(node_id, 0xD5) + struct.pack(">f", value)
+def encode_set_float(node_id: int, value: float, *, raw: bool = False) -> bytes:
+    """Encode a float write. Use raw=True (0xD6) for normalized 0..1 fader positions."""
+
+    suffix = 0xD6 if raw else 0xD5
+    return encode_node_id(node_id, suffix) + struct.pack(">f", value)
 
 
 def encode_set_int(node_id: int, value: int) -> bytes:

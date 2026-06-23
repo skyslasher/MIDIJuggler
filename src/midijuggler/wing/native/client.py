@@ -84,7 +84,8 @@ class WingNativeClient:
                 await writer.wait_closed()
 
     async def keepalive(self) -> None:
-        await self._write(encode_keepalive(self.channel))
+        async with self._lock:
+            await self._write_payload(encode_keepalive(self.channel))
 
     async def resolve_path(self, path: str) -> int:
         normalized = _normalize_path(path)
@@ -130,8 +131,8 @@ class WingNativeClient:
                 future=pending,
                 request_id=request_id,
             )
-            await self.keepalive()
-            await self._write(encode_request_node_definition(node_id))
+            await self._write_payload(encode_keepalive(self.channel))
+            await self._write_payload(encode_request_node_definition(node_id))
             try:
                 return await asyncio.wait_for(
                     pending,
@@ -154,11 +155,13 @@ class WingNativeClient:
                 ):
                     self._pending_node_defs = None
 
-    async def set_float(self, node_id: int, value: float) -> None:
-        await self._write(encode_set_float(node_id, value))
+    async def set_float(self, node_id: int, value: float, *, raw: bool = False) -> None:
+        async with self._lock:
+            await self._write_payload(encode_set_float(node_id, value, raw=raw))
 
     async def set_int(self, node_id: int, value: int) -> None:
-        await self._write(encode_set_int(node_id, value))
+        async with self._lock:
+            await self._write_payload(encode_set_int(node_id, value))
 
     async def read_events(self) -> list[tuple[WingDecodeKind, object]]:
         if self._reader is None:
@@ -243,7 +246,7 @@ class WingNativeClient:
         self._path_to_id[normalized] = node_id
         self._id_to_path[node_id] = normalized
 
-    async def _write(self, payload: bytes) -> None:
+    async def _write_payload(self, payload: bytes) -> None:
         if self._writer is None:
             raise ConnectionError("Wing native client is not connected")
         self._writer.write(payload)

@@ -147,7 +147,11 @@ class WingNativeAdapter(Adapter):
             return
 
         value = float(event.value)
-        await self._client.set_float(node_id, value)
+        use_raw_fader = (
+            _FADER_PATH_MARKER in address
+            and 0.0 <= value <= 1.0
+        )
+        await self._client.set_float(node_id, value, raw=use_raw_fader)
         self._connectivity.note_send()
         self._echo_guard.record(address, value)
         await self.bus.publish(

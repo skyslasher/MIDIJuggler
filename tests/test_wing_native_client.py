@@ -83,7 +83,7 @@ def test_list_children_drains_stale_response_before_next_request(
         async def capture_write(payload: bytes) -> None:
             writes.append(payload)
 
-        client._write = capture_write  # type: ignore[method-assign]  # noqa: SLF001
+        client._write_payload = capture_write  # type: ignore[method-assign]  # noqa: SLF001
 
         timed_out = asyncio.create_task(client.list_children(0))
         with pytest.raises(TimeoutError):
@@ -140,7 +140,7 @@ def test_concurrent_warmup_and_send_both_complete(
                 node_id = int.from_bytes(payload[offset : offset + 4], "big", signed=True)
                 await requested_nodes.put(node_id)
 
-        client._write = capture_write  # type: ignore[method-assign]  # noqa: SLF001
+        client._write_payload = capture_write  # type: ignore[method-assign]  # noqa: SLF001
 
         async def auto_responder() -> None:
             while True:

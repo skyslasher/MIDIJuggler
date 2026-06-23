@@ -23,7 +23,7 @@ def _wire_node_def_response(raw: bytes) -> bytes:
 
 
 def test_encode_keepalive_selects_audio_engine_channel() -> None:
-    assert encode_keepalive() == bytes([0xDF, 0xD1])
+    assert encode_keepalive() == bytes([0xDF, 0xD2])
 
 
 def test_encode_set_float_uses_node_hash_prefix() -> None:
@@ -31,6 +31,15 @@ def test_encode_set_float_uses_node_hash_prefix() -> None:
 
     assert payload.startswith(bytes([0xD7]))
     assert payload.endswith(struct.pack(">f", 0.5))
+    assert payload[-5] == 0xD5
+
+
+def test_encode_set_float_raw_uses_d6_suffix() -> None:
+    payload = encode_set_float(0x12345678, 0.5, raw=True)
+
+    assert payload.startswith(bytes([0xD7]))
+    assert payload.endswith(struct.pack(">f", 0.5))
+    assert payload[-5] == 0xD6
 
 
 def test_encode_request_root_node_definition() -> None:
@@ -47,7 +56,7 @@ def test_encode_request_child_node_definition() -> None:
 
 def test_decoder_parses_spontaneous_float_update() -> None:
     decoder = WingStreamDecoder()
-    events = decoder.feed(bytes([0xDF, 0xD1]) + encode_set_float(0x01020304, 0.75))
+    events = decoder.feed(bytes([0xDF, 0xD2]) + encode_set_float(0x01020304, 0.75))
 
     kinds = [kind for kind, _payload in events]
     assert WingDecodeKind.NODE_ID in kinds
@@ -70,7 +79,7 @@ def test_parse_node_definition_reads_name_and_id() -> None:
 
 def test_decoder_parses_node_definition_stream_with_request_end() -> None:
     ch = _wire_node_def_response(_node_def_raw(node_id=10, name="ch"))
-    stream = bytes([0xDF, 0xD1]) + ch + bytes([0xDE])
+    stream = bytes([0xDF, 0xD2]) + ch + bytes([0xDE])
 
     decoder = WingStreamDecoder()
     events = decoder.feed(stream)
@@ -90,10 +99,10 @@ def test_client_handle_events_completes_list_children_from_wire_stream() -> None
         async def noop_write(_payload: bytes) -> None:
             return
 
-        client._write = noop_write  # type: ignore[method-assign]  # noqa: SLF001
+        client._write_payload = noop_write  # type: ignore[method-assign]  # noqa: SLF001
 
         ch = _wire_node_def_response(_node_def_raw(node_id=42, name="ch"))
-        stream = bytes([0xDF, 0xD1]) + ch + bytes([0xDE])
+        stream = bytes([0xDF, 0xD2]) + ch + bytes([0xDE])
 
         pending = asyncio.create_task(client.list_children(0))
         await asyncio.sleep(0)

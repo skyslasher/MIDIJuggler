@@ -112,9 +112,16 @@ def test_wing_native_adapter_send_resolves_path_and_records_output() -> None:
                 assert path == "/ch/1/fdr"
                 return 99
 
-            async def set_float(self, node_id: int, value: float) -> None:
+            async def set_float(
+                self,
+                node_id: int,
+                value: float,
+                *,
+                raw: bool = False,
+            ) -> None:
                 assert node_id == 99
                 assert value == pytest.approx(0.25)
+                assert raw is True
                 sent.append(b"sent")
 
         adapter = WingNativeAdapter(
@@ -144,3 +151,46 @@ def test_wing_native_adapter_send_resolves_path_and_records_output() -> None:
     assert sent == [b"sent"]
     assert output is not None
     assert output.address == "/ch/1/fdr"
+
+
+def test_wing_native_adapter_send_uses_engineering_float_for_fader_db() -> None:
+    async def scenario() -> bool:
+        bus = EventBus()
+        state = {"raw": False}
+
+        class FakeClient(WingNativeClient):
+            async def resolve_path(self, path: str) -> int:
+                return 99
+
+            async def set_float(
+                self,
+                node_id: int,
+                value: float,
+                *,
+                raw: bool = False,
+            ) -> None:
+                assert value == pytest.approx(-5.873)
+                state["raw"] = raw
+
+        adapter = WingNativeAdapter(
+            name="wing_native_foh",
+            config=AdapterConfig(
+                enabled=True,
+                kind="wing_native",
+                options={"remote_host": "192.168.1.48"},
+            ),
+            bus=bus,
+        )
+        adapter._client = FakeClient("192.168.1.48")  # noqa: SLF001
+        adapter.running = True
+
+        await adapter.send(
+            MappedEvent(
+                source="datapoint",
+                target="wing_native_foh:/ch/1/fdr",
+                value=-5.873,
+            )
+        )
+        return state["raw"]
+
+    assert asyncio.run(scenario()) is False
