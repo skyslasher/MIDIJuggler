@@ -68,8 +68,8 @@ class AppConfig:
     connections: list[ConnectionSpec] = field(default_factory=list)
 
 
-DEFAULT_ADAPTERS = ("osc", "midi", "rtp_midi", "gpio", "hid")
-MULTI_INSTANCE_ADAPTERS = ("osc", "midi", "rtp_midi", "hid")
+DEFAULT_ADAPTERS = ("osc", "midi", "rtp_midi", "gpio", "hid", "wing_native")
+MULTI_INSTANCE_ADAPTERS = ("osc", "midi", "rtp_midi", "hid", "wing_native")
 LEGACY_USB_MIDI_KIND = "usb_midi"
 
 

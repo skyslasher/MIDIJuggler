@@ -8,6 +8,7 @@ from midijuggler.adapters.hid import HidAdapter
 from midijuggler.adapters.midi import MidiAdapter
 from midijuggler.adapters.osc import OscAdapter
 from midijuggler.adapters.rtp_midi import RtpMidiAdapter
+from midijuggler.adapters.wing_native import WingNativeAdapter
 from midijuggler.config import AppConfig
 from midijuggler.datapoint.migrate import effective_connections
 from midijuggler.datapoint.store import DataPointStore
@@ -20,6 +21,7 @@ from midijuggler.modules.io.hid import HidIOModule
 from midijuggler.modules.io.midi import MidiIOModule
 from midijuggler.modules.io.osc import OscIOModule
 from midijuggler.modules.io.rtp_midi import RtpMidiIOModule
+from midijuggler.modules.io.wing_native import WingNativeIOModule
 from midijuggler.modules.modifier.graph import ModifierGraph
 from midijuggler.modules.registry import ModuleRegistry
 from midijuggler.web.server import WebInterface
@@ -32,9 +34,9 @@ def build_module_registry(
     adapters: list[Adapter],
     master_clock: MasterClock,
     web: WebInterface,
-) -> tuple[ModuleRegistry, dict[str, MidiIOModule | OscIOModule | RtpMidiIOModule]]:
+) -> tuple[ModuleRegistry, dict[str, MidiIOModule | OscIOModule | RtpMidiIOModule | WingNativeIOModule]]:
     registry = ModuleRegistry()
-    io_modules: dict[str, MidiIOModule | OscIOModule | RtpMidiIOModule] = {}
+    io_modules: dict[str, MidiIOModule | OscIOModule | RtpMidiIOModule | WingNativeIOModule] = {}
 
     for adapter in adapters:
         if isinstance(adapter, GpioAdapter):
@@ -51,6 +53,10 @@ def build_module_registry(
             io_modules[adapter.name] = module
         elif isinstance(adapter, RtpMidiAdapter):
             module = RtpMidiIOModule(adapter, store, config)
+            registry.add(module)
+            io_modules[adapter.name] = module
+        elif isinstance(adapter, WingNativeAdapter):
+            module = WingNativeIOModule(adapter, store, config)
             registry.add(module)
             io_modules[adapter.name] = module
 

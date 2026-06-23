@@ -20,6 +20,7 @@ from midijuggler.adapters.gpio import GpioAdapter, RASPBERRY_PI_HEADER_BCM_PINS
 from midijuggler.adapters.hid import HidAdapter
 from midijuggler.adapters.midi import MidiAdapter
 from midijuggler.adapters.osc import OscAdapter
+from midijuggler.adapters.wing_native import WingNativeAdapter
 from midijuggler.adapters.rtp_midi import RtpMidiAdapter
 from midijuggler.alsa import (
     lookup_alsa_output_device,
@@ -153,6 +154,7 @@ class WebInterface:
         midi_adapters: dict[str, MidiAdapter] | None = None,
         rtp_midi_adapters: dict[str, RtpMidiAdapter] | None = None,
         osc_adapters: dict[str, OscAdapter] | None = None,
+        wing_native_adapters: dict[str, WingNativeAdapter] | None = None,
         mapping_engine: MappingEngine | None = None,
         rtp_midi_manager: RtpMidiManager | None = None,
         runtime_adapters: list[Adapter] | None = None,
@@ -170,6 +172,7 @@ class WebInterface:
         self.midi_adapters = midi_adapters or {}
         self.rtp_midi_adapters = rtp_midi_adapters or {}
         self.osc_adapters = osc_adapters or {}
+        self.wing_native_adapters = wing_native_adapters or {}
         self.mapping_engine = mapping_engine
         self.rtp_midi_manager = rtp_midi_manager
         self._runtime_adapters = runtime_adapters
@@ -1018,6 +1021,7 @@ class WebInterface:
             "learn_mode": self.learn.state.enabled,
             "learn": self.learn.state.as_dict(),
             "osc_instances": self._osc_instances_payload(),
+            "wing_native_instances": self._wing_native_instances_payload(),
             "osc_discovered_desks": (
                 self.osc_desk_tracker.discovered_desks
                 if self.osc_desk_tracker is not None
@@ -1057,7 +1061,44 @@ class WebInterface:
         runtime_connection = self._adapter_runtime_connection(name)
         if runtime_connection is not None:
             entry["runtime_connection"] = runtime_connection
+        if (adapter.kind or name) == "wing_native":
+            runtime_adapter = self.wing_native_adapters.get(name)
+            if runtime_adapter is not None:
+                entry["wing_connectivity"] = runtime_adapter.connectivity_snapshot()
         return entry
+
+    def _wing_native_instances_payload(self) -> list[dict[str, Any]]:
+        instances: list[dict[str, Any]] = []
+        for name, adapter in self.config.adapters.items():
+            kind = adapter.kind or name
+            if kind != "wing_native":
+                continue
+            if not adapter.enabled and name not in self.wing_native_adapters:
+                continue
+            options = dict(adapter.options)
+            runtime_adapter = self.wing_native_adapters.get(name)
+            payload: dict[str, Any] = {
+                "name": name,
+                "type": "wing_native",
+                "enabled": adapter.enabled,
+                "remote_host": str(options.get("remote_host", "")).strip(),
+                "native_port": int(options.get("native_port", 2222)),
+                "wing_library": str(options.get("wing_library", "behringer_wing")).strip(),
+                "runtime_active": runtime_adapter is not None and runtime_adapter.running,
+            }
+            runtime_connection = self._adapter_runtime_connection(name)
+            if runtime_connection is not None:
+                payload["runtime_connection"] = runtime_connection
+            if runtime_adapter is not None:
+                payload["connectivity"] = runtime_adapter.connectivity_snapshot()
+            elif runtime_connection is not None:
+                payload["connectivity"] = {
+                    "connection_phase": runtime_connection.get("connection_phase", ""),
+                    "connected": runtime_connection.get("connection_phase") == "connected",
+                    "last_error": runtime_connection.get("detail", ""),
+                }
+            instances.append(payload)
+        return instances
 
     def _parse_midi_test_message(self, payload: dict[str, Any]) -> tuple[int, tuple[int, ...]]:
         if "status" not in payload:

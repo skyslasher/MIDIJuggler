@@ -1258,7 +1258,10 @@ function adapterConnectionBadgeText(connection) {
   const { phase, detail } = normalized;
   switch (phase) {
     case "connected":
-      return "Connected";
+    case "connecting":
+      return phase === "connecting" ? "Waiting" : "Connected";
+    case "error":
+      return "Unavailable";
     case "waiting":
       return "Waiting";
     case "reconnecting":

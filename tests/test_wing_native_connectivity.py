@@ -1,0 +1,59 @@
+import asyncio
+
+import pytest
+
+from midijuggler.adapters.wing_native import WingNativeAdapter
+from midijuggler.config import AdapterConfig
+from midijuggler.eventbus import EventBus
+from midijuggler.events import AdapterStatusEvent
+from midijuggler.wing.native.client import WingNativeClient, WingPathBinding
+from midijuggler.wing.native.connectivity import WingNativeConnectivity
+
+
+def test_wing_native_connectivity_snapshot_reports_feedback_age() -> None:
+    connectivity = WingNativeConnectivity()
+    connectivity.note_connected("192.168.1.48", 2222)
+    connectivity.note_feedback("/ch/1/fdr", 0.5)
+    connectivity.paths_cached = 12
+
+    snapshot = connectivity.as_dict()
+
+    assert snapshot["connected"] is True
+    assert snapshot["connection_phase"] == "connected"
+    assert snapshot["last_feedback_path"] == "/ch/1/fdr"
+    assert snapshot["last_feedback_value"] == pytest.approx(0.5)
+    assert snapshot["last_feedback_age_s"] is not None
+    assert snapshot["paths_cached"] == 12
+
+
+def test_wing_native_adapter_publishes_connectivity_status_on_feedback() -> None:
+    async def scenario() -> list[AdapterStatusEvent]:
+        bus = EventBus()
+        events: list[AdapterStatusEvent] = []
+        bus.subscribe(AdapterStatusEvent, lambda event: events.append(event))
+
+        adapter = WingNativeAdapter(
+            name="wing_native_foh",
+            config=AdapterConfig(
+                enabled=True,
+                kind="wing_native",
+                options={"remote_host": "192.168.1.48"},
+            ),
+            bus=bus,
+        )
+        adapter._client = WingNativeClient("192.168.1.48")  # noqa: SLF001
+        adapter._client.remember_binding(WingPathBinding("/ch/1/fdr", 99))  # noqa: SLF001
+        adapter._connectivity.note_connected("192.168.1.48", 2222)  # noqa: SLF001
+        adapter.running = True
+
+        from midijuggler.wing.native.decoder import WingNodeData
+
+        await adapter._publish_node_data(WingNodeData(99, float_value=0.5))  # noqa: SLF001
+        return events
+
+    events = asyncio.run(scenario())
+
+    assert events
+    assert events[-1].connection_phase == "connected"
+    assert "/ch/1/fdr" in events[-1].detail
+    assert "last feedback" in events[-1].detail

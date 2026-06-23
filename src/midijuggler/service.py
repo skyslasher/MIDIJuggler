@@ -15,6 +15,7 @@ from midijuggler.adapters.hid import HidAdapter
 from midijuggler.adapters.rtp_midi import RtpMidiAdapter
 from midijuggler.adapters.midi import MidiAdapter
 from midijuggler.adapters.osc import OscAdapter
+from midijuggler.adapters.wing_native import WingNativeAdapter
 from midijuggler.alsa import (
     MASTER_CLOCK_PCM_NAME,
     alsa_config_path_for_config,
@@ -89,6 +90,7 @@ class MIDIJugglerService:
             midi_adapters=self._midi_adapters(),
             rtp_midi_adapters=self._rtp_midi_adapters(),
             osc_adapters=self._osc_adapters(),
+            wing_native_adapters=self._wing_native_adapters(),
             mapping_engine=self.mapping,
             rtp_midi_manager=self.rtp_midi_manager,
             runtime_adapters=self.adapters,
@@ -271,6 +273,13 @@ class MIDIJugglerService:
             adapter.name: adapter
             for adapter in self.adapters
             if isinstance(adapter, OscAdapter)
+        }
+
+    def _wing_native_adapters(self) -> dict[str, WingNativeAdapter]:
+        return {
+            adapter.name: adapter
+            for adapter in self.adapters
+            if isinstance(adapter, WingNativeAdapter)
         }
 
     def _rtp_midi_adapters(self) -> dict[str, RtpMidiAdapter]:

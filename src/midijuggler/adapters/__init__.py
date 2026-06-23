@@ -6,6 +6,7 @@ from midijuggler.adapters.hid import HidAdapter
 from midijuggler.adapters.osc import OscAdapter
 from midijuggler.adapters.rtp_midi import RtpMidiAdapter
 from midijuggler.adapters.midi import MidiAdapter
+from midijuggler.adapters.wing_native import WingNativeAdapter
 from midijuggler.config import AdapterConfig, AppConfig
 from midijuggler.eventbus import EventBus
 from midijuggler.rtp_midi.manager import RtpMidiManager
@@ -16,6 +17,7 @@ ADAPTER_CLASSES = {
     "rtp_midi": RtpMidiAdapter,
     "gpio": GpioAdapter,
     "hid": HidAdapter,
+    "wing_native": WingNativeAdapter,
 }
 
 

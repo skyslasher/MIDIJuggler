@@ -65,6 +65,14 @@ osc_library = "behringer_wing"
 desk_sync_on_connect = false
 desk_proxy_mode = false
 
+[adapters.wing_native_foh]
+type = "wing_native"
+enabled = false
+remote_host = "192.168.10.48"
+native_port = 2222
+wing_library = "behringer_wing"
+echo_guard_ms = 30
+
 [adapters.midi]
 enabled = true
 input_port = "MIDIJuggler In"

@@ -1,0 +1,1 @@
+"""Behringer Wing desk integration."""
