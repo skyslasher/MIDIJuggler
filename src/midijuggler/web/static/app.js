@@ -122,6 +122,11 @@ const systemHostnameSave = document.querySelector("#system-hostname-save");
 const systemHostnameMessage = document.querySelector("#system-hostname-message");
 const systemRestartButton = document.querySelector("#system-restart");
 const systemRestartMessage = document.querySelector("#system-restart-message");
+const deviceInstances = document.querySelector("#device-instances");
+const deviceAdd = document.querySelector("#device-add");
+const devicesFillAdapters = document.querySelector("#devices-fill-adapters");
+const devicesSave = document.querySelector("#devices-save");
+const devicesMessage = document.querySelector("#devices-message");
 const connectionState = document.querySelector("#connection-state");
 
 let learnMode = false;
@@ -144,6 +149,10 @@ const LEARN_STREAM_POINT_SUFFIXES = new Set([
 let cachedOscLibrary = null;
 let socket;
 let gpioConfig = null;
+let devicesConfig = null;
+let deviceAdapterOptions = [];
+let cachedOscLibraryList = [];
+let cachedMidiLibraryList = [];
 let hidAdaptersConfig = null;
 let hidLearnInstanceName = "";
 let masterClockConfig = null;
@@ -1657,8 +1666,9 @@ function isFeedbackRefresh(event) {
 }
 
 function renderOscLibraries(libraries) {
+  cachedOscLibraryList = Array.isArray(libraries) ? libraries : [];
   oscLibraries.replaceChildren();
-  for (const library of libraries) {
+  for (const library of cachedOscLibraryList) {
     const item = document.createElement("li");
     item.textContent = `${library.name}: ${library.parameter_count} parameters`;
     oscLibraries.appendChild(item);
@@ -1666,12 +1676,307 @@ function renderOscLibraries(libraries) {
 }
 
 function renderMidiLibraries(libraries) {
+  cachedMidiLibraryList = Array.isArray(libraries) ? libraries : [];
   midiLibraries.replaceChildren();
-  for (const library of libraries) {
+  for (const library of cachedMidiLibraryList) {
     const item = document.createElement("li");
     item.textContent = `${library.name}: ${library.parameter_count} parameters`;
     midiLibraries.appendChild(item);
   }
+}
+
+const DEVICE_LIBRARY_KINDS = ["", "osc", "midi", "gpio", "hid", "wing"];
+
+function adapterOptionByName(name) {
+  return (deviceAdapterOptions || []).find((entry) => entry.name === name) || null;
+}
+
+function libraryOptionsForKind(kind) {
+  if (kind === "osc" || kind === "wing") {
+    return cachedOscLibraryList.map((library) => library.id || library.name);
+  }
+  if (kind === "midi") {
+    return cachedMidiLibraryList.map((library) => library.id || library.name);
+  }
+  return [];
+}
+
+function fillDeviceLibrarySelect(select, kind, selectedValue) {
+  const previous = selectedValue || select.value;
+  select.replaceChildren();
+  const empty = document.createElement("option");
+  empty.value = "";
+  empty.textContent = kind ? "Select library..." : "Not required";
+  select.appendChild(empty);
+  for (const libraryId of libraryOptionsForKind(kind)) {
+    const option = document.createElement("option");
+    option.value = libraryId;
+    option.textContent = libraryId;
+    select.appendChild(option);
+  }
+  if (previous && [...select.options].some((option) => option.value === previous)) {
+    select.value = previous;
+  }
+}
+
+function applyAdapterDefaultsToDeviceCard(card) {
+  const adapterName = card.querySelector('[data-field="adapter"]')?.value || "";
+  const adapter = adapterOptionByName(adapterName);
+  const kindField = card.querySelector('[data-field="library_kind"]');
+  const libraryField = card.querySelector('[data-field="library"]');
+  const idField = card.querySelector('[data-field="id"]');
+  if (!adapter || !kindField || !libraryField) {
+    return;
+  }
+  if (!kindField.value) {
+    kindField.value = adapter.library_kind || "";
+  }
+  fillDeviceLibrarySelect(libraryField, kindField.value, adapter.library || libraryField.value);
+  if (!libraryField.value && adapter.library) {
+    libraryField.value = adapter.library;
+  }
+  if (idField && !idField.value.trim()) {
+    idField.value = adapterName;
+  }
+}
+
+function createDeviceCustomPointRow(point = {}) {
+  const row = document.createElement("div");
+  row.className = "device-custom-point-row";
+  row.innerHTML = `
+    <label class="stacked-field">
+      Point id
+      <input data-field="point_id" type="text" value="${point.id || ""}" />
+    </label>
+    <label class="stacked-field">
+      Direction
+      <select data-field="point_direction">
+        <option value="bidirectional">Bidirectional</option>
+        <option value="input">Input</option>
+        <option value="output">Output</option>
+      </select>
+    </label>
+    <button type="button" class="device-custom-point-remove">Remove</button>
+  `;
+  row.querySelector('[data-field="point_direction"]').value = point.direction || "bidirectional";
+  row.querySelector(".device-custom-point-remove").addEventListener("click", () => {
+    row.remove();
+  });
+  return row;
+}
+
+function createDeviceCard(device = {}) {
+  const card = document.createElement("div");
+  card.className = "midi-adapter-card device-card";
+  card.innerHTML = `
+    <div class="device-fields">
+      <label class="stacked-field">
+        Device id
+        <input data-field="id" type="text" autocomplete="off" spellcheck="false" />
+      </label>
+      <label class="stacked-field">
+        Adapter instance
+        <select data-field="adapter"></select>
+      </label>
+      <label class="stacked-field">
+        Label
+        <input data-field="label" type="text" autocomplete="off" spellcheck="false" />
+      </label>
+      <label class="stacked-field">
+        Library kind
+        <select data-field="library_kind"></select>
+      </label>
+      <label class="stacked-field">
+        Library
+        <select data-field="library"></select>
+      </label>
+      <details>
+        <summary>Custom data points</summary>
+        <div class="custom-points-list"></div>
+        <button type="button" class="device-custom-point-add">Add custom point</button>
+      </details>
+    </div>
+    <div class="midi-adapter-card-actions">
+      <button type="button" class="device-remove">Remove device</button>
+    </div>
+  `;
+
+  const adapterSelect = card.querySelector('[data-field="adapter"]');
+  adapterSelect.replaceChildren();
+  const placeholder = document.createElement("option");
+  placeholder.value = "";
+  placeholder.textContent = "Select adapter...";
+  adapterSelect.appendChild(placeholder);
+  for (const adapter of deviceAdapterOptions) {
+    const option = document.createElement("option");
+    option.value = adapter.name;
+    option.textContent = adapter.library
+      ? `${adapter.name} (${adapter.library_kind || adapter.kind}, ${adapter.library})`
+      : `${adapter.name} (${adapter.library_kind || adapter.kind})`;
+    adapterSelect.appendChild(option);
+  }
+
+  const kindSelect = card.querySelector('[data-field="library_kind"]');
+  for (const kind of DEVICE_LIBRARY_KINDS) {
+    const option = document.createElement("option");
+    option.value = kind;
+    option.textContent = kind || "Auto / none";
+    kindSelect.appendChild(option);
+  }
+
+  card.querySelector('[data-field="id"]').value = device.id || "";
+  card.querySelector('[data-field="adapter"]').value = device.adapter || "";
+  card.querySelector('[data-field="label"]').value = device.label || "";
+  card.querySelector('[data-field="library_kind"]').value = device.library_kind || "";
+  fillDeviceLibrarySelect(
+    card.querySelector('[data-field="library"]'),
+    device.library_kind || adapterOptionByName(device.adapter)?.library_kind || "",
+    device.library || "",
+  );
+
+  const customPointsList = card.querySelector(".custom-points-list");
+  for (const point of device.custom_points || []) {
+    customPointsList.appendChild(createDeviceCustomPointRow(point));
+  }
+
+  adapterSelect.addEventListener("change", () => applyAdapterDefaultsToDeviceCard(card));
+  kindSelect.addEventListener("change", () => {
+    fillDeviceLibrarySelect(
+      card.querySelector('[data-field="library"]'),
+      kindSelect.value,
+      card.querySelector('[data-field="library"]').value,
+    );
+  });
+  card.querySelector(".device-custom-point-add").addEventListener("click", () => {
+    customPointsList.appendChild(createDeviceCustomPointRow());
+  });
+  card.querySelector(".device-remove").addEventListener("click", () => {
+    card.remove();
+  });
+
+  if (!device.id && device.adapter) {
+    applyAdapterDefaultsToDeviceCard(card);
+  }
+  return card;
+}
+
+function renderDevicesConfig(config) {
+  devicesConfig = config;
+  deviceAdapterOptions = config.adapter_options || [];
+  deviceInstances.replaceChildren();
+  const devices = config.devices || [];
+  if (!devices.length) {
+    const empty = document.createElement("p");
+    empty.className = "hint";
+    empty.textContent = "No devices configured yet. Add devices or import missing entries from adapters.";
+    deviceInstances.appendChild(empty);
+    return;
+  }
+  for (const device of devices) {
+    deviceInstances.appendChild(createDeviceCard(device));
+  }
+}
+
+function collectDevicesFromCards() {
+  const devices = [];
+  for (const card of deviceInstances.querySelectorAll(".device-card")) {
+    const customPoints = [...card.querySelectorAll(".device-custom-point-row")]
+      .map((row) => {
+        const id = row.querySelector('[data-field="point_id"]')?.value.trim();
+        if (!id) {
+          return null;
+        }
+        return {
+          id,
+          direction: row.querySelector('[data-field="point_direction"]')?.value || "bidirectional",
+        };
+      })
+      .filter(Boolean);
+    const device = {
+      id: card.querySelector('[data-field="id"]')?.value.trim() || "",
+      adapter: card.querySelector('[data-field="adapter"]')?.value.trim() || "",
+      label: card.querySelector('[data-field="label"]')?.value.trim() || "",
+      library: card.querySelector('[data-field="library"]')?.value.trim() || "",
+      library_kind: card.querySelector('[data-field="library_kind"]')?.value.trim() || "",
+    };
+    if (customPoints.length) {
+      device.custom_points = customPoints;
+    }
+    devices.push(device);
+  }
+  return devices;
+}
+
+function addMissingDevicesFromAdapters() {
+  const existingAdapters = new Set(
+    collectDevicesFromCards().map((device) => device.adapter).filter(Boolean),
+  );
+  let added = 0;
+  for (const adapter of deviceAdapterOptions) {
+    if (existingAdapters.has(adapter.name)) {
+      continue;
+    }
+    if (deviceInstances.querySelector(".hint") && added === 0) {
+      deviceInstances.replaceChildren();
+    }
+    deviceInstances.appendChild(
+      createDeviceCard({
+        id: adapter.name,
+        adapter: adapter.name,
+        library: adapter.library,
+        library_kind: adapter.library_kind,
+      }),
+    );
+    existingAdapters.add(adapter.name);
+    added += 1;
+  }
+  if (devicesMessage) {
+    devicesMessage.textContent = added
+      ? `added ${added} device(s) from adapters`
+      : "all configured adapters already have devices";
+  }
+}
+
+function loadDevicesConfig() {
+  return fetch("/api/devices")
+    .then(async (response) => {
+      if (!response.ok) {
+        throw new Error(await response.text());
+      }
+      return response.json();
+    })
+    .then((config) => {
+      renderDevicesConfig(config);
+      return config;
+    });
+}
+
+function saveDevicesConfig() {
+  const devices = collectDevicesFromCards();
+  devicesMessage.textContent = "saving...";
+  return fetch("/api/devices", {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({ devices }),
+  })
+    .then(async (response) => {
+      if (!response.ok) {
+        throw new Error(await response.text());
+      }
+      return response.json();
+    })
+    .then((config) => {
+      renderDevicesConfig(config);
+      if (config.persisted === false) {
+        devicesMessage.textContent = `saved for runtime only: ${config.persist_error}`;
+      } else {
+        devicesMessage.textContent = "devices saved; restart service to reload all data points";
+      }
+      return loadLearnDatapoints().catch(() => null);
+    })
+    .catch((error) => {
+      devicesMessage.textContent = `error: ${error.message}`;
+    });
 }
 
 function renderGpioConfig(config) {
@@ -5386,6 +5691,29 @@ configurationToggle.addEventListener("click", () => {
       systemHostnameMessage.textContent = `error: ${error.message}`;
     }
   });
+  loadDevicesConfig().catch((error) => {
+    if (devicesMessage) {
+      devicesMessage.textContent = `error: ${error.message}`;
+    }
+  });
+});
+
+deviceAdd?.addEventListener("click", () => {
+  if (deviceInstances.querySelector(".hint")) {
+    deviceInstances.replaceChildren();
+  }
+  deviceInstances.appendChild(createDeviceCard());
+  if (devicesMessage) {
+    devicesMessage.textContent = "";
+  }
+});
+
+devicesFillAdapters?.addEventListener("click", () => {
+  addMissingDevicesFromAdapters();
+});
+
+devicesSave?.addEventListener("click", () => {
+  saveDevicesConfig();
 });
 
 systemHostnameSave?.addEventListener("click", () => {

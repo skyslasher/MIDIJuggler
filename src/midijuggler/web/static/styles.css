@@ -248,6 +248,31 @@ legend {
   margin-left: 0.5rem;
 }
 
+.midi-device-panel .device-panel-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+  margin-top: 0.65rem;
+}
+
+.device-card .device-fields {
+  display: grid;
+  gap: 0.55rem;
+}
+
+.device-card .custom-points-list {
+  display: grid;
+  gap: 0.45rem;
+  margin-top: 0.45rem;
+}
+
+.device-custom-point-row {
+  align-items: end;
+  display: grid;
+  gap: 0.45rem;
+  grid-template-columns: 1.4fr 1fr auto;
+}
+
 .midi-adapter-card {
   background: #101827;
   border: 1px solid #31405e;

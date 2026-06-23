@@ -239,6 +239,20 @@
           <p id="system-restart-message" class="message"></p>
         </article>
         <article class="midi-device-panel">
+          <h2>Devices</h2>
+          <p class="hint">
+            Logical devices bind one I/O adapter instance to a library for routing and
+            connections. Each adapter can be bound to at most one device.
+          </p>
+          <div id="device-instances"></div>
+          <div class="device-panel-actions">
+            <button type="button" id="device-add">Add device</button>
+            <button type="button" id="devices-fill-adapters">Add missing from adapters</button>
+            <button type="button" id="devices-save">Save devices</button>
+          </div>
+          <p id="devices-message" class="message"></p>
+        </article>
+        <article class="midi-device-panel">
           <h2>OSC</h2>
           <p class="hint">Desk libraries (X32/Wing) use the same local and remote OSC port and renew subscriptions every 9 seconds. Linked desks are re-discovered in the background; Wing uses its serial number, X32 uses its network name as stable identity.</p>
           <div id="osc-instances"></div>

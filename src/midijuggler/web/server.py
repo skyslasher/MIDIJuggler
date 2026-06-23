@@ -30,6 +30,7 @@ from midijuggler.alsa import (
 )
 from midijuggler.clock import ClockBpmTracker
 from midijuggler.config import (
+    adapter_device_options,
     DEFAULT_ADAPTERS,
     AdapterConfig,
     AppConfig,
@@ -277,6 +278,10 @@ class WebInterface:
     def devices_payload(self) -> dict[str, Any]:
         return {
             "devices": [device.as_dict() for device in self.config.devices.values()],
+            "adapter_options": adapter_device_options(
+                self.config.adapters,
+                self.config.devices,
+            ),
         }
 
     async def devices_config(self, request: web.Request) -> web.Response:
@@ -293,12 +298,23 @@ class WebInterface:
             return web.Response(text=str(exc), status=400)
 
         devices = {device.id: device for device in imported}
+        bound_adapters: dict[str, str] = {}
         for device in devices.values():
             if device.adapter not in self.config.adapters:
                 return web.Response(
                     text=f"device {device.id!r} references unknown adapter {device.adapter!r}",
                     status=400,
                 )
+            existing = bound_adapters.get(device.adapter)
+            if existing is not None and existing != device.id:
+                return web.Response(
+                    text=(
+                        f"adapter {device.adapter!r} is already bound to device "
+                        f"{existing!r}"
+                    ),
+                    status=400,
+                )
+            bound_adapters[device.adapter] = device.id
 
         object.__setattr__(self.config, "devices", devices)
         self.device_registry = DeviceRegistry.from_config(self.config)

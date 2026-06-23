@@ -834,6 +834,30 @@ def _infer_device_from_adapter(instance_name: str, adapter: AdapterConfig) -> De
     )
 
 
+def adapter_device_options(
+    adapters: dict[str, AdapterConfig],
+    devices: dict[str, DeviceConfig],
+) -> list[dict[str, Any]]:
+    """Describe adapter instances that can be bound to logical devices."""
+
+    bound_adapters = {device.adapter: device.id for device in devices.values()}
+    options: list[dict[str, Any]] = []
+    for instance_name, adapter in sorted(adapters.items()):
+        if not _adapter_qualifies_for_device_inference(instance_name, adapter):
+            continue
+        inferred = _infer_device_from_adapter(instance_name, adapter)
+        options.append(
+            {
+                "name": instance_name,
+                "kind": adapter.kind or instance_name,
+                "library": inferred.library,
+                "library_kind": inferred.library_kind,
+                "bound_device_id": bound_adapters.get(instance_name, ""),
+            }
+        )
+    return options
+
+
 def supplement_devices(
     devices: dict[str, DeviceConfig],
     adapters: dict[str, AdapterConfig],

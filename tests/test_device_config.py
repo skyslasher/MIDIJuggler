@@ -170,6 +170,25 @@ def test_parse_config_supplements_missing_adapter_devices() -> None:
     assert config.connections[0].target == "x32_foh./ch/01/mix/fader"
 
 
+def test_adapter_device_options_lists_configured_adapters() -> None:
+    from midijuggler.config import adapter_device_options
+
+    config = parse_config(
+        {
+            "adapters": {
+                "gpio": {"enabled": True, "pins": [17]},
+                "x32_foh": {"type": "osc", "enabled": True, "osc_library": "behringer_x32"},
+            },
+            "devices": [{"id": "gpio", "adapter": "gpio", "library_kind": "gpio"}],
+        }
+    )
+    options = adapter_device_options(config.adapters, config.devices)
+    by_name = {entry["name"]: entry for entry in options}
+    assert by_name["gpio"]["bound_device_id"] == "gpio"
+    assert by_name["x32_foh"]["library"] == "behringer_x32"
+    assert by_name["x32_foh"]["bound_device_id"] == "x32_foh"
+
+
 def test_save_devices_round_trip(tmp_path) -> None:
     path = tmp_path / "config.toml"
     path.write_text(
