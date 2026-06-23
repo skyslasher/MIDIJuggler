@@ -368,6 +368,45 @@ def test_send_midi_adapter_test_message_uses_adapter_output(
     send_mock.assert_awaited_once_with(0xB0, (1, 64), feedback_point=None, feedback_value=None)
 
 
+def test_send_midi_adapter_test_message_accepts_program_change() -> None:
+    async def scenario() -> AsyncMock:
+        bus = EventBus()
+        adapter = MidiAdapter(
+            name="stage_midi",
+            config=AdapterConfig(
+                enabled=True,
+                kind="midi",
+                options={"output_port": "Stage MIDI Out"},
+            ),
+            bus=bus,
+        )
+        adapter.running = True
+        send_mock = AsyncMock()
+        adapter.send_test_message = send_mock
+
+        interface = WebInterface(
+            parse_config({"adapters": {}}),
+            bus,
+            ClockBpmTracker(),
+            MasterClock(parse_config({"adapters": {}}).master_clock, bus),
+            midi_adapters={"stage_midi": adapter},
+        )
+
+        await interface.send_midi_adapter_test_message(
+            {
+                "kind": "midi",
+                "name": "stage_midi",
+                "status": 0xCA,
+                "data": [1],
+            }
+        )
+        return send_mock
+
+    send_mock = asyncio.run(scenario())
+
+    send_mock.assert_awaited_once_with(0xCA, (1,), feedback_point=None, feedback_value=None)
+
+
 def test_send_rtp_midi_adapter_test_message_requires_running_adapter() -> None:
     config = parse_config({"adapters": {}})
     interface = WebInterface(

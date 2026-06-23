@@ -3290,6 +3290,7 @@ const MIDI_TEST_PRESETS = {
   note_on: "Note On",
   note_off: "Note Off",
   control_change: "Control Change",
+  program_change: "Program Change",
 };
 
 const MIDI_NOTE_NAMES = ["C", "C#", "D", "D#", "E", "F", "F#", "G", "G#", "A", "A#", "B"];
@@ -3436,6 +3437,10 @@ function midiCcLabel(controllerNumber) {
   return `${name} (${controllerNumber})`;
 }
 
+function midiProgramLabel(programNumber) {
+  return `Program ${programNumber}`;
+}
+
 function formatMidiCcTechnical(controllerNumber) {
   return `CC ${String(controllerNumber).padStart(2, "0")}`;
 }
@@ -3546,22 +3551,51 @@ function buildMidiTestNumberOptions(preset) {
       label: midiNoteLabel(noteNumber),
     }));
   }
+  if (preset === "program_change") {
+    return Array.from({ length: 128 }, (_, programNumber) => ({
+      value: programNumber,
+      label: midiProgramLabel(programNumber),
+    }));
+  }
   return Array.from({ length: 128 }, (_, controllerNumber) => ({
     value: controllerNumber,
     label: midiCcLabel(controllerNumber),
   }));
 }
 
-function syncMidiTestNumberField(card) {
+function syncMidiTestManualFields(card) {
   const preset =
     card.querySelector('[data-test-field="midi_preset"]')?.value || "control_change";
+  const numberLabel = card.querySelector('[data-test-field="midi_number"]')?.closest("label");
+  const valueLabel = card.querySelector('[data-test-field="midi_value"]')?.closest("label");
+  if (numberLabel?.firstChild) {
+    const numberText =
+      preset === "program_change"
+        ? "Program "
+        : preset === "note_on" || preset === "note_off"
+          ? "Note "
+          : "Number ";
+    numberLabel.firstChild.textContent = numberText;
+  }
+  if (valueLabel) {
+    valueLabel.hidden = preset === "program_change";
+  }
+  syncMidiTestNumberField(card, preset);
+}
+
+function syncMidiTestNumberField(card, presetOverride = null) {
+  const preset =
+    presetOverride
+    || card.querySelector('[data-test-field="midi_preset"]')?.value
+    || "control_change";
   const select = card.querySelector('[data-test-field="midi_number"]');
   if (!select) {
     return;
   }
 
   const previousValue = Number(select.value || 0);
-  const defaultValue = preset === "control_change" ? 1 : 60;
+  const defaultValue =
+    preset === "control_change" ? 1 : preset === "program_change" ? 0 : 60;
   const options = buildMidiTestNumberOptions(preset);
 
   select.replaceChildren();
@@ -3586,6 +3620,9 @@ function buildMidiTestMessage(preset, channel, number, value) {
   }
   if (preset === "note_off") {
     return { status: 0x80 | channelIndex, data: [dataNumber, dataValue] };
+  }
+  if (preset === "program_change") {
+    return { status: 0xc0 | channelIndex, data: [dataNumber] };
   }
   return { status: 0xb0 | channelIndex, data: [dataNumber, dataValue] };
 }
@@ -3933,7 +3970,7 @@ function updateMidiTestSendSection(card) {
   if (card.dataset.instanceType !== "midi") {
     return;
   }
-  syncMidiTestNumberField(card);
+  syncMidiTestManualFields(card);
   syncMidiTestSendMode(card);
 }
 
@@ -4036,7 +4073,7 @@ function createAdapterTestSendSection(kind, instance) {
     }
     presetSelect.value = "control_change";
     presetSelect.addEventListener("change", () => {
-      syncMidiTestNumberField(presetSelect.closest(".midi-adapter-card"));
+      syncMidiTestManualFields(presetSelect.closest(".midi-adapter-card"));
     });
     presetLabel.appendChild(presetSelect);
     manualPanel.appendChild(presetLabel);
