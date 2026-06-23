@@ -4301,6 +4301,21 @@ function populateAllOscDiscoverSelects(devices) {
   }
 }
 
+function discoveredDeskForCard(card) {
+  const identity = card.querySelector('[data-field="desk_identity"]')?.value?.trim();
+  if (identity) {
+    const byIdentity = discoveredOscDesks.find((entry) => entry.identity === identity);
+    if (byIdentity) {
+      return byIdentity;
+    }
+  }
+  const host = card.querySelector('[data-field="remote_host"]')?.value?.trim();
+  if (!host) {
+    return undefined;
+  }
+  return discoveredOscDesks.find((entry) => entry.ip === host);
+}
+
 function rememberDiscoveredOscDesks(devices) {
   if (!Array.isArray(devices)) {
     return;
@@ -4308,19 +4323,17 @@ function rememberDiscoveredOscDesks(devices) {
   discoveredOscDesks = devices.slice();
   populateAllOscDiscoverSelects(discoveredOscDesks);
   updateGlobalOscDiscoverOptions(discoveredOscDesks);
+  restoreOscDiscoverSelections();
 }
 
 function restoreOscDiscoverSelects() {
   populateAllOscDiscoverSelects(discoveredOscDesks);
+  restoreOscDiscoverSelections();
 }
 
 function restoreOscDiscoverSelections() {
   for (const card of oscInstances.querySelectorAll(".midi-adapter-card")) {
-    const host = card.querySelector('[data-field="remote_host"]')?.value?.trim();
-    if (!host) {
-      continue;
-    }
-    const device = discoveredOscDesks.find((entry) => entry.ip === host);
+    const device = discoveredDeskForCard(card);
     if (device) {
       selectDiscoveredDeskInCard(card, device);
     }
@@ -4329,14 +4342,24 @@ function restoreOscDiscoverSelections() {
 
 function selectDiscoveredDeskInCard(card, device) {
   const select = card.querySelector(".osc-discover-select");
-  if (!select) {
+  if (!select || !device) {
     return;
   }
-  const target = JSON.stringify(device);
   for (const option of select.options) {
-    if (option.value === target) {
-      select.value = target;
-      return;
+    if (!option.value) {
+      continue;
+    }
+    try {
+      const entry = JSON.parse(option.value);
+      if (
+        (device.identity && entry.identity === device.identity) ||
+        entry.ip === device.ip
+      ) {
+        select.value = option.value;
+        return;
+      }
+    } catch {
+      continue;
     }
   }
 }
