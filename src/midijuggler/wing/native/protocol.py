@@ -8,7 +8,8 @@ from typing import Iterable
 ESCAPE_CODE = 0xDF
 CHANNEL_ID_BASE = 0xD0
 NUM_CHANNELS = 14
-# Wing remote protocol: audio-engine parameters (faders, etc.) use comm channel 2.
+# Wing remote protocol: control/tree navigation uses channel 1, fader writes channel 2.
+CONTROL_ENGINE_CHANNEL = 1
 AUDIO_ENGINE_CHANNEL = 2
 WING_NATIVE_PORT = 2222
 
@@ -55,7 +56,7 @@ def encode_channel_payload(channel: int, payload: bytes) -> bytes:
     return encode_channel_select(channel) + _escape_payload(payload)
 
 
-def encode_keepalive(channel: int = AUDIO_ENGINE_CHANNEL) -> bytes:
+def encode_keepalive(channel: int = CONTROL_ENGINE_CHANNEL) -> bytes:
     return encode_channel_select(channel)
 
 
