@@ -82,6 +82,7 @@ def encode_midi_target_message(
     value: float,
     *,
     adapter: AdapterConfig | None = None,
+    device: DeviceConfig | None = None,
 ) -> tuple[int, tuple[int, ...]]:
     if parameter.direction not in {"target", "source"}:
         raise ValueError(f"MIDI parameter {parameter.id!r} is not an output target")
@@ -100,7 +101,7 @@ def encode_midi_target_message(
         raise ValueError(f"MIDI parameter {parameter.label!r} is missing midi_channel")
 
     channel = (
-        resolve_parameter_midi_channel(adapter, parameter) - 1
+        resolve_parameter_midi_channel(adapter, parameter, device=device) - 1
         if adapter is not None
         else parameter.midi_channel - 1
     )
@@ -178,7 +179,8 @@ def encode_mapped_midi_target(
             raise ValueError(f"unsupported MIDI target point {target_point!r}")
         return encoded
     adapter = device_registry.adapter_for_device(device_id)
-    return encode_midi_target_message(parameter, value, adapter=adapter)
+    device = device_registry.get(device_id)
+    return encode_midi_target_message(parameter, value, adapter=adapter, device=device)
 
 
 def encode_legacy_midi_target_point(

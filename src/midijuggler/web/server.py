@@ -90,15 +90,6 @@ from midijuggler.midi.target_encode import (
     resolve_midi_target_parameter,
 )
 from midijuggler.midi.echo_guard import DEFAULT_ECHO_GUARD_MS, parse_echo_guard_ms
-from midijuggler.midi.xtouch_channels import (
-    DEFAULT_XTOUCH_DISPLAY_CHANNEL,
-    DEFAULT_XTOUCH_VALUE_CHANNEL,
-    parse_midi_channel_option,
-)
-from midijuggler.midi.xtouch_feedback import (
-    XTOUCH_MINI_LIBRARY_ID,
-    parse_feedback_refresh_interval,
-)
 from midijuggler.midi_library import get_midi_library, list_midi_libraries
 from midijuggler.master_clock import MasterClock
 from midijuggler.rtp_midi.manager import RtpMidiManager
@@ -2103,6 +2094,9 @@ class WebInterface:
             return
         if kind in {"midi", "rtp_midi"}:
             self._refresh_midi_datapoints(adapter_name)
+            runtime = self.midi_adapters.get(adapter_name)
+            if runtime is not None and runtime.running:
+                await runtime._start_feedback_refresh()  # noqa: SLF001
             return
         if kind == "osc":
             await self._refresh_osc_datapoints(adapter_name)
@@ -3237,17 +3231,6 @@ class WebInterface:
                     "resolved_output_address": (
                         output_match.get("address", "") if output_match is not None else ""
                     ),
-                    "feedback_refresh_interval": float(
-                        options.get("feedback_refresh_interval", 0) or 0
-                    ),
-                    "midi_value_channel": int(
-                        options.get("midi_value_channel", DEFAULT_XTOUCH_VALUE_CHANNEL)
-                        or DEFAULT_XTOUCH_VALUE_CHANNEL
-                    ),
-                    "midi_display_channel": int(
-                        options.get("midi_display_channel", DEFAULT_XTOUCH_DISPLAY_CHANNEL)
-                        or DEFAULT_XTOUCH_DISPLAY_CHANNEL
-                    ),
                     "echo_guard_ms": int(
                         options.get("echo_guard_ms", DEFAULT_ECHO_GUARD_MS)
                         or DEFAULT_ECHO_GUARD_MS
@@ -3388,35 +3371,6 @@ class WebInterface:
             known_libraries = {library.id for library in list_midi_libraries()}
             if midi_library not in known_libraries:
                 raise ValueError(f"unknown MIDI library: {midi_library}")
-        interval = parse_feedback_refresh_interval(
-            payload.get(
-                "feedback_refresh_interval",
-                current.get("feedback_refresh_interval", 0),
-            )
-        )
-        if interval > 0 and midi_library != XTOUCH_MINI_LIBRARY_ID:
-            raise ValueError(
-                "feedback_refresh_interval is only supported for behringer_xtouch_mini"
-            )
-        if midi_library == XTOUCH_MINI_LIBRARY_ID or interval > 0:
-            options["feedback_refresh_interval"] = interval
-        if midi_library == XTOUCH_MINI_LIBRARY_ID:
-            options["midi_value_channel"] = parse_midi_channel_option(
-                payload.get(
-                    "midi_value_channel",
-                    current.get("midi_value_channel", DEFAULT_XTOUCH_VALUE_CHANNEL),
-                ),
-                field_name="midi_value_channel",
-                default=DEFAULT_XTOUCH_VALUE_CHANNEL,
-            )
-            options["midi_display_channel"] = parse_midi_channel_option(
-                payload.get(
-                    "midi_display_channel",
-                    current.get("midi_display_channel", DEFAULT_XTOUCH_DISPLAY_CHANNEL),
-                ),
-                field_name="midi_display_channel",
-                default=DEFAULT_XTOUCH_DISPLAY_CHANNEL,
-            )
         options["echo_guard_ms"] = parse_echo_guard_ms(
             payload.get("echo_guard_ms", current.get("echo_guard_ms", DEFAULT_ECHO_GUARD_MS))
         )

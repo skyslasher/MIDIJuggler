@@ -8,7 +8,12 @@ import logging
 from typing import TYPE_CHECKING
 
 from midijuggler.config import AdapterConfig, AppConfig
-from midijuggler.midi.xtouch_channels import XTOUCH_MINI_LIBRARY_ID, xtouch_value_channel
+from midijuggler.device.types import DeviceConfig
+from midijuggler.midi.xtouch_channels import (
+    XTOUCH_MINI_LIBRARY_ID,
+    xtouch_device_options,
+    xtouch_value_channel,
+)
 from midijuggler.midi_library import get_midi_library
 
 if TYPE_CHECKING:
@@ -23,20 +28,19 @@ def uses_xtouch_feedback_refresh(
     config: AdapterConfig,
     *,
     library_id: str | None = None,
+    device: DeviceConfig | None = None,
 ) -> bool:
-    resolved = (
-        str(library_id or "").strip()
-        or str(config.options.get("midi_library", "")).strip()
+    return (
+        xtouch_device_options(config, device, library_id=library_id).library_id
+        == XTOUCH_MINI_LIBRARY_ID
     )
-    return resolved == XTOUCH_MINI_LIBRARY_ID
 
 
-def feedback_refresh_interval_seconds(config: AdapterConfig) -> float:
-    raw = config.options.get("feedback_refresh_interval", 0)
-    try:
-        return max(0.0, float(raw))
-    except (TypeError, ValueError):
-        return 0.0
+def feedback_refresh_interval_seconds(
+    config: AdapterConfig,
+    device: DeviceConfig | None = None,
+) -> float:
+    return xtouch_device_options(config, device).feedback_refresh_interval
 
 
 def parse_feedback_refresh_interval(value: object) -> float:
@@ -63,8 +67,13 @@ def is_refreshable_target(parameter_id: str, *, category: str) -> bool:
     )
 
 
-def feedback_point_ids(config: AdapterConfig) -> frozenset[str]:
-    if not uses_xtouch_feedback_refresh(config):
+def feedback_point_ids(
+    config: AdapterConfig,
+    *,
+    library_id: str | None = None,
+    device: DeviceConfig | None = None,
+) -> frozenset[str]:
+    if not uses_xtouch_feedback_refresh(config, library_id=library_id, device=device):
         return frozenset()
     try:
         library = get_midi_library(XTOUCH_MINI_LIBRARY_ID)
@@ -82,13 +91,16 @@ def is_layer_program_change(
     config: AdapterConfig,
     status: int,
     data: tuple[int, ...],
+    *,
+    library_id: str | None = None,
+    device: DeviceConfig | None = None,
 ) -> bool:
-    if not uses_xtouch_feedback_refresh(config):
+    if not uses_xtouch_feedback_refresh(config, library_id=library_id, device=device):
         return False
     if (status & 0xF0) != PROGRAM_CHANGE or not data:
         return False
     channel = (status & 0x0F) + 1
-    return channel == xtouch_value_channel(config) and data[0] in {0, 1}
+    return channel == xtouch_value_channel(config, device) and data[0] in {0, 1}
 
 
 class XTouchFeedbackRefresh:
@@ -100,10 +112,23 @@ class XTouchFeedbackRefresh:
         self._cache: dict[str, float] = {}
         self._feedback_points: frozenset[str] = frozenset()
         self._task: asyncio.Task[None] | None = None
+        self._device: DeviceConfig | None = None
 
-    def configure(self, config: AdapterConfig, app_config: AppConfig | None) -> None:
+    def configure(
+        self,
+        config: AdapterConfig,
+        app_config: AppConfig | None,
+        device: DeviceConfig | None = None,
+        *,
+        library_id: str | None = None,
+    ) -> None:
         self._app_config = app_config
-        self._feedback_points = feedback_point_ids(config)
+        self._device = device
+        self._feedback_points = feedback_point_ids(
+            config,
+            library_id=library_id,
+            device=device,
+        )
 
     def remember(self, point: str, value: float) -> None:
         if point not in self._feedback_points:
@@ -115,7 +140,7 @@ class XTouchFeedbackRefresh:
         if not self._feedback_points:
             self._cache.clear()
             return
-        interval = feedback_refresh_interval_seconds(config)
+        interval = feedback_refresh_interval_seconds(config, self._device)
         if interval <= 0:
             return
         self._task = asyncio.create_task(

@@ -243,3 +243,79 @@ pins = [17]
 
     datapoints = asyncio.run(scenario())
     assert not any(entry["id"].startswith("foot_switches.") for entry in datapoints)
+
+
+def test_devices_api_persists_xtouch_feedback_settings(tmp_path) -> None:
+    config_path = tmp_path / "config.toml"
+    config_path.write_text(
+        """
+[adapters.xtouch_mini]
+enabled = true
+type = "midi"
+""".strip()
+        + "\n",
+        encoding="utf-8",
+    )
+
+    async def scenario() -> dict:
+        interface = _interface(config_path)
+        app = interface.create_app()
+        async with TestClient(TestServer(app)) as client:
+            response = await client.post(
+                "/api/devices",
+                json={
+                    "devices": [
+                        {
+                            **midi_device("xtouch_mini", library="behringer_xtouch_mini"),
+                            "adapter": "xtouch_mini",
+                            "feedback_refresh_interval": 2.0,
+                            "midi_value_channel": 5,
+                            "midi_display_channel": 9,
+                        }
+                    ]
+                },
+            )
+            assert response.status == 200
+            return await response.json()
+
+    payload = asyncio.run(scenario())
+    device = payload["devices"][0]
+    assert device["feedback_refresh_interval"] == 2.0
+    assert device["midi_value_channel"] == 5
+    assert device["midi_display_channel"] == 9
+    saved = load_config(config_path)
+    saved_device = saved.devices["xtouch_mini"]
+    assert saved_device.feedback_refresh_interval == 2.0
+    assert saved_device.midi_value_channel == 5
+    assert saved_device.midi_display_channel == 9
+
+
+def test_devices_api_rejects_xtouch_feedback_for_other_libraries(tmp_path) -> None:
+    config_path = tmp_path / "config.toml"
+    config_path.write_text(
+        """
+[adapters.midi]
+enabled = true
+""".strip()
+        + "\n",
+        encoding="utf-8",
+    )
+
+    async def scenario() -> int:
+        interface = _interface(config_path)
+        app = interface.create_app()
+        async with TestClient(TestServer(app)) as client:
+            response = await client.post(
+                "/api/devices",
+                json={
+                    "devices": [
+                        {
+                            **midi_device("midi_controller", adapter="midi", library="presonus_faderport"),
+                            "feedback_refresh_interval": 1.0,
+                        }
+                    ]
+                },
+            )
+            return response.status
+
+    assert asyncio.run(scenario()) == 400

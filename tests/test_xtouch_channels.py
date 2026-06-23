@@ -2,6 +2,7 @@ import pytest
 
 from midijuggler.config import AdapterConfig, parse_config
 from midijuggler.device.registry import DeviceRegistry
+from midijuggler.device.types import DeviceConfig
 from midijuggler.midi.library_match import build_source_index
 from midijuggler.midi.target_encode import encode_mapped_midi_target
 from midijuggler.midi.xtouch_channels import (
@@ -29,6 +30,22 @@ def test_parse_midi_channel_option_defaults_and_validates() -> None:
 
     with pytest.raises(ValueError, match="between 1 and 16"):
         parse_midi_channel_option(0, field_name="midi_value_channel", default=11)
+
+
+def test_xtouch_channel_helpers_read_device_config() -> None:
+    from conftest import midi_device
+
+    device = DeviceConfig(
+        id="xtouch_mini",
+        adapter="xtouch_mini",
+        library="behringer_xtouch_mini",
+        midi_value_channel=3,
+        midi_display_channel=7,
+    )
+    adapter = AdapterConfig(enabled=True, options={}, kind="midi")
+
+    assert xtouch_value_channel(adapter, device) == 3
+    assert xtouch_display_channel(adapter, device) == 7
 
 
 def test_xtouch_channel_helpers_read_adapter_options() -> None:
@@ -81,13 +98,14 @@ def test_encode_mapped_midi_target_uses_configured_xtouch_channels() -> None:
                 "xtouch_mini": {
                     "enabled": True,
                     "type": "midi",
-                    "midi_library": "behringer_xtouch_mini",
-                    "midi_value_channel": 4,
-                    "midi_display_channel": 8,
                 }
             },
             "devices": [
-                midi_device("xtouch_mini", library="behringer_xtouch_mini"),
+                {
+                    **midi_device("xtouch_mini", library="behringer_xtouch_mini"),
+                    "midi_value_channel": 4,
+                    "midi_display_channel": 8,
+                }
             ],
         }
     )

@@ -5,6 +5,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 
 from midijuggler.config import AdapterConfig
+from midijuggler.device.types import DeviceConfig
 from midijuggler.midi.xtouch_channels import resolve_parameter_midi_channel
 from midijuggler.midi_library import MidiLibrary, MidiParameter
 
@@ -188,6 +189,7 @@ def build_source_index(
     library_port: str | None = None,
     *,
     adapter: AdapterConfig | None = None,
+    device: DeviceConfig | None = None,
 ) -> MidiSourceIndex:
     """Index all source parameters for fast MIDI message matching."""
 
@@ -207,7 +209,7 @@ def build_source_index(
             continue
 
         channel = (
-            resolve_parameter_midi_channel(adapter, parameter) - 1
+            resolve_parameter_midi_channel(adapter, parameter, device=device) - 1
             if adapter is not None
             else parameter.midi_channel - 1
         )

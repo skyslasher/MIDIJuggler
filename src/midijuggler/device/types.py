@@ -5,6 +5,9 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from typing import Any
 
+_DEFAULT_XTOUCH_VALUE_CHANNEL = 11
+_DEFAULT_XTOUCH_DISPLAY_CHANNEL = 12
+
 
 @dataclass(frozen=True)
 class CustomPointSpec:
@@ -51,6 +54,9 @@ class DeviceConfig:
     library_kind: str = ""
     label: str = ""
     custom_points: tuple[CustomPointSpec, ...] = field(default_factory=tuple)
+    feedback_refresh_interval: float = 0.0
+    midi_value_channel: int = _DEFAULT_XTOUCH_VALUE_CHANNEL
+    midi_display_channel: int = _DEFAULT_XTOUCH_DISPLAY_CHANNEL
 
     def as_dict(self) -> dict[str, Any]:
         payload: dict[str, Any] = {
@@ -63,6 +69,12 @@ class DeviceConfig:
             payload["library"] = self.library
         if self.library_kind:
             payload["library_kind"] = self.library_kind
+        if self.feedback_refresh_interval > 0:
+            payload["feedback_refresh_interval"] = self.feedback_refresh_interval
+        if self.midi_value_channel != _DEFAULT_XTOUCH_VALUE_CHANNEL:
+            payload["midi_value_channel"] = self.midi_value_channel
+        if self.midi_display_channel != _DEFAULT_XTOUCH_DISPLAY_CHANNEL:
+            payload["midi_display_channel"] = self.midi_display_channel
         if self.custom_points:
             payload["custom_points"] = [point.as_dict() for point in self.custom_points]
         return payload

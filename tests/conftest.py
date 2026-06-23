@@ -139,18 +139,19 @@ def make_wing_io_module(
     return module, registry
 
 
-def xtouch_devices_config(**adapter_options) -> dict:
+def xtouch_devices_config(**device_options) -> dict:
     return {
         "adapters": {
             "xtouch_mini": {
                 "enabled": True,
                 "type": "midi",
-                "midi_library": "behringer_xtouch_mini",
-                **adapter_options,
             }
         },
         "devices": [
-            midi_device("xtouch_mini", library="behringer_xtouch_mini"),
+            {
+                **midi_device("xtouch_mini", library="behringer_xtouch_mini"),
+                **device_options,
+            },
         ],
     }
 

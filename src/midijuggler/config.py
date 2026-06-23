@@ -314,6 +314,12 @@ def _format_device_config(device: DeviceConfig) -> str:
         lines.append(f"library = {_toml_string(device.library)}")
     if device.library_kind:
         lines.append(f"library_kind = {_toml_string(device.library_kind)}")
+    if device.feedback_refresh_interval > 0:
+        lines.append(f"feedback_refresh_interval = {device.feedback_refresh_interval}")
+    if device.midi_value_channel != 11:
+        lines.append(f"midi_value_channel = {device.midi_value_channel}")
+    if device.midi_display_channel != 12:
+        lines.append(f"midi_display_channel = {device.midi_display_channel}")
     for point in device.custom_points:
         lines.extend(_format_custom_point_lines(point))
     return "\n".join(lines)
@@ -828,12 +834,48 @@ def _infer_device_library(instance_name: str, adapter: AdapterConfig) -> tuple[s
 
 
 def _infer_device_from_adapter(instance_name: str, adapter: AdapterConfig) -> DeviceConfig:
+    from midijuggler.midi.xtouch_channels import (
+        DEFAULT_XTOUCH_DISPLAY_CHANNEL,
+        DEFAULT_XTOUCH_VALUE_CHANNEL,
+        XTOUCH_MINI_LIBRARY_ID,
+        parse_midi_channel_option,
+    )
+    from midijuggler.midi.xtouch_feedback import parse_feedback_refresh_interval
+
     library, library_kind = _infer_device_library(instance_name, adapter)
+    feedback_refresh_interval = 0.0
+    midi_value_channel = DEFAULT_XTOUCH_VALUE_CHANNEL
+    midi_display_channel = DEFAULT_XTOUCH_DISPLAY_CHANNEL
+    if (adapter.kind or instance_name) == "midi" and (
+        library == XTOUCH_MINI_LIBRARY_ID
+        or "feedback_refresh_interval" in adapter.options
+        or "midi_value_channel" in adapter.options
+        or "midi_display_channel" in adapter.options
+    ):
+        if "feedback_refresh_interval" in adapter.options:
+            feedback_refresh_interval = parse_feedback_refresh_interval(
+                adapter.options["feedback_refresh_interval"]
+            )
+        if "midi_value_channel" in adapter.options:
+            midi_value_channel = parse_midi_channel_option(
+                adapter.options["midi_value_channel"],
+                field_name="midi_value_channel",
+                default=DEFAULT_XTOUCH_VALUE_CHANNEL,
+            )
+        if "midi_display_channel" in adapter.options:
+            midi_display_channel = parse_midi_channel_option(
+                adapter.options["midi_display_channel"],
+                field_name="midi_display_channel",
+                default=DEFAULT_XTOUCH_DISPLAY_CHANNEL,
+            )
     return DeviceConfig(
         id=instance_name,
         adapter=instance_name,
         library=library,
         library_kind=library_kind,
+        feedback_refresh_interval=feedback_refresh_interval,
+        midi_value_channel=midi_value_channel,
+        midi_display_channel=midi_display_channel,
     )
 
 
@@ -900,6 +942,14 @@ def _parse_devices(raw: Any, adapters: dict[str, AdapterConfig]) -> dict[str, De
 
 
 def _parse_device(index: int, raw: Any) -> DeviceConfig:
+    from midijuggler.midi.xtouch_channels import (
+        DEFAULT_XTOUCH_DISPLAY_CHANNEL,
+        DEFAULT_XTOUCH_VALUE_CHANNEL,
+        XTOUCH_MINI_LIBRARY_ID,
+        parse_midi_channel_option,
+    )
+    from midijuggler.midi.xtouch_feedback import parse_feedback_refresh_interval
+
     if not isinstance(raw, dict):
         raise ValueError(f"devices[{index}] must be a table")
 
@@ -916,13 +966,48 @@ def _parse_device(index: int, raw: Any) -> DeviceConfig:
         _parse_custom_point(index, point_index, point_raw)
         for point_index, point_raw in enumerate(raw.get("custom_points", []), start=1)
     )
+    library = str(raw.get("library", "")).strip()
+    feedback_refresh_interval = 0.0
+    midi_value_channel = DEFAULT_XTOUCH_VALUE_CHANNEL
+    midi_display_channel = DEFAULT_XTOUCH_DISPLAY_CHANNEL
+    if "feedback_refresh_interval" in raw:
+        feedback_refresh_interval = parse_feedback_refresh_interval(
+            raw["feedback_refresh_interval"]
+        )
+    if "midi_value_channel" in raw:
+        midi_value_channel = parse_midi_channel_option(
+            raw["midi_value_channel"],
+            field_name=f"devices[{index}].midi_value_channel",
+            default=DEFAULT_XTOUCH_VALUE_CHANNEL,
+        )
+    if "midi_display_channel" in raw:
+        midi_display_channel = parse_midi_channel_option(
+            raw["midi_display_channel"],
+            field_name=f"devices[{index}].midi_display_channel",
+            default=DEFAULT_XTOUCH_DISPLAY_CHANNEL,
+        )
+    if feedback_refresh_interval > 0 and library != XTOUCH_MINI_LIBRARY_ID:
+        raise ValueError(
+            f"devices[{index}].feedback_refresh_interval is only supported for "
+            "behringer_xtouch_mini"
+        )
+    if library != XTOUCH_MINI_LIBRARY_ID and (
+        "midi_value_channel" in raw or "midi_display_channel" in raw
+    ):
+        raise ValueError(
+            f"devices[{index}] midi_value_channel and midi_display_channel are only "
+            "supported for behringer_xtouch_mini"
+        )
     return DeviceConfig(
         id=device_id,
         adapter=adapter,
-        library=str(raw.get("library", "")).strip(),
+        library=library,
         library_kind=str(raw.get("library_kind", "")).strip(),
         label=str(raw.get("label", "")).strip(),
         custom_points=custom_points,
+        feedback_refresh_interval=feedback_refresh_interval,
+        midi_value_channel=midi_value_channel,
+        midi_display_channel=midi_display_channel,
     )
 
 

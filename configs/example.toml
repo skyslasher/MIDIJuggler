@@ -85,7 +85,6 @@ enabled = false
 input_port = "X-TOUCH MINI"
 output_port = "X-TOUCH MINI"
 echo_guard_ms = 30
-feedback_refresh_interval = 0
 
 [adapters.rtp_midi]
 enabled = false
@@ -165,6 +164,7 @@ id = "xtouch_mini"
 adapter = "xtouch_mini"
 library = "behringer_xtouch_mini"
 library_kind = "midi"
+feedback_refresh_interval = 0
 
 [[connections]]
 id = "gpio-footswitch-to-midi-cc"

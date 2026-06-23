@@ -17,6 +17,14 @@ def export_devices(devices: list[DeviceConfig]) -> list[dict[str, Any]]:
 
 
 def import_device(raw: Any) -> DeviceConfig:
+    from midijuggler.midi.xtouch_channels import (
+        DEFAULT_XTOUCH_DISPLAY_CHANNEL,
+        DEFAULT_XTOUCH_VALUE_CHANNEL,
+        XTOUCH_MINI_LIBRARY_ID,
+        parse_midi_channel_option,
+    )
+    from midijuggler.midi.xtouch_feedback import parse_feedback_refresh_interval
+
     if not isinstance(raw, dict):
         raise ValueError("device must be an object")
     device_id = str(raw.get("id", "")).strip()
@@ -29,13 +37,47 @@ def import_device(raw: Any) -> DeviceConfig:
         _import_custom_point(index, item)
         for index, item in enumerate(raw.get("custom_points", []), start=1)
     )
+    library = str(raw.get("library", "")).strip()
+    feedback_refresh_interval = 0.0
+    midi_value_channel = DEFAULT_XTOUCH_VALUE_CHANNEL
+    midi_display_channel = DEFAULT_XTOUCH_DISPLAY_CHANNEL
+    if "feedback_refresh_interval" in raw:
+        feedback_refresh_interval = parse_feedback_refresh_interval(
+            raw["feedback_refresh_interval"]
+        )
+    if "midi_value_channel" in raw:
+        midi_value_channel = parse_midi_channel_option(
+            raw["midi_value_channel"],
+            field_name="device.midi_value_channel",
+            default=DEFAULT_XTOUCH_VALUE_CHANNEL,
+        )
+    if "midi_display_channel" in raw:
+        midi_display_channel = parse_midi_channel_option(
+            raw["midi_display_channel"],
+            field_name="device.midi_display_channel",
+            default=DEFAULT_XTOUCH_DISPLAY_CHANNEL,
+        )
+    if feedback_refresh_interval > 0 and library != XTOUCH_MINI_LIBRARY_ID:
+        raise ValueError(
+            "feedback_refresh_interval is only supported for behringer_xtouch_mini"
+        )
+    if library != XTOUCH_MINI_LIBRARY_ID and (
+        "midi_value_channel" in raw or "midi_display_channel" in raw
+    ):
+        raise ValueError(
+            "midi_value_channel and midi_display_channel are only supported for "
+            "behringer_xtouch_mini"
+        )
     return DeviceConfig(
         id=device_id,
         adapter=adapter,
-        library=str(raw.get("library", "")).strip(),
+        library=library,
         library_kind=str(raw.get("library_kind", "")).strip(),
         label=str(raw.get("label", "")).strip(),
         custom_points=custom_points,
+        feedback_refresh_interval=feedback_refresh_interval,
+        midi_value_channel=midi_value_channel,
+        midi_display_channel=midi_display_channel,
     )
 
 

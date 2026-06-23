@@ -154,13 +154,20 @@ class MidiAdapter(Adapter):
         if self._feedback_refresh is not None:
             await self._feedback_refresh.stop()
             self._feedback_refresh = None
+        device = self._resolve_device()
         if not uses_xtouch_feedback_refresh(
             self.config,
             library_id=self._resolve_midi_library_id(),
+            device=device,
         ):
             return
         self._feedback_refresh = XTouchFeedbackRefresh(self, self._app_config)
-        self._feedback_refresh.configure(self.config, self._app_config)
+        self._feedback_refresh.configure(
+            self.config,
+            self._app_config,
+            device,
+            library_id=self._resolve_midi_library_id(),
+        )
         await self._feedback_refresh.start(self.config)
 
     async def reload(self, config: AdapterConfig) -> None:
@@ -198,6 +205,11 @@ class MidiAdapter(Adapter):
             )
         )
 
+    def _resolve_device(self) -> DeviceConfig | None:
+        if self._app_config is None:
+            return None
+        return DeviceRegistry.from_config(self._app_config).device_for_adapter(self.name)
+
     def _resolve_midi_library_id(self) -> str:
         if self._app_config is not None:
             library_id = DeviceRegistry.from_config(self._app_config).device_library_for_adapter(
@@ -222,7 +234,12 @@ class MidiAdapter(Adapter):
             )
             return None
 
-        return build_source_index(library, resolve_library_port(self.config), adapter=self.config)
+        return build_source_index(
+            library,
+            resolve_library_port(self.config),
+            adapter=self.config,
+            device=self._resolve_device(),
+        )
 
     def _refresh_port_addresses(self) -> None:
         """Re-resolve MIDI port names from configured port labels."""
@@ -394,7 +411,13 @@ class MidiAdapter(Adapter):
 
         if (
             self._feedback_refresh is not None
-            and is_layer_program_change(self.config, status, data)
+            and is_layer_program_change(
+                self.config,
+                status,
+                data,
+                library_id=self._resolve_midi_library_id(),
+                device=self._resolve_device(),
+            )
         ):
             await self._feedback_refresh.resend_all()
 

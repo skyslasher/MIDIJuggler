@@ -7,6 +7,7 @@ from midijuggler.config import AdapterConfig, parse_config
 from midijuggler.midi.xtouch_feedback import (
     XTouchFeedbackRefresh,
     feedback_point_ids,
+    feedback_refresh_interval_seconds,
     is_layer_program_change,
     parse_feedback_refresh_interval,
     uses_xtouch_feedback_refresh,
@@ -38,6 +39,19 @@ def test_uses_xtouch_feedback_refresh_only_for_xtouch_library() -> None:
 
     assert uses_xtouch_feedback_refresh(xtouch) is True
     assert uses_xtouch_feedback_refresh(generic) is False
+
+
+def test_feedback_point_ids_with_device_library_only() -> None:
+    from conftest import xtouch_devices_config
+
+    config = parse_config(xtouch_devices_config(feedback_refresh_interval=0.1))
+    adapter = config.adapters["xtouch_mini"]
+    device = config.devices["xtouch_mini"]
+
+    assert uses_xtouch_feedback_refresh(adapter, device=device) is True
+    points = feedback_point_ids(adapter, device=device)
+    assert "layer_a_top_button_1_led" in points
+    assert feedback_refresh_interval_seconds(adapter, device) == 0.1
 
 
 def test_feedback_point_ids_lists_xtouch_feedback_targets() -> None:
@@ -125,6 +139,31 @@ def test_remember_only_caches_feedback_targets() -> None:
     refresh.remember("layer_a_encoder_1", 0.5)
 
     assert refresh._cache == {"layer_a_top_button_1_led": 1.0}
+
+
+def test_refresh_loop_resends_cached_values_with_device_config() -> None:
+    from conftest import xtouch_devices_config
+
+    config = parse_config(xtouch_devices_config(feedback_refresh_interval=0.1))
+    adapter_config = config.adapters["xtouch_mini"]
+    device = config.devices["xtouch_mini"]
+    adapter = AsyncMock()
+    adapter.name = "xtouch_mini"
+    adapter.running = True
+    adapter.send_feedback_target = AsyncMock()
+    refresh = XTouchFeedbackRefresh(adapter, config)
+    refresh.configure(adapter_config, config, device)
+    refresh.remember("layer_a_top_button_1_led", 1.0)
+
+    async def scenario() -> None:
+        await refresh.start(adapter_config)
+        await asyncio.sleep(0.25)
+        await refresh.stop()
+
+    asyncio.run(scenario())
+
+    assert adapter.send_feedback_target.await_count >= 1
+    adapter.send_feedback_target.assert_any_await("layer_a_top_button_1_led", 1.0)
 
 
 def test_refresh_loop_resends_cached_values() -> None:
@@ -216,7 +255,11 @@ def test_midi_adapter_remembers_feedback_on_send(monkeypatch: pytest.MonkeyPatch
 
     async def scenario() -> None:
         adapter._feedback_refresh = XTouchFeedbackRefresh(adapter, config)
-        adapter._feedback_refresh.configure(config.adapters["xtouch_mini"], config)
+        adapter._feedback_refresh.configure(
+            config.adapters["xtouch_mini"],
+            config,
+            config.devices["xtouch_mini"],
+        )
         await adapter.send(
             MappedEvent(
                 source="mapping",
@@ -256,7 +299,11 @@ def test_send_test_message_remembers_feedback_targets(monkeypatch: pytest.Monkey
     monkeypatch.setattr(adapter, "_emit_midi_output", AsyncMock())
     adapter._output_address = "out"
     adapter._feedback_refresh = XTouchFeedbackRefresh(adapter, config)
-    adapter._feedback_refresh.configure(config.adapters["xtouch_mini"], config)
+    adapter._feedback_refresh.configure(
+        config.adapters["xtouch_mini"],
+        config,
+        config.devices.get("xtouch_mini"),
+    )
 
     async def scenario() -> None:
         await adapter.send_test_message(
