@@ -27,6 +27,9 @@ const oscDiscoverButton = document.querySelector("#osc-discover");
 const oscDiscoverGlobalSelect = document.querySelector("#osc-discover-global");
 const oscDiscoverCreateButton = document.querySelector("#osc-discover-create");
 const oscMessage = document.querySelector("#osc-message");
+const wingNativeInstances = document.querySelector("#wing-native-instances");
+const wingNativeAddButton = document.querySelector("#wing-native-add");
+const wingNativeMessage = document.querySelector("#wing-native-message");
 const midiInstances = document.querySelector("#midi-instances");
 const rtpMidiInstances = document.querySelector("#rtp-midi-instances");
 const rtpDiscoveryNote = document.querySelector(".rtp-discovery-note");
@@ -37,6 +40,7 @@ const midiMessage = document.querySelector("#midi-message");
 const rtpMidiMessage = document.querySelector("#rtp-midi-message");
 const DEFAULT_MIDI_ADAPTER_NAMES = new Set(["midi", "rtp_midi"]);
 const DEFAULT_OSC_INSTANCE_NAMES = new Set(["osc"]);
+const DEFAULT_WING_NATIVE_INSTANCE_NAMES = new Set(["wing_native"]);
 const PROTECTED_DELETE_MESSAGE = "Default instances cannot be deleted";
 const DESK_MODE_OPTIONS = [
   { id: "", label: "None" },
@@ -146,6 +150,7 @@ let masterClockConfig = null;
 let tapPulseTimer = null;
 let midiAdaptersConfig = null;
 let oscAdaptersConfig = null;
+let wingNativeAdaptersConfig = null;
 let discoveredOscDesks = [];
 let monitorDisplayMode = monitorDisplayModeSelect?.value || "library";
 let adapterLibraryConfig = {};
@@ -249,6 +254,7 @@ function renderStatus(status) {
 
   preloadMonitorLibraries(status);
   applyAdapterRuntimeConnectionsFromStatus(status.adapters || {});
+  updateWingNativeConnectivityFromStatus(status);
 }
 
 function renderLearnState(learn) {
@@ -3678,6 +3684,10 @@ function attachMidiAdapterCardControls(card) {
       saveOscAdapterCard(card);
       return;
     }
+    if (card.dataset.instanceType === "wing_native") {
+      saveWingNativeAdapterCard(card);
+      return;
+    }
     saveMidiAdapterCard(card);
   });
 
@@ -4697,6 +4707,373 @@ function renderOscAdaptersConfig(config) {
   updateGlobalOscDiscoverOptions(discoveredOscDesks);
 }
 
+function fetchWingNativeAdaptersConfig() {
+  return fetch("/api/wing-native-adapters").then((response) => response.json());
+}
+
+function loadWingNativeAdaptersConfig() {
+  return fetchWingNativeAdaptersConfig().then((config) => {
+    renderWingNativeAdaptersConfig(config);
+    return config;
+  });
+}
+
+function defaultWingNativeInstanceTemplate() {
+  return {
+    name: "",
+    type: "wing_native",
+    enabled: false,
+    remote_host: "",
+    native_port: 2222,
+    wing_library: "behringer_wing",
+    echo_guard_ms: 30,
+  };
+}
+
+function buildNewWingNativeInstanceTemplate() {
+  const template = defaultWingNativeInstanceTemplate();
+  template.name = suggestWingNativeInstanceName();
+  return template;
+}
+
+function suggestWingNativeInstanceName() {
+  const names = new Set(DEFAULT_WING_NATIVE_INSTANCE_NAMES);
+  for (const instance of wingNativeAdaptersConfig?.instances || []) {
+    if (instance.name) {
+      names.add(instance.name);
+    }
+  }
+  for (const card of wingNativeInstances.querySelectorAll(".midi-adapter-card")) {
+    const { name } = adapterInstanceNameFromCard(card);
+    if (name) {
+      names.add(name);
+    }
+  }
+  let index = 1;
+  while (names.has(`wing_native_${index}`)) {
+    index += 1;
+  }
+  return `wing_native_${index}`;
+}
+
+function formatWingNativeConnectivity(connectivity) {
+  if (!connectivity) {
+    return "";
+  }
+  const parts = [];
+  const phase = String(connectivity.connection_phase || "").trim();
+  if (phase) {
+    parts.push(`Phase: ${phase}`);
+  }
+  if (connectivity.connected) {
+    parts.push("Connected");
+  }
+  if (connectivity.paths_cached != null) {
+    parts.push(`Paths cached: ${connectivity.paths_cached}`);
+  }
+  if (connectivity.last_feedback_path) {
+    const age =
+      connectivity.last_feedback_age_s != null
+        ? `${connectivity.last_feedback_age_s.toFixed(1)}s ago`
+        : "recently";
+    parts.push(`Last feedback: ${connectivity.last_feedback_path} (${age})`);
+  }
+  if (connectivity.last_keepalive_age_s != null) {
+    parts.push(`Keepalive: ${connectivity.last_keepalive_age_s.toFixed(1)}s ago`);
+  }
+  if (connectivity.last_error) {
+    parts.push(`Error: ${connectivity.last_error}`);
+  }
+  return parts.join(" · ");
+}
+
+function updateWingNativeCardConnectivity(card, instance) {
+  const connectivityNode = card.querySelector(".wing-native-connectivity");
+  if (!connectivityNode) {
+    return;
+  }
+  const text = formatWingNativeConnectivity(instance?.connectivity);
+  connectivityNode.textContent = text;
+  connectivityNode.hidden = !text;
+}
+
+function updateWingNativeConnectivityFromStatus(status) {
+  const byName = new Map();
+  for (const instance of status.wing_native_instances || []) {
+    byName.set(instance.name, instance);
+  }
+  for (const [name, adapter] of Object.entries(status.adapters || {})) {
+    if (adapter.wing_connectivity && !byName.has(name)) {
+      byName.set(name, { name, connectivity: adapter.wing_connectivity });
+    }
+  }
+  for (const card of wingNativeInstances.querySelectorAll(".midi-adapter-card")) {
+    const instance = byName.get(card.dataset.instanceName);
+    updateWingNativeCardConnectivity(card, instance);
+    if (instance?.runtime_connection) {
+      setAdapterConnectionStatus(instance.name, instance.runtime_connection);
+    }
+  }
+  updateAdapterConnectionBadges();
+}
+
+function createWingNativeAdapterCard(instance, config, options = {}) {
+  const isNew = Boolean(options.isNew);
+  const card = document.createElement("section");
+  card.className = "midi-adapter-card";
+  card.dataset.instanceName = instance.name;
+  card.dataset.instanceType = "wing_native";
+  if (isNew) {
+    card.dataset.isNew = "true";
+  }
+
+  const accordion = createAdapterInstanceAccordion(
+    adapterInstanceSummaryLabel(instance, isNew),
+  );
+  const { body, title } = accordion;
+
+  const nameField = createAdapterNameField(instance, DEFAULT_WING_NATIVE_INSTANCE_NAMES, { isNew });
+  bindAdapterInstanceTitle(title, nameField.querySelector("input"), { isNew });
+
+  const statusBadge = document.createElement("span");
+  statusBadge.className = "adapter-status-badge adapter-status-unknown";
+  statusBadge.hidden = true;
+  if (instance.runtime_connection) {
+    setAdapterConnectionStatus(instance.name, instance.runtime_connection);
+  }
+
+  const actions = document.createElement("div");
+  actions.className = "midi-adapter-card-actions";
+
+  const saveButton = document.createElement("button");
+  saveButton.type = "button";
+  saveButton.className = "midi-adapter-save";
+  saveButton.textContent = "Save";
+  saveButton.disabled = true;
+  actions.appendChild(saveButton);
+
+  const deleteButton = document.createElement("button");
+  deleteButton.type = "button";
+  deleteButton.className = "midi-adapter-delete";
+  deleteButton.textContent = "Delete";
+  wireAdapterDeleteButton(deleteButton, card, () => deleteWingNativeAdapterCard(card), {
+    protectedDelete: !isNew && DEFAULT_WING_NATIVE_INSTANCE_NAMES.has(instance.name),
+    panelMessage: wingNativeMessage,
+  });
+  actions.appendChild(deleteButton);
+  accordion.summary.appendChild(statusBadge);
+  prependAdapterBodySections(body, [actions, nameField]);
+  mountAdapterInstanceCard(card, accordion);
+
+  if (!isNew) {
+    const runtime = document.createElement("p");
+    runtime.className = "message";
+    runtime.textContent = instance.runtime_active ? "Runtime: active" : "Runtime: inactive";
+    body.appendChild(runtime);
+  }
+
+  const connectivity = document.createElement("p");
+  connectivity.className = "hint wing-native-connectivity";
+  connectivity.hidden = true;
+  body.appendChild(connectivity);
+  updateWingNativeCardConnectivity(card, instance);
+
+  const enabledLabel = document.createElement("label");
+  enabledLabel.className = "inline-field";
+  const enabledInput = document.createElement("input");
+  enabledInput.type = "checkbox";
+  enabledInput.dataset.field = "enabled";
+  enabledInput.checked = Boolean(instance.enabled);
+  enabledLabel.append(enabledInput, document.createTextNode(" Enabled"));
+  body.appendChild(enabledLabel);
+
+  body.appendChild(
+    createSelectField(
+      "Wing library",
+      "wing_library",
+      config.available_wing_libraries || [],
+      "id",
+      "label",
+      instance.wing_library || "behringer_wing",
+      "behringer_wing",
+    ),
+  );
+
+  const remoteHostField = createTextField("Remote host", "remote_host", instance.remote_host || "");
+  const discoverRow = document.createElement("div");
+  discoverRow.className = "osc-discover-row";
+  const discoverSelect = document.createElement("select");
+  discoverSelect.className = "osc-discover-select";
+  discoverSelect.appendChild(new Option("Choose discovered Wing...", ""));
+  const discoverButton = document.createElement("button");
+  discoverButton.type = "button";
+  discoverButton.textContent = "Scan";
+  discoverButton.addEventListener("click", () => {
+    discoverButton.disabled = true;
+    wingNativeMessage.textContent = "scanning for Wing desks...";
+    fetch("/api/osc-adapters/discover?protocol=wing")
+      .then((response) => response.json())
+      .then((payload) => {
+        const devices = (payload.devices || []).filter((device) => device.protocol === "wing");
+        rememberDiscoveredOscDesks(devices);
+        populateOscDiscoverSelect(discoverSelect, devices);
+        wingNativeMessage.textContent = formatOscDiscoverMessage(payload, devices);
+      })
+      .catch((error) => {
+        wingNativeMessage.textContent = `scan error: ${error.message}`;
+      })
+      .finally(() => {
+        discoverButton.disabled = false;
+      });
+  });
+  discoverSelect.addEventListener("change", () => {
+    if (!discoverSelect.value) {
+      return;
+    }
+    applyDiscoveredDeskToCard(card, JSON.parse(discoverSelect.value));
+  });
+  discoverRow.append(discoverButton, discoverSelect);
+  remoteHostField.appendChild(discoverRow);
+  body.appendChild(remoteHostField);
+
+  populateOscDiscoverSelect(
+    discoverSelect,
+    discoveredOscDesks.filter((device) => device.protocol === "wing"),
+  );
+
+  body.appendChild(
+    createNumberField(
+      "Native port",
+      "native_port",
+      instance.native_port ?? 2222,
+      1,
+      65535,
+      1,
+    ),
+  );
+
+  body.appendChild(
+    createNumberField(
+      "Echo guard (ms)",
+      "echo_guard_ms",
+      instance.echo_guard_ms ?? 30,
+      0,
+      5000,
+      1,
+    ),
+  );
+
+  attachMidiAdapterCardControls(card);
+  return card;
+}
+
+function persistWingNativeAdapterChanges(payload) {
+  return fetch("/api/wing-native-adapters", {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({
+      instances: payload.instances || [],
+      deleted: payload.deleted || [],
+    }),
+  }).then(async (response) => {
+    if (!response.ok) {
+      throw new Error(await response.text());
+    }
+    return response.json();
+  });
+}
+
+function deleteWingNativeAdapterCard(card) {
+  if (!confirmMidiAdapterDelete(card)) {
+    return;
+  }
+
+  if (card.dataset.isNew === "true") {
+    card.remove();
+    return;
+  }
+
+  const name = card.dataset.instanceName;
+  card.remove();
+  wingNativeMessage.textContent = "deleting...";
+
+  persistWingNativeAdapterChanges({ instances: [], deleted: [name] })
+    .then((config) => {
+      wingNativeAdaptersConfig = config;
+      renderWingNativeAdaptersConfig(config);
+      wingNativeMessage.textContent = "deleted";
+    })
+    .catch((error) => {
+      wingNativeMessage.textContent = `error: ${error.message}`;
+      if (wingNativeAdaptersConfig) {
+        renderWingNativeAdaptersConfig(wingNativeAdaptersConfig);
+      }
+    });
+}
+
+function saveWingNativeAdapterCard(card) {
+  const saveButton = card.querySelector(".midi-adapter-save");
+  const wasNew = card.dataset.isNew === "true";
+
+  if (!ensureValidAdapterInstanceName(card)) {
+    return;
+  }
+
+  showMidiAdapterCardMessage(card, "saving...");
+  saveButton.disabled = true;
+
+  persistWingNativeAdapterChanges({
+    instances: [collectMidiAdapterInstanceFrom(card)],
+  })
+    .then(async (config) => {
+      wingNativeAdaptersConfig = config;
+      const status =
+        config.persisted === false
+          ? `saved for runtime only: ${config.persist_error}`
+          : "saved";
+      if (wasNew) {
+        renderWingNativeAdaptersConfig(config);
+        for (const savedCard of wingNativeInstances.querySelectorAll(".midi-adapter-card")) {
+          savedCard.dataset.savedState = midiAdapterCardStateSignature(savedCard);
+          updateMidiAdapterCardDirtyState(savedCard);
+        }
+        wingNativeMessage.textContent = status;
+      } else {
+        card.dataset.savedState = midiAdapterCardStateSignature(card);
+        updateMidiAdapterCardDirtyState(card);
+        showMidiAdapterCardMessage(card, status, { autoHide: true });
+      }
+      await refreshMappingDataAfterAdapterChange();
+    })
+    .catch((error) => {
+      showMidiAdapterCardMessage(card, `error: ${error.message}`);
+      updateMidiAdapterCardDirtyState(card);
+    });
+}
+
+function addWingNativeAdapterCard() {
+  const config = wingNativeAdaptersConfig || {
+    available_wing_libraries: [{ id: "behringer_wing", label: "Behringer Wing" }],
+    instances: [],
+  };
+  wingNativeInstances.appendChild(
+    createWingNativeAdapterCard(buildNewWingNativeInstanceTemplate(), config, { isNew: true }),
+  );
+}
+
+function renderWingNativeAdaptersConfig(config) {
+  wingNativeAdaptersConfig = config;
+  applyAdapterRuntimeConnectionsFromConfig(config.instances);
+  wingNativeInstances.replaceChildren();
+  for (const instance of config.instances || []) {
+    if (instance.type !== "wing_native") {
+      continue;
+    }
+    wingNativeInstances.appendChild(createWingNativeAdapterCard(instance, config));
+  }
+  updateAdapterConnectionBadges();
+}
+
 function createTextField(labelText, fieldName, value) {
   const label = document.createElement("label");
   label.textContent = `${labelText} `;
@@ -5108,6 +5485,10 @@ oscAddButton?.addEventListener("click", () => {
   addOscAdapterCard();
 });
 
+wingNativeAddButton?.addEventListener("click", () => {
+  addWingNativeAdapterCard();
+});
+
 oscDiscoverButton?.addEventListener("click", () => {
   oscMessage.textContent = "scanning for desks...";
   fetch("/api/osc-adapters/discover")
@@ -5262,6 +5643,7 @@ monitorDisplayModeSelect?.addEventListener("change", () => {
 fetch("/api/status").then((response) => response.json()).then(renderStatus);
 loadMidiAdaptersConfig();
 loadOscAdaptersConfig();
+loadWingNativeAdaptersConfig();
 loadHidAdaptersConfig();
 fetch("/api/gpio").then((response) => response.json()).then(renderGpioConfig);
 fetch("/api/master-clock").then((response) => response.json()).then(renderMasterClockConfig);

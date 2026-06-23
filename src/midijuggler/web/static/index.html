@@ -255,6 +255,17 @@
           <p id="osc-message" class="message"></p>
         </article>
         <article class="midi-device-panel">
+          <h2>Wing Native</h2>
+          <p class="hint">
+            Direct TCP connection to the Wing desk (port 2222). Use this instead of OSC for reliable
+            bidirectional feedback. Up to 16 native clients can connect simultaneously; OSC event
+            subscription is separate.
+          </p>
+          <div id="wing-native-instances"></div>
+          <button type="button" id="wing-native-add">Add Wing Native instance</button>
+          <p id="wing-native-message" class="message"></p>
+        </article>
+        <article class="midi-device-panel">
           <h2>MIDI</h2>
           <p class="hint">
             Echo guard ignores input that matches recently sent output on the same path

@@ -116,6 +116,24 @@ def remove_osc_adapter_configs(
     _remove_adapter_configs(path, instance_names)
 
 
+def save_wing_native_adapter_configs(
+    path: str | Path,
+    instances: dict[str, AdapterConfig],
+) -> None:
+    """Persist editable Wing native adapter sections in a TOML config file."""
+
+    _save_adapter_configs(path, instances)
+
+
+def remove_wing_native_adapter_configs(
+    path: str | Path,
+    instance_names: list[str],
+) -> None:
+    """Remove Wing native adapter sections from a TOML config file."""
+
+    _remove_adapter_configs(path, instance_names)
+
+
 def save_hid_adapter_configs(
     path: str | Path,
     instances: dict[str, AdapterConfig],

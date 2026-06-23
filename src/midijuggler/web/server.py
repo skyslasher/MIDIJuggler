@@ -47,9 +47,11 @@ from midijuggler.config import (
     save_runtime_config,
     remove_midi_adapter_configs,
     remove_osc_adapter_configs,
+    remove_wing_native_adapter_configs,
     remove_hid_adapter_configs,
     save_midi_adapter_configs,
     save_osc_adapter_configs,
+    save_wing_native_adapter_configs,
     save_hid_adapter_configs,
 )
 from midijuggler.hid.codes import (
@@ -62,6 +64,7 @@ from midijuggler.hid.codes import (
 )
 from midijuggler.modules.io.hid import HidIOModule
 from midijuggler.modules.io.osc import OscIOModule
+from midijuggler.modules.io.wing_native import WingNativeIOModule
 from midijuggler.modules.modifier.feedback_suppress import parse_feedback_suppress_ms
 from midijuggler.eventbus import EventBus
 from midijuggler.events import AdapterStatusEvent, Event, MasterClockStateEvent, MidiMessageEvent
@@ -216,6 +219,8 @@ class WebInterface:
         app.router.add_get("/api/osc-adapters/discover", self.discover_osc_desks)
         app.router.add_post("/api/osc-adapters", self.set_osc_adapters_config)
         app.router.add_post("/api/osc-adapters/test-send", self.test_send_osc_adapter)
+        app.router.add_get("/api/wing-native-adapters", self.wing_native_adapters_config)
+        app.router.add_post("/api/wing-native-adapters", self.set_wing_native_adapters_config)
         app.router.add_get("/api/master-clock", self.master_clock_config)
         app.router.add_post("/api/master-clock", self.set_master_clock_config)
         app.router.add_post("/api/master-clock/tap", self.tap_master_clock)
@@ -581,6 +586,17 @@ class WebInterface:
         payload = await request.json()
         try:
             response = await self.apply_osc_adapters_config(payload)
+        except ValueError as exc:
+            raise web.HTTPBadRequest(text=str(exc)) from exc
+        return web.json_response(response)
+
+    async def wing_native_adapters_config(self, request: web.Request) -> web.Response:
+        return web.json_response(self.wing_native_adapters_config_payload())
+
+    async def set_wing_native_adapters_config(self, request: web.Request) -> web.Response:
+        payload = await request.json()
+        try:
+            response = await self.apply_wing_native_adapters_config(payload)
         except ValueError as exc:
             raise web.HTTPBadRequest(text=str(exc)) from exc
         return web.json_response(response)
@@ -1313,6 +1329,14 @@ class WebInterface:
             return True
         return adapter.enabled or bool(adapter.options)
 
+    def _should_list_wing_native_instance(self, name: str, adapter: AdapterConfig) -> bool:
+        kind = adapter.kind or name
+        if kind != "wing_native":
+            return False
+        if name != "wing_native":
+            return True
+        return adapter.enabled or bool(adapter.options)
+
     def _osc_instances_payload(self) -> list[dict[str, Any]]:
         return [
             {
@@ -1354,6 +1378,28 @@ class WebInterface:
                 else 0
             ),
         }
+
+    def _wing_native_instance_payload(self, name: str, adapter: AdapterConfig) -> dict[str, Any]:
+        options = dict(adapter.options)
+        runtime_adapter = self.wing_native_adapters.get(name)
+        payload: dict[str, Any] = {
+            "name": name,
+            "type": "wing_native",
+            "enabled": adapter.enabled,
+            "runtime_active": runtime_adapter is not None and runtime_adapter.running,
+            "remote_host": str(options.get("remote_host", "")).strip(),
+            "native_port": int(options.get("native_port", 2222)),
+            "wing_library": str(options.get("wing_library", "behringer_wing")).strip(),
+            "echo_guard_ms": int(
+                options.get("echo_guard_ms", DEFAULT_ECHO_GUARD_MS) or DEFAULT_ECHO_GUARD_MS
+            ),
+        }
+        runtime_connection = self._adapter_runtime_connection(name)
+        if runtime_connection is not None:
+            payload["runtime_connection"] = runtime_connection
+        if runtime_adapter is not None:
+            payload["connectivity"] = runtime_adapter.connectivity_snapshot()
+        return payload
 
     def _normalized_osc_options(
         self,
@@ -1420,6 +1466,33 @@ class WebInterface:
         if desk_label:
             options["desk_label"] = desk_label
         return apply_desk_options(options)
+
+    def _normalized_wing_native_options(
+        self,
+        payload: dict[str, Any],
+        current: dict[str, Any],
+    ) -> dict[str, Any]:
+        native_port = int(payload.get("native_port", current.get("native_port", 2222)))
+        if not 1 <= native_port <= 65535:
+            raise ValueError("native_port must be between 1 and 65535")
+
+        wing_library = str(
+            payload.get("wing_library", current.get("wing_library", "behringer_wing"))
+        ).strip()
+        known_libraries = {library.id for library in list_osc_libraries()}
+        if wing_library not in known_libraries:
+            raise ValueError(f"unknown wing library: {wing_library}")
+        if desk_mode_for_library(wing_library) != "wing":
+            raise ValueError(f"wing library must target a Wing desk, not {wing_library!r}")
+
+        return {
+            "remote_host": str(payload.get("remote_host", current.get("remote_host", ""))).strip(),
+            "native_port": native_port,
+            "wing_library": wing_library,
+            "echo_guard_ms": parse_echo_guard_ms(
+                payload.get("echo_guard_ms", current.get("echo_guard_ms", DEFAULT_ECHO_GUARD_MS))
+            ),
+        }
 
     def _validate_osc_listen_ports(self) -> None:
         port_users: dict[int, str] = {}
@@ -1885,6 +1958,36 @@ class WebInterface:
         self.datapoint_store.unregister_module_except(name, set())
         await module.start()
 
+    async def _clear_wing_native_datapoints(self, name: str) -> None:
+        if self.datapoint_store is None:
+            return
+        module = None
+        if self._osc_io_modules is not None:
+            module = self._osc_io_modules.pop(name, None)
+        if module is not None and module.running:
+            await module.stop()
+        self.datapoint_store.unregister_module_except(name, set())
+
+    async def _refresh_wing_native_datapoints(self, name: str) -> None:
+        if self.datapoint_store is None:
+            return
+        adapter = self.wing_native_adapters.get(name)
+        if adapter is None or not adapter.config.enabled:
+            await self._clear_wing_native_datapoints(name)
+            return
+
+        if self._osc_io_modules is not None:
+            existing = self._osc_io_modules.get(name)
+            if existing is not None and existing.running:
+                await existing.stop()
+
+        module = WingNativeIOModule(adapter, self.datapoint_store, self.config)
+        if self._osc_io_modules is not None:
+            self._osc_io_modules[name] = module
+
+        self.datapoint_store.unregister_module_except(name, set())
+        await module.start()
+
     async def apply_hid_adapters_config(self, payload: dict[str, Any]) -> dict[str, Any]:
         if not isinstance(payload, dict):
             raise ValueError("HID adapter config payload must be an object")
@@ -2095,6 +2198,39 @@ class WebInterface:
         adapter.config = updated
         adapter._apply_options(updated.options)  # noqa: SLF001
 
+    async def _apply_wing_native_runtime_adapter(self, name: str, updated: AdapterConfig) -> None:
+        adapter = self.wing_native_adapters.get(name)
+        if adapter is None:
+            if not updated.enabled:
+                return
+            adapter = WingNativeAdapter(name=name, config=updated, bus=self.bus)
+            self.wing_native_adapters[name] = adapter
+            try:
+                await adapter.start()
+            except OSError as exc:
+                self.wing_native_adapters.pop(name, None)
+                raise ValueError(str(exc)) from exc
+            self._register_runtime_adapter(adapter)
+            return
+
+        if updated.enabled:
+            try:
+                if adapter.running:
+                    await adapter.reload(updated)
+                else:
+                    adapter.config = updated
+                    adapter._apply_options(updated.options)  # noqa: SLF001
+                    await adapter.start()
+            except OSError as exc:
+                raise ValueError(str(exc)) from exc
+            self._register_runtime_adapter(adapter)
+            return
+
+        if adapter.running:
+            await adapter.stop()
+        adapter.config = updated
+        adapter._apply_options(updated.options)  # noqa: SLF001
+
     async def _rename_runtime_adapter(self, old_name: str, new_name: str, kind: str) -> None:
         if kind == "midi":
             adapter = self.midi_adapters.pop(old_name, None)
@@ -2108,6 +2244,13 @@ class WebInterface:
             if adapter is not None:
                 adapter.name = new_name
                 self.osc_adapters[new_name] = adapter
+            return
+
+        if kind == "wing_native":
+            adapter = self.wing_native_adapters.pop(old_name, None)
+            if adapter is not None:
+                adapter.name = new_name
+                self.wing_native_adapters[new_name] = adapter
             return
 
         if kind == "hid":
@@ -2488,6 +2631,136 @@ class WebInterface:
                 await self._clear_osc_datapoints(name)
 
         response = self.osc_adapters_config_payload()
+        response.update({"persisted": persisted, "persist_error": persist_error})
+        return response
+
+    def wing_native_adapters_config_payload(self) -> dict[str, Any]:
+        libraries = list_osc_libraries()
+        return {
+            "available_wing_libraries": [
+                {"id": library.id, "label": library.name}
+                for library in libraries
+                if desk_mode_for_library(library.id) == "wing"
+            ],
+            "instances": [
+                self._wing_native_instance_payload(name, adapter)
+                for name, adapter in sorted(self.config.adapters.items())
+                if self._should_list_wing_native_instance(name, adapter)
+            ],
+        }
+
+    async def apply_wing_native_adapters_config(self, payload: dict[str, Any]) -> dict[str, Any]:
+        if not isinstance(payload, dict):
+            raise ValueError("Wing native adapter config payload must be an object")
+
+        raw_instances = payload.get("instances")
+        if not isinstance(raw_instances, list):
+            raise ValueError("Wing native adapter config requires an instances list")
+
+        raw_deleted = payload.get("deleted", [])
+        if not isinstance(raw_deleted, list):
+            raise ValueError("deleted must be a list")
+
+        deleted_names: list[str] = []
+        for raw_name in raw_deleted:
+            name = str(raw_name).strip()
+            if not name:
+                continue
+            if name not in self.config.adapters:
+                raise ValueError(f"unknown Wing native adapter instance: {name}")
+            adapter_kind = self.config.adapters[name].kind or name
+            if adapter_kind != "wing_native":
+                raise ValueError(f"adapter {name} is not a Wing native adapter")
+            deleted_names.append(name)
+
+        for name in deleted_names:
+            adapter = self.wing_native_adapters.pop(name, None)
+            if adapter is not None:
+                if adapter.running:
+                    await adapter.stop()
+                self._unregister_runtime_adapter(adapter)
+            self.config.adapters.pop(name, None)
+            await self._clear_wing_native_datapoints(name)
+
+        updates: dict[str, AdapterConfig] = {}
+        renamed_from: list[str] = []
+        runtime_renames: list[tuple[str, str, str]] = []
+        for raw_instance in raw_instances:
+            if not isinstance(raw_instance, dict):
+                raise ValueError("each Wing native adapter instance must be an object")
+            name = str(raw_instance.get("name", "")).strip()
+            if not name:
+                raise ValueError("each Wing native adapter instance requires a name")
+
+            previous_name = str(raw_instance.get("previous_name", "")).strip()
+            if previous_name and previous_name != name:
+                kind = self._rename_adapter_config_instance(
+                    previous_name,
+                    name,
+                    allowed_kinds={"wing_native"},
+                )
+                renamed_from.append(previous_name)
+                runtime_renames.append((previous_name, name, kind))
+
+            if name not in self.config.adapters:
+                _validate_adapter_instance_name(name)
+                kind = str(raw_instance.get("type", "wing_native")).strip()
+                if kind != "wing_native":
+                    raise ValueError(
+                        f"adapter {name} must use type 'wing_native', not {kind!r}"
+                    )
+                current_options: dict[str, Any] = {}
+                enabled = bool(raw_instance.get("enabled", False))
+            else:
+                current = self.config.adapters[name]
+                kind = current.kind or name
+                if kind != "wing_native":
+                    raise ValueError(f"adapter {name} is not a Wing native adapter")
+                current_options = current.options
+                enabled = bool(raw_instance.get("enabled", current.enabled))
+
+            options = self._normalized_wing_native_options(raw_instance, current_options)
+            updated = AdapterConfig(enabled=enabled, options=options, kind="wing_native")
+            updates[name] = updated
+            self.config.adapters[name] = updated
+
+        removed_names = [*deleted_names]
+        for old_name in renamed_from:
+            if old_name not in removed_names:
+                removed_names.append(old_name)
+
+        persisted = False
+        persist_error = ""
+        if self.config_path is not None and (updates or removed_names):
+            try:
+                if updates:
+                    save_wing_native_adapter_configs(self.config_path, updates)
+                if removed_names:
+                    remove_wing_native_adapter_configs(self.config_path, removed_names)
+                persisted = True
+            except OSError as exc:
+                persist_error = str(exc)
+                LOGGER.warning(
+                    "Wing native adapter config applied at runtime but could not be persisted to %s: %s",
+                    self.config_path,
+                    exc,
+                )
+        elif self.config_path is None and (updates or removed_names):
+            persist_error = "no config path available"
+
+        for old_name, new_name, kind in runtime_renames:
+            await self._rename_runtime_adapter(old_name, new_name, kind)
+            if kind == "wing_native":
+                await self._clear_wing_native_datapoints(old_name)
+
+        for name, updated in updates.items():
+            await self._apply_wing_native_runtime_adapter(name, updated)
+            if updated.enabled:
+                await self._refresh_wing_native_datapoints(name)
+            else:
+                await self._clear_wing_native_datapoints(name)
+
+        response = self.wing_native_adapters_config_payload()
         response.update({"persisted": persisted, "persist_error": persist_error})
         return response
 
