@@ -43,6 +43,7 @@ from midijuggler.modules.io.midi import MidiIOModule
 from midijuggler.modules.io.osc import OscIOModule
 from midijuggler.modules.io.rtp_midi import RtpMidiIOModule
 from midijuggler.rtp_midi import RtpMidiManager
+from midijuggler.osc.desk_tracker import OscDeskDiscoveryManager
 from midijuggler.web.server import WebInterface, run_web_server, stop_web_server
 
 LOGGER = logging.getLogger(__name__)
@@ -92,6 +93,8 @@ class MIDIJugglerService:
             alsa_config_path=self.alsa_config_path,
             datapoint_store=self.datapoint_store,
         )
+        self.osc_desk_tracker = OscDeskDiscoveryManager(self.web)
+        self.web.osc_desk_tracker = self.osc_desk_tracker
         self.event_bridge = EventToDataPointBridge(self.datapoint_store, self.bus)
         self.module_registry, self.io_modules = build_module_registry(
             config,
@@ -127,6 +130,11 @@ class MIDIJugglerService:
         self.event_bridge.attach()
         await self.rtp_midi_manager.start()
         LOGGER.info("RTP-MIDI status: %s", self.rtp_midi_manager.status_summary())
+        await self.osc_desk_tracker.start()
+        LOGGER.info(
+            "OSC desk discovery active; %s desk(s) on LAN",
+            len(self.osc_desk_tracker.discovered_desks),
+        )
         for adapter in self.adapters:
             await adapter.start()
         await self.module_registry.start_all()
@@ -147,6 +155,7 @@ class MIDIJugglerService:
         await self.master_clock.stop()
         for adapter in reversed(self.adapters):
             await adapter.stop()
+        await self.osc_desk_tracker.stop()
         await self.rtp_midi_manager.stop()
 
     async def run_forever(self) -> None:

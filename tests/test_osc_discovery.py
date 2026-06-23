@@ -24,6 +24,7 @@ def test_parse_wing_discovery_response() -> None:
     assert desk.model == "ngc-full"
     assert desk.serial == "SN123"
     assert desk.firmware == "4.12.0"
+    assert desk.as_dict()["identity"] == "wing:SN123"
 
 
 def test_parse_wing_discovery_response_prefers_source_ip() -> None:

@@ -102,7 +102,12 @@ from midijuggler.osc.desk_protocol import (
     is_desk_library,
     osc_library_for_desk_mode,
 )
-from midijuggler.osc.discovery import discover_desks, discovery_scan_networks
+from midijuggler.osc.discovery import (
+    DiscoveredDesk,
+    desk_identity,
+    discover_desks,
+    discovery_scan_networks,
+)
 from midijuggler.osc_library import get_osc_library, list_osc_libraries
 from midijuggler.datapoint.bridge import legacy_source_to_datapoint
 from midijuggler.datapoint.bridge import mapping_from_connection
@@ -171,6 +176,7 @@ class WebInterface:
         self.datapoint_store = datapoint_store
         self.modifier_graph = modifier_graph
         self._osc_io_modules: dict[str, OscIOModule] | None = None
+        self.osc_desk_tracker = None
         self.learn = LearnController()
         self.config_path = Path(config_path) if config_path is not None else None
         self.alsa_config_path = (
@@ -1006,6 +1012,11 @@ class WebInterface:
             "learn_mode": self.learn.state.enabled,
             "learn": self.learn.state.as_dict(),
             "osc_instances": self._osc_instances_payload(),
+            "osc_discovered_desks": (
+                self.osc_desk_tracker.discovered_desks
+                if self.osc_desk_tracker is not None
+                else []
+            ),
             "mappings": [rule.__dict__ for rule in self.config.mappings],
             "stored_connections": [
                 connection.as_dict() for connection in self._stored_connections()
@@ -1275,6 +1286,8 @@ class WebInterface:
             "listen_port": int(options.get("listen_port", 9000)),
             "remote_host": str(options.get("remote_host", "")),
             "remote_port": int(options.get("remote_port", 0)),
+            "desk_identity": str(options.get("desk_identity", "")),
+            "desk_label": str(options.get("desk_label", "")),
             "osc_port": int(options.get("osc_port", options.get("listen_port", 9000))),
             "osc_library": osc_library,
             "desk_mode": desk_mode,
@@ -1347,6 +1360,14 @@ class WebInterface:
         options["echo_guard_ms"] = parse_echo_guard_ms(
             payload.get("echo_guard_ms", current.get("echo_guard_ms", DEFAULT_ECHO_GUARD_MS))
         )
+        desk_identity_value = str(
+            payload.get("desk_identity", current.get("desk_identity", ""))
+        ).strip()
+        if desk_identity_value:
+            options["desk_identity"] = desk_identity_value
+        desk_label = str(payload.get("desk_label", current.get("desk_label", ""))).strip()
+        if desk_label:
+            options["desk_label"] = desk_label
         return apply_desk_options(options)
 
     def _validate_osc_listen_ports(self) -> None:
@@ -1378,12 +1399,143 @@ class WebInterface:
             raise web.HTTPBadRequest(text="protocol must be wing, x32, or all")
 
         devices = await discover_desks(protocols)
+        if self.osc_desk_tracker is not None:
+            self.osc_desk_tracker.remember_desks(devices)
         return web.json_response(
             {
                 "devices": [device.as_dict() for device in devices],
                 "networks": [str(network) for network in discovery_scan_networks()],
             }
         )
+
+    @staticmethod
+    def _desk_label(desk: DiscoveredDesk) -> str:
+        parts = [desk.name.strip(), desk.model.strip()]
+        if desk.serial.strip():
+            parts.append(desk.serial.strip())
+        return " · ".join(part for part in parts if part)
+
+    async def _bind_osc_desk_identity(
+        self,
+        instance_name: str,
+        adapter: AdapterConfig,
+        desk: DiscoveredDesk,
+    ) -> bool:
+        identity = desk_identity(desk)
+        if not identity:
+            return False
+        options = dict(adapter.options)
+        options["desk_identity"] = identity
+        options["desk_label"] = self._desk_label(desk)
+        updated = AdapterConfig(enabled=adapter.enabled, options=options, kind="osc")
+        self.config.adapters[instance_name] = updated
+        if self.config_path is not None:
+            save_osc_adapter_configs(self.config_path, {instance_name: updated})
+        LOGGER.info(
+            "bound OSC adapter %s to desk identity %s (%s)",
+            instance_name,
+            identity,
+            desk.ip,
+        )
+        return True
+
+    async def apply_osc_desk_ip_from_discovery(
+        self,
+        instance_name: str,
+        desk: DiscoveredDesk,
+    ) -> bool:
+        adapter = self.config.adapters.get(instance_name)
+        if adapter is None or (adapter.kind or instance_name) != "osc":
+            return False
+
+        options = dict(adapter.options)
+        current_host = str(options.get("remote_host", "")).strip()
+        identity = desk_identity(desk)
+        if identity:
+            options["desk_identity"] = identity
+            options["desk_label"] = self._desk_label(desk)
+        if current_host == desk.ip and options == dict(adapter.options):
+            return False
+
+        options["remote_host"] = desk.ip
+        updated = AdapterConfig(enabled=adapter.enabled, options=options, kind="osc")
+        self.config.adapters[instance_name] = updated
+
+        if self.config_path is not None:
+            save_osc_adapter_configs(self.config_path, {instance_name: updated})
+
+        if adapter.enabled:
+            await self._apply_osc_runtime_adapter(instance_name, updated)
+            await self._refresh_osc_datapoints(instance_name)
+
+        LOGGER.info(
+            "relocated OSC adapter %s to %s (%s)",
+            instance_name,
+            desk.ip,
+            identity or "unknown desk",
+        )
+        return True
+
+    async def sync_osc_desk_addresses(
+        self,
+        desks: list[DiscoveredDesk] | None = None,
+    ) -> dict[str, Any]:
+        discovered = desks if desks is not None else await discover_desks()
+        by_identity = {
+            identity: desk
+            for desk in discovered
+            if (identity := desk_identity(desk))
+        }
+        by_ip = {desk.ip: desk for desk in discovered if desk.ip}
+
+        updates: list[dict[str, str]] = []
+        bindings: list[dict[str, str]] = []
+
+        for name, adapter in sorted(self.config.adapters.items()):
+            if (adapter.kind or name) != "osc":
+                continue
+
+            options = dict(adapter.options)
+            if not is_desk_library(str(options.get("osc_library", "")).strip()):
+                continue
+
+            identity = str(options.get("desk_identity", "")).strip()
+            if not identity:
+                remote_host = str(options.get("remote_host", "")).strip()
+                matched = by_ip.get(remote_host)
+                if matched is not None and await self._bind_osc_desk_identity(name, adapter, matched):
+                    bindings.append(
+                        {
+                            "instance": name,
+                            "identity": desk_identity(matched),
+                            "ip": matched.ip,
+                        }
+                    )
+                    adapter = self.config.adapters[name]
+                    identity = str(adapter.options.get("desk_identity", "")).strip()
+
+            if not identity:
+                continue
+
+            desk = by_identity.get(identity)
+            if desk is None:
+                continue
+
+            if await self.apply_osc_desk_ip_from_discovery(name, desk):
+                updates.append(
+                    {
+                        "instance": name,
+                        "identity": identity,
+                        "ip": desk.ip,
+                    }
+                )
+
+        return {
+            "desks": [desk.as_dict() for desk in discovered],
+            "updates": updates,
+            "bindings": bindings,
+            "networks": [str(network) for network in discovery_scan_networks()],
+        }
 
     def gpio_config_payload(self) -> dict[str, Any]:
         options = self._gpio_options()

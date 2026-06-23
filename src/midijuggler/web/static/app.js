@@ -3870,7 +3870,41 @@ function defaultOscInstanceTemplate() {
     desk_sync_on_connect: false,
     desk_proxy_mode: false,
     echo_guard_ms: 30,
+    desk_identity: "",
+    desk_label: "",
   };
+}
+
+function deskLabelFromDevice(device) {
+  const parts = [];
+  if (device?.name) {
+    parts.push(device.name);
+  }
+  if (device?.model) {
+    parts.push(device.model);
+  }
+  if (device?.serial) {
+    parts.push(device.serial);
+  }
+  return parts.join(" · ");
+}
+
+function refreshOscDeskIdentityHint(card) {
+  const hint = card.querySelector(".osc-desk-identity-hint");
+  if (!hint) {
+    return;
+  }
+  const identity = card.querySelector('[data-field="desk_identity"]')?.value?.trim();
+  const label = card.querySelector('[data-field="desk_label"]')?.value?.trim();
+  if (identity) {
+    hint.hidden = false;
+    hint.textContent = label
+      ? `Linked desk: ${label} (${identity}). IP updates automatically when the desk moves.`
+      : `Linked desk identity: ${identity}. IP updates automatically when the desk moves.`;
+    return;
+  }
+  hint.hidden = true;
+  hint.textContent = "";
 }
 
 function usedOscListenPorts(excludeCard = null) {
@@ -4073,6 +4107,14 @@ function applyDiscoveredDeskToCard(card, device) {
   if (hostField) {
     hostField.value = device.ip;
   }
+  const identityField = card.querySelector('[data-field="desk_identity"]');
+  if (identityField) {
+    identityField.value = device.identity || "";
+  }
+  const labelField = card.querySelector('[data-field="desk_label"]');
+  if (labelField) {
+    labelField.value = deskLabelFromDevice(device);
+  }
   const deskModeField = card.querySelector('[data-field="desk_mode"]');
   if (deskModeField && !deskModeField.value) {
     deskModeField.value = device.protocol === "wing" ? "wing" : "x32";
@@ -4083,6 +4125,7 @@ function applyDiscoveredDeskToCard(card, device) {
     portField.value = String(device.protocol === "wing" ? 2223 : 10023);
     portField.dataset.userEdited = "true";
   }
+  refreshOscDeskIdentityHint(card);
   updateMidiAdapterCardDirtyState(card);
 }
 
@@ -4137,7 +4180,11 @@ function configuredOscInstanceNamesForHost(host) {
 }
 
 function oscDiscoverOptionLabel(device) {
-  let label = `${device.protocol.toUpperCase()} ${device.ip}${device.name ? ` (${device.name})` : ""}`;
+  const identityHint = device.identity ? ` · ${device.identity}` : "";
+  const serialHint = device.serial && !device.identity?.includes(device.serial)
+    ? ` · ${device.serial}`
+    : "";
+  let label = `${device.protocol.toUpperCase()} ${device.ip}${device.name ? ` (${device.name})` : ""}${serialHint}${identityHint}`;
   const configuredInstances = configuredOscInstanceNamesForHost(device.ip);
   if (configuredInstances.length) {
     label += ` — configured as ${configuredInstances.join(", ")}`;
@@ -4448,6 +4495,24 @@ function createOscAdapterCard(instance, config, options = {}) {
   discoverRow.append(discoverButton, discoverSelect);
   remoteHostField.appendChild(discoverRow);
   body.appendChild(remoteHostField);
+
+  const identityField = document.createElement("input");
+  identityField.type = "hidden";
+  identityField.dataset.field = "desk_identity";
+  identityField.value = instance.desk_identity || "";
+  body.appendChild(identityField);
+
+  const labelField = document.createElement("input");
+  labelField.type = "hidden";
+  labelField.dataset.field = "desk_label";
+  labelField.value = instance.desk_label || "";
+  body.appendChild(labelField);
+
+  const identityHint = document.createElement("p");
+  identityHint.className = "hint osc-desk-identity-hint";
+  identityHint.hidden = true;
+  body.appendChild(identityHint);
+
   populateOscDiscoverSelect(discoverSelect, discoveredOscDesks);
 
   const syncLabel = document.createElement("label");
@@ -4492,6 +4557,7 @@ function createOscAdapterCard(instance, config, options = {}) {
   body.appendChild(createAdapterTestSendSection("osc", instance));
   attachMidiAdapterCardControls(card);
   updateOscCardDeskMode(card);
+  refreshOscDeskIdentityHint(card);
   return card;
 }
 

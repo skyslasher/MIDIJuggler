@@ -50,7 +50,7 @@ class DiscoveredDesk:
     serial: str = ""
 
     def as_dict(self) -> dict[str, Any]:
-        return {
+        payload = {
             "protocol": self.protocol,
             "ip": self.ip,
             "name": self.name,
@@ -58,6 +58,33 @@ class DiscoveredDesk:
             "firmware": self.firmware,
             "serial": self.serial,
         }
+        identity = desk_identity(self)
+        if identity:
+            payload["identity"] = identity
+        return payload
+
+
+def desk_identity(desk: DiscoveredDesk) -> str:
+    """Return a stable desk identifier for binding OSC adapter instances."""
+
+    protocol = desk.protocol.strip().lower()
+    if protocol == "wing":
+        serial = desk.serial.strip()
+        if serial:
+            return f"wing:{serial}"
+        name = desk.name.strip()
+        model = desk.model.strip()
+        if name and model:
+            return f"wing:{name}:{model}"
+        if name:
+            return f"wing:{name}"
+        return ""
+    if protocol == "x32":
+        network_name = desk.name.strip()
+        if network_name:
+            return f"x32:{network_name}"
+        return ""
+    return ""
 
 
 def parse_wing_discovery_response(
