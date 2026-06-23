@@ -2,6 +2,11 @@ from midijuggler.config import parse_config
 from midijuggler.datapoint.types import ModifierKind
 
 
+def test_default_datapoint_routing_is_true() -> None:
+    config = parse_config({})
+    assert config.runtime.datapoint_routing is True
+
+
 def test_parse_runtime_and_connections() -> None:
     config = parse_config(
         {

@@ -184,6 +184,7 @@ def test_service_filters_master_clock_midi_input_targets() -> None:
         service = MIDIJugglerService(
             parse_config(
                 {
+                    "runtime": {"datapoint_routing": False},
                     "master_clock": {
                         "enabled": True,
                         "midi_input_targets": ["usb_stage"],
@@ -213,6 +214,7 @@ def test_service_accepts_all_enabled_midi_inputs_when_unconfigured() -> None:
         service = MIDIJugglerService(
             parse_config(
                 {
+                    "runtime": {"datapoint_routing": False},
                     "master_clock": {"enabled": True},
                     "adapters": {"midi": {"enabled": True}},
                 }
@@ -233,6 +235,7 @@ def test_service_filters_master_clock_osc_input_targets() -> None:
         service = MIDIJugglerService(
             parse_config(
                 {
+                    "runtime": {"datapoint_routing": False},
                     "master_clock": {
                         "enabled": True,
                         "osc_input_targets": ["osc_pedalboard"],

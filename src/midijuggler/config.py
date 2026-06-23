@@ -14,7 +14,7 @@ from midijuggler.modules.modifier.feedback_suppress import parse_feedback_suppre
 
 @dataclass(frozen=True)
 class RuntimeConfig:
-    datapoint_routing: bool = False
+    datapoint_routing: bool = True
     feedback_suppress_ms: int = 500
 
 
@@ -756,7 +756,7 @@ def _parse_runtime(raw: Any) -> RuntimeConfig:
     if not isinstance(raw, dict):
         raise ValueError("runtime must be a table")
     return RuntimeConfig(
-        datapoint_routing=bool(raw.get("datapoint_routing", False)),
+        datapoint_routing=bool(raw.get("datapoint_routing", True)),
         feedback_suppress_ms=parse_feedback_suppress_ms(raw.get("feedback_suppress_ms", 500)),
     )
 

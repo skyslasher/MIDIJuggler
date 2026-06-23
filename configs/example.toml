@@ -3,10 +3,10 @@ host = "0.0.0.0"
 port = 8080
 
 [runtime]
-# When true, routing uses the data-point store and [[connections]] instead of
-# the legacy MappingEngine/MappedEvent path. Legacy [[mappings]] are still
-# accepted and converted automatically when [[connections]] is empty.
-datapoint_routing = false
+# Routing uses the data-point store and [[connections]] by default.
+# Legacy [[mappings]] are still accepted and converted automatically when
+# [[connections]] is empty. Set to false to use the legacy MappingEngine path.
+datapoint_routing = true
 # Pause desk-to-controller encoder feedback briefly after encoder turns (ms, 0 = off).
 feedback_suppress_ms = 500
 

@@ -271,6 +271,9 @@ def test_apply_master_clock_config_persists_input_targets_without_datapoint_rout
     config_file = tmp_path / "config.toml"
     config_file.write_text(
         """
+        [runtime]
+        datapoint_routing = false
+
         [master_clock]
         enabled = true
 
@@ -315,6 +318,7 @@ def test_apply_master_clock_config_persists_input_targets_without_datapoint_rout
 def test_apply_master_clock_config_rejects_unknown_input_target() -> None:
     config = parse_config(
         {
+            "runtime": {"datapoint_routing": False},
             "adapters": {
                 "midi": {"enabled": True},
                 "osc": {"enabled": True},

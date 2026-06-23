@@ -130,7 +130,8 @@ invert = false
 
     reloaded = load_config(config_path)
     assert reloaded.connections[0].id == "updated"
-    assert reloaded.mappings[0].source == "gpio:pin18"
+    assert reloaded.connections[0].source == "gpio.pin18"
+    assert reloaded.mappings == []
 
 
 def test_delete_all_connections_clears_runtime_routing(tmp_path) -> None:

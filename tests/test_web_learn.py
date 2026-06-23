@@ -110,12 +110,12 @@ osc_library = "behringer_x32"
     )
 
     assert result["persisted"] is True
-    assert result["created_mapping"]["target"] == "x32_foh:/ch/01/mix/01/level"
+    assert result["created_connection"]["target"] == "x32_foh./ch/01/mix/01/level"
     assert len(mapping_engine.rules) == 1
     assert interface.learn.state.phase == "waiting_source"
 
     reloaded = load_config(config_path)
-    assert reloaded.mappings[0].source == "xtouch_mini:layer_a_fader"
+    assert reloaded.mappings == []
     assert reloaded.connections[0].source == "xtouch_mini.layer_a_fader"
     assert reloaded.connections[0].target == "x32_foh./ch/01/mix/01/level"
 
