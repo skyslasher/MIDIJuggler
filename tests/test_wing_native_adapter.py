@@ -5,8 +5,70 @@ import pytest
 from midijuggler.adapters.wing_native import WingNativeAdapter
 from midijuggler.config import AdapterConfig
 from midijuggler.eventbus import EventBus
-from midijuggler.events import MappedEvent, OscMessageEvent
+from midijuggler.events import AdapterStatusEvent, MappedEvent, OscMessageEvent
 from midijuggler.wing.native.client import WingNativeClient, WingPathBinding
+
+
+def test_wing_native_start_marks_connected_before_warmup_finishes(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    warmup_started = asyncio.Event()
+    allow_warmup_finish = asyncio.Event()
+
+    class SlowWarmupClient(WingNativeClient):
+        async def connect(self) -> None:
+            return
+
+        async def resolve_path(self, path: str) -> int:
+            warmup_started.set()
+            await allow_warmup_finish.wait()
+            return 1
+
+        async def read_events(self) -> list[tuple[object, object]]:
+            await asyncio.sleep(3600)
+            return []
+
+        async def close(self) -> None:
+            return
+
+    monkeypatch.setattr(
+        "midijuggler.adapters.wing_native.WingNativeClient",
+        SlowWarmupClient,
+    )
+
+    async def scenario() -> tuple[WingNativeAdapter, list[AdapterStatusEvent]]:
+        bus = EventBus()
+        status_events: list[AdapterStatusEvent] = []
+        bus.subscribe(AdapterStatusEvent, lambda event: status_events.append(event))
+
+        adapter = WingNativeAdapter(
+            name="wing_native_foh",
+            config=AdapterConfig(
+                enabled=True,
+                kind="wing_native",
+                options={
+                    "remote_host": "192.168.1.48",
+                    "wing_library": "behringer_wing",
+                },
+            ),
+            bus=bus,
+        )
+        await adapter.start()
+        return adapter, status_events
+
+    adapter, status_events = asyncio.run(scenario())
+
+    try:
+        assert adapter.running is True
+        assert adapter.connectivity_snapshot()["connection_phase"] == "connected"
+        assert warmup_started.is_set()
+        assert any(
+            event.connection_phase == "connected"
+            for event in status_events
+        )
+    finally:
+        allow_warmup_finish.set()
+        asyncio.run(adapter.stop())
 
 
 def test_wing_native_adapter_publishes_input_updates() -> None:

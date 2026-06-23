@@ -4895,7 +4895,7 @@ function createWingNativeAdapterCard(instance, config, options = {}) {
       "id",
       "label",
       instance.wing_library || "behringer_wing",
-      "behringer_wing",
+      null,
     ),
   );
 

@@ -33,6 +33,7 @@ class WingNativeAdapter(Adapter):
         self._client: WingNativeClient | None = None
         self._read_task: asyncio.Task[None] | None = None
         self._keepalive_task: asyncio.Task[None] | None = None
+        self._warmup_task: asyncio.Task[None] | None = None
         self._echo_guard = OscEchoGuard()
         self._connectivity = WingNativeConnectivity()
         self._last_status_detail = ""
@@ -70,16 +71,17 @@ class WingNativeAdapter(Adapter):
             raise
 
         self.running = True
-        warmup_failed = await self._warm_path_cache()
-        self._connectivity.paths_warmup_failed = warmup_failed
-        self._connectivity.note_connected(self._remote_host, self._native_port)
-        self._connectivity.paths_cached = self._client.path_cache_size
-        await self._publish_connectivity_status(force=True)
-
         self._read_task = asyncio.create_task(self._read_loop(), name=f"wing-native-read-{self.name}")
         self._keepalive_task = asyncio.create_task(
             self._keepalive_loop(),
             name=f"wing-native-keepalive-{self.name}",
+        )
+        self._connectivity.note_connected(self._remote_host, self._native_port)
+        self._connectivity.paths_cached = self._client.path_cache_size
+        await self._publish_connectivity_status(force=True)
+        self._warmup_task = asyncio.create_task(
+            self._warm_path_cache_task(),
+            name=f"wing-native-warmup-{self.name}",
         )
 
     async def reload(self, config: AdapterConfig) -> None:
@@ -97,11 +99,12 @@ class WingNativeAdapter(Adapter):
 
     async def stop(self) -> None:
         self.running = False
-        for task in (self._read_task, self._keepalive_task):
+        for task in (self._warmup_task, self._read_task, self._keepalive_task):
             if task is not None:
                 task.cancel()
                 with contextlib.suppress(asyncio.CancelledError):
                     await task
+        self._warmup_task = None
         self._read_task = None
         self._keepalive_task = None
         if self._client is not None:
@@ -211,6 +214,20 @@ class WingNativeAdapter(Adapter):
             numeric_value,
         )
 
+    async def _warm_path_cache_task(self) -> None:
+        try:
+            failed = await self._warm_path_cache()
+        except asyncio.CancelledError:
+            raise
+        except Exception:
+            LOGGER.exception("Wing native adapter %s path warm-up failed", self.name)
+            return
+
+        self._connectivity.paths_warmup_failed = failed
+        if self._client is not None:
+            self._connectivity.paths_cached = self._client.path_cache_size
+        await self._publish_connectivity_status(force=True)
+
     async def _warm_path_cache(self) -> int:
         if self._client is None or not self._wing_library:
             return 0
@@ -236,12 +253,20 @@ class WingNativeAdapter(Adapter):
                     self.name,
                     address,
                 )
+            except TimeoutError:
+                failed += 1
+                LOGGER.debug(
+                    "Wing native adapter %s timed out resolving %s during warm-up",
+                    self.name,
+                    address,
+                )
             except Exception:
                 failed += 1
-                LOGGER.exception(
+                LOGGER.warning(
                     "Wing native adapter %s failed resolving %s during warm-up",
                     self.name,
                     address,
+                    exc_info=True,
                 )
         return failed
 
