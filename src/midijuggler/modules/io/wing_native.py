@@ -6,12 +6,13 @@ from midijuggler.adapters.wing_native import WingNativeAdapter
 from midijuggler.config import AppConfig
 from midijuggler.datapoint.migrate import effective_connections
 from midijuggler.datapoint.store import DataPointStore
-from midijuggler.datapoint.types import DataPointId, DataPointValue
+from midijuggler.datapoint.types import ConnectionSpec, DataPointId, DataPointValue
 from midijuggler.device.points import build_device_datapoints, library_address_for_point
 from midijuggler.device.registry import DeviceRegistry
 from midijuggler.device.types import DeviceConfig
 from midijuggler.events import MappedEvent
 from midijuggler.modules.base import IOModule
+from midijuggler.modules.modifier.range_map import prefer_fader_unit_range
 
 
 class WingNativeIOModule(IOModule):
@@ -46,23 +47,15 @@ class WingNativeIOModule(IOModule):
             self.config,
             datapoint_routing=self.config.runtime.datapoint_routing,
         )
+        fader_ranges: dict[str, tuple[float, float]] = {}
         for connection in connections:
-            parsed = DataPointId.parse(connection.target)
-            if parsed.module != self.name:
-                continue
-            for point in (parsed.point, self._library_address_for_point(parsed.point)):
-                if point is None:
-                    continue
-                address = point if point.startswith("/") else self._library_address_for_point(point)
-                if address is None:
-                    continue
-                if "/fdr" not in address:
-                    continue
-                self.adapter.register_fader_output_range(
-                    address,
-                    connection.output_min,
-                    connection.output_max,
+            for address, range_min, range_max in self._connection_fader_unit_ranges(connection):
+                fader_ranges[address] = prefer_fader_unit_range(
+                    fader_ranges.get(address),
+                    (range_min, range_max),
                 )
+        for address, (range_min, range_max) in fader_ranges.items():
+            self.adapter.register_fader_output_range(address, range_min, range_max)
         for point in self._output_points:
             self.store.subscribe(DataPointId(self.name, point), self._on_output_value)
         for point_id in self._configured_output_targets():
@@ -91,6 +84,27 @@ class WingNativeIOModule(IOModule):
 
     def _library_address_for_point(self, point: str) -> str | None:
         return library_address_for_point(self.device_registry, self.name, point)
+
+    def _connection_fader_unit_ranges(
+        self,
+        connection: ConnectionSpec,
+    ) -> list[tuple[str, float, float]]:
+        ranges: list[tuple[str, float, float]] = []
+        endpoints = (
+            (DataPointId.parse(connection.source), connection.input_min, connection.input_max),
+            (DataPointId.parse(connection.target), connection.output_min, connection.output_max),
+        )
+        for parsed, range_min, range_max in endpoints:
+            if parsed.module != self.name:
+                continue
+            for point in (parsed.point, self._library_address_for_point(parsed.point)):
+                if point is None:
+                    continue
+                address = point if point.startswith("/") else self._library_address_for_point(point)
+                if address is None or "/fdr" not in address:
+                    continue
+                ranges.append((address, range_min, range_max))
+        return ranges
 
     async def stop(self) -> None:
         await super().stop()

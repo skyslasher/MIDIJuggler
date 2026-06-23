@@ -83,6 +83,13 @@ def test_output_uses_fader_scale_curve_only_for_normalized_outputs() -> None:
     )
 
 
+def test_prefer_fader_unit_range_favors_normalized_wire_units() -> None:
+    from midijuggler.modules.modifier.range_map import prefer_fader_unit_range
+
+    assert prefer_fader_unit_range((-90.0, 10.0), (0.0, 1.0)) == (0.0, 1.0)
+    assert prefer_fader_unit_range((0.0, 1.0), (-90.0, 10.0)) == (0.0, 1.0)
+
+
 def test_encode_wing_fader_wire_normalized_range() -> None:
     from midijuggler.modules.modifier.range_map import encode_wing_fader_wire
 

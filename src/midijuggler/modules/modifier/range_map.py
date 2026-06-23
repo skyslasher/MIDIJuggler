@@ -119,6 +119,31 @@ def output_uses_fader_scale_curve(transform: RangeMapTransform) -> bool:
     return transform.output_min >= 0.0 and transform.output_max <= 1.0
 
 
+def engineering_fader_range(range_min: float, range_max: float) -> bool:
+    """Return True when a fader range uses engineering units instead of normalized 0..1."""
+
+    return not output_uses_fader_scale_curve(
+        RangeMapTransform(output_min=range_min, output_max=range_max)
+    )
+
+
+def prefer_fader_unit_range(
+    current: tuple[float, float] | None,
+    candidate: tuple[float, float],
+) -> tuple[float, float]:
+    """Merge Wing fader unit ranges from multiple connections.
+
+    Prefer normalized 0..1 when any connection uses it on the Wing fader, because
+    Wing native sends and receives normalized wire values in that case.
+    """
+
+    if current is None:
+        return candidate
+    if not engineering_fader_range(*candidate) and engineering_fader_range(*current):
+        return candidate
+    return current
+
+
 def decode_wing_fader_feedback(
     value: float,
     *,
