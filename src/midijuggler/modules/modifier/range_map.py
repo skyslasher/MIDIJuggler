@@ -7,7 +7,12 @@ from dataclasses import dataclass
 
 from midijuggler.datapoint.types import ConnectionSpec, ModifierKind, SCALE_CURVES
 
-_LOG_RATIO = 9.0
+# Behringer Wing / X32 normalized fader law: piecewise-linear dB segments.
+_MIN_FADER_DB = -90.0
+_MAX_FADER_DB = 10.0
+_MIN_FADER_AMP = math.pow(10.0, _MIN_FADER_DB / 20.0)
+_MAX_FADER_AMP = math.pow(10.0, _MAX_FADER_DB / 20.0)
+_AMP_SPAN = _MAX_FADER_AMP - _MIN_FADER_AMP
 
 
 @dataclass(frozen=True)
@@ -36,24 +41,59 @@ class RangeMapTransform:
         )
 
 
+def fader_float_to_db(value: float) -> float:
+    """Convert a Wing/X32 normalized fader value to dB."""
+
+    if value <= 0.0:
+        return _MIN_FADER_DB
+    if value >= 1.0:
+        return _MAX_FADER_DB
+    if value >= 0.5:
+        return value * 40.0 - 30.0
+    if value >= 0.25:
+        return value * 80.0 - 50.0
+    if value >= 0.0625:
+        return value * 160.0 - 70.0
+    return value * 480.0 - 90.0
+
+
+def db_to_fader_float(db: float) -> float:
+    """Convert dB to a Wing/X32 normalized fader value."""
+
+    if db <= _MIN_FADER_DB:
+        return 0.0
+    if db >= _MAX_FADER_DB:
+        return 1.0
+    if db < -60.0:
+        return (db + 90.0) / 480.0
+    if db < -30.0:
+        return (db + 70.0) / 160.0
+    if db < -10.0:
+        return (db + 50.0) / 80.0
+    return (db + 30.0) / 40.0
+
+
 def decode_log_position(value: float) -> float:
-    """Map a logarithmic 0..1 control value to a linear 0..1 position."""
+    """Map a desk log fader (0..1) to a linear amplitude position (0..1)."""
 
     if value <= 0.0:
         return 0.0
     if value >= 1.0:
         return 1.0
-    return math.log10(1.0 + value * _LOG_RATIO)
+    amplitude = math.pow(10.0, fader_float_to_db(value) / 20.0)
+    return (amplitude - _MIN_FADER_AMP) / _AMP_SPAN
 
 
 def encode_log_position(value: float) -> float:
-    """Map a linear 0..1 position to a logarithmic 0..1 control value."""
+    """Map a linear amplitude position (0..1) to a desk log fader (0..1)."""
 
     if value <= 0.0:
         return 0.0
     if value >= 1.0:
         return 1.0
-    return (math.pow(10.0, value) - 1.0) / _LOG_RATIO
+    amplitude = _MIN_FADER_AMP + value * _AMP_SPAN
+    db = 20.0 * math.log10(amplitude)
+    return db_to_fader_float(db)
 
 
 def apply_range_map(value: float, transform: RangeMapTransform) -> float:
