@@ -1,0 +1,308 @@
+# Web configuration
+
+MIDIJuggler exposes configuration endpoints in the web interface for GPIO
+inputs, HID devices, MIDI devices and the MIDI master clock.
+
+## GPIO inputs
+
+Open the web interface and use **GPIO Inputs** to select active Raspberry Pi BCM
+GPIO pins. The UI shows the common 40-pin Raspberry Pi header GPIOs:
+
+```text
+GPIO 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13,
+GPIO 14, 15, 16, 17, 18, 19, 20, 21, 22, 23,
+GPIO 24, 25, 26, 27
+```
+
+The form also exposes:
+
+- `active_low`
+- `bounce_ms`
+- `poll_interval_ms`
+
+Saving updates the running GPIO adapter and persists the `[adapters.gpio]`
+section in the active TOML configuration file.
+
+For persistence, the service user needs write access to the configuration
+directory, because MIDIJuggler writes a temporary file next to the active config
+before replacing it:
+
+```bash
+sudo chown -R midijuggler:midijuggler /etc/midijuggler
+sudo systemctl restart midijuggler.service
+```
+
+If the service cannot write the config file, the GPIO change is still applied at
+runtime and the web UI reports that it was not persisted.
+
+The HTTP API is:
+
+```text
+GET /api/gpio
+POST /api/gpio
+```
+
+Example POST body:
+
+```json
+{
+  "pins": [17, 22, 27],
+  "active_low": true,
+  "bounce_ms": 25,
+  "poll_interval_ms": 5
+}
+```
+
+At least one GPIO pin must be enabled. Pin numbers are BCM numbers, matching the
+hardware and DietPi documentation.
+
+## HID inputs
+
+The configuration view includes a **HID Inputs** card for Linux evdev devices.
+Each `hid` adapter instance can be enabled, assigned to a discovered
+`/dev/input/event*` device, and configured with a list of learned or manual
+evdev codes.
+
+Workflow:
+
+1. Choose a device from the dropdown (requires `evdev` / `pip install -e '.[hid]'`).
+2. Enable the instance and **Save** (inputs may still be empty).
+3. Click **Learn input**, operate the physical control; the learned `BTN_*` / `ABS_*`
+   or `KEY_*` code appears in the table.
+4. For keyboards, enable **Accept keystrokes** to publish all `KEY_*` presses
+   without learning each key individually.
+5. **Save** again to persist the input list.
+
+The HTTP API is:
+
+```text
+GET /api/hid-adapters
+POST /api/hid-adapters
+POST /api/hid-adapters/learn
+```
+
+Example POST body for save:
+
+```json
+{
+  "instances": [
+    {
+      "name": "gamepad",
+      "enabled": true,
+      "device": "/dev/input/event5",
+      "inputs": [
+        { "code": "BTN_A", "control": "btn_a", "value_min": 0, "value_max": 1 }
+      ]
+    }
+  ],
+  "deleted": []
+}
+```
+
+Example learn request:
+
+```json
+{ "name": "gamepad", "active": true }
+```
+
+Learned controls are announced on the monitor WebSocket as `HidLearnEvent`
+messages. See also [`hid_input.md`](hid_input.md).
+
+## MIDI devices
+
+The configuration view shows **MIDI** and **RTP-MIDI** in separate cards.
+Each configured `midi` or `rtp_midi` adapter instance appears in the
+matching card. For each instance you can edit:
+
+- enabled flag
+- MIDI `input_port` and `output_port`
+- optional `midi_library`
+- RTP-MIDI mode: `host` (announce a local session via mDNS) or `join` (connect
+  to a discovered remote session)
+- RTP-MIDI `session_name` and UDP `port` in host mode
+- RTP-MIDI `join_target` in join mode, chosen from discovered remote sessions
+
+Use **Refresh RTP sessions** in the RTP-MIDI card to reload the current mDNS
+discovery results before selecting a join target. The status line in that card
+shows how many sessions are visible on the network in total.
+
+Each adapter instance card has its own **Save** button. It becomes active only
+after that instance was changed in the UI. Use **Add MIDI instance** or
+**Add RTP-MIDI instance** to create additional adapter tables. Additional
+instances can be removed with **Delete**; the default `midi` and `rtp_midi`
+tables cannot be deleted.
+
+### RTP-MIDI mDNS backend
+
+RTP-MIDI uses the `_apple-midi._udp` mDNS service type.
+
+On the Raspberry Pi, MIDIJuggler prefers the Avahi CLI tools when
+`avahi-utils` is installed:
+
+- `avahi-publish-service` announces local host sessions
+- `avahi-browse` discovers sessions on the LAN
+
+The Python `zeroconf` package (`pip install midijuggler[rtp]`) is only a
+fallback when the Avahi tools are not available, for example during local
+development on macOS.
+
+In join mode, the web UI lists only **remote** sessions. Locally hosted sessions
+are filtered out so you do not accidentally join your own announcement.
+
+A typical setup uses two `rtp_midi` instances:
+
+- one instance in `host` mode to announce the Pi session
+- a second instance in `join` mode to connect to a Mac or iPad session
+
+Available ALSA sequencer ports are discovered with `aconnect -l`. Saving
+updates the in-memory adapter configuration and persists the corresponding
+`[adapters.<name>]` sections in the active TOML configuration file.
+
+The HTTP API is:
+
+```text
+GET /api/midi-adapters
+POST /api/midi-adapters
+```
+
+Example GET fields for RTP-MIDI:
+
+```json
+{
+  "rtp_midi_available": true,
+  "rtp_midi_backend": "avahi",
+  "discovered_rtp_sessions": [
+    {
+      "id": "MacBook.local.:5004:Studio",
+      "name": "Studio",
+      "host": "MacBook.local.",
+      "port": 5004,
+      "label": "Studio (MacBook.local.:5004)"
+    }
+  ],
+  "instances": [
+    {
+      "name": "rtp_midi",
+      "type": "rtp_midi",
+      "role": "join",
+      "join_target": "MacBook.local.:5004:Studio",
+      "available_rtp_sessions": [
+        {
+          "id": "MacBook.local.:5004:Studio",
+          "label": "Studio (MacBook.local.:5004)"
+        }
+      ]
+    }
+  ]
+}
+```
+
+`rtp_midi_backend` is one of `avahi`, `zeroconf` or `none`.
+
+Example POST body:
+
+```json
+{
+  "instances": [
+    {
+      "name": "midi",
+      "enabled": true,
+      "input_port": "MIDIJuggler In",
+      "output_port": "MIDIJuggler Out",
+      "midi_library": ""
+    },
+    {
+      "name": "rtp_midi",
+      "enabled": true,
+      "role": "host",
+      "session_name": "MIDIJuggler",
+      "port": 5004
+    },
+    {
+      "name": "rtp_remote",
+      "enabled": true,
+      "role": "join",
+      "join_target": "MacBook.local.:5004:Studio",
+      "port": 5005
+    }
+  ]
+}
+```
+
+`join_target` must match the `id` of a currently discovered remote session.
+
+As with GPIO and master clock, runtime changes are applied immediately. A full
+restart is still recommended after changing enabled MIDI adapters so the service
+can rebuild the active adapter set.
+
+## MIDI master clock
+
+The **Master Clock** card exposes the editable MIDI master-clock settings:
+
+- enabled / auto-start / send-transport flags
+- BPM, BPM minimum and BPM maximum
+- MIDI clock output targets
+- OSC addresses for BPM and click-interval remote control
+- MIDI CC numbers for BPM MSB, BPM LSB and click interval
+- MIDI channel for remote control
+- audio click enablement, WAV path, interval and ALSA device
+- audio click enablement, WAV path, interval and ALSA device
+
+Saving updates the running master clock immediately and persists the
+`[master_clock]` section in the active TOML configuration file.
+
+The HTTP API is:
+
+```text
+GET /api/master-clock
+POST /api/master-clock
+```
+
+Example POST body:
+
+```json
+{
+  "enabled": true,
+  "bpm": 120.0,
+  "bpm_min": 40.0,
+  "bpm_max": 240.0,
+  "auto_start": false,
+  "output_targets": ["midi", "rtp_midi"],
+  "midi_input_targets": ["midi"],
+  "osc_input_targets": ["osc"],
+  "send_transport": true,
+  "bpm_osc_address": "/midijuggler/clock/bpm",
+  "click_interval_osc_address": "/midijuggler/clock/click_interval",
+  "bpm_msb_cc": 20,
+  "bpm_lsb_cc": 21,
+  "click_interval_cc": 22,
+  "midi_channel": 1,
+  "click_enabled": false,
+  "click_wav": "/etc/midijuggler/click.wav",
+  "click_interval": "quarter",
+  "click_audio_device": "plughw:1,0"
+}
+```
+
+As with GPIO, if the service cannot write the config file, the master-clock
+change is still applied at runtime and the web UI reports that it was not
+persisted.
+
+Click playback prefers `pyalsaaudio` when installed and falls back to `aplay`.
+The web UI lists available ALSA devices discovered through `aplay -l`, and WAV
+files found in
+`/etc/midijuggler/*.wav`.
+The selected ALSA device is used as the slave for a generated dmix PCM named
+`master_clock` when it is a hardware PCM. If the selected target is already a
+software PCM, `master_clock` is generated as a plug alias instead. The click
+player always uses the generated `master_clock` PCM.
+
+## Configuration import/export
+
+The **Configuration import/export** card can export the active TOML file and
+import another TOML configuration. Imports are validated before writing the file.
+After importing, restart the service to apply all settings:
+
+```bash
+sudo systemctl restart midijuggler.service
+```

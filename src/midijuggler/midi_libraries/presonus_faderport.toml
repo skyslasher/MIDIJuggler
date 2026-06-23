@@ -1,0 +1,384 @@
+[library]
+id = "presonus_faderport"
+name = "PreSonus FaderPort 8/16 MIDI"
+vendor = "PreSonus"
+model = "FaderPort 8/16"
+notes = "MCU-style mapping catalog for FaderPort 8 and FaderPort 16. FaderPort 8 uses the first bank. FaderPort 16 uses two 8-channel MCU banks; channels 9-16 repeat the MCU channel controls on the second MIDI port. LCD track names use the PreSonus scribble-strip SysEx format."
+
+[[templates]]
+id = "ch_{channel}_fader"
+label = "Channel {channel} Fader"
+address = "mcu://port_1/fader/{mcu_channel}"
+range_name = "channel"
+range_start = 1
+range_end = 8
+derived = [
+  { name = "mcu_channel", source = "channel", offset = 0 },
+]
+message_type = "pitch_bend"
+value_type = "int"
+value_min = 0
+value_max = 16383
+category = "channel"
+direction = "source"
+port = "port_1"
+midi_channel = "{mcu_channel}"
+description = "Motorized fader value for channel {channel}, using MCU pitch bend resolution."
+
+[[templates]]
+id = "ch_{channel}_fader"
+label = "Channel {channel} Fader"
+address = "mcu://port_2/fader/{mcu_channel}"
+range_name = "channel"
+range_start = 9
+range_end = 16
+derived = [
+  { name = "mcu_channel", source = "channel", offset = -8 },
+]
+message_type = "pitch_bend"
+value_type = "int"
+value_min = 0
+value_max = 16383
+category = "channel"
+direction = "source"
+port = "port_2"
+midi_channel = "{mcu_channel}"
+description = "Motorized fader value for FaderPort 16 channel {channel}, using the second MCU bank."
+
+[[templates]]
+id = "ch_{channel}_pan_encoder"
+label = "Channel {channel} Pan Encoder"
+address = "mcu://port_1/vpot/{mcu_channel}"
+range_name = "channel"
+range_start = 1
+range_end = 8
+derived = [
+  { name = "mcu_channel", source = "channel", offset = 0 },
+  { name = "cc_number", source = "channel", offset = 15 },
+]
+message_type = "control_change"
+value_type = "relative"
+value_min = 1
+value_max = 127
+category = "channel"
+direction = "source"
+port = "port_1"
+midi_channel = 1
+number = "{cc_number}"
+description = "Pan/V-Pot encoder for channel {channel}; values are relative MCU encoder steps."
+
+[[templates]]
+id = "ch_{channel}_pan_encoder"
+label = "Channel {channel} Pan Encoder"
+address = "mcu://port_2/vpot/{mcu_channel}"
+range_name = "channel"
+range_start = 9
+range_end = 16
+derived = [
+  { name = "mcu_channel", source = "channel", offset = -8 },
+  { name = "cc_number", source = "channel", offset = 7 },
+]
+message_type = "control_change"
+value_type = "relative"
+value_min = 1
+value_max = 127
+category = "channel"
+direction = "source"
+port = "port_2"
+midi_channel = 1
+number = "{cc_number}"
+description = "Pan/V-Pot encoder for FaderPort 16 channel {channel}; values are relative MCU encoder steps."
+
+[[templates]]
+id = "ch_{channel}_record_arm"
+label = "Channel {channel} Record Arm"
+address = "mcu://port_1/note/{note_number}"
+range_name = "channel"
+range_start = 1
+range_end = 8
+derived = [
+  { name = "note_number", source = "channel", offset = -1 },
+]
+message_type = "note"
+value_type = "int"
+value_min = 0
+value_max = 127
+category = "channel"
+direction = "source"
+port = "port_1"
+midi_channel = 1
+number = "{note_number}"
+description = "Record-arm button for channel {channel}."
+
+[[templates]]
+id = "ch_{channel}_record_arm"
+label = "Channel {channel} Record Arm"
+address = "mcu://port_2/note/{note_number}"
+range_name = "channel"
+range_start = 9
+range_end = 16
+derived = [
+  { name = "note_number", source = "channel", offset = -9 },
+]
+message_type = "note"
+value_type = "int"
+value_min = 0
+value_max = 127
+category = "channel"
+direction = "source"
+port = "port_2"
+midi_channel = 1
+number = "{note_number}"
+description = "Record-arm button for FaderPort 16 channel {channel}."
+
+[[templates]]
+id = "ch_{channel}_solo"
+label = "Channel {channel} Solo"
+address = "mcu://port_1/note/{note_number}"
+range_name = "channel"
+range_start = 1
+range_end = 8
+derived = [
+  { name = "note_number", source = "channel", offset = 7 },
+]
+message_type = "note"
+value_type = "int"
+value_min = 0
+value_max = 127
+category = "channel"
+direction = "source"
+port = "port_1"
+midi_channel = 1
+number = "{note_number}"
+description = "Solo button for channel {channel}."
+
+[[templates]]
+id = "ch_{channel}_solo"
+label = "Channel {channel} Solo"
+address = "mcu://port_2/note/{note_number}"
+range_name = "channel"
+range_start = 9
+range_end = 16
+derived = [
+  { name = "note_number", source = "channel", offset = -1 },
+]
+message_type = "note"
+value_type = "int"
+value_min = 0
+value_max = 127
+category = "channel"
+direction = "source"
+port = "port_2"
+midi_channel = 1
+number = "{note_number}"
+description = "Solo button for FaderPort 16 channel {channel}."
+
+[[templates]]
+id = "ch_{channel}_mute"
+label = "Channel {channel} Mute"
+address = "mcu://port_1/note/{note_number}"
+range_name = "channel"
+range_start = 1
+range_end = 8
+derived = [
+  { name = "note_number", source = "channel", offset = 15 },
+]
+message_type = "note"
+value_type = "int"
+value_min = 0
+value_max = 127
+category = "channel"
+direction = "source"
+port = "port_1"
+midi_channel = 1
+number = "{note_number}"
+description = "Mute button for channel {channel}."
+
+[[templates]]
+id = "ch_{channel}_mute"
+label = "Channel {channel} Mute"
+address = "mcu://port_2/note/{note_number}"
+range_name = "channel"
+range_start = 9
+range_end = 16
+derived = [
+  { name = "note_number", source = "channel", offset = 7 },
+]
+message_type = "note"
+value_type = "int"
+value_min = 0
+value_max = 127
+category = "channel"
+direction = "source"
+port = "port_2"
+midi_channel = 1
+number = "{note_number}"
+description = "Mute button for FaderPort 16 channel {channel}."
+
+[[templates]]
+id = "ch_{channel}_select"
+label = "Channel {channel} Select"
+address = "mcu://port_1/note/{note_number}"
+range_name = "channel"
+range_start = 1
+range_end = 8
+derived = [
+  { name = "note_number", source = "channel", offset = 23 },
+]
+message_type = "note"
+value_type = "int"
+value_min = 0
+value_max = 127
+category = "channel"
+direction = "source"
+port = "port_1"
+midi_channel = 1
+number = "{note_number}"
+description = "Select button for channel {channel}."
+
+[[templates]]
+id = "ch_{channel}_select"
+label = "Channel {channel} Select"
+address = "mcu://port_2/note/{note_number}"
+range_name = "channel"
+range_start = 9
+range_end = 16
+derived = [
+  { name = "note_number", source = "channel", offset = 15 },
+]
+message_type = "note"
+value_type = "int"
+value_min = 0
+value_max = 127
+category = "channel"
+direction = "source"
+port = "port_2"
+midi_channel = 1
+number = "{note_number}"
+description = "Select button for FaderPort 16 channel {channel}."
+
+[[templates]]
+id = "ch_{channel}_lcd_track_name"
+label = "Channel {channel} LCD Track Name"
+address = "presonus://port_1/lcd/{strip}/line/0"
+range_name = "channel"
+range_start = 1
+range_end = 8
+derived = [
+  { name = "strip", source = "channel", offset = -1 },
+]
+message_type = "sysex"
+value_type = "text"
+category = "display"
+direction = "target"
+port = "port_1"
+strip = "{strip}"
+line = 0
+text_length = 7
+sysex_template = "F0 00 01 06 02 12 {strip:02X} 00 00 {{text}} F7"
+description = "Write the track name to LCD scribble strip {strip} line 0 for channel {channel}. Keep names to 7 ASCII characters for best fit."
+
+[[templates]]
+id = "ch_{channel}_lcd_track_name"
+label = "Channel {channel} LCD Track Name"
+address = "presonus://port_2/lcd/{strip}/line/0"
+range_name = "channel"
+range_start = 9
+range_end = 16
+derived = [
+  { name = "strip", source = "channel", offset = -9 },
+]
+message_type = "sysex"
+value_type = "text"
+category = "display"
+direction = "target"
+port = "port_2"
+strip = "{strip}"
+line = 0
+text_length = 7
+sysex_template = "F0 00 01 06 02 12 {strip:02X} 00 00 {{text}} F7"
+description = "Write the track name to LCD scribble strip {strip} line 0 for FaderPort 16 channel {channel}. Keep names to 7 ASCII characters for best fit."
+
+[[parameters]]
+id = "transport_rewind"
+label = "Transport Rewind"
+address = "mcu://transport/note/91"
+message_type = "note"
+value_type = "int"
+value_min = 0
+value_max = 127
+category = "transport"
+direction = "source"
+midi_channel = 1
+number = 91
+description = "MCU rewind transport button."
+
+[[parameters]]
+id = "transport_fast_forward"
+label = "Transport Fast Forward"
+address = "mcu://transport/note/92"
+message_type = "note"
+value_type = "int"
+value_min = 0
+value_max = 127
+category = "transport"
+direction = "source"
+midi_channel = 1
+number = 92
+description = "MCU fast-forward transport button."
+
+[[parameters]]
+id = "transport_stop"
+label = "Transport Stop"
+address = "mcu://transport/note/93"
+message_type = "note"
+value_type = "int"
+value_min = 0
+value_max = 127
+category = "transport"
+direction = "source"
+midi_channel = 1
+number = 93
+description = "MCU stop transport button."
+
+[[parameters]]
+id = "transport_play"
+label = "Transport Play"
+address = "mcu://transport/note/94"
+message_type = "note"
+value_type = "int"
+value_min = 0
+value_max = 127
+category = "transport"
+direction = "source"
+midi_channel = 1
+number = 94
+description = "MCU play transport button."
+
+[[parameters]]
+id = "transport_record"
+label = "Transport Record"
+address = "mcu://transport/note/95"
+message_type = "note"
+value_type = "int"
+value_min = 0
+value_max = 127
+category = "transport"
+direction = "source"
+midi_channel = 1
+number = 95
+description = "MCU record transport button."
+
+[[parameters]]
+id = "transport_loop"
+label = "Transport Loop"
+address = "mcu://transport/note/86"
+message_type = "note"
+value_type = "int"
+value_min = 0
+value_max = 127
+category = "transport"
+direction = "source"
+midi_channel = 1
+number = 86
+description = "MCU cycle/loop transport button."

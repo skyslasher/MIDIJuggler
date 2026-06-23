@@ -1,0 +1,20 @@
+[Unit]
+Description=MIDIJuggler routing service
+After=network-online.target sound.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=midijuggler
+Group=midijuggler
+SupplementaryGroups=gpio audio input
+WorkingDirectory=/opt/midijuggler/app
+Environment=PYTHONUNBUFFERED=1
+Environment=MIDIJUGGLER_SCRIPTS_DIR=/opt/midijuggler/app/scripts
+Environment=PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
+ExecStart=/opt/midijuggler/venv/bin/midijuggler --config /etc/midijuggler/config.toml
+Restart=on-failure
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target

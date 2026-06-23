@@ -1,0 +1,134 @@
+import asyncio
+
+from midijuggler.datapoint.store import DataPointStore
+from midijuggler.datapoint.types import (
+    DataPointDirection,
+    DataPointId,
+    DataPointSpec,
+    ValueType,
+    float_value,
+)
+
+
+def test_register_and_write_float_value() -> None:
+    store = DataPointStore()
+    store.register(
+        DataPointSpec(
+            id=DataPointId("gpio", "pin17"),
+            value_type=ValueType.FLOAT,
+            direction=DataPointDirection.INPUT,
+        )
+    )
+    received: list[float] = []
+
+    async def handler(value):
+        if value.float_value is not None:
+            received.append(value.float_value)
+
+    store.subscribe(DataPointId("gpio", "pin17"), handler)
+
+    async def scenario() -> None:
+        await store.write(float_value(DataPointId("gpio", "pin17"), 1.0))
+
+    asyncio.run(scenario())
+    assert received == [1.0]
+    assert store.snapshot()["gpio.pin17"]["float_value"] == 1.0
+
+
+def test_subscribe_all_receives_updates() -> None:
+    store = DataPointStore()
+    seen: list[str] = []
+
+    async def handler(value):
+        seen.append(str(value.point_id))
+
+    store.subscribe_all(handler)
+
+    async def scenario() -> None:
+        await store.write(float_value("osc.desk./test", 0.5))
+
+    asyncio.run(scenario())
+    assert seen == ["osc.desk./test"]
+
+
+def test_value_write_skips_unchanged_float() -> None:
+    store = DataPointStore()
+    seen = 0
+
+    async def handler(value):
+        nonlocal seen
+        seen += 1
+
+    store.subscribe("gpio.pin17", handler)
+
+    async def scenario() -> None:
+        await store.write(float_value("gpio.pin17", 1.0))
+        await store.write(float_value("gpio.pin17", 1.0))
+
+    asyncio.run(scenario())
+    assert seen == 1
+
+
+def test_registry_snapshot_includes_specs() -> None:
+    store = DataPointStore()
+    store.register(
+        DataPointSpec(
+            id=DataPointId("clock", "bpm"),
+            value_type=ValueType.FLOAT,
+            direction=DataPointDirection.OUTPUT,
+            label="BPM",
+        )
+    )
+    payload = store.registry_snapshot()
+    assert payload[0]["id"] == "clock.bpm"
+    assert payload[0]["label"] == "BPM"
+
+
+def test_midi_message_writes_always_propagate() -> None:
+    from midijuggler.datapoint.types import midi_message_value
+    from midijuggler.master_clock import MIDI_TIMING_CLOCK
+
+    store = DataPointStore()
+    seen = 0
+
+    async def handler(_value) -> None:
+        nonlocal seen
+        seen += 1
+
+    store.subscribe("clock.midi_tick", handler)
+
+    async def scenario() -> None:
+        for _ in range(5):
+            await store.write(
+                midi_message_value("clock.midi_tick", MIDI_TIMING_CLOCK),
+            )
+
+    asyncio.run(scenario())
+    assert seen == 5
+
+
+def test_relative_turn_writes_always_propagate() -> None:
+    store = DataPointStore()
+    store.register(
+        DataPointSpec(
+            id=DataPointId("xtouch_mini", "layer_a_encoder_1_turn"),
+            value_type=ValueType.FLOAT,
+            direction=DataPointDirection.INPUT,
+            input_mode="relative",
+            protocol="midi",
+        )
+    )
+    seen = 0
+
+    async def handler(_value) -> None:
+        nonlocal seen
+        seen += 1
+
+    store.subscribe("xtouch_mini.layer_a_encoder_1_turn", handler)
+
+    async def scenario() -> None:
+        for _ in range(5):
+            await store.write(float_value("xtouch_mini.layer_a_encoder_1_turn", 65.0))
+
+    asyncio.run(scenario())
+    assert seen == 5

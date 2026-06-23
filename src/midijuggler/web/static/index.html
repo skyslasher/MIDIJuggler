@@ -1,0 +1,380 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>MIDIJuggler</title>
+    <link rel="stylesheet" href="/static/styles.css" />
+  </head>
+  <body>
+    <main>
+      <header>
+        <div>
+          <h1 id="app-title">MIDIJuggler</h1>
+          <p>OSC, MIDI, RTP-MIDI and GPIO routing monitor</p>
+        </div>
+        <div class="header-clock">
+          <div class="bpm-card">
+            <span>BPM</span>
+            <strong id="bpm">--</strong>
+          </div>
+          <div class="clock-actions">
+            <button id="master-tap" type="button">Tap Tempo</button>
+            <button id="master-transport" type="button">Start</button>
+          </div>
+        </div>
+      </header>
+
+      <section class="toolbar">
+        <button id="configuration-toggle" type="button">Configuration</button>
+        <button id="configuration-exit" type="button" hidden>Exit configuration</button>
+        <span id="connection-state">connecting...</span>
+      </section>
+
+      <section id="monitor-view" class="grid">
+        <article>
+          <h2>Master Clock</h2>
+          <div id="master-clock" class="master-status"></div>
+        </article>
+        <article id="mappings-card" class="mappings-card">
+          <div class="mappings-card-header">
+            <h2>Connections</h2>
+            <button id="learn-toggle" type="button" class="learn-toggle">Create connection</button>
+          </div>
+          <div id="learn-panel" class="learn-panel" hidden>
+            <h3 class="learn-panel-title">Create connection</h3>
+            <p id="learn-status" class="hint"></p>
+            <div id="learn-fields" class="learn-fields" hidden>
+              <div class="learn-endpoint-group">
+                <h4 class="learn-endpoint-title">Source</h4>
+                <label class="stacked-field">
+                  Instance
+                  <select id="learn-source-instance"></select>
+                </label>
+                <label class="stacked-field">
+                  Data point
+                  <select id="learn-source-datapoint" disabled></select>
+                </label>
+              </div>
+              <div class="learn-endpoint-group">
+                <h4 class="learn-endpoint-title">Target</h4>
+                <label class="stacked-field">
+                  Instance
+                  <select id="learn-target-instance"></select>
+                </label>
+                <label class="stacked-field">
+                  Data point
+                  <select id="learn-target-datapoint" disabled></select>
+                </label>
+              </div>
+              <label class="stacked-field">
+                Modifier
+                <select id="learn-modifier">
+                  <option value="range_map">Range map</option>
+                  <option value="passthrough">Passthrough</option>
+                </select>
+              </label>
+              <div id="learn-range-fields" class="learn-range-fields">
+                <label class="stacked-field">
+                  Input min
+                  <input id="learn-input-min" type="number" step="any" value="0" />
+                </label>
+                <label class="stacked-field">
+                  Input max
+                  <input id="learn-input-max" type="number" step="any" value="127" />
+                </label>
+                <label class="stacked-field">
+                  Output min
+                  <input id="learn-output-min" type="number" step="any" value="0" />
+                </label>
+                <label class="stacked-field">
+                  Output max
+                  <input id="learn-output-max" type="number" step="any" value="127" />
+                </label>
+                <label class="stacked-field">
+                  Scaling
+                  <select id="learn-scale-curve">
+                    <option value="linear">Linear</option>
+                    <option value="log_to_linear">Log fader → linear knob</option>
+                    <option value="linear_to_log">Linear knob → log fader</option>
+                  </select>
+                </label>
+                <label class="inline-field">
+                  <input id="learn-invert" type="checkbox" />
+                  Invert
+                </label>
+              </div>
+              <details id="learn-osc-quick-pick" class="learn-osc-quick-pick">
+                <summary>Quick pick OSC target from library</summary>
+                <label class="stacked-field">
+                  OSC adapter
+                  <select id="learn-osc-adapter"></select>
+                </label>
+                <label class="stacked-field">
+                  OSC parameter
+                  <select id="learn-osc-parameter"></select>
+                </label>
+              </details>
+              <div class="learn-actions">
+                <button id="learn-create" type="button">Create connection</button>
+                <button id="learn-clear" type="button">Clear source</button>
+              </div>
+              <p id="learn-message" class="message"></p>
+            </div>
+          </div>
+          <div id="connections-table-header" class="connections-table-header" hidden>
+            <span class="connections-table-chevron-spacer" aria-hidden="true"></span>
+            <button type="button" class="connections-sort-btn" data-column="source">Source</button>
+            <button type="button" class="connections-sort-btn" data-column="target">Target</button>
+          </div>
+          <ul id="mappings"></ul>
+        </article>
+        <article>
+          <h2>OSC Libraries</h2>
+          <ul id="osc-libraries"></ul>
+        </article>
+        <article>
+          <h2>MIDI Libraries</h2>
+          <ul id="midi-libraries"></ul>
+        </article>
+        <article class="monitor-panel">
+          <h2>Monitor</h2>
+          <p id="learn-monitor-hint" class="hint learn-monitor-hint" hidden>
+            Create connection: click a monitor message or choose source instance and data point in the Connections card.
+          </p>
+          <label class="inline-field monitor-filter">
+            <input id="show-clock-ticks" type="checkbox" />
+            Show clock ticks
+          </label>
+          <label class="inline-field monitor-filter">
+            <input id="show-feedback-refresh" type="checkbox" />
+            Show feedback refresh
+          </label>
+          <label class="inline-field monitor-filter">
+            Display
+            <select id="monitor-display-mode">
+              <option value="library">Library labels</option>
+              <option value="manual">Manual (CC / Note / channel)</option>
+            </select>
+          </label>
+          <ol id="events" class="events"></ol>
+        </article>
+      </section>
+
+      <section id="configuration-view" class="grid" hidden>
+        <article>
+          <h2>System</h2>
+          <p class="hint">Identify this box on the network and recover without power cycling.</p>
+          <label>
+            Hostname
+            <input id="system-hostname" type="text" autocomplete="off" spellcheck="false" />
+          </label>
+          <button type="button" id="system-hostname-save">Save hostname</button>
+          <p id="system-hostname-message" class="message"></p>
+          <div class="routing-settings">
+            <label class="stacked-field">
+              Feedback suppress (ms)
+              <input
+                id="feedback-suppress-ms"
+                type="number"
+                min="0"
+                max="10000"
+                step="1"
+                value="500"
+              />
+            </label>
+            <p class="hint">
+              Pause desk-to-controller encoder feedback briefly after encoder turns. 0 disables.
+            </p>
+            <button id="routing-settings-save" type="button">Save routing settings</button>
+            <p id="routing-settings-message" class="message"></p>
+          </div>
+          <button type="button" id="system-restart" class="danger-button">Restart MIDIJuggler service</button>
+          <p id="system-restart-message" class="message"></p>
+        </article>
+        <article class="midi-device-panel">
+          <h2>Devices</h2>
+          <p class="hint">
+            Logical devices bind one I/O adapter instance to a library for routing and
+            connections. Each adapter can be bound to at most one device.
+          </p>
+          <div id="device-instances"></div>
+          <div class="device-panel-actions">
+            <button type="button" id="device-add">Add device</button>
+            <button type="button" id="devices-fill-adapters">Add missing from adapters</button>
+          </div>
+          <p id="devices-message" class="message"></p>
+        </article>
+        <article class="midi-device-panel">
+          <h2>OSC</h2>
+          <p class="hint">Desk libraries (X32/Wing) use the same local and remote OSC port and renew subscriptions every 9 seconds. Linked desks are re-discovered in the background; Wing uses its serial number, X32 uses its network name as stable identity.</p>
+          <div id="osc-instances"></div>
+          <button type="button" id="osc-add">Add OSC instance</button>
+          <div class="osc-discover-global-row">
+            <button type="button" id="osc-discover">Scan network for desks</button>
+            <select id="osc-discover-global" hidden disabled>
+              <option value="">Create instance from discovered desk...</option>
+            </select>
+            <button type="button" id="osc-discover-create" hidden disabled>
+              Create instance
+            </button>
+          </div>
+          <p id="osc-message" class="message"></p>
+        </article>
+        <article class="midi-device-panel">
+          <h2>Wing Native</h2>
+          <p class="hint">
+            Direct TCP connection to the Wing desk (port 2222). Use this instead of OSC for reliable
+            bidirectional feedback. Up to 16 native clients can connect simultaneously; OSC event
+            subscription is separate.
+          </p>
+          <div id="wing-native-instances"></div>
+          <button type="button" id="wing-native-add">Add Wing Native instance</button>
+          <p id="wing-native-message" class="message"></p>
+        </article>
+        <article class="midi-device-panel">
+          <h2>MIDI</h2>
+          <p class="hint">
+            Echo guard ignores input that matches recently sent output on the same path
+            (MIDI loopback or OSC desk echo). Set to 0 to disable. Default is 30&nbsp;ms.
+          </p>
+          <div id="midi-instances"></div>
+          <button type="button" id="midi-add">Add MIDI instance</button>
+          <p id="midi-message" class="message"></p>
+        </article>
+        <article class="midi-device-panel">
+          <h2>RTP-MIDI</h2>
+          <p class="hint rtp-discovery-note"></p>
+          <div id="rtp-midi-instances"></div>
+          <button type="button" id="rtp-midi-add">Add RTP-MIDI instance</button>
+          <button type="button" id="midi-adapters-refresh">Refresh RTP sessions</button>
+          <p id="rtp-midi-message" class="message"></p>
+        </article>
+        <article class="midi-device-panel">
+          <h2>HID Inputs</h2>
+          <p class="hint">
+            Map Linux evdev controls from gamepads and USB devices. Save and enable an
+            instance, then use Learn input to capture buttons and axes.
+          </p>
+          <div id="hid-instances"></div>
+          <button type="button" id="hid-add">Add HID instance</button>
+          <p id="hid-message" class="message"></p>
+        </article>
+        <article>
+          <h2>GPIO Inputs</h2>
+          <form id="gpio-form">
+            <div id="gpio-pins" class="gpio-pins"></div>
+            <label class="inline-field">
+              <input id="gpio-active-low" type="checkbox" />
+              Active low
+            </label>
+            <label>
+              Bounce ms
+              <input id="gpio-bounce-ms" type="number" min="0" step="1" />
+            </label>
+            <label>
+              Poll interval ms
+              <input id="gpio-poll-ms" type="number" min="1" step="1" />
+            </label>
+            <button type="submit">Save GPIO inputs</button>
+            <p id="gpio-message" class="message"></p>
+          </form>
+        </article>
+        <article>
+          <h2>MIDI Master Clock</h2>
+          <form id="master-clock-form">
+            <label class="inline-field">
+              <input id="master-enabled" type="checkbox" />
+              Enabled
+            </label>
+            <label class="inline-field">
+              <input id="master-auto-start" type="checkbox" />
+              Auto start
+            </label>
+            <label class="inline-field">
+              <input id="master-send-transport" type="checkbox" />
+              Send transport
+            </label>
+            <div class="form-grid">
+              <label>
+                BPM
+                <input id="master-bpm" type="number" min="1" step="0.5" />
+              </label>
+              <label>
+                BPM min
+                <input id="master-bpm-min" type="number" min="1" step="0.1" />
+              </label>
+              <label>
+                BPM max
+                <input id="master-bpm-max" type="number" min="1" step="0.1" />
+              </label>
+              <label>
+                Click interval
+                <select id="master-click-interval">
+                  <option value="eighth">Eighth</option>
+                  <option value="quarter">Quarter</option>
+                  <option value="half">Half</option>
+                  <option value="whole">Whole</option>
+                </select>
+              </label>
+              <label>
+                Tap tempo min taps
+                <input id="master-tap-tempo-min-taps" type="number" min="3" step="1" />
+              </label>
+              <label>
+                BPM up/down step
+                <input id="master-bpm-step" type="number" min="0.1" step="0.1" />
+              </label>
+              <label>
+                BPM quantize
+                <select id="master-bpm-quantize">
+                  <option value="0.5">0.5</option>
+                  <option value="1">1.0</option>
+                </select>
+              </label>
+            </div>
+            <fieldset>
+              <legend>MIDI clock outputs</legend>
+              <div id="master-output-targets" class="target-list"></div>
+            </fieldset>
+            <p class="hint">
+              Route BPM and transport via Connections to
+              <code>clock.*</code> data points (for example
+              <code>clock.bpm_set</code>, <code>clock.start</code>,
+              <code>clock.stop</code>).
+            </p>
+            <label class="inline-field">
+              <input id="master-click-enabled" type="checkbox" />
+              Audio click enabled
+            </label>
+            <label>
+              Click WAV
+              <select id="master-click-wav"></select>
+            </label>
+            <label>
+              Click audio device
+              <select id="master-click-device"></select>
+            </label>
+            <p id="master-click-device-hint" class="hint"></p>
+            <button type="submit">Save master clock</button>
+            <p id="master-clock-message" class="message"></p>
+          </form>
+        </article>
+        <article>
+          <h2>Configuration import/export</h2>
+          <p>Export the active TOML configuration or import a saved configuration for another setup.</p>
+          <a class="button-link" href="/api/config/export" download>Export configuration</a>
+          <form id="config-import-form">
+            <label>
+              Import TOML file
+              <input id="config-import-file" type="file" accept=".toml,text/plain" />
+            </label>
+            <button type="submit">Import configuration</button>
+            <p id="config-import-message" class="message"></p>
+          </form>
+        </article>
+      </section>
+    </main>
+    <script src="/static/app.js"></script>
+  </body>
+</html>
