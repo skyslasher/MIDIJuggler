@@ -24,6 +24,37 @@ def test_legacy_target_to_datapoint_for_osc_address() -> None:
     assert legacy_target_to_datapoint("desk:/ch/01/mix/level") == "desk./ch/01/mix/level"
 
 
+def test_control_bridge_maps_clock_parameters_without_device() -> None:
+    import asyncio
+
+    from midijuggler.config import parse_config
+    from midijuggler.datapoint.bridge import EventToDataPointBridge
+    from midijuggler.datapoint.store import DataPointStore
+    from midijuggler.device.registry import DeviceRegistry
+    from midijuggler.eventbus import EventBus
+    from midijuggler.events import ControlEvent
+
+    config = parse_config({"adapters": {}})
+    store = DataPointStore()
+    registry = DeviceRegistry.from_config(config)
+    bridge = EventToDataPointBridge(store, EventBus(), registry)
+
+    async def scenario() -> dict[str, float | None]:
+        await bridge._on_control(ControlEvent(source="clock", control="bpm", value=120.0))
+        await bridge._on_control(
+            ControlEvent(source="clock", control="quarter_ms", value=500.0)
+        )
+        return {
+            str(entry.point_id): entry.float_value
+            for entry in store.history()
+            if entry.float_value is not None
+        }
+
+    values = asyncio.run(scenario())
+    assert values["clock.bpm"] == pytest.approx(120.0)
+    assert values["clock.quarter_ms"] == pytest.approx(500.0)
+
+
 def test_osc_bridge_maps_wing_feedback_to_canonical_datapoint() -> None:
     import asyncio
 

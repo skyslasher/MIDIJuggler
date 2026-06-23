@@ -114,11 +114,6 @@ class EventToDataPointBridge:
     async def _on_control(self, event: ControlEvent) -> None:
         if event.control.startswith("/"):
             return
-        if event.source == "clock" and event.control == "bpm":
-            await self.store.write(
-                float_value(DataPointId("clock", "bpm"), event.value, emit_outputs=False)
-            )
-            return
         module = self._module_for_adapter(event.source)
         point_id = DataPointId(module=module, point=event.control)
         await self.store.write(float_value(point_id, event.value, emit_outputs=False))
@@ -164,6 +159,8 @@ class EventToDataPointBridge:
 
 
     def _module_for_adapter(self, adapter_name: str) -> str:
+        if adapter_name in {"clock", "mapping"}:
+            return adapter_name
         device = self.device_registry.device_for_adapter(adapter_name)
         if device is None:
             raise ValueError(f"no device configured for adapter {adapter_name!r}")
