@@ -1591,14 +1591,19 @@ class WebInterface:
     def _device_library_for_adapter(self, adapter_name: str) -> str:
         return self._device_registry().device_library_for_adapter(adapter_name)
 
-    def _adapter_device_payload_fields(self, adapter_name: str) -> dict[str, str]:
+    def _adapter_device_payload_fields(self, adapter_name: str) -> dict[str, Any]:
         device = self._device_registry().device_for_adapter(adapter_name)
         if device is None:
             return {"device_id": "", "device_library": ""}
-        return {
+        payload: dict[str, Any] = {
             "device_id": device.id,
             "device_library": str(device.library or "").strip(),
         }
+        if payload["device_library"] == "behringer_xtouch_mini":
+            payload["feedback_refresh_interval"] = float(device.feedback_refresh_interval)
+            payload["midi_value_channel"] = int(device.midi_value_channel)
+            payload["midi_display_channel"] = int(device.midi_display_channel)
+        return payload
 
     def _resolved_midi_library_id(
         self,

@@ -2036,6 +2036,35 @@ function adapterDeviceLibraryHint(adapterName) {
   return "Configure the control library on the Device bound to this adapter.";
 }
 
+function isXtouchMiniLibrary(libraryId) {
+  return String(libraryId || "").trim() === "behringer_xtouch_mini";
+}
+
+function collectBoundDeviceXtouchFieldsFromCard(card, selector = "[data-device-field]") {
+  const fields = {};
+  for (const element of card.querySelectorAll(selector)) {
+    const fieldName = element.dataset.deviceField;
+    if (!fieldName) {
+      continue;
+    }
+    fields[fieldName] = Number(element.value);
+  }
+  return fields;
+}
+
+function mergeBoundDeviceXtouchFields(devices, adapterName, fields) {
+  if (!adapterName || !fields || !Object.keys(fields).length) {
+    return devices;
+  }
+  return devices.map((device) =>
+    device.adapter === adapterName ? { ...device, ...fields } : device,
+  );
+}
+
+function ensureDevicesConfigLoaded() {
+  return devicesConfig ? Promise.resolve(devicesConfig) : loadDevicesConfig();
+}
+
 function libraryOptionsForKind(kind) {
   if (kind === "osc" || kind === "wing") {
     return cachedOscLibraryList.map((library) => library.id || library.name);
@@ -2059,7 +2088,13 @@ function fillDeviceLibrarySelect(select, kind, selectedValue) {
     option.textContent = libraryId;
     select.appendChild(option);
   }
-  if (previous && [...select.options].some((option) => option.value === previous)) {
+  if (previous) {
+    if (![...select.options].some((option) => option.value === previous)) {
+      const extra = document.createElement("option");
+      extra.value = previous;
+      extra.textContent = previous;
+      select.appendChild(extra);
+    }
     select.value = previous;
   }
 }
@@ -2145,7 +2180,7 @@ function collectDeviceFromCard(card) {
     library: card.querySelector('[data-field="library"]')?.value.trim() || "",
     library_kind: card.querySelector('[data-field="library_kind"]')?.value.trim() || "",
   };
-  if (device.library === "behringer_xtouch_mini") {
+  if (isXtouchMiniLibrary(device.library)) {
     const feedbackRefresh = card.querySelector('[data-field="feedback_refresh_interval"]');
     const valueChannel = card.querySelector('[data-field="midi_value_channel"]');
     const displayChannel = card.querySelector('[data-field="midi_display_channel"]');
@@ -2334,6 +2369,7 @@ function createDeviceCard(device = {}, options = {}) {
   const card = document.createElement("section");
   card.className = "midi-adapter-card device-card";
   card.dataset.deviceId = device.id || "";
+  card.dataset.deviceLibrary = device.library || "";
   if (isNew) {
     card.dataset.isNew = "true";
   }
@@ -2438,6 +2474,10 @@ function createDeviceCard(device = {}, options = {}) {
 
   const xtouchFields = document.createElement("div");
   xtouchFields.className = "device-xtouch-fields";
+  const xtouchHeading = document.createElement("h3");
+  xtouchHeading.className = "device-section-heading";
+  xtouchHeading.textContent = "X-Touch Mini";
+  xtouchFields.appendChild(xtouchHeading);
   const feedbackRefreshField = createNumberField(
     "LED feedback refresh (s)",
     "feedback_refresh_interval",
@@ -2467,7 +2507,11 @@ function createDeviceCard(device = {}, options = {}) {
 
   const librarySelect = fields.querySelector('[data-field="library"]');
   const updateXtouchFieldsVisibility = () => {
-    xtouchFields.hidden = librarySelect?.value.trim() !== "behringer_xtouch_mini";
+    const library =
+      librarySelect?.value.trim() ||
+      card.dataset.deviceLibrary ||
+      "";
+    xtouchFields.hidden = !isXtouchMiniLibrary(library);
   };
   updateXtouchFieldsVisibility();
 
@@ -2478,6 +2522,11 @@ function createDeviceCard(device = {}, options = {}) {
     showDeviceCardMessage(card, "");
     updateDeviceCardDirtyState(card);
   };
+  librarySelect?.addEventListener("change", () => {
+    card.dataset.deviceLibrary = librarySelect.value.trim();
+    updateXtouchFieldsVisibility();
+    markDirty();
+  });
   for (const point of device.custom_points || []) {
     customPointsList.appendChild(createDeviceCustomPointRow(point, markDirty));
   }
@@ -2493,10 +2542,7 @@ function createDeviceCard(device = {}, options = {}) {
       kindSelect.value,
       fields.querySelector('[data-field="library"]').value,
     );
-    updateXtouchFieldsVisibility();
-    markDirty();
-  });
-  librarySelect?.addEventListener("change", () => {
+    card.dataset.deviceLibrary = fields.querySelector('[data-field="library"]')?.value.trim() || "";
     updateXtouchFieldsVisibility();
     markDirty();
   });
@@ -4409,11 +4455,6 @@ function createMidiAdapterCard(instance, config, options = {}) {
       deviceLibraryHint.textContent = adapterDeviceLibraryHint(name);
     };
     updateDeviceLibraryHint();
-    nameField.querySelector("input")?.addEventListener("input", () => {
-      updateDeviceLibraryHint();
-      card._midiTestLibraryCache = null;
-      updateMidiTestSendSection(card);
-    });
     body.appendChild(deviceLibraryHint);
     const echoGuardField = createNumberField(
       "Echo guard (ms)",
@@ -4436,6 +4477,63 @@ function createMidiAdapterCard(instance, config, options = {}) {
     echoGuardWrap.className = "midi-echo-guard-field";
     echoGuardWrap.append(echoGuardField, echoGuardHint);
     body.appendChild(echoGuardWrap);
+    const boundDevice = boundDeviceForAdapter(instance.name);
+    const xtouchLibrary =
+      instance.device_library ||
+      boundDevice?.library ||
+      "";
+    const xtouchWrap = document.createElement("div");
+    xtouchWrap.className = "midi-xtouch-device-fields";
+    const xtouchHint = document.createElement("p");
+    xtouchHint.className = "hint";
+    xtouchHint.textContent =
+      "X-Touch Mini options are stored on the bound Device.";
+    const feedbackRefreshField = createDeviceBoundNumberField(
+      "LED feedback refresh (s)",
+      "feedback_refresh_interval",
+      instance.feedback_refresh_interval ?? boundDevice?.feedback_refresh_interval ?? 0,
+      0,
+      60,
+      0.1,
+    );
+    const valueChannelField = createDeviceBoundNumberField(
+      "Value channel",
+      "midi_value_channel",
+      instance.midi_value_channel ?? boundDevice?.midi_value_channel ?? 11,
+      1,
+      16,
+      1,
+    );
+    const displayChannelField = createDeviceBoundNumberField(
+      "Display channel",
+      "midi_display_channel",
+      instance.midi_display_channel ?? boundDevice?.midi_display_channel ?? 12,
+      1,
+      16,
+      1,
+    );
+    xtouchWrap.append(
+      xtouchHint,
+      feedbackRefreshField,
+      valueChannelField,
+      displayChannelField,
+    );
+    const updateXtouchAdapterFieldsVisibility = () => {
+      const { name } = adapterInstanceNameFromCard(card);
+      const library =
+        deviceLibraryForAdapter(name) ||
+        instance.device_library ||
+        xtouchLibrary;
+      xtouchWrap.hidden = !isXtouchMiniLibrary(library);
+    };
+    updateXtouchAdapterFieldsVisibility();
+    body.appendChild(xtouchWrap);
+    nameField.querySelector("input")?.addEventListener("input", () => {
+      updateDeviceLibraryHint();
+      updateXtouchAdapterFieldsVisibility();
+      card._midiTestLibraryCache = null;
+      updateMidiTestSendSection(card);
+    });
   } else {
   const roleOptions = [
     { id: "listen", label: "Host session" },
@@ -4545,7 +4643,10 @@ function collectMidiAdapterInstanceFrom(card) {
 }
 
 function midiAdapterCardStateSignature(card) {
-  return JSON.stringify(collectMidiAdapterInstanceFrom(card));
+  return JSON.stringify({
+    adapter: collectMidiAdapterInstanceFrom(card),
+    device: collectBoundDeviceXtouchFieldsFromCard(card),
+  });
 }
 
 const midiAdapterMessageTimeouts = new WeakMap();
@@ -4614,7 +4715,7 @@ function attachMidiAdapterCardControls(card) {
     clearMidiAdapterCardMessage(card);
     updateMidiAdapterCardDirtyState(card);
   };
-  for (const element of card.querySelectorAll("[data-field]")) {
+  for (const element of card.querySelectorAll("[data-field], [data-device-field]")) {
     element.addEventListener("input", markDirty);
     element.addEventListener("change", markDirty);
   }
@@ -4714,6 +4815,25 @@ function saveMidiAdapterCard(card) {
   persistMidiAdapterChanges(kind, {
     instances: [collectMidiAdapterInstanceFrom(card)],
   })
+    .then((config) => {
+      const { name } = adapterInstanceNameFromCard(card);
+      const xtouchFields = collectBoundDeviceXtouchFieldsFromCard(card);
+      const xtouchWrap = card.querySelector(".midi-xtouch-device-fields");
+      if (xtouchWrap?.hidden || !Object.keys(xtouchFields).length) {
+        return config;
+      }
+      return ensureDevicesConfigLoaded().then((deviceConfig) => {
+        const devices = mergeBoundDeviceXtouchFields(
+          deviceConfig.devices || [],
+          name,
+          xtouchFields,
+        );
+        return persistDevices(devices).then((savedDevices) => {
+          devicesConfig = savedDevices;
+          return config;
+        });
+      });
+    })
     .then((config) => {
       midiAdaptersConfig = config;
       const status =
@@ -6007,6 +6127,16 @@ function createNumberField(labelText, fieldName, value, min, max, step) {
   input.step = String(step);
   input.value = String(value);
   label.appendChild(input);
+  return label;
+}
+
+function createDeviceBoundNumberField(labelText, fieldName, value, min, max, step) {
+  const label = createNumberField(labelText, fieldName, value, min, max, step);
+  const input = label.querySelector("input");
+  if (input) {
+    delete input.dataset.field;
+    input.dataset.deviceField = fieldName;
+  }
   return label;
 }
 
