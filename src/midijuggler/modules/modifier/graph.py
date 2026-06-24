@@ -94,6 +94,17 @@ class ModifierGraph(ModifierModule):
         self._sync_subscriptions()
         self.store.subscribe_all(self._on_any_value)
 
+    async def replay_subscribed_sources_from_store(self) -> None:
+        """Forward desk values that reached the store before subscriptions existed."""
+
+        for source in sorted(self._subscribed_sources):
+            current = self.store.float_value(source)
+            if current is None:
+                continue
+            await self._on_source_value(
+                float_value(DataPointId.parse(source), current, emit_outputs=False)
+            )
+
     def _sync_subscriptions(self) -> None:
         sources = set(self._source_index) | set(self._passthrough_index)
         for source in sorted(sources):

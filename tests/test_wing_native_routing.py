@@ -172,6 +172,67 @@ def test_wing_native_feedback_routes_to_xtouch_fader() -> None:
     assert value == pytest.approx(64)
 
 
+def test_wing_store_values_replay_to_xtouch_on_service_startup() -> None:
+    async def scenario() -> tuple[int, float]:
+        config = parse_config(
+            {
+                "runtime": {"datapoint_routing": True},
+                "adapters": {
+                    "wing_native_foh": {
+                        "type": "wing_native",
+                        "enabled": True,
+                        "remote_host": "192.168.1.48",
+                        "wing_library": "behringer_wing",
+                    },
+                    "xtouch_mini": {
+                        "type": "midi",
+                        "enabled": True,
+                        "input_port": "X-TOUCH MINI",
+                        "output_port": "X-TOUCH MINI",
+                        "midi_library": "behringer_xtouch_mini",
+                    },
+                },
+                "devices": [
+                    wing_device("wing_native_foh"),
+                    midi_device("xtouch_mini", library="behringer_xtouch_mini"),
+                ],
+                "connections": [
+                    {
+                        "id": "wing-to-fader",
+                        "source": "wing_native_foh./ch/1/fdr",
+                        "target": "xtouch_mini.layer_a_fader",
+                        "input_min": 0.0,
+                        "input_max": 1.0,
+                        "output_min": 0.0,
+                        "output_max": 127.0,
+                    }
+                ],
+            }
+        )
+        service = MIDIJugglerService(config)
+        midi = service._midi_adapters()["xtouch_mini"]
+        midi.send_midi_message = AsyncMock()
+
+        await service.datapoint_store.write(
+            float_value("wing_native_foh./ch/1/fdr", 0.5, emit_outputs=False)
+        )
+        await service.module_registry.start_all()
+        if service.web.modifier_graph is not None:
+            await service.web.modifier_graph.replay_subscribed_sources_from_store()
+        service.event_bridge.attach()
+
+        if midi.send_midi_message.await_count == 0:
+            return 0, 0.0
+        return (
+            midi.send_midi_message.await_count,
+            midi.send_midi_message.await_args.args[0].data[1],
+        )
+
+    count, value = asyncio.run(scenario())
+    assert count == 1
+    assert value == pytest.approx(64)
+
+
 def test_wing_feedback_with_normalized_input_range_maps_to_midi() -> None:
     async def scenario() -> list[int]:
         config = parse_config(

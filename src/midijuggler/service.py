@@ -134,7 +134,6 @@ class MIDIJugglerService:
 
     async def start(self) -> None:
         LOGGER.info("starting MIDIJuggler")
-        self.event_bridge.attach()
         await self.rtp_midi_manager.start()
         LOGGER.info("RTP-MIDI status: %s", self.rtp_midi_manager.status_summary())
         await self.osc_desk_tracker.start()
@@ -142,9 +141,12 @@ class MIDIJugglerService:
             "OSC desk discovery active; %s desk(s) on LAN",
             len(self.osc_desk_tracker.discovered_desks),
         )
+        await self.module_registry.start_all()
+        if self.web.modifier_graph is not None:
+            await self.web.modifier_graph.replay_subscribed_sources_from_store()
+        self.event_bridge.attach()
         for adapter in self.adapters:
             await adapter.start()
-        await self.module_registry.start_all()
         await self.master_clock.start()
         self._runner = await run_web_server(self.web)
         LOGGER.info(

@@ -29,9 +29,9 @@ class ModuleRegistry:
 
     async def start_all(self) -> None:
         order = (
+            ModuleCategory.MODIFIER,
             ModuleCategory.IO,
             ModuleCategory.GENERATOR,
-            ModuleCategory.MODIFIER,
             ModuleCategory.INTERFACE,
         )
         for category in order:

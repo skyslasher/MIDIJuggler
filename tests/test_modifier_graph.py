@@ -564,3 +564,38 @@ def test_modifier_graph_suppresses_encoder_feedback_after_desk_drive() -> None:
 
     asyncio.run(scenario())
     assert received == []
+
+
+def test_modifier_graph_replays_subscribed_sources_from_store() -> None:
+    store = DataPointStore()
+    graph = ModifierGraph(
+        store,
+        [
+            ConnectionSpec(
+                id="wing-to-fader",
+                source="wing_native_foh./ch/1/fdr",
+                target="xtouch_mini.layer_a_fader",
+                input_min=0.0,
+                input_max=1.0,
+                output_min=0.0,
+                output_max=127.0,
+            )
+        ],
+    )
+    received: list[float] = []
+
+    async def handler(value: DataPointValue) -> None:
+        if value.float_value is not None and value.emit_outputs:
+            received.append(value.float_value)
+
+    store.subscribe("xtouch_mini.layer_a_fader", handler)
+
+    async def scenario() -> None:
+        await store.write(
+            float_value("wing_native_foh./ch/1/fdr", 0.5, emit_outputs=False)
+        )
+        await graph.start()
+        await graph.replay_subscribed_sources_from_store()
+
+    asyncio.run(scenario())
+    assert received == [63.5]
