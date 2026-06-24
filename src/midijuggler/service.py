@@ -69,6 +69,9 @@ class MIDIJugglerService:
             rtp_midi_manager=self.rtp_midi_manager,
             app_config=config,
         )
+        for adapter in self.adapters:
+            if isinstance(adapter, MidiAdapter):
+                adapter.bind_datapoint_store(self.datapoint_store)
         self._write_master_clock_alsa_config(self.config.master_clock.click_audio_device)
         self.master_clock = MasterClock(
             self._master_clock_config(),

@@ -8,6 +8,8 @@ import logging
 from typing import TYPE_CHECKING
 
 from midijuggler.config import AdapterConfig, AppConfig
+from midijuggler.datapoint.store import DataPointStore
+from midijuggler.datapoint.types import DataPointId
 from midijuggler.device.types import DeviceConfig
 from midijuggler.midi.xtouch_channels import (
     XTOUCH_MINI_LIBRARY_ID,
@@ -113,6 +115,8 @@ class XTouchFeedbackRefresh:
         self._feedback_points: frozenset[str] = frozenset()
         self._task: asyncio.Task[None] | None = None
         self._device: DeviceConfig | None = None
+        self._store: DataPointStore | None = None
+        self._device_id: str = ""
 
     def configure(
         self,
@@ -121,14 +125,19 @@ class XTouchFeedbackRefresh:
         device: DeviceConfig | None = None,
         *,
         library_id: str | None = None,
+        store: DataPointStore | None = None,
+        device_id: str = "",
     ) -> None:
         self._app_config = app_config
         self._device = device
+        self._store = store
+        self._device_id = device_id or (device.id if device is not None else "")
         self._feedback_points = feedback_point_ids(
             config,
             library_id=library_id,
             device=device,
         )
+        self._seed_cache_from_store()
 
     def remember(self, point: str, value: float) -> None:
         if point not in self._feedback_points:
@@ -157,7 +166,24 @@ class XTouchFeedbackRefresh:
         self._task = None
 
     async def resend_all(self) -> None:
+        self._seed_cache_from_store()
         await self._resend_cached_values()
+
+    def _seed_cache_from_store(self) -> None:
+        if self._store is None or not self._device_id:
+            return
+        for point in self._feedback_points:
+            value = self._store.float_value(DataPointId(self._device_id, point))
+            if value is not None:
+                self._cache[point] = value
+
+    def _value_for_point(self, point: str) -> float | None:
+        if self._store is not None and self._device_id:
+            value = self._store.float_value(DataPointId(self._device_id, point))
+            if value is not None:
+                self._cache[point] = value
+                return value
+        return self._cache.get(point)
 
     async def _refresh_loop(self, interval: float) -> None:
         try:
@@ -173,9 +199,12 @@ class XTouchFeedbackRefresh:
             )
 
     async def _resend_cached_values(self) -> None:
-        if self._app_config is None or not self._cache:
+        if self._app_config is None or not self._feedback_points:
             return
-        for point, value in list(self._cache.items()):
+        for point in self._feedback_points:
+            value = self._value_for_point(point)
+            if value is None:
+                continue
             try:
                 await self._adapter.send_feedback_target(point, value)
             except ValueError:

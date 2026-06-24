@@ -9,6 +9,7 @@ import time
 
 from midijuggler.adapters.base import Adapter, MIDI_TIMING_CLOCK
 from midijuggler.config import AdapterConfig, AppConfig
+from midijuggler.datapoint.store import DataPointStore
 from midijuggler.eventbus import EventBus
 from midijuggler.events import (
     AdapterStatusEvent,
@@ -76,6 +77,10 @@ class MidiAdapter(Adapter):
         self._last_connection_detail: str | None = None
         self._feedback_refresh: XTouchFeedbackRefresh | None = None
         self._echo_guard = MidiEchoGuard()
+        self._datapoint_store: DataPointStore | None = None
+
+    def bind_datapoint_store(self, store: DataPointStore) -> None:
+        self._datapoint_store = store
 
     def _configure_echo_guard(self) -> None:
         self._echo_guard.configure(
@@ -167,6 +172,8 @@ class MidiAdapter(Adapter):
             self._app_config,
             device,
             library_id=self._resolve_midi_library_id(),
+            store=self._datapoint_store,
+            device_id=device.id if device is not None else "",
         )
         await self._feedback_refresh.start(self.config)
 

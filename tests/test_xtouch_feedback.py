@@ -166,6 +166,46 @@ def test_refresh_loop_resends_cached_values_with_device_config() -> None:
     adapter.send_feedback_target.assert_any_await("layer_a_top_button_1_led", 1.0)
 
 
+def test_refresh_loop_resends_values_from_datapoint_store() -> None:
+    from conftest import xtouch_devices_config
+    from midijuggler.datapoint.store import DataPointStore
+    from midijuggler.datapoint.types import float_value
+
+    config = parse_config(xtouch_devices_config(feedback_refresh_interval=0.1))
+    adapter_config = config.adapters["xtouch_mini"]
+    device = config.devices["xtouch_mini"]
+    store = DataPointStore()
+    adapter = AsyncMock()
+    adapter.name = "xtouch_mini"
+    adapter.running = True
+    adapter.send_feedback_target = AsyncMock()
+    refresh = XTouchFeedbackRefresh(adapter, config)
+    refresh.configure(
+        adapter_config,
+        config,
+        device,
+        store=store,
+        device_id=device.id,
+    )
+
+    async def scenario() -> None:
+        await store.write(
+            float_value(
+                "xtouch_mini.layer_a_top_button_1_led",
+                1.0,
+                emit_outputs=False,
+            )
+        )
+        await refresh.start(adapter_config)
+        await asyncio.sleep(0.25)
+        await refresh.stop()
+
+    asyncio.run(scenario())
+
+    assert adapter.send_feedback_target.await_count >= 1
+    adapter.send_feedback_target.assert_any_await("layer_a_top_button_1_led", 1.0)
+
+
 def test_refresh_loop_resends_cached_values() -> None:
     config = parse_config(
         {
