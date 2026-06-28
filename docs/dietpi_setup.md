@@ -189,16 +189,17 @@ Verify card names first (`aplay -l` should show `CARD=WING`; `arecord -l` should
 show `CARD=g_audio` for the USB gadget). Edit the conf or service file if your
 system uses different names.
 
-The conf reserves the first six Wing USB channels via `dshare` + `route`.
+The conf reserves the first six Wing USB channels via `dshare` + `share`.
 Multichannel `dmix` on the Wing fails with `Slave PCM not usable` on typical
-firmware; `dshare` matches the known-good six-channel setup. Do **not** put
-`ttable` on a `plug` PCM — ALSA ignores it there; routing belongs in the
-`route` plugin.
+firmware. Each `wing_stereo*` PCM uses the `share` plugin to bind a stereo
+client to one channel pair on `wing_share`. Do **not** use `route` above
+`dshare`: `route` opens `wing_share` as six channels and the first client
+claims every channel binding (`destination channel … already used`).
 
-`dshare` opens the Wing once and shares channels by binding: `wing_stereo1`,
-`wing_stereo2` and `wing_stereo3` work **in parallel**, but each PCM accepts
-only **one client at a time** (for example `alsaloop` on `wing_stereo3` blocks
-a second writer on that same PCM).
+`dshare` opens the Wing once. `wing_stereo1`, `wing_stereo2` and `wing_stereo3`
+work **in parallel** on USB 1–2, 3–4 and 5–6, but each PCM accepts only
+**one client at a time** (for example `alsaloop` on `wing_stereo3` blocks a
+second writer on that same PCM).
 
 Replace `card WING` with `card N` (from `aplay -l`) if the symbolic name does
 not resolve on your system.
