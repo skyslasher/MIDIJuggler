@@ -241,10 +241,11 @@ open the USB gadget capture device (often unavailable to the `midijuggler`
 user). Playback still goes through `wing_stereo3` and shares the Wing dshare
 pool (`ipc_perm 0666`). The script auto-detects the gadget capture card
 (`UAC2Gadget`, `UAC2_Gadget`, or `g_audio`), waits until the cards appear in
-`arecord -l` / `aplay -L`, verifies capture with a one-second `arecord` test
-(not `--dump-hw-params`, which fails on the gadget), then runs `arecord | aplay`
-to `wing_stereo3`. The USB **host** must actively send audio to the Pi gadget
-input or the Wing receives silence.
+`arecord -l` / `aplay -L`, then runs `arecord | aplay` to `wing_stereo3` using
+the gadget native sample rate unless `GADGET_LOOP_RATE` is set. Optional
+`GADGET_PROBE_CAPTURE=1` runs the manual `arecord -d 2` test before starting.
+The USB **host** must actively send audio to the Pi gadget input or the Wing
+receives silence.
 
 If the loop fails, check the log:
 

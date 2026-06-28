@@ -7,7 +7,6 @@ PLAYBACK="${WING_PLAYBACK:-wing_stereo3}"
 # Leave empty for the gadget native rate (matches: arecord -d 2 -f S16_LE /dev/null).
 RATE="${GADGET_LOOP_RATE:-}"
 WAIT_SECONDS="${GADGET_WAIT_SECONDS:-90}"
-PROBE_SECONDS="${GADGET_PROBE_SECONDS:-5}"
 
 log() {
     printf 'wing-gadget-loop: %s\n' "$*" >&2
@@ -15,26 +14,11 @@ log() {
 
 log "starting"
 
-capture_probe() {
-    device="$1"
-    timeout "$PROBE_SECONDS" arecord -D "$device" -d 2 -f S16_LE /dev/null 2>/dev/null
-}
-
 detect_capture() {
     if [ -n "${G_AUDIO_CAPTURE:-}" ]; then
         printf '%s\n' "$G_AUDIO_CAPTURE"
         return
     fi
-    for card in UAC2Gadget UAC2_Gadget g_audio; do
-        if ! arecord -l 2>/dev/null | grep -q "$card"; then
-            continue
-        fi
-        device="plughw:CARD=${card},DEV=0"
-        if capture_probe "$device"; then
-            printf '%s\n' "$device"
-            return
-        fi
-    done
     for card in UAC2Gadget UAC2_Gadget g_audio; do
         if arecord -l 2>/dev/null | grep -q "$card"; then
             printf '%s\n' "plughw:CARD=${card},DEV=0"
@@ -59,10 +43,6 @@ capture_listed() {
             false
             ;;
     esac
-}
-
-capture_ready() {
-    capture_probe "$CAPTURE"
 }
 
 playback_ready() {
@@ -117,15 +97,14 @@ if ! playback_ready; then
     exit 1
 fi
 
-if ! capture_ready; then
-    log "capture test record failed: $CAPTURE"
-    log "stop other users of the gadget (systemctl stop wing-gadget-loop) and try:"
-    log "  arecord -D $CAPTURE -d 2 -f S16_LE /dev/null"
-    if [ "${GADGET_LOOP_VERBOSE:-0}" = "1" ]; then
-        arecord -D "$CAPTURE" -d 2 -f S16_LE /dev/null >&2 || true
+if [ "${GADGET_PROBE_CAPTURE:-0}" = "1" ]; then
+    log "probing capture (optional; set GADGET_PROBE_CAPTURE=0 to skip)"
+    if ! arecord -D "$CAPTURE" -d 2 -f S16_LE /dev/null; then
+        log "capture probe failed; stop other gadget users and retry:"
+        log "  sudo systemctl stop wing-gadget-loop.service"
+        log "  arecord -D $CAPTURE -d 2 -f S16_LE /dev/null"
+        exit 1
     fi
-    arecord -l >&2 || true
-    exit 1
 fi
 
 log "starting arecord | aplay ($CAPTURE -> $PLAYBACK @ $rate_msg)"
