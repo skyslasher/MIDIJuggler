@@ -9,6 +9,7 @@ from midijuggler.system_info import (
     parse_aconnect_ports,
     parse_aplay_devices,
     parse_dmix_pcm_devices,
+    parse_pcm_devices,
 )
 
 
@@ -61,6 +62,38 @@ master_clock_dmix
     ]
     assert devices[0]["mode"] == "alias"
     assert devices[0]["label"] == "Direct mix multichannel (dmix:CARD=Device,DEV=0)"
+
+
+def test_parse_pcm_devices_lists_custom_and_plugin_pcms() -> None:
+    devices = parse_pcm_devices(
+        """null
+    Discard all samples (playback) or generate zero samples (capture)
+wing_hw
+wing_share
+wing_clock_tick
+hw:CARD=WING,DEV=0
+    WING, USB Audio
+    Direct hardware device without any conversions
+plughw:CARD=WING,DEV=0
+    WING, USB Audio
+    Hardware device with all software conversions
+dmix:CARD=WING,DEV=0
+    WING, USB Audio
+    Direct sample mixing device
+"""
+    )
+
+    assert [device["id"] for device in devices] == [
+        "wing_hw",
+        "wing_share",
+        "wing_clock_tick",
+        "hw:CARD=WING,DEV=0",
+        "plughw:CARD=WING,DEV=0",
+        "dmix:CARD=WING,DEV=0",
+    ]
+    assert devices[0]["mode"] == "alias"
+    assert devices[3]["mode"] == "dmix"
+    assert devices[5]["mode"] == "alias"
 
 
 def test_parse_aconnect_ports_returns_all_client_addresses() -> None:

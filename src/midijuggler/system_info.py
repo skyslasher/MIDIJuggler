@@ -6,7 +6,9 @@ from pathlib import Path
 import re
 import subprocess
 
-from midijuggler.alsa import alsa_stable_device_id
+from midijuggler.alsa import alsa_mode_for_device, alsa_stable_device_id
+
+_EXCLUDED_PCM_NAMES = frozenset({"null"})
 
 
 def parse_aplay_pcm_list(output: str) -> list[dict[str, str]]:
@@ -43,25 +45,36 @@ def is_dmix_pcm_name(name: str) -> bool:
     return lowered.endswith("_dmix")
 
 
-def parse_dmix_pcm_devices(output: str) -> list[dict[str, str]]:
-    """Return software dmix PCM devices from ``aplay -L`` output."""
+def parse_pcm_devices(output: str) -> list[dict[str, str]]:
+    """Return playback PCM devices from ``aplay -L`` output."""
 
     devices: list[dict[str, str]] = []
     for entry in parse_aplay_pcm_list(output):
-        name = entry["name"]
-        if not is_dmix_pcm_name(name):
+        name = entry["name"].strip()
+        if not name or name.casefold() in _EXCLUDED_PCM_NAMES or name == "default":
             continue
         description = entry.get("description", "").strip()
+        mode = alsa_mode_for_device(name)
         label = f"{description} ({name})" if description else name
         devices.append(
             {
                 "id": name,
                 "resolved_device": name,
                 "label": label,
-                "mode": "alias",
+                "mode": mode,
             }
         )
     return devices
+
+
+def parse_dmix_pcm_devices(output: str) -> list[dict[str, str]]:
+    """Return software dmix PCM devices from ``aplay -L`` output."""
+
+    return [device for device in parse_pcm_devices(output) if is_dmix_pcm_name(device["id"])]
+
+
+def _alsa_device_key(device_id: str) -> str:
+    return device_id.casefold()
 
 
 def parse_aplay_devices(output: str) -> list[dict[str, str]]:
@@ -103,7 +116,7 @@ def parse_aplay_devices(output: str) -> list[dict[str, str]]:
 def list_alsa_output_devices() -> list[dict[str, str]]:
     default_entry = {"id": "", "label": "default (software/mixed)", "mode": "alias"}
     devices: list[dict[str, str]] = [default_entry]
-    seen_ids = {""}
+    seen_keys = {_alsa_device_key("")}
 
     try:
         list_result = subprocess.run(
@@ -119,10 +132,11 @@ def list_alsa_output_devices() -> list[dict[str, str]]:
     if list_result is not None:
         for device in parse_aplay_devices(list_result.stdout):
             device_id = device.get("id", "")
-            if not device_id or device_id in seen_ids:
+            device_key = _alsa_device_key(device_id)
+            if not device_id or device_key in seen_keys:
                 continue
             devices.append(device)
-            seen_ids.add(device_id)
+            seen_keys.add(device_key)
 
     try:
         pcm_result = subprocess.run(
@@ -136,12 +150,13 @@ def list_alsa_output_devices() -> list[dict[str, str]]:
         pcm_result = None
 
     if pcm_result is not None:
-        for device in parse_dmix_pcm_devices(pcm_result.stdout):
+        for device in parse_pcm_devices(pcm_result.stdout):
             device_id = device.get("id", "")
-            if not device_id or device_id in seen_ids:
+            device_key = _alsa_device_key(device_id)
+            if not device_id or device_key in seen_keys:
                 continue
             devices.append(device)
-            seen_ids.add(device_id)
+            seen_keys.add(device_key)
 
     return devices
 

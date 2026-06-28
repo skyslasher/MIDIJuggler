@@ -46,6 +46,8 @@ def lookup_alsa_output_device(
     for entry in listed:
         if entry.get("id") == normalized:
             return entry
+        if entry.get("id", "").casefold() == normalized.casefold():
+            return entry
 
     card_match = CARD_DEVICE_PATTERN.match(normalized)
     if card_match is not None:

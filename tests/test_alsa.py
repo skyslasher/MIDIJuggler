@@ -88,6 +88,23 @@ def test_normalize_alsa_output_device_keeps_dmix_pcm_id() -> None:
     assert alsa_mode_for_device("dmix:CARD=Device,DEV=0") == "alias"
 
 
+def test_lookup_alsa_output_device_matches_case_insensitive_pcm_id() -> None:
+    from midijuggler.alsa import lookup_alsa_output_device
+
+    devices = [
+        {
+            "id": "dmix:CARD=WING,DEV=0",
+            "resolved_device": "dmix:CARD=WING,DEV=0",
+            "label": "dmix",
+            "mode": "alias",
+        }
+    ]
+
+    matched = lookup_alsa_output_device("dmix:CARD=WING,dev=0", devices=devices)
+    assert matched is not None
+    assert matched["id"] == "dmix:CARD=WING,DEV=0"
+
+
 def test_write_master_clock_dmix_config(tmp_path: Path) -> None:
     config_path = tmp_path / "asoundrc"
 
