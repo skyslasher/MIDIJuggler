@@ -167,7 +167,7 @@ If `sudo -u midijuggler aplay /etc/midijuggler/click1.wav` reports
 `audio open error: Permission denied`, verify that `midijuggler` is in the
 `audio` group and restart the service.
 
-## Behringer Wing USB routing (dmix)
+## Behringer Wing USB routing (dshare)
 
 When a Behringer Wing is connected over USB, route three stereo outputs to Wing
 USB inputs 1–6 so multiple processes (including MIDIJuggler) can play at the
@@ -195,10 +195,16 @@ different channel pair. Multichannel `dmix` on the Wing fails with
 `Slave PCM not usable`. Do **not** use `route` above `dshare` (first client
 claims all six bindings) or `share` above `dshare` (also fails hw refine here).
 
+Keep `ipc_key_add_uid false` and `ipc_perm 0666` so **all Unix users** (shell,
+`midijuggler`, `shairport-sync`, systemd services) share one dshare pool. With
+`ipc_key_add_uid true`, each user opens the Wing hardware separately and blocks
+everyone else.
+
 `dshare` opens the Wing once. `wing_stereo1`, `wing_stereo2` and `wing_stereo3`
 work **in parallel** on USB 1–2, 3–4 and 5–6, but each PCM accepts only
-**one client at a time** (for example `alsaloop` on `wing_stereo3` blocks a
-second writer on that same PCM).
+**one client at a time**. MIDIJuggler keeps `wing_stereo1` open while click
+audio is enabled; Shairport on `wing_stereo2` and `alsaloop` on `wing_stereo3`
+can still run at the same time on the other pairs.
 
 Replace `card WING` with `card N` (from `aplay -l`) if the symbolic name does
 not resolve on your system.
@@ -214,13 +220,12 @@ speaker-test -D wing_stereo2 -c 2   # terminal 2 — parallel
 | PCM | Wing USB | Typical use |
 |-----|----------|-------------|
 | `wing_stereo1` | 1–2 | MIDIJuggler master-clock clicks |
-| `wing_stereo2` | 3–4 | other applications |
-| `wing_stereo3` | 5–6 | g_audio loop (exclusive while alsaloop runs) |
+| `wing_stereo2` | 3–4 | Shairport-Sync (`output_device = "wing_stereo2"`) |
+| `wing_stereo3` | 5–6 | g_audio loop via `wing-gadget-loop.service` |
 
 Only the shared `dshare` pool opens the Wing hardware. All clients — including
-MIDIJuggler — must use the software PCMs `wing_stereo1`, `wing_stereo2`, or
-`wing_stereo3`. Do **not** set `click_audio_device` to `plughw:CARD=WING,DEV=0`;
-that opens the Wing exclusively and blocks the shared PCMs.
+MIDIJuggler and Shairport-Sync — must use the software PCMs above. Do **not**
+use `default`, `plughw:CARD=WING,DEV=0`, or any direct `hw:` device string.
 
 ```toml
 [master_clock]
@@ -230,9 +235,11 @@ click_audio_device = "wing_stereo1"
 Enter the PCM name manually in the web UI if it is not listed in the dropdown
 (`aplay -L` shows the names after installing the conf.d file).
 
-The `wing-gadget-loop` service runs `alsaloop` from the g_audio USB gadget
-capture device to `wing_stereo3`. Pure ALSA config cannot do continuous
-loopback; the systemd unit is required for that path.
+The `wing-gadget-loop` service runs as user `midijuggler` and routes the g_audio
+USB gadget capture device to `wing_stereo3`. Pure ALSA config cannot do
+continuous loopback; the systemd unit is required for that path. After changing
+the service file, run `sudo systemctl daemon-reload` and
+`sudo systemctl restart wing-gadget-loop.service`.
 
 ## RTP-MIDI and Avahi
 

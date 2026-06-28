@@ -5,6 +5,9 @@ Requires=sound.target
 
 [Service]
 Type=simple
+User=midijuggler
+Group=midijuggler
+SupplementaryGroups=audio
 ExecStart=/usr/bin/alsaloop -C plughw:CARD=g_audio,DEV=0 -P wing_stereo3 -f S16_LE -t 5000 -b
 Restart=on-failure
 RestartSec=2
