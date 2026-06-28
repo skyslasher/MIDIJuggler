@@ -489,7 +489,7 @@ def test_master_clock_state_event_broadcasts_status_payload() -> None:
     assert status_payloads[-1]["payload"]["master_clock"]["running"] is True
 
 
-def test_broadcast_event_skips_master_clock_click_events() -> None:
+def test_broadcast_event_includes_master_clock_click_events() -> None:
     from midijuggler.events import ClickEvent, ControlEvent
 
     config = parse_config({"master_clock": {"enabled": True}})
@@ -518,7 +518,7 @@ def test_broadcast_event_skips_master_clock_click_events() -> None:
 
     asyncio.run(scenario())
 
-    assert len(payloads) == 1
+    assert len(payloads) == 2
     assert payloads[0]["type"] == "event"
-    assert payloads[0]["payload"]["kind"] == "ControlEvent"
-    assert payloads[0]["payload"]["control"] == "quarter_ms"
+    assert payloads[0]["payload"]["kind"] == "ClickEvent"
+    assert payloads[1]["payload"]["kind"] == "ControlEvent"

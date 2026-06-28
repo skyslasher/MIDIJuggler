@@ -6295,6 +6295,9 @@ function connect() {
       if (data.payload?.kind === "HidLearnEvent") {
         handleHidLearnCapture(data.payload);
       }
+      if (data.payload?.kind === "ClickEvent") {
+        pulseTapButton();
+      }
       appendEvent(data.payload);
       if (data.payload.kind === "BpmChangedEvent") {
         bpm.textContent = data.payload.bpm.toFixed(1);

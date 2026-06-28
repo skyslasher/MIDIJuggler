@@ -70,7 +70,7 @@ from midijuggler.modules.io.osc import OscIOModule
 from midijuggler.modules.io.wing_native import WingNativeIOModule
 from midijuggler.modules.modifier.feedback_suppress import parse_feedback_suppress_ms
 from midijuggler.eventbus import EventBus
-from midijuggler.events import AdapterStatusEvent, ClickEvent, Event, MasterClockStateEvent, MidiMessageEvent
+from midijuggler.events import AdapterStatusEvent, Event, MasterClockStateEvent, MidiMessageEvent
 from midijuggler.learn import (
     LearnController,
     lookup_datapoint_ranges,
@@ -1084,8 +1084,6 @@ class WebInterface:
             return False, str(exc)
 
     async def _broadcast_event(self, event: Event) -> None:
-        if isinstance(event, ClickEvent):
-            return
         if isinstance(event, AdapterStatusEvent):
             self._adapter_runtime_status[event.adapter] = {
                 "status": event.status,
