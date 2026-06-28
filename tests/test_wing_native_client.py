@@ -203,6 +203,27 @@ def test_set_float_writes_payload_without_channel_switch() -> None:
     assert writes == [encode_set_float(99, -5.873, raw=False)]
 
 
+def test_request_node_data_writes_payload() -> None:
+    from midijuggler.wing.native.protocol import encode_request_node_data
+
+    async def scenario() -> list[bytes]:
+        client = WingNativeClient("127.0.0.1")
+        client._writer = _MockWriter()  # noqa: SLF001
+
+        writes: list[bytes] = []
+
+        async def capture_write(payload: bytes) -> None:
+            writes.append(payload)
+
+        client._write_payload = capture_write  # type: ignore[method-assign]  # noqa: SLF001
+        await client.request_node_data(99)
+        return writes
+
+    writes = asyncio.run(scenario())
+
+    assert writes == [encode_request_node_data(99)]
+
+
 def test_wing_native_send_handles_resolve_timeout_gracefully(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:

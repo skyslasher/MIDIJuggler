@@ -101,6 +101,90 @@ def test_wing_native_adapter_publishes_input_updates() -> None:
     assert events[0].arguments == (pytest.approx(0.5),)
 
 
+def test_wing_native_adapter_ignores_feedback_for_unresolved_node_id() -> None:
+    async def scenario() -> list[OscMessageEvent]:
+        bus = EventBus()
+        events: list[OscMessageEvent] = []
+        bus.subscribe(OscMessageEvent, lambda event: events.append(event))
+
+        adapter = WingNativeAdapter(
+            name="wing_native_foh",
+            config=AdapterConfig(
+                enabled=True,
+                kind="wing_native",
+                options={"remote_host": "192.168.1.48"},
+            ),
+            bus=bus,
+        )
+        adapter._client = WingNativeClient("192.168.1.48")  # noqa: SLF001
+        adapter.running = True
+
+        from midijuggler.wing.native.decoder import WingNodeData
+
+        await adapter._publish_node_data(WingNodeData(99, float_value=0.5))  # noqa: SLF001
+        return events
+
+    events = asyncio.run(scenario())
+
+    assert events == []
+
+
+def test_wing_native_start_warms_connected_fader_paths(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    class ImmediateClient(WingNativeClient):
+        async def connect(self) -> None:
+            return
+
+        async def read_events(self) -> list[tuple[object, object]]:
+            await asyncio.sleep(3600)
+            return []
+
+        async def close(self) -> None:
+            return
+
+        async def resolve_path(self, path: str) -> int:
+            assert path == "/ch/1/fdr"
+            self.remember_binding(WingPathBinding(path, 99))
+            return 99
+
+        async def request_node_data(self, node_id: int) -> None:
+            assert node_id == 99
+
+    monkeypatch.setattr(
+        "midijuggler.adapters.wing_native.WingNativeClient",
+        ImmediateClient,
+    )
+
+    async def scenario() -> WingNativeAdapter:
+        bus = EventBus()
+        adapter = WingNativeAdapter(
+            name="wing_native_foh",
+            config=AdapterConfig(
+                enabled=True,
+                kind="wing_native",
+                options={
+                    "remote_host": "192.168.1.48",
+                    "wing_library": "behringer_wing",
+                },
+            ),
+            bus=bus,
+        )
+        adapter.register_fader_output_range("/ch/1/fdr", 0.0, 1.0)
+        await adapter.start()
+        if adapter._warmup_task is not None:  # noqa: SLF001
+            await adapter._warmup_task
+        return adapter
+
+    adapter = asyncio.run(scenario())
+
+    try:
+        assert adapter._client is not None  # noqa: SLF001
+        assert adapter._client.path_for_node(99) == "/ch/1/fdr"  # noqa: SLF001
+    finally:
+        asyncio.run(adapter.stop())
+
+
 def test_wing_native_adapter_send_resolves_path_and_records_output() -> None:
     async def scenario() -> tuple[list[bytes], OscMessageEvent | None]:
         bus = EventBus()

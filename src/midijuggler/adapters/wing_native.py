@@ -117,6 +117,11 @@ class WingNativeAdapter(Adapter):
         self._connectivity.note_connected(self._remote_host, self._native_port)
         self._connectivity.paths_cached = self._client.path_cache_size
         await self._publish_connectivity_status(force=True)
+        if self._fader_output_ranges:
+            self._warmup_task = asyncio.create_task(
+                self._warm_connected_paths_task(),
+                name=f"wing-native-warmup-{self.name}",
+            )
 
     async def reload(self, config: AdapterConfig) -> None:
         previous_host = self._remote_host
@@ -393,6 +398,53 @@ class WingNativeAdapter(Adapter):
                 echo_suppressed=False,
             )
         )
+
+    async def _warm_connected_paths_task(self) -> None:
+        try:
+            failed = await self._warm_connected_paths()
+        except asyncio.CancelledError:
+            raise
+        except Exception:
+            LOGGER.exception("Wing native adapter %s connected-path warm-up failed", self.name)
+            return
+
+        self._connectivity.paths_warmup_failed = failed
+        if self._client is not None:
+            self._connectivity.paths_cached = self._client.path_cache_size
+        await self._publish_connectivity_status(force=True)
+
+    async def _warm_connected_paths(self) -> int:
+        if self._client is None or not self._fader_output_ranges:
+            return 0
+
+        failed = 0
+        for address in sorted(self._fader_output_ranges):
+            try:
+                node_id = await self._client.resolve_path(address)
+                await self._client.request_node_data(node_id)
+            except KeyError:
+                failed += 1
+                LOGGER.debug(
+                    "Wing native adapter %s could not resolve %s during warm-up",
+                    self.name,
+                    address,
+                )
+            except TimeoutError:
+                failed += 1
+                LOGGER.debug(
+                    "Wing native adapter %s timed out resolving %s during warm-up",
+                    self.name,
+                    address,
+                )
+            except Exception:
+                failed += 1
+                LOGGER.warning(
+                    "Wing native adapter %s failed resolving %s during warm-up",
+                    self.name,
+                    address,
+                    exc_info=True,
+                )
+        return failed
 
     async def _warm_path_cache_task(self) -> None:
         try:

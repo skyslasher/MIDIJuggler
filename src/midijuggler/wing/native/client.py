@@ -17,6 +17,7 @@ from midijuggler.wing.native.protocol import (
     CONTROL_ENGINE_CHANNEL,
     WING_NATIVE_PORT,
     encode_keepalive,
+    encode_request_node_data,
     encode_request_node_definition,
     encode_set_float,
     encode_set_int,
@@ -158,6 +159,10 @@ class WingNativeClient:
     async def set_float(self, node_id: int, value: float, *, raw: bool = False) -> None:
         async with self._lock:
             await self._write_payload(encode_set_float(node_id, value, raw=raw))
+
+    async def request_node_data(self, node_id: int) -> None:
+        async with self._lock:
+            await self._write_payload(encode_request_node_data(node_id))
 
     async def set_int(self, node_id: int, value: int) -> None:
         async with self._lock:

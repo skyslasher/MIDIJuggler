@@ -172,6 +172,96 @@ def test_wing_native_feedback_routes_to_xtouch_fader() -> None:
     assert value == pytest.approx(64)
 
 
+def test_wing_feedback_routes_after_adapter_warmup_without_xtouch_input(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    async def scenario() -> tuple[int, int]:
+        config = parse_config(
+            {
+                "runtime": {"datapoint_routing": True},
+                "adapters": {
+                    "wing_native_foh": {
+                        "type": "wing_native",
+                        "enabled": True,
+                        "remote_host": "192.168.1.48",
+                        "wing_library": "behringer_wing",
+                    },
+                    "xtouch_mini": {
+                        "type": "midi",
+                        "enabled": True,
+                        "input_port": "X-TOUCH MINI",
+                        "output_port": "X-TOUCH MINI",
+                        "midi_library": "behringer_xtouch_mini",
+                    },
+                },
+                "devices": [
+                    wing_device("wing_native_foh"),
+                    midi_device("xtouch_mini", library="behringer_xtouch_mini"),
+                ],
+                "connections": [
+                    {
+                        "id": "wing-to-fader",
+                        "source": "wing_native_foh./ch/1/fdr",
+                        "target": "xtouch_mini.layer_a_fader",
+                        "input_min": 0.0,
+                        "input_max": 1.0,
+                        "output_min": 0.0,
+                        "output_max": 127.0,
+                    }
+                ],
+            }
+        )
+        service = MIDIJugglerService(config)
+        wing = service._wing_native_adapters()["wing_native_foh"]
+        midi = service._midi_adapters()["xtouch_mini"]
+        midi.send_midi_message = AsyncMock()
+
+        class WarmupClient(WingNativeClient):
+            async def connect(self) -> None:
+                return
+
+            async def read_events(self) -> list[tuple[object, object]]:
+                await asyncio.sleep(3600)
+                return []
+
+            async def close(self) -> None:
+                return
+
+            async def resolve_path(self, path: str) -> int:
+                self.remember_binding(WingPathBinding(path, 99))
+                return 99
+
+            async def request_node_data(self, node_id: int) -> None:
+                await wing._publish_node_data(  # noqa: SLF001
+                    WingNodeData(node_id, float_value=0.5, float_raw=True)
+                )
+
+        monkeypatch.setattr(
+            "midijuggler.adapters.wing_native.WingNativeClient",
+            WarmupClient,
+        )
+
+        await service.module_registry.start_all()
+        if service.web.modifier_graph is not None:
+            await service.web.modifier_graph.replay_subscribed_sources_from_store()
+        service.event_bridge.attach()
+        await wing.start()
+        if wing._warmup_task is not None:  # noqa: SLF001
+            await wing._warmup_task
+        await asyncio.sleep(_FEEDBACK_PUBLISH_INTERVAL_S + 0.05)
+
+        if midi.send_midi_message.await_count == 0:
+            return 0, 0
+        return (
+            midi.send_midi_message.await_count,
+            midi.send_midi_message.await_args.args[0].data[1],
+        )
+
+    count, value = asyncio.run(scenario())
+    assert count == 1
+    assert value == pytest.approx(64)
+
+
 def test_wing_store_values_replay_to_xtouch_on_service_startup() -> None:
     async def scenario() -> tuple[int, float]:
         config = parse_config(
