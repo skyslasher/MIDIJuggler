@@ -478,10 +478,8 @@ class MasterClock:
         config: MasterClockConfig,
         playback_device: str,
     ) -> bool:
-        if playback_device == MASTER_CLOCK_PCM_NAME:
-            return True
         configured_device = config.click_audio_device or playback_device
-        if not configured_device:
+        if not configured_device or configured_device == MASTER_CLOCK_PCM_NAME:
             return False
         return alsa_mode_for_device(configured_device) == "dmix"
 

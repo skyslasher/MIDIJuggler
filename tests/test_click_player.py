@@ -57,10 +57,14 @@ class FakePcm:
     def __init__(self) -> None:
         self.writes: list[bytes] = []
         self.drops = 0
+        self.drains = 0
         self.closed = False
 
     def drop(self) -> None:
         self.drops += 1
+
+    def drain(self) -> None:
+        self.drains += 1
 
     def write(self, data: bytes) -> None:
         self.writes.append(data)
@@ -189,12 +193,13 @@ def test_alsa_click_player_reuses_pcm_and_writes_loaded_wav(tmp_path, monkeypatc
 
     monkeypatch.setitem(__import__("sys").modules, "alsaaudio", FakeAlsaModule())
 
-    player = AlsaClickPlayer(str(wav_path), audio_device="master_clock")
+    player = AlsaClickPlayer(str(wav_path), audio_device="master_clock", allow_overlap=True)
     player._play_unlocked()
     player._play_unlocked()
 
     assert len(pcm.writes) == 2
-    assert pcm.drops == 2
+    assert pcm.drops == 0
+    assert pcm.drains == 0
     assert pcm.closed is False
 
     player._close_pcm()
@@ -243,6 +248,48 @@ def test_alsa_click_player_serializes_writes_when_overlap_is_disabled(tmp_path, 
         return max_active_writes
 
     assert asyncio.run(scenario()) == 1
+    assert pcm.drains >= 1
+
+
+def test_alsa_click_player_recovers_from_bad_pcm_state(tmp_path, monkeypatch, caplog) -> None:
+    wav_path = tmp_path / "click.wav"
+    _write_wav(wav_path)
+    wav = load_wav(wav_path)
+    created: list[FakePcm] = []
+
+    class FakeAlsaModule:
+        PCM_PLAYBACK = "playback"
+        PCM_NORMAL = "normal"
+        PCM_FORMAT_U8 = "u8"
+        PCM_FORMAT_S16_LE = "s16le"
+        PCM_FORMAT_S24_3LE = "s24_3le"
+        PCM_FORMAT_S32_LE = "s32le"
+
+        class ALSAAudioError(OSError):
+            pass
+
+        def PCM(self, **kwargs):
+            pcm = FakePcm()
+            created.append(pcm)
+            if len(created) == 1:
+
+                def flaky_write(data: bytes) -> None:
+                    raise FakeAlsaModule.ALSAAudioError(
+                        "File descriptor in bad state [master_clock]"
+                    )
+
+                pcm.write = flaky_write  # type: ignore[method-assign]
+            return pcm
+
+    monkeypatch.setitem(__import__("sys").modules, "alsaaudio", FakeAlsaModule())
+
+    player = AlsaClickPlayer(str(wav_path), audio_device="master_clock", allow_overlap=True)
+    with caplog.at_level(logging.DEBUG, logger="midijuggler.click_player"):
+        player._play_unlocked()
+
+    assert len(created) == 2
+    assert created[1].writes == [wav.frames]
+    assert "recreating ALSA PCM after" in caplog.text
 
 
 def test_alsa_click_player_overlapping_play_returns_before_write_finishes(

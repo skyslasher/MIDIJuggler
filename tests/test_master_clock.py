@@ -114,13 +114,23 @@ def test_master_clock_publishes_click_events_without_audio_click() -> None:
 
 def test_master_clock_uses_overlapping_click_playback_for_generated_pcm() -> None:
     clock = MasterClock(
-        MasterClockConfig(),
+        MasterClockConfig(click_audio_device="plughw:CARD=Device,DEV=0"),
         EventBus(),
         click_audio_device=MASTER_CLOCK_PCM_NAME,
     )
 
     assert isinstance(clock.click_player, AplayClickPlayer)
     assert clock.click_player.allow_overlap is True
+
+
+def test_master_clock_serializes_click_playback_for_alias_pcm() -> None:
+    clock = MasterClock(
+        MasterClockConfig(click_audio_device="wing_hw"),
+        EventBus(),
+        click_audio_device=MASTER_CLOCK_PCM_NAME,
+    )
+
+    assert clock.click_player.allow_overlap is False
 
 
 def test_master_clock_triggers_clicks_without_waiting_for_previous_playback() -> None:

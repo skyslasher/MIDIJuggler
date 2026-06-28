@@ -136,24 +136,46 @@ class AlsaClickPlayer:
 
     def _play_unlocked(self) -> None:
         try:
-            self._ensure_pcm()
-            assert self._pcm is not None
-            assert self._wav is not None
-            drop = getattr(self._pcm, "drop", None)
-            if callable(drop):
-                with contextlib.suppress(Exception):
-                    drop()
-            self._pcm.write(self._wav.frames)
+            self._write_click()
         except self._alsaaudio.ALSAAudioError as exc:
             message = str(exc)
             if "Device or resource busy" in message or "Resource busy" in message:
                 LOGGER.debug("click playback skipped because audio device is busy: %s", message)
                 return
+            if _is_recoverable_alsa_pcm_error(message):
+                LOGGER.debug("recreating ALSA PCM after %s", message)
+                self._close_pcm()
+                try:
+                    self._write_click()
+                    return
+                except self._alsaaudio.ALSAAudioError as retry_exc:
+                    message = str(retry_exc)
+                    if "Device or resource busy" in message or "Resource busy" in message:
+                        LOGGER.debug(
+                            "click playback skipped because audio device is busy: %s",
+                            message,
+                        )
+                        return
+                except OSError:
+                    LOGGER.exception("failed to replay click through ALSA after PCM reset")
+                    self._close_pcm()
+                    return
             LOGGER.warning("ALSA click playback failed: %s", message)
             self._close_pcm()
         except OSError:
             LOGGER.exception("failed to play click through ALSA")
             self._close_pcm()
+
+    def _write_click(self) -> None:
+        self._ensure_pcm()
+        assert self._pcm is not None
+        assert self._wav is not None
+        if not self.allow_overlap:
+            drain = getattr(self._pcm, "drain", None)
+            if callable(drain):
+                with contextlib.suppress(Exception):
+                    drain()
+        self._pcm.write(self._wav.frames)
 
     def _ensure_pcm(self) -> None:
         device = self.audio_device or "default"
@@ -294,6 +316,11 @@ def _alsaaudio_available() -> bool:
     except ImportError:
         return False
     return True
+
+
+def _is_recoverable_alsa_pcm_error(message: str) -> bool:
+    lowered = message.casefold()
+    return "bad state" in lowered or "bad file descriptor" in lowered
 
 
 def _sample_width_to_format(alsaaudio: Any, sample_width: int) -> int:
