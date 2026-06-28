@@ -189,12 +189,28 @@ Verify card names first (`aplay -l` should show `CARD=WING`; `arecord -l` should
 show `CARD=g_audio` for the USB gadget). Edit the conf or service file if your
 system uses different names.
 
+The conf reserves the first six Wing USB channels via `dmix` + `route` (not
+`dshare`, which grants exclusive channel access and cannot mix multiple clients
+on the same PCM). Do **not** put `ttable` on a `plug` PCM — ALSA ignores it
+there; routing belongs in the `route` plugin.
+
+If you see `Slave PCM not usable`, the dmix hw slave probably has a forced
+rate/format that does not match the Wing. The shipped conf leaves rate and
+format unset so the Wing's current USB setting applies. Check with:
+
+```bash
+aplay -D hw:CARD=WING,DEV=0 --dump-hw-params 2>&1 | egrep 'CHANNELS|RATE'
+```
+
+Replace `card WING` with `card N` (from `aplay -l`) if the symbolic name does
+not resolve on your system.
+
 After deployment:
 
 ```bash
 aplay -L | grep wing_stereo
-speaker-test -D wing_stereo1 -c 2 -r 48000   # terminal 1
-speaker-test -D wing_stereo2 -c 2 -r 48000   # terminal 2 — parallel
+speaker-test -D wing_stereo1 -c 2   # terminal 1
+speaker-test -D wing_stereo2 -c 2   # terminal 2 — parallel
 ```
 
 | PCM | Wing USB | Typical use |
@@ -217,7 +233,7 @@ Enter the PCM name manually in the web UI if it is not listed in the dropdown
 (`aplay -L` shows the names after installing the conf.d file).
 
 The `wing-gadget-loop` service runs `alsaloop` from the g_audio USB gadget
-capture device to `wing_stereo3` (48 kHz). Pure ALSA config cannot do continuous
+capture device to `wing_stereo3`. Pure ALSA config cannot do continuous
 loopback; the systemd unit is required for that path.
 
 ## RTP-MIDI and Avahi
