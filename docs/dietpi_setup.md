@@ -189,18 +189,16 @@ Verify card names first (`aplay -l` should show `CARD=WING`; `arecord -l` should
 show `CARD=g_audio` for the USB gadget). Edit the conf or service file if your
 system uses different names.
 
-The conf reserves the first six Wing USB channels via `dmix` + `route` (not
-`dshare`, which grants exclusive channel access and cannot mix multiple clients
-on the same PCM). Do **not** put `ttable` on a `plug` PCM — ALSA ignores it
-there; routing belongs in the `route` plugin.
+The conf reserves the first six Wing USB channels via `dshare` + `route`.
+Multichannel `dmix` on the Wing fails with `Slave PCM not usable` on typical
+firmware; `dshare` matches the known-good six-channel setup. Do **not** put
+`ttable` on a `plug` PCM — ALSA ignores it there; routing belongs in the
+`route` plugin.
 
-If you see `Slave PCM not usable`, the dmix hw slave probably has a forced
-rate/format that does not match the Wing. The shipped conf leaves rate and
-format unset so the Wing's current USB setting applies. Check with:
-
-```bash
-aplay -D hw:CARD=WING,DEV=0 --dump-hw-params 2>&1 | egrep 'CHANNELS|RATE'
-```
+`dshare` opens the Wing once and shares channels by binding: `wing_stereo1`,
+`wing_stereo2` and `wing_stereo3` work **in parallel**, but each PCM accepts
+only **one client at a time** (for example `alsaloop` on `wing_stereo3` blocks
+a second writer on that same PCM).
 
 Replace `card WING` with `card N` (from `aplay -l`) if the symbolic name does
 not resolve on your system.
@@ -217,12 +215,12 @@ speaker-test -D wing_stereo2 -c 2   # terminal 2 — parallel
 |-----|----------|-------------|
 | `wing_stereo1` | 1–2 | MIDIJuggler master-clock clicks |
 | `wing_stereo2` | 3–4 | other applications |
-| `wing_stereo3` | 5–6 | g_audio loop + other apps (dmix mixes) |
+| `wing_stereo3` | 5–6 | g_audio loop (exclusive while alsaloop runs) |
 
-Only one dmix opens `hw:CARD=WING,DEV=0`. All clients — including MIDIJuggler —
+Only `wing_share` opens the Wing hardware. All clients — including MIDIJuggler —
 must use the software PCMs `wing_stereo1`, `wing_stereo2`, or `wing_stereo3`.
-Do **not** set `click_audio_device` to `plughw:CARD=WING,DEV=0`; that would
-create a second dmix on the same hardware and fail or block other clients.
+Do **not** set `click_audio_device` to `plughw:CARD=WING,DEV=0`; that opens
+the Wing exclusively and blocks the shared PCMs.
 
 ```toml
 [master_clock]
