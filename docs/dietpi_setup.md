@@ -189,12 +189,11 @@ Verify card names first (`aplay -l` should show `CARD=WING`; `arecord -l` should
 show `CARD=g_audio` for the USB gadget). Edit the conf or service file if your
 system uses different names.
 
-The conf reserves the first six Wing USB channels via `dshare` + `share`.
-Multichannel `dmix` on the Wing fails with `Slave PCM not usable` on typical
-firmware. Each `wing_stereo*` PCM uses the `share` plugin to bind a stereo
-client to one channel pair on `wing_share`. Do **not** use `route` above
-`dshare`: `route` opens `wing_share` as six channels and the first client
-claims every channel binding (`destination channel … already used`).
+The conf reserves the first six Wing USB channels via three `dshare` PCMs that
+share one `ipc_key` (single Wing hw open) but bind each stereo client to a
+different channel pair. Multichannel `dmix` on the Wing fails with
+`Slave PCM not usable`. Do **not** use `route` above `dshare` (first client
+claims all six bindings) or `share` above `dshare` (also fails hw refine here).
 
 `dshare` opens the Wing once. `wing_stereo1`, `wing_stereo2` and `wing_stereo3`
 work **in parallel** on USB 1–2, 3–4 and 5–6, but each PCM accepts only
@@ -218,10 +217,10 @@ speaker-test -D wing_stereo2 -c 2   # terminal 2 — parallel
 | `wing_stereo2` | 3–4 | other applications |
 | `wing_stereo3` | 5–6 | g_audio loop (exclusive while alsaloop runs) |
 
-Only `wing_share` opens the Wing hardware. All clients — including MIDIJuggler —
-must use the software PCMs `wing_stereo1`, `wing_stereo2`, or `wing_stereo3`.
-Do **not** set `click_audio_device` to `plughw:CARD=WING,DEV=0`; that opens
-the Wing exclusively and blocks the shared PCMs.
+Only the shared `dshare` pool opens the Wing hardware. All clients — including
+MIDIJuggler — must use the software PCMs `wing_stereo1`, `wing_stereo2`, or
+`wing_stereo3`. Do **not** set `click_audio_device` to `plughw:CARD=WING,DEV=0`;
+that opens the Wing exclusively and blocks the shared PCMs.
 
 ```toml
 [master_clock]
