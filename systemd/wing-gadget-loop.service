@@ -1,5 +1,5 @@
 [Unit]
-Description=Route g_audio USB gadget input to Wing USB channels 5-6
+Description=Route USB gadget capture to Wing USB channels 5-6
 After=sound.target
 Wants=sound.target
 

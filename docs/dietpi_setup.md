@@ -186,8 +186,8 @@ sudo systemctl enable --now wing-gadget-loop.service
 ```
 
 Verify card names first (`aplay -l` should show `CARD=WING`; `arecord -l` should
-show `CARD=g_audio` for the USB gadget). Edit the conf or service file if your
-system uses different names.
+show the USB gadget capture card, often `CARD=UAC2Gadget` on a Pi). Edit the
+conf or service file if your system uses different names.
 
 The conf reserves the first six Wing USB channels via three `dshare` PCMs that
 share one `ipc_key` (single Wing hw open) but bind each stereo client to a
@@ -221,7 +221,7 @@ speaker-test -D wing_stereo2 -c 2   # terminal 2 — parallel
 |-----|----------|-------------|
 | `wing_stereo1` | 1–2 | MIDIJuggler master-clock clicks |
 | `wing_stereo2` | 3–4 | Shairport-Sync (`output_device = "wing_stereo2"`) |
-| `wing_stereo3` | 5–6 | g_audio loop via `wing-gadget-loop.service` |
+| `wing_stereo3` | 5–6 | USB gadget loop via `wing-gadget-loop.service` |
 
 Only the shared `dshare` pool opens the Wing hardware. All clients — including
 MIDIJuggler and Shairport-Sync — must use the software PCMs above. Do **not**
@@ -239,8 +239,9 @@ The `wing-gadget-loop` service runs
 [`scripts/wing-gadget-loop.sh`](../scripts/wing-gadget-loop.sh) as root so it can
 open the USB gadget capture device (often unavailable to the `midijuggler`
 user). Playback still goes through `wing_stereo3` and shares the Wing dshare
-pool (`ipc_perm 0666`). The script waits up to 90 seconds for `g_audio` and
-`wing_stereo3` to appear before starting `alsaloop`.
+pool (`ipc_perm 0666`). The script auto-detects the gadget capture card
+(`UAC2Gadget`, `UAC2_Gadget`, or `g_audio`) and waits up to 90 seconds before
+starting `alsaloop`.
 
 If the loop fails, check the log:
 
@@ -249,7 +250,7 @@ sudo journalctl -u wing-gadget-loop.service -n 30 --no-pager
 arecord -l
 ```
 
-Override the capture device when the gadget card is not named `g_audio`:
+Override the capture device explicitly if auto-detection picks the wrong card:
 
 ```bash
 sudo systemctl edit wing-gadget-loop.service

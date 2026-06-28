@@ -2,8 +2,24 @@
 set -eu
 
 PLAYBACK="${WING_PLAYBACK:-wing_stereo3}"
-CAPTURE="${G_AUDIO_CAPTURE:-plughw:CARD=g_audio,DEV=0}"
 WAIT_SECONDS="${GADGET_WAIT_SECONDS:-90}"
+
+detect_capture() {
+    if [ -n "${G_AUDIO_CAPTURE:-}" ]; then
+        printf '%s\n' "$G_AUDIO_CAPTURE"
+        return
+    fi
+    for card in UAC2Gadget UAC2_Gadget g_audio; do
+        device="plughw:CARD=${card},DEV=0"
+        if arecord -D "$device" --dump-hw-params >/dev/null 2>&1; then
+            printf '%s\n' "$device"
+            return
+        fi
+    done
+    printf '%s\n' "plughw:CARD=UAC2Gadget,DEV=0"
+}
+
+CAPTURE="$(detect_capture)"
 
 capture_ready() {
     arecord -D "$CAPTURE" --dump-hw-params >/dev/null 2>&1
