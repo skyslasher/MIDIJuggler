@@ -121,10 +121,10 @@ fi
 
 if [ -n "$RATE" ]; then
     # shellcheck disable=SC2086
-    arecord $ARECORD_VERBOSE -D "$CAPTURE" -f S16_LE -c 2 -r "$RATE" -t 0 - | \
-        aplay $APLAY_VERBOSE -D "$PLAYBACK" -f S16_LE -c 2 -r "$RATE" -t 0 -
+    arecord $ARECORD_VERBOSE -D "$CAPTURE" -f S16_LE -c 2 -r "$RATE" -t raw - | \
+        aplay $APLAY_VERBOSE -D "$PLAYBACK" -f S16_LE -c 2 -r "$RATE" -t raw -
 else
     # shellcheck disable=SC2086
-    arecord $ARECORD_VERBOSE -D "$CAPTURE" -f S16_LE -c 2 -t 0 - | \
-        aplay $APLAY_VERBOSE -D "$PLAYBACK" -f S16_LE -c 2 -t 0 -
+    arecord $ARECORD_VERBOSE -D "$CAPTURE" -f S16_LE -c 2 -t raw - | \
+        aplay $APLAY_VERBOSE -D "$PLAYBACK" -f S16_LE -c 2 -t raw -
 fi
