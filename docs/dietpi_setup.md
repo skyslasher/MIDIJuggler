@@ -240,14 +240,16 @@ The `wing-gadget-loop` service runs
 open the USB gadget capture device (often unavailable to the `midijuggler`
 user). Playback still goes through `wing_stereo3` and shares the Wing dshare
 pool (`ipc_perm 0666`). The script auto-detects the gadget capture card
-(`UAC2Gadget`, `UAC2_Gadget`, or `g_audio`), waits up to 90 seconds, and sends
-playback to `wing_dshare_56` (not `wing_stereo3`) because `aplay
---dump-hw-params` on the plug wrapper can hang even when `speaker-test -D
-wing_stereo3` works.
+(`UAC2Gadget`, `UAC2_Gadget`, or `g_audio`), waits up to 90 seconds, then runs
+`arecord | aplay` to `wing_stereo3`. Do not use `alsaloop` on dshare PCMs: it
+opens playback twice and fails with `destination channel … already used`. Do not
+probe `wing_stereo3` with `aplay --dump-hw-params`; that can hang.
 
 If the loop fails, check the log:
 
 ```bash
+sudo systemctl stop wing-gadget-loop.service
+pkill -x alsaloop || true
 sudo journalctl -u wing-gadget-loop.service -n 30 --no-pager
 arecord -l
 ```
@@ -261,7 +263,8 @@ sudo systemctl edit wing-gadget-loop.service
 ```ini
 [Service]
 Environment=G_AUDIO_CAPTURE=plughw:CARD=UAC2Gadget,DEV=0
-Environment=WING_PLAYBACK=wing_dshare_56
+Environment=WING_PLAYBACK=wing_stereo3
+Environment=GADGET_LOOP_RATE=48000
 ```
 
 After updating from git:

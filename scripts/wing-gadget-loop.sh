@@ -1,9 +1,12 @@
 #!/bin/sh
 set -eu
 
-# wing_dshare_56 bypasses the plug layer; aplay --dump-hw-params on wing_stereo3
-# can hang forever with plug+dshare even though speaker-test works.
-PLAYBACK="${WING_PLAYBACK:-wing_dshare_56}"
+# Use wing_stereo3 for playback (same path as speaker-test). Do not use alsaloop
+# here: it opens the dshare playback PCM twice and fails with "destination channel
+# already used". Do not probe with aplay --dump-hw-params on wing_stereo3; that
+# can hang with plug+dshare.
+PLAYBACK="${WING_PLAYBACK:-wing_stereo3}"
+RATE="${GADGET_LOOP_RATE:-48000}"
 WAIT_SECONDS="${GADGET_WAIT_SECONDS:-90}"
 PROBE_SECONDS="${GADGET_PROBE_SECONDS:-3}"
 
@@ -77,12 +80,17 @@ if ! playback_ready; then
     exit 1
 fi
 
-log "starting alsaloop ($CAPTURE -> $PLAYBACK)"
-log "alsaloop runs silently while looping; stop with Ctrl+C or systemctl stop"
+log "starting arecord | aplay ($CAPTURE -> $PLAYBACK @ ${RATE}Hz)"
+log "pipeline runs until stopped (Ctrl+C or systemctl stop)"
 
 if [ "${GADGET_LOOP_VERBOSE:-0}" = "1" ]; then
-    set -- alsaloop -v -C "$CAPTURE" -P "$PLAYBACK" -c 2 -f S16_LE -t 5000 -b
+    ARECORD_VERBOSE=-v
+    APLAY_VERBOSE=-v
 else
-    set -- alsaloop -C "$CAPTURE" -P "$PLAYBACK" -c 2 -f S16_LE -t 5000 -b
+    ARECORD_VERBOSE=
+    APLAY_VERBOSE=
 fi
-exec "$@"
+
+# shellcheck disable=SC2086
+arecord $ARECORD_VERBOSE -D "$CAPTURE" -f S16_LE -c 2 -r "$RATE" -t 0 - | \
+    aplay $APLAY_VERBOSE -D "$PLAYBACK" -f S16_LE -c 2 -r "$RATE" -t 0 -
