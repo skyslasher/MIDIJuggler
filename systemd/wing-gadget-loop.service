@@ -1,16 +1,14 @@
 [Unit]
 Description=Route g_audio USB gadget input to Wing USB channels 5-6
 After=sound.target
-Requires=sound.target
+Wants=sound.target
 
 [Service]
 Type=simple
-User=midijuggler
-Group=midijuggler
-SupplementaryGroups=audio
-ExecStart=/usr/bin/alsaloop -C plughw:CARD=g_audio,DEV=0 -P wing_stereo3 -f S16_LE -t 5000 -b
+Environment=MIDIJUGGLER_SCRIPTS_DIR=/opt/midijuggler/app/scripts
+ExecStart=/opt/midijuggler/app/scripts/wing-gadget-loop.sh
 Restart=on-failure
-RestartSec=2
+RestartSec=3
 
 [Install]
 WantedBy=multi-user.target

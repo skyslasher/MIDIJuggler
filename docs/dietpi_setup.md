@@ -235,11 +235,39 @@ click_audio_device = "wing_stereo1"
 Enter the PCM name manually in the web UI if it is not listed in the dropdown
 (`aplay -L` shows the names after installing the conf.d file).
 
-The `wing-gadget-loop` service runs as user `midijuggler` and routes the g_audio
-USB gadget capture device to `wing_stereo3`. Pure ALSA config cannot do
-continuous loopback; the systemd unit is required for that path. After changing
-the service file, run `sudo systemctl daemon-reload` and
-`sudo systemctl restart wing-gadget-loop.service`.
+The `wing-gadget-loop` service runs
+[`scripts/wing-gadget-loop.sh`](../scripts/wing-gadget-loop.sh) as root so it can
+open the USB gadget capture device (often unavailable to the `midijuggler`
+user). Playback still goes through `wing_stereo3` and shares the Wing dshare
+pool (`ipc_perm 0666`). The script waits up to 90 seconds for `g_audio` and
+`wing_stereo3` to appear before starting `alsaloop`.
+
+If the loop fails, check the log:
+
+```bash
+sudo journalctl -u wing-gadget-loop.service -n 30 --no-pager
+arecord -l
+```
+
+Override the capture device when the gadget card is not named `g_audio`:
+
+```bash
+sudo systemctl edit wing-gadget-loop.service
+```
+
+```ini
+[Service]
+Environment=G_AUDIO_CAPTURE=plughw:CARD=UAC2Gadget,DEV=0
+```
+
+After updating from git:
+
+```bash
+sudo cp /opt/midijuggler/app/systemd/wing-gadget-loop.service /etc/systemd/system/
+sudo chmod +x /opt/midijuggler/app/scripts/wing-gadget-loop.sh
+sudo systemctl daemon-reload
+sudo systemctl restart wing-gadget-loop.service
+```
 
 ## RTP-MIDI and Avahi
 
