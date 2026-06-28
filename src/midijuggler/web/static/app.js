@@ -1955,6 +1955,9 @@ function refreshMonitorDisplay() {
 }
 
 function appendEvent(event) {
+  if (event.kind === "ClickEvent") {
+    return;
+  }
   if (isClockTick(event) && !showClockTicks.checked) {
     return;
   }
@@ -6291,9 +6294,6 @@ function connect() {
       }
       if (data.payload?.kind === "HidLearnEvent") {
         handleHidLearnCapture(data.payload);
-      }
-      if (data.payload?.kind === "ClickEvent") {
-        pulseTapButton();
       }
       appendEvent(data.payload);
       if (data.payload.kind === "BpmChangedEvent") {

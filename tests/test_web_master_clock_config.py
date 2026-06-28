@@ -487,3 +487,38 @@ def test_master_clock_state_event_broadcasts_status_payload() -> None:
     status_payloads = [payload for payload in payloads if payload.get("type") == "status"]
     assert status_payloads
     assert status_payloads[-1]["payload"]["master_clock"]["running"] is True
+
+
+def test_broadcast_event_skips_master_clock_click_events() -> None:
+    from midijuggler.events import ClickEvent, ControlEvent
+
+    config = parse_config({"master_clock": {"enabled": True}})
+    bus = EventBus()
+    interface = WebInterface(
+        config,
+        bus,
+        ClockBpmTracker(),
+        MasterClock(config.master_clock, bus),
+    )
+    payloads: list[dict] = []
+
+    async def capture(payload: dict) -> None:
+        payloads.append(payload)
+
+    interface._broadcast_payload = capture  # type: ignore[method-assign]
+    interface._websockets = [object()]  # noqa: SLF001
+
+    async def scenario() -> None:
+        await interface._broadcast_event(
+            ClickEvent(source="master_clock", interval="quarter", position_ticks=24)
+        )
+        await interface._broadcast_event(
+            ControlEvent(source="clock", control="quarter_ms", value=500.0)
+        )
+
+    asyncio.run(scenario())
+
+    assert len(payloads) == 1
+    assert payloads[0]["type"] == "event"
+    assert payloads[0]["payload"]["kind"] == "ControlEvent"
+    assert payloads[0]["payload"]["control"] == "quarter_ms"
