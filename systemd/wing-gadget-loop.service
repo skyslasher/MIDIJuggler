@@ -6,6 +6,7 @@ Wants=sound.target
 [Service]
 Type=simple
 Environment=MIDIJUGGLER_SCRIPTS_DIR=/opt/midijuggler/app/scripts
+Environment=WING_PLAYBACK=wing_dshare_56
 ExecStart=/opt/midijuggler/app/scripts/wing-gadget-loop.sh
 Restart=on-failure
 RestartSec=3
