@@ -70,6 +70,24 @@ def test_alsa_mode_for_device_detects_hardware() -> None:
     assert alsa_mode_for_device("dmix") == "alias"
 
 
+def test_normalize_alsa_output_device_keeps_dmix_pcm_id() -> None:
+    devices = [
+        {"id": "", "label": "default", "mode": "alias"},
+        {
+            "id": "dmix:CARD=Device,DEV=0",
+            "resolved_device": "dmix:CARD=Device,DEV=0",
+            "label": "Direct mix (dmix:CARD=Device,DEV=0)",
+            "mode": "alias",
+        },
+    ]
+
+    assert (
+        normalize_alsa_output_device("dmix:CARD=Device,DEV=0", devices=devices)
+        == "dmix:CARD=Device,DEV=0"
+    )
+    assert alsa_mode_for_device("dmix:CARD=Device,DEV=0") == "alias"
+
+
 def test_write_master_clock_dmix_config(tmp_path: Path) -> None:
     config_path = tmp_path / "asoundrc"
 

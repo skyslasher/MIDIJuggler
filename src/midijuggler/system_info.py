@@ -9,6 +9,61 @@ import subprocess
 from midijuggler.alsa import alsa_stable_device_id
 
 
+def parse_aplay_pcm_list(output: str) -> list[dict[str, str]]:
+    """Parse PCM device names from ``aplay -L`` output."""
+
+    devices: list[dict[str, str]] = []
+    lines = output.splitlines()
+    index = 0
+    while index < len(lines):
+        line = lines[index]
+        if not line.strip() or line[:1].isspace():
+            index += 1
+            continue
+        name = line.strip()
+        description = ""
+        index += 1
+        while index < len(lines) and lines[index][:1].isspace():
+            if not description:
+                description = lines[index].strip()
+            index += 1
+        devices.append({"name": name, "description": description})
+    return devices
+
+
+def is_dmix_pcm_name(name: str) -> bool:
+    normalized = name.strip()
+    if not normalized:
+        return False
+    lowered = normalized.casefold()
+    if lowered == "dmix":
+        return True
+    if lowered.startswith("dmix:"):
+        return True
+    return lowered.endswith("_dmix")
+
+
+def parse_dmix_pcm_devices(output: str) -> list[dict[str, str]]:
+    """Return software dmix PCM devices from ``aplay -L`` output."""
+
+    devices: list[dict[str, str]] = []
+    for entry in parse_aplay_pcm_list(output):
+        name = entry["name"]
+        if not is_dmix_pcm_name(name):
+            continue
+        description = entry.get("description", "").strip()
+        label = f"{description} ({name})" if description else name
+        devices.append(
+            {
+                "id": name,
+                "resolved_device": name,
+                "label": label,
+                "mode": "alias",
+            }
+        )
+    return devices
+
+
 def parse_aplay_devices(output: str) -> list[dict[str, str]]:
     devices: list[dict[str, str]] = [
         {"id": "", "label": "default (software/mixed)", "mode": "alias"},
@@ -46,8 +101,12 @@ def parse_aplay_devices(output: str) -> list[dict[str, str]]:
 
 
 def list_alsa_output_devices() -> list[dict[str, str]]:
+    default_entry = {"id": "", "label": "default (software/mixed)", "mode": "alias"}
+    devices: list[dict[str, str]] = [default_entry]
+    seen_ids = {""}
+
     try:
-        result = subprocess.run(
+        list_result = subprocess.run(
             ["aplay", "-l"],
             capture_output=True,
             check=False,
@@ -55,8 +114,36 @@ def list_alsa_output_devices() -> list[dict[str, str]]:
             timeout=2.0,
         )
     except (OSError, subprocess.TimeoutExpired):
-        return [{"id": "", "label": "default (software/mixed)", "mode": "alias"}]
-    return parse_aplay_devices(result.stdout)
+        list_result = None
+
+    if list_result is not None:
+        for device in parse_aplay_devices(list_result.stdout):
+            device_id = device.get("id", "")
+            if not device_id or device_id in seen_ids:
+                continue
+            devices.append(device)
+            seen_ids.add(device_id)
+
+    try:
+        pcm_result = subprocess.run(
+            ["aplay", "-L"],
+            capture_output=True,
+            check=False,
+            text=True,
+            timeout=2.0,
+        )
+    except (OSError, subprocess.TimeoutExpired):
+        pcm_result = None
+
+    if pcm_result is not None:
+        for device in parse_dmix_pcm_devices(pcm_result.stdout):
+            device_id = device.get("id", "")
+            if not device_id or device_id in seen_ids:
+                continue
+            devices.append(device)
+            seen_ids.add(device_id)
+
+    return devices
 
 
 _IGNORED_MIDI_CLIENTS = {"System", "Midi Through"}

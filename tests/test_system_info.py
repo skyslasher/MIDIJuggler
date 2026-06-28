@@ -3,10 +3,12 @@ from pathlib import Path
 import pytest
 
 from midijuggler.system_info import (
+    is_dmix_pcm_name,
     list_click_wavs,
     normalize_midi_port_id,
     parse_aconnect_ports,
     parse_aplay_devices,
+    parse_dmix_pcm_devices,
 )
 
 
@@ -30,6 +32,35 @@ def test_parse_aplay_devices_returns_stable_card_ids() -> None:
     assert devices[2]["id"] == "plughw:CARD=Device,DEV=0"
     assert devices[2]["resolved_device"] == "plughw:1,0"
     assert devices[2]["card_name"] == "Device"
+
+
+def test_is_dmix_pcm_name_detects_common_dmix_devices() -> None:
+    assert is_dmix_pcm_name("dmix")
+    assert is_dmix_pcm_name("dmix:CARD=Device,DEV=0")
+    assert is_dmix_pcm_name("master_clock_dmix")
+    assert not is_dmix_pcm_name("default")
+    assert not is_dmix_pcm_name("plughw:CARD=Device,DEV=0")
+
+
+def test_parse_dmix_pcm_devices_returns_software_dmix_pcms() -> None:
+    devices = parse_dmix_pcm_devices(
+        """default
+    Default Audio Device
+dmix:CARD=Device,DEV=0
+    Direct mix multichannel
+plughw:CARD=Device,DEV=0
+    Hardware device with all software conversions
+master_clock_dmix
+    MIDIJuggler click mix
+"""
+    )
+
+    assert [device["id"] for device in devices] == [
+        "dmix:CARD=Device,DEV=0",
+        "master_clock_dmix",
+    ]
+    assert devices[0]["mode"] == "alias"
+    assert devices[0]["label"] == "Direct mix multichannel (dmix:CARD=Device,DEV=0)"
 
 
 def test_parse_aconnect_ports_returns_all_client_addresses() -> None:
