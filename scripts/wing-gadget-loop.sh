@@ -1,11 +1,11 @@
 #!/bin/sh
 set -eu
 
-# Use wing_stereo3 for playback (same path as speaker-test). Do not use alsaloop
-# on dshare PCMs (double-open). Do not probe with --dump-hw-params on the gadget
-# or wing_stereo3; use a short arecord/aplay test instead.
+# Use wing_stereo3 for playback (same path as speaker-test). Do not use alsoloop
+# on dshare PCMs (double-open). Do not probe with --dump-hw-params.
 PLAYBACK="${WING_PLAYBACK:-wing_stereo3}"
-RATE="${GADGET_LOOP_RATE:-48000}"
+# Leave empty for the gadget native rate (matches: arecord -d 2 -f S16_LE /dev/null).
+RATE="${GADGET_LOOP_RATE:-}"
 WAIT_SECONDS="${GADGET_WAIT_SECONDS:-90}"
 PROBE_SECONDS="${GADGET_PROBE_SECONDS:-5}"
 
@@ -14,6 +14,11 @@ log() {
 }
 
 log "starting"
+
+capture_probe() {
+    device="$1"
+    timeout "$PROBE_SECONDS" arecord -D "$device" -d 2 -f S16_LE /dev/null 2>/dev/null
+}
 
 detect_capture() {
     if [ -n "${G_AUDIO_CAPTURE:-}" ]; then
@@ -25,7 +30,7 @@ detect_capture() {
             continue
         fi
         device="plughw:CARD=${card},DEV=0"
-        if timeout "$PROBE_SECONDS" arecord -D "$device" -d 1 -f S16_LE -r "$RATE" /dev/null 2>/dev/null; then
+        if capture_probe "$device"; then
             printf '%s\n' "$device"
             return
         fi
@@ -57,7 +62,7 @@ capture_listed() {
 }
 
 capture_ready() {
-    timeout "$PROBE_SECONDS" arecord -D "$CAPTURE" -d 1 -f S16_LE -r "$RATE" /dev/null 2>/dev/null
+    capture_probe "$CAPTURE"
 }
 
 playback_ready() {
@@ -66,8 +71,15 @@ playback_ready() {
 
 CAPTURE="$(detect_capture)"
 
+if [ -n "$RATE" ]; then
+    rate_msg="${RATE}Hz"
+else
+    rate_msg="native"
+fi
+
 log "capture device: $CAPTURE"
 log "playback PCM: $PLAYBACK"
+log "sample rate: $rate_msg"
 log "waiting for listed devices (timeout ${WAIT_SECONDS}s)..."
 
 elapsed=0
@@ -106,13 +118,17 @@ if ! playback_ready; then
 fi
 
 if ! capture_ready; then
-    log "capture opens but test record failed: $CAPTURE"
-    log "check USB gadget cable/host and try: arecord -D $CAPTURE -d 2 -f S16_LE /dev/null"
+    log "capture test record failed: $CAPTURE"
+    log "stop other users of the gadget (systemctl stop wing-gadget-loop) and try:"
+    log "  arecord -D $CAPTURE -d 2 -f S16_LE /dev/null"
+    if [ "${GADGET_LOOP_VERBOSE:-0}" = "1" ]; then
+        arecord -D "$CAPTURE" -d 2 -f S16_LE /dev/null >&2 || true
+    fi
     arecord -l >&2 || true
     exit 1
 fi
 
-log "starting arecord | aplay ($CAPTURE -> $PLAYBACK @ ${RATE}Hz)"
+log "starting arecord | aplay ($CAPTURE -> $PLAYBACK @ $rate_msg)"
 log "the USB host must send audio to the Pi gadget input"
 log "pipeline runs until stopped (Ctrl+C or systemctl stop)"
 
@@ -124,6 +140,12 @@ else
     APLAY_VERBOSE=
 fi
 
-# shellcheck disable=SC2086
-arecord $ARECORD_VERBOSE -D "$CAPTURE" -f S16_LE -c 2 -r "$RATE" -t 0 - | \
-    aplay $APLAY_VERBOSE -D "$PLAYBACK" -f S16_LE -c 2 -r "$RATE" -t 0 -
+if [ -n "$RATE" ]; then
+    # shellcheck disable=SC2086
+    arecord $ARECORD_VERBOSE -D "$CAPTURE" -f S16_LE -c 2 -r "$RATE" -t 0 - | \
+        aplay $APLAY_VERBOSE -D "$PLAYBACK" -f S16_LE -c 2 -r "$RATE" -t 0 -
+else
+    # shellcheck disable=SC2086
+    arecord $ARECORD_VERBOSE -D "$CAPTURE" -f S16_LE -c 2 -t 0 - | \
+        aplay $APLAY_VERBOSE -D "$PLAYBACK" -f S16_LE -c 2 -t 0 -
+fi

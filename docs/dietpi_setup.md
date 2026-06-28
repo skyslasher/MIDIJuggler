@@ -265,7 +265,7 @@ sudo systemctl edit wing-gadget-loop.service
 [Service]
 Environment=G_AUDIO_CAPTURE=plughw:CARD=UAC2Gadget,DEV=0
 Environment=WING_PLAYBACK=wing_stereo3
-Environment=GADGET_LOOP_RATE=48000
+# Leave GADGET_LOOP_RATE unset for the gadget native rate, or set e.g. 44100.
 ```
 
 After updating from git:
