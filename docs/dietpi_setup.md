@@ -240,10 +240,11 @@ The `wing-gadget-loop` service runs
 open the USB gadget capture device (often unavailable to the `midijuggler`
 user). Playback still goes through `wing_stereo3` and shares the Wing dshare
 pool (`ipc_perm 0666`). The script auto-detects the gadget capture card
-(`UAC2Gadget`, `UAC2_Gadget`, or `g_audio`), waits up to 90 seconds, then runs
-`arecord | aplay` to `wing_stereo3`. Do not use `alsaloop` on dshare PCMs: it
-opens playback twice and fails with `destination channel … already used`. Do not
-probe `wing_stereo3` with `aplay --dump-hw-params`; that can hang.
+(`UAC2Gadget`, `UAC2_Gadget`, or `g_audio`), waits until the cards appear in
+`arecord -l` / `aplay -L`, verifies capture with a one-second `arecord` test
+(not `--dump-hw-params`, which fails on the gadget), then runs `arecord | aplay`
+to `wing_stereo3`. The USB **host** must actively send audio to the Pi gadget
+input or the Wing receives silence.
 
 If the loop fails, check the log:
 
