@@ -161,11 +161,64 @@ extra and add the service user to the `input` group. Configuration is TOML-only
 for now — see [`hid_input.md`](hid_input.md).
 
 For MIDI master clock and click configuration, see
-[`master_clock.md`](master_clock.md). Use `aplay -l` on the Pi to find the ALSA
-device name for `master_clock.click_audio_device`, for example `plughw:1,0`.
+[`master_clock.md`](master_clock.md).
+
 If `sudo -u midijuggler aplay /etc/midijuggler/click1.wav` reports
 `audio open error: Permission denied`, verify that `midijuggler` is in the
 `audio` group and restart the service.
+
+## Behringer Wing USB routing (dmix)
+
+When a Behringer Wing is connected over USB, route three stereo outputs to Wing
+USB inputs 1–6 so multiple processes (including MIDIJuggler) can play at the
+same time without exclusive hardware access.
+
+The repo ships ALSA PCMs in
+[`configs/alsa/50-wing-usb-routing.conf`](../configs/alsa/50-wing-usb-routing.conf).
+Deploy them system-wide — **not** into `/etc/midijuggler/asoundrc`, because
+MIDIJuggler overwrites that file when the master-clock audio device changes.
+
+```bash
+sudo cp /opt/midijuggler/app/configs/alsa/50-wing-usb-routing.conf /etc/alsa/conf.d/
+sudo cp /opt/midijuggler/app/systemd/wing-gadget-loop.service /etc/systemd/system/
+sudo systemctl daemon-reload
+sudo systemctl enable --now wing-gadget-loop.service
+```
+
+Verify card names first (`aplay -l` should show `CARD=WING`; `arecord -l` should
+show `CARD=g_audio` for the USB gadget). Edit the conf or service file if your
+system uses different names.
+
+After deployment:
+
+```bash
+aplay -L | grep wing_stereo
+speaker-test -D wing_stereo1 -c 2 -r 48000   # terminal 1
+speaker-test -D wing_stereo2 -c 2 -r 48000   # terminal 2 — parallel
+```
+
+| PCM | Wing USB | Typical use |
+|-----|----------|-------------|
+| `wing_stereo1` | 1–2 | MIDIJuggler master-clock clicks |
+| `wing_stereo2` | 3–4 | other applications |
+| `wing_stereo3` | 5–6 | g_audio loop + other apps (dmix mixes) |
+
+Only one dmix opens `hw:CARD=WING,DEV=0`. All clients — including MIDIJuggler —
+must use the software PCMs `wing_stereo1`, `wing_stereo2`, or `wing_stereo3`.
+Do **not** set `click_audio_device` to `plughw:CARD=WING,DEV=0`; that would
+create a second dmix on the same hardware and fail or block other clients.
+
+```toml
+[master_clock]
+click_audio_device = "wing_stereo1"
+```
+
+Enter the PCM name manually in the web UI if it is not listed in the dropdown
+(`aplay -L` shows the names after installing the conf.d file).
+
+The `wing-gadget-loop` service runs `alsaloop` from the g_audio USB gadget
+capture device to `wing_stereo3` (48 kHz). Pure ALSA config cannot do continuous
+loopback; the systemd unit is required for that path.
 
 ## RTP-MIDI and Avahi
 
