@@ -102,8 +102,6 @@ const learnInputMax = document.querySelector("#learn-input-max");
 const learnOutputMin = document.querySelector("#learn-output-min");
 const learnOutputMax = document.querySelector("#learn-output-max");
 const learnInvert = document.querySelector("#learn-invert");
-const learnOscAdapter = document.querySelector("#learn-osc-adapter");
-const learnOscParameter = document.querySelector("#learn-osc-parameter");
 const learnCreate = document.querySelector("#learn-create");
 const learnClear = document.querySelector("#learn-clear");
 const learnMessage = document.querySelector("#learn-message");
@@ -130,7 +128,6 @@ let learnSourceKey = "";
 let learnSourceDatapointId = "";
 let lastServerLearnSourceDatapoint = "";
 let selectedMonitorEventItem = null;
-let learnOscInstances = [];
 let learnRegistryDatapoints = [];
 let learnMonitorDatapoints = new Map();
 const LEARN_HIDDEN_MODULES = new Set(["mapping", "modifier_graph"]);
@@ -142,7 +139,6 @@ const LEARN_STREAM_POINT_SUFFIXES = new Set([
   "midi_continue",
   "midi_stop",
 ]);
-let cachedOscLibrary = null;
 let socket;
 let gpioConfig = null;
 let devicesConfig = null;
@@ -238,7 +234,6 @@ function renderStatus(status) {
   learnMode = Boolean(status.learn_mode);
   learnToggle.textContent = learnMode ? "Close connection" : "Create connection";
   learnToggle.classList.toggle("active-button", learnMode);
-  learnOscInstances = status.osc_instances || [];
   learnPhase = status.learn?.phase || "idle";
   learnSourceKey = status.learn?.source || "";
   learnSourceDatapointId = status.learn?.source_datapoint || "";
@@ -304,34 +299,6 @@ function renderLearnState(learn) {
 
   syncLearnRangeFieldsVisibility();
   syncLearnSourceFromServer(learn);
-
-  const previousAdapter = learnOscAdapter.value;
-  learnOscAdapter.replaceChildren();
-  const placeholder = document.createElement("option");
-  placeholder.value = "";
-  placeholder.textContent = learnOscInstances.length
-    ? "Select OSC adapter"
-    : "No enabled OSC adapters";
-  learnOscAdapter.appendChild(placeholder);
-
-  for (const instance of learnOscInstances) {
-    const option = document.createElement("option");
-    option.value = instance.uid || instance.name;
-    option.textContent = instance.osc_library
-      ? `${instance.name || instance.uid} (${instance.osc_library})`
-      : instance.name || instance.uid;
-    option.dataset.libraryId = instance.osc_library || "";
-    learnOscAdapter.appendChild(option);
-  }
-
-  if (previousAdapter) {
-    learnOscAdapter.value = previousAdapter;
-  }
-  if (learnOscAdapter.value) {
-    loadLearnOscParameters(learnOscAdapter.value);
-  } else {
-    learnOscParameter.replaceChildren();
-  }
   refreshMonitorEventLearnState();
 }
 
@@ -1964,46 +1931,6 @@ function isLearnSelectableMonitorEvent(event, pointId) {
   return true;
 }
 
-async function loadLearnOscParameters(adapterName) {
-  const selected = learnOscAdapter.selectedOptions[0];
-  const libraryId = selected?.dataset.libraryId || "";
-  learnOscParameter.replaceChildren();
-  if (!libraryId) {
-    const option = document.createElement("option");
-    option.value = "";
-    option.textContent = "Selected adapter has no OSC library";
-    learnOscParameter.appendChild(option);
-    return;
-  }
-
-  const response = await fetch(`/api/osc-libraries/${encodeURIComponent(libraryId)}`);
-  if (!response.ok) {
-    learnMessage.textContent = `error: could not load OSC library ${libraryId}`;
-    return;
-  }
-
-  const library = await response.json();
-  cachedOscLibrary = library;
-  const placeholder = document.createElement("option");
-  placeholder.value = "";
-  placeholder.textContent = "Select OSC parameter";
-  learnOscParameter.appendChild(placeholder);
-
-  for (const parameter of library.parameters || []) {
-    if (parameter.direction !== "target") {
-      continue;
-    }
-    const option = document.createElement("option");
-    option.value = parameter.id;
-    const point = parameter.address?.startsWith("/")
-      ? `${adapterName}.${parameter.address}`
-      : `${adapterName}.${parameter.id}`;
-    option.dataset.datapointId = point;
-    option.textContent = `${parameter.label} (${parameter.address})`;
-    learnOscParameter.appendChild(option);
-  }
-}
-
 function selectLearnSourceDatapoint(pointId) {
   if (!pointId) {
     return;
@@ -2034,14 +1961,12 @@ function selectLearnSourceDatapoint(pointId) {
 function completeLearnMapping() {
   const sourceDatapoint = learnSourceDatapoint.value;
   const targetDatapoint = learnTargetDatapoint.value;
-  const targetAdapter = learnOscAdapter.value;
-  const parameterId = learnOscParameter.value;
   if (!sourceDatapoint) {
     learnMessage.textContent = "error: select a source data point";
     return;
   }
-  if (!targetDatapoint && (!targetAdapter || !parameterId)) {
-    learnMessage.textContent = "error: select a target data point or OSC parameter";
+  if (!targetDatapoint) {
+    learnMessage.textContent = "error: select a target data point";
     return;
   }
 
@@ -2058,10 +1983,6 @@ function completeLearnMapping() {
     invert: learnInvert.checked,
     factor: Number(learnFactor?.value ?? 1),
   };
-  if (!targetDatapoint && targetAdapter && parameterId) {
-    payload.target_adapter = targetAdapter;
-    payload.parameter_id = parameterId;
-  }
   learnMessage.textContent = "creating connection...";
 
   if (socket && socket.readyState === WebSocket.OPEN) {
@@ -7112,25 +7033,6 @@ learnTargetDatapoint.addEventListener("change", () => {
 });
 
 learnModifier.addEventListener("change", syncLearnRangeFieldsVisibility);
-
-learnOscAdapter.addEventListener("change", () => {
-  learnMessage.textContent = "";
-  if (learnOscAdapter.value) {
-    loadLearnOscParameters(learnOscAdapter.value);
-  }
-});
-
-learnOscParameter.addEventListener("change", () => {
-  const selected = learnOscParameter.selectedOptions[0];
-  const pointId = selected?.dataset.datapointId || "";
-  if (!pointId || !isLearnSelectableMonitorPointId(pointId)) {
-    return;
-  }
-  const instance = pointId.split(".")[0];
-  learnTargetInstance.value = instance;
-  fillLearnPointSelect(learnTargetDatapoint, instance, "output", pointId);
-  applyLearnDatapointRanges(learnTargetDatapoint.selectedOptions[0], "output");
-});
 
 learnCreate.addEventListener("click", completeLearnMapping);
 learnClear.addEventListener("click", clearLearnSource);

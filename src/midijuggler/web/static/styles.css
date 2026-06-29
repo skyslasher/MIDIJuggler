@@ -615,17 +615,6 @@ legend {
   grid-template-columns: repeat(auto-fit, minmax(8rem, 1fr));
 }
 
-.learn-osc-quick-pick {
-  border: 1px solid #31405e;
-  border-radius: 10px;
-  padding: 0.65rem 0.75rem;
-}
-
-.learn-osc-quick-pick summary {
-  cursor: pointer;
-  font-weight: 600;
-}
-
 .mapping-item {
   list-style: none;
   padding: 0;
