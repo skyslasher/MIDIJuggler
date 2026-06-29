@@ -9,6 +9,7 @@ import logging
 import mimetypes
 import time
 import tomllib
+from dataclasses import replace
 from importlib import resources
 from pathlib import Path
 from typing import Any
@@ -45,6 +46,7 @@ from midijuggler.config import (
     save_gpio_adapter_options,
     supplement_devices,
     normalize_device_libraries,
+    update_suppressed_inferred_device_adapters,
     save_connections,
     save_master_clock_config,
     save_runtime_config,
@@ -313,7 +315,11 @@ class WebInterface:
             self.config,
             "devices",
             normalize_device_libraries(
-                supplement_devices(dict(self.config.devices), self.config.adapters),
+                supplement_devices(
+                    dict(self.config.devices),
+                    self.config.adapters,
+                    suppressed_adapters=self.config.runtime.suppressed_inferred_device_adapters,
+                ),
                 self.config.adapters,
             ),
         )
@@ -365,6 +371,17 @@ class WebInterface:
             bound_adapters[device.adapter] = device.uid
 
         previous_device_uids = set(self.config.devices.keys())
+        previous_devices = dict(self.config.devices)
+        runtime = replace(
+            self.config.runtime,
+            suppressed_inferred_device_adapters=update_suppressed_inferred_device_adapters(
+                previous_devices,
+                devices,
+                self.config.adapters,
+                self.config.runtime.suppressed_inferred_device_adapters,
+            ),
+        )
+        object.__setattr__(self.config, "runtime", runtime)
         object.__setattr__(self.config, "devices", devices)
         self.device_registry.reload_from_config(self.config)
 
@@ -373,6 +390,7 @@ class WebInterface:
         if self.config_path is not None:
             try:
                 save_devices(self.config_path, devices)
+                save_runtime_config(self.config_path, runtime)
                 persisted = True
             except OSError as exc:
                 persist_error = str(exc)
@@ -2387,7 +2405,11 @@ class WebInterface:
             self.config,
             "devices",
             normalize_device_libraries(
-                supplement_devices(dict(self.config.devices), self.config.adapters),
+                supplement_devices(
+                    dict(self.config.devices),
+                    self.config.adapters,
+                    suppressed_adapters=self.config.runtime.suppressed_inferred_device_adapters,
+                ),
                 self.config.adapters,
             ),
         )
@@ -3101,7 +3123,11 @@ class WebInterface:
             self.config,
             "devices",
             normalize_device_libraries(
-                supplement_devices(dict(self.config.devices), self.config.adapters),
+                supplement_devices(
+                    dict(self.config.devices),
+                    self.config.adapters,
+                    suppressed_adapters=self.config.runtime.suppressed_inferred_device_adapters,
+                ),
                 self.config.adapters,
             ),
         )

@@ -22,6 +22,7 @@ from midijuggler.osc.desk_protocol import desk_mode_for_library
 class RuntimeConfig:
     datapoint_routing: bool = True
     feedback_suppress_ms: int = 500
+    suppressed_inferred_device_adapters: tuple[str, ...] = ()
 
 
 @dataclass(frozen=True)
@@ -735,14 +736,18 @@ def parse_config(raw: dict[str, Any], *, strict: bool = True) -> AppConfig:
     )
 
     adapters = _parse_adapters(raw.get("adapters", {}))
+    runtime = _parse_runtime(raw.get("runtime", {}))
     devices = _parse_devices(raw.get("devices", []), adapters, issues)
     devices = normalize_device_adapter_refs(devices, adapters)
-    devices = supplement_devices(devices, adapters)
+    devices = supplement_devices(
+        devices,
+        adapters,
+        suppressed_adapters=runtime.suppressed_inferred_device_adapters,
+    )
     devices = normalize_device_libraries(devices, adapters)
     master_clock = _parse_master_clock(raw.get("master_clock", {}))
     connections = _parse_connections(raw.get("connections", []), issues)
     connections = normalize_connections(connections, devices)
-    runtime = _parse_runtime(raw.get("runtime", {}))
     devices, connections = _finalize_devices_and_connections(
         devices,
         adapters,
@@ -997,19 +1002,41 @@ def adapter_device_options(
 def supplement_devices(
     devices: dict[str, DeviceConfig],
     adapters: dict[str, AdapterConfig],
+    *,
+    suppressed_adapters: tuple[str, ...] | list[str] | set[str] = (),
 ) -> dict[str, DeviceConfig]:
     """Add inferred devices for configured adapters not yet bound to a device."""
 
+    blocked = set(suppressed_adapters)
     bound_adapters = {device.adapter for device in devices.values()}
     supplemented = dict(devices)
     for instance_name, adapter in adapters.items():
         if instance_name in bound_adapters:
+            continue
+        if instance_name in blocked:
             continue
         if not _adapter_qualifies_for_device_inference(instance_name, adapter):
             continue
         inferred = _infer_device_from_adapter(instance_name, adapter)
         supplemented[inferred.uid] = inferred
     return supplemented
+
+
+def update_suppressed_inferred_device_adapters(
+    previous_devices: dict[str, DeviceConfig],
+    devices: dict[str, DeviceConfig],
+    adapters: dict[str, AdapterConfig],
+    suppressed: tuple[str, ...] | list[str] | set[str] = (),
+) -> tuple[str, ...]:
+    """Remember adapters whose inferred device was explicitly removed."""
+
+    blocked = set(suppressed)
+    for uid, device in previous_devices.items():
+        if uid not in devices and device.adapter in adapters:
+            blocked.add(device.adapter)
+    for device in devices.values():
+        blocked.discard(device.adapter)
+    return tuple(sorted(blocked))
 
 
 def enrich_device_from_adapter(
@@ -1028,7 +1055,11 @@ def enrich_device_from_adapter(
     )
     name = device.name
     display_name = adapter.display_name(device.adapter)
-    if name == device.uid and display_name != device.uid:
+    if (
+        name == device.uid
+        and device.uid == device.adapter
+        and display_name != device.uid
+    ):
         name = display_name
     if (
         library == device.library
@@ -1488,6 +1519,11 @@ def _format_runtime_section(runtime: RuntimeConfig) -> str:
         f"datapoint_routing = {_toml_bool(runtime.datapoint_routing)}",
         f"feedback_suppress_ms = {runtime.feedback_suppress_ms}",
     ]
+    if runtime.suppressed_inferred_device_adapters:
+        lines.append(
+            "suppressed_inferred_device_adapters = "
+            f"{_format_toml_value(list(runtime.suppressed_inferred_device_adapters))}"
+        )
     return "\n".join(lines) + "\n\n"
 
 
@@ -1496,9 +1532,24 @@ def _parse_runtime(raw: Any) -> RuntimeConfig:
         raw = {}
     if not isinstance(raw, dict):
         raise ValueError("runtime must be a table")
+    suppressed_raw = raw.get("suppressed_inferred_device_adapters", [])
+    if suppressed_raw is None:
+        suppressed_raw = []
+    if not isinstance(suppressed_raw, list):
+        raise ValueError("runtime.suppressed_inferred_device_adapters must be a list")
+    suppressed = tuple(
+        sorted(
+            {
+                str(item).strip()
+                for item in suppressed_raw
+                if str(item).strip()
+            }
+        )
+    )
     return RuntimeConfig(
         datapoint_routing=bool(raw.get("datapoint_routing", True)),
         feedback_suppress_ms=parse_feedback_suppress_ms(raw.get("feedback_suppress_ms", 500)),
+        suppressed_inferred_device_adapters=suppressed,
     )
 
 

@@ -374,3 +374,47 @@ enabled = true
     assert stored[0]["source"] == "gpio.pin17"
     assert stored[0]["target"] == "x32_foh.ch_1"
     assert stored[0]["enabled"] is True
+
+
+def test_set_devices_config_keeps_deleted_inferred_device_suppressed(tmp_path) -> None:
+    config_path = tmp_path / "config.toml"
+    config_path.write_text(
+        """
+[adapters.stage_midi]
+type = "midi"
+enabled = true
+name = "Stage MIDI"
+midi_library = "behringer_xtouch_mini"
+input_port = "Stage In"
+output_port = "Stage Out"
+
+[[devices]]
+uid = "stage_midi"
+adapter = "stage_midi"
+library = "behringer_xtouch_mini"
+library_kind = "midi"
+""".strip()
+        + "\n",
+        encoding="utf-8",
+    )
+
+    async def scenario() -> tuple[dict, dict, str]:
+        interface = _interface(config_path)
+        app = interface.create_app()
+        async with TestClient(TestServer(app)) as client:
+            delete_response = await client.post("/api/devices", json={"devices": []})
+            assert delete_response.status == 200
+            delete_payload = await delete_response.json()
+
+            reload_response = await client.get("/api/devices")
+            assert reload_response.status == 200
+            reload_payload = await reload_response.json()
+
+            reloaded = load_config(config_path)
+            return delete_payload, reload_payload, reloaded.runtime.suppressed_inferred_device_adapters
+
+    delete_payload, reload_payload, suppressed = asyncio.run(scenario())
+    assert delete_payload["devices"] == []
+    assert reload_payload["devices"] == []
+    assert suppressed == ("stage_midi",)
+    assert "suppressed_inferred_device_adapters" in config_path.read_text(encoding="utf-8")

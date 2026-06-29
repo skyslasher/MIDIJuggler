@@ -256,6 +256,75 @@ def test_enrich_device_from_adapter_syncs_legacy_auto_name() -> None:
     assert enriched.name == "X-Touch Mini"
 
 
+def test_supplement_devices_respects_suppressed_adapters() -> None:
+    from midijuggler.config import AdapterConfig, supplement_devices
+
+    adapters = {
+        "device_f7a5b4b0": AdapterConfig(
+            enabled=True,
+            options={"midi_library": "behringer_xtouch_mini"},
+            kind="midi",
+            name="X-Touch Mini",
+        )
+    }
+    devices = supplement_devices(
+        {},
+        adapters,
+        suppressed_adapters=("device_f7a5b4b0",),
+    )
+    assert devices == {}
+
+
+def test_update_suppressed_inferred_device_adapters_tracks_deletions() -> None:
+    from midijuggler.config import (
+        AdapterConfig,
+        update_suppressed_inferred_device_adapters,
+    )
+
+    adapters = {
+        "device_f7a5b4b0": AdapterConfig(enabled=True, kind="midi"),
+    }
+    previous = {
+        "device_f7a5b4b0": DeviceConfig(
+            uid="device_f7a5b4b0",
+            name="X-Touch Mini",
+            adapter="device_f7a5b4b0",
+            library_kind="midi",
+        )
+    }
+
+    suppressed = update_suppressed_inferred_device_adapters(previous, {}, adapters, ())
+    assert suppressed == ("device_f7a5b4b0",)
+
+    restored = update_suppressed_inferred_device_adapters(
+        {},
+        previous,
+        adapters,
+        suppressed,
+    )
+    assert restored == ()
+
+
+def test_parse_config_respects_suppressed_inferred_devices() -> None:
+    config = parse_config(
+        {
+            "runtime": {
+                "suppressed_inferred_device_adapters": ["xtouch_mini"],
+            },
+            "adapters": {
+                "xtouch_mini": {
+                    "type": "midi",
+                    "enabled": True,
+                    "midi_library": "behringer_xtouch_mini",
+                },
+            },
+            "devices": [],
+        }
+    )
+
+    assert "xtouch_mini" not in config.devices
+
+
 def test_save_devices_round_trip(tmp_path) -> None:
     path = tmp_path / "config.toml"
     path.write_text(
