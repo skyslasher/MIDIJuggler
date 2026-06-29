@@ -346,6 +346,10 @@
         <article>
           <h2>GPIO Inputs</h2>
           <form id="gpio-form">
+            <label class="stacked-field">
+              Instance name
+              <input id="gpio-name" type="text" autocomplete="off" spellcheck="false" />
+            </label>
             <div id="gpio-pins" class="gpio-pins"></div>
             <label class="inline-field">
               <input id="gpio-active-low" type="checkbox" />
@@ -366,6 +370,10 @@
         <article>
           <h2>MIDI Master Clock</h2>
           <form id="master-clock-form">
+            <label class="stacked-field">
+              Instance name
+              <input id="master-name" type="text" autocomplete="off" spellcheck="false" />
+            </label>
             <label class="inline-field">
               <input id="master-enabled" type="checkbox" />
               Enabled
@@ -415,6 +423,10 @@
                   <option value="1">1.0</option>
                 </select>
               </label>
+              <label>
+                Beat flash ms
+                <input id="master-beat-flash-ms" type="number" min="1" max="5000" step="1" />
+              </label>
             </div>
             <fieldset>
               <legend>MIDI clock outputs</legend>
@@ -424,7 +436,8 @@
               Route BPM and transport via Connections to
               <code>clock.*</code> data points (for example
               <code>clock.bpm_set</code>, <code>clock.start</code>,
-              <code>clock.stop</code>).
+              <code>clock.stop</code>). Use <code>clock.beat</code> for a short
+              beat flash; duration is capped to 90% of the selected click interval.
             </p>
             <label class="inline-field">
               <input id="master-click-enabled" type="checkbox" />

@@ -12,7 +12,11 @@ LOGGER = logging.getLogger(__name__)
 
 from midijuggler.datapoint.disconnected import is_reserved_connection_module
 from midijuggler.datapoint.types import ConnectionSpec, ModifierKind, SCALE_CURVES
-from midijuggler.device.identity import device_display_name, resolve_adapter_uid
+from midijuggler.device.identity import (
+    device_display_name,
+    resolve_adapter_uid,
+    validate_device_name,
+)
 from midijuggler.device.types import CustomPointSpec, DeviceConfig
 from midijuggler.modules.modifier.feedback_suppress import parse_feedback_suppress_ms
 from midijuggler.osc.desk_protocol import desk_mode_for_library
@@ -67,6 +71,8 @@ class MasterClockConfig:
     tap_tempo_min_taps: int = 4
     bpm_step: float = 0.5
     bpm_quantize: float = 0.5
+    name: str = "Master clock"
+    beat_flash_ms: float = 120.0
 
 
 @dataclass(frozen=True)
@@ -221,12 +227,17 @@ def _remove_adapter_configs(path: str | Path, instance_names: list[str]) -> None
     temp_path.replace(config_path)
 
 
-def save_gpio_adapter_options(path: str | Path, options: dict[str, Any]) -> None:
+def save_gpio_adapter_options(
+    path: str | Path,
+    options: dict[str, Any],
+    *,
+    name: str = "",
+) -> None:
     """Persist the editable GPIO adapter options in a TOML config file."""
 
     config_path = Path(path)
     text = config_path.read_text(encoding="utf-8")
-    section = _format_gpio_adapter_section(options)
+    section = _format_gpio_adapter_section(options, name=name)
     new_text = _replace_toml_section(text, "[adapters.gpio]", section)
 
     temp_path = config_path.with_suffix(config_path.suffix + ".tmp")
@@ -620,19 +631,22 @@ def _format_toml_value(value: Any) -> str:
     return _toml_string(str(value))
 
 
-def _format_gpio_adapter_section(options: dict[str, Any]) -> str:
+def _format_gpio_adapter_section(options: dict[str, Any], *, name: str = "") -> str:
     pins = [int(pin) for pin in options.get("pins", [])]
     active_low = bool(options.get("active_low", True))
     bounce_ms = int(float(options.get("bounce_ms", 25)))
     poll_interval_ms = int(float(options.get("poll_interval_ms", 5)))
-    return (
-        "[adapters.gpio]\n"
+    section = "[adapters.gpio]\n"
+    if name.strip():
+        section += f"name = {_toml_string(name.strip())}\n"
+    section += (
         "enabled = true\n"
         f"pins = [{', '.join(str(pin) for pin in pins)}]\n"
         f"active_low = {_toml_bool(active_low)}\n"
         f"bounce_ms = {bounce_ms}\n"
         f"poll_interval_ms = {poll_interval_ms}\n\n"
     )
+    return section
 
 
 def _format_master_clock_section(
@@ -671,7 +685,9 @@ def _format_master_clock_section(
         f"tap_tempo_min_taps = {config.tap_tempo_min_taps}\n"
         f"bpm_step = {config.bpm_step}\n"
         f"bpm_quantize = {config.bpm_quantize}\n"
-        f"click_audio_device = {_toml_string(config.click_audio_device)}\n\n"
+        f"click_audio_device = {_toml_string(config.click_audio_device)}\n"
+        f"name = {_toml_string(config.name)}\n"
+        f"beat_flash_ms = {config.beat_flash_ms}\n\n"
     )
     return section
 
@@ -806,6 +822,14 @@ def _parse_master_clock(raw: Any) -> MasterClockConfig:
         raw.get("bpm_quantize", 0.5),
         "master_clock.bpm_quantize",
     )
+    beat_flash_ms = _validate_beat_flash_ms(
+        raw.get("beat_flash_ms", 120.0),
+        "master_clock.beat_flash_ms",
+    )
+    display_name = validate_device_name(
+        str(raw.get("name", "Master clock")),
+        field_name="master_clock.name",
+    )
 
     return MasterClockConfig(
         enabled=bool(raw.get("enabled", False)),
@@ -836,7 +860,18 @@ def _parse_master_clock(raw: Any) -> MasterClockConfig:
         tap_tempo_min_taps=tap_tempo_min_taps,
         bpm_step=bpm_step,
         bpm_quantize=bpm_quantize,
+        name=display_name,
+        beat_flash_ms=beat_flash_ms,
     )
+
+
+def _validate_beat_flash_ms(value: Any, field_name: str) -> float:
+    flash_ms = _as_float(value, field_name)
+    if flash_ms <= 0:
+        raise ValueError(f"{field_name} must be positive")
+    if flash_ms > 5000.0:
+        raise ValueError(f"{field_name} must be <= 5000")
+    return flash_ms
 
 
 def _parse_adapters(raw: Any) -> dict[str, AdapterConfig]:

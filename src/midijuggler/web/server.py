@@ -41,6 +41,7 @@ from midijuggler.config import (
     _validate_tap_tempo_min_taps,
     _validate_bpm_step,
     _validate_bpm_quantize,
+    _validate_beat_flash_ms,
     parse_config,
     save_devices,
     save_gpio_adapter_options,
@@ -86,6 +87,7 @@ from midijuggler.learn import (
     upsert_connection,
 )
 from midijuggler.device.export import export_device, export_devices, import_device, import_devices
+from midijuggler.device.identity import validate_device_name
 from midijuggler.device.registry import DeviceRegistry
 from midijuggler.device.types import DeviceConfig
 from midijuggler.midi.target_encode import (
@@ -2133,8 +2135,10 @@ class WebInterface:
     def gpio_config_payload(self) -> dict[str, Any]:
         options = self._gpio_options()
         configured_pins = set(options["pins"])
+        gpio_adapter = self.config.adapters["gpio"]
         return {
-            "enabled": self.config.adapters["gpio"].enabled,
+            "enabled": gpio_adapter.enabled,
+            "name": gpio_adapter.display_name("gpio"),
             "runtime_active": self.gpio_adapter is not None and self.gpio_adapter.running,
             "active_low": options["active_low"],
             "bounce_ms": options["bounce_ms"],
@@ -2153,18 +2157,34 @@ class WebInterface:
         if not isinstance(payload, dict):
             raise ValueError("GPIO config payload must be an object")
         options = self._normalized_gpio_options(payload)
+        gpio_adapter = self.config.adapters["gpio"]
+        display_name = validate_device_name(
+            str(payload.get("name", gpio_adapter.display_name("gpio"))),
+            field_name="gpio.name",
+        )
         persisted = False
         persist_error = ""
 
         if self.gpio_adapter is not None:
             await self.gpio_adapter.configure_options(options)
         else:
-            self.config.adapters["gpio"].options.clear()
-            self.config.adapters["gpio"].options.update(options)
+            gpio_adapter.options.clear()
+            gpio_adapter.options.update(options)
+
+        self.config.adapters["gpio"] = AdapterConfig(
+            enabled=gpio_adapter.enabled,
+            options=options,
+            kind=gpio_adapter.kind or "gpio",
+            name=display_name,
+        )
 
         if self.config_path is not None:
             try:
-                save_gpio_adapter_options(self.config_path, options)
+                save_gpio_adapter_options(
+                    self.config_path,
+                    options,
+                    name=display_name,
+                )
                 persisted = True
             except OSError as exc:
                 persist_error = str(exc)
@@ -3397,6 +3417,8 @@ class WebInterface:
             ),
             "available_audio_devices": self._audio_devices(config.click_audio_device),
             "available_click_wavs": self._click_wavs(config.click_wav),
+            "name": config.name,
+            "beat_flash_ms": config.beat_flash_ms,
             "running": self.master_clock.running,
             "position_ticks": self.master_clock.position_ticks,
             "parameters": self.master_clock.parameters.as_controls(),
@@ -3877,6 +3899,14 @@ class WebInterface:
             payload.get("bpm_quantize", current.bpm_quantize),
             "bpm_quantize",
         )
+        beat_flash_ms = _validate_beat_flash_ms(
+            payload.get("beat_flash_ms", current.beat_flash_ms),
+            "beat_flash_ms",
+        )
+        display_name = validate_device_name(
+            str(payload.get("name", current.name)),
+            field_name="name",
+        )
 
         return MasterClockConfig(
             enabled=bool(payload.get("enabled", current.enabled)),
@@ -3904,6 +3934,8 @@ class WebInterface:
             tap_tempo_min_taps=tap_tempo_min_taps,
             bpm_step=bpm_step,
             bpm_quantize=bpm_quantize,
+            name=display_name,
+            beat_flash_ms=beat_flash_ms,
         )
 
     def _available_adapter_targets(

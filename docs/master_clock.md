@@ -65,8 +65,10 @@ target = "xtouch_mini.layer_a_top_button_8_led"
 modifier = "passthrough"
 ```
 
-`clock.beat` pulses to `1.0` on each beat and returns to `0.0` after about
-120 ms. The audio click can stay disabled; beat output follows the same timing
+`clock.beat` pulses to `1.0` on each beat and returns to `0.0` after the configured
+beat flash duration (`beat_flash_ms`, default 120 ms). The effective flash is
+capped to 90% of the selected click interval so the LED turns off before the
+next beat. The audio click can stay disabled; beat output follows the same timing
 as `ClickEvent`.
 
 ## Legacy remote control

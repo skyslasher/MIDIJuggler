@@ -311,8 +311,10 @@ def test_save_master_clock_config_replaces_master_clock_section(tmp_path: Path) 
     assert "click_command" not in saved_text
     saved_lines = saved_text.splitlines()
     click_device_index = saved_lines.index('click_audio_device = ""')
-    assert saved_lines[click_device_index + 1] == ""
-    assert saved_lines[click_device_index + 2].strip() == "[adapters.gpio]"
+    assert saved_lines[click_device_index + 1] == 'name = "Master clock"'
+    assert saved_lines[click_device_index + 2] == "beat_flash_ms = 120.0"
+    assert saved_lines[click_device_index + 3] == ""
+    assert saved_lines[click_device_index + 4].strip() == "[adapters.gpio]"
 
 
 def test_parse_config_rejects_mappings_section() -> None:

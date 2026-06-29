@@ -105,6 +105,71 @@ def test_apply_master_clock_config_persists_section(tmp_path: Path) -> None:
     assert saved.master_clock.click_command == "aplay"
 
 
+def test_master_clock_config_payload_includes_beat_flash_and_name() -> None:
+    config = parse_config(
+        {
+            "master_clock": {
+                "enabled": True,
+                "name": "Stage clock",
+                "beat_flash_ms": 80.0,
+            }
+        }
+    )
+    interface = WebInterface(
+        config,
+        EventBus(),
+        ClockBpmTracker(),
+        MasterClock(config.master_clock, EventBus()),
+    )
+
+    payload = interface.master_clock_config_payload()
+
+    assert payload["name"] == "Stage clock"
+    assert payload["beat_flash_ms"] == pytest.approx(80.0)
+
+
+def test_apply_master_clock_config_persists_name_and_beat_flash_ms(tmp_path: Path) -> None:
+    config_file = tmp_path / "config.toml"
+    config_file.write_text(
+        """
+        [master_clock]
+        enabled = false
+        bpm = 120.0
+        """,
+        encoding="utf-8",
+    )
+    config = load_config(config_file)
+    interface = WebInterface(
+        config,
+        EventBus(),
+        ClockBpmTracker(),
+        MasterClock(config.master_clock, EventBus()),
+        config_path=config_file,
+    )
+
+    asyncio.run(
+        interface.apply_master_clock_config(
+            {
+                "enabled": True,
+                "bpm": 120.0,
+                "bpm_min": 40.0,
+                "bpm_max": 240.0,
+                "output_targets": [],
+                "name": "FOH Clock",
+                "beat_flash_ms": 75,
+            }
+        )
+    )
+
+    saved = load_config(config_file)
+    saved_text = config_file.read_text(encoding="utf-8")
+
+    assert saved.master_clock.name == "FOH Clock"
+    assert saved.master_clock.beat_flash_ms == pytest.approx(75.0)
+    assert 'name = "FOH Clock"' in saved_text
+    assert "beat_flash_ms = 75" in saved_text
+
+
 def test_apply_master_clock_config_updates_alsa_dmix_config(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,

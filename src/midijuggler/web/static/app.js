@@ -13,6 +13,8 @@ const masterClickInterval = document.querySelector("#master-click-interval");
 const masterTapTempoMinTaps = document.querySelector("#master-tap-tempo-min-taps");
 const masterBpmStep = document.querySelector("#master-bpm-step");
 const masterBpmQuantize = document.querySelector("#master-bpm-quantize");
+const masterBeatFlashMs = document.querySelector("#master-beat-flash-ms");
+const masterName = document.querySelector("#master-name");
 const masterOutputTargets = document.querySelector("#master-output-targets");
 const masterClickEnabled = document.querySelector("#master-click-enabled");
 const masterClickWav = document.querySelector("#master-click-wav");
@@ -57,6 +59,7 @@ const DESK_OSC_LIBRARIES = {
 };
 
 const gpioForm = document.querySelector("#gpio-form");
+const gpioName = document.querySelector("#gpio-name");
 const gpioPins = document.querySelector("#gpio-pins");
 const gpioActiveLow = document.querySelector("#gpio-active-low");
 const gpioBounceMs = document.querySelector("#gpio-bounce-ms");
@@ -441,10 +444,10 @@ function learnInstanceLabel(module) {
     return deviceDisplayByUid[module];
   }
   if (module === "clock") {
-    return "Master clock";
+    return masterClockConfig?.name?.trim() || "Master clock";
   }
   if (module === "gpio") {
-    return "GPIO";
+    return gpioConfig?.name?.trim() || "GPIO";
   }
   const adapter = adapterLibraryConfig[module];
   if (!adapter) {
@@ -3734,6 +3737,9 @@ function loadDevicesConfig() {
 
 function renderGpioConfig(config) {
   gpioConfig = config;
+  if (gpioName) {
+    gpioName.value = config.name || "GPIO";
+  }
   gpioPins.replaceChildren();
   gpioActiveLow.checked = Boolean(config.active_low);
   gpioBounceMs.value = config.bounce_ms;
@@ -7192,6 +7198,9 @@ function collectMidiAdapterInstancesFrom(container) {
 
 function renderMasterClockConfig(config) {
   masterClockConfig = config;
+  if (masterName) {
+    masterName.value = config.name || "Master clock";
+  }
   masterEnabled.checked = Boolean(config.enabled);
   masterAutoStart.checked = Boolean(config.auto_start);
   masterSendTransport.checked = Boolean(config.send_transport);
@@ -7202,6 +7211,7 @@ function renderMasterClockConfig(config) {
   masterTapTempoMinTaps.value = config.tap_tempo_min_taps ?? 4;
   masterBpmStep.value = config.bpm_step ?? 0.5;
   masterBpmQuantize.value = String(config.bpm_quantize ?? 0.5);
+  masterBeatFlashMs.value = config.beat_flash_ms ?? 120;
   masterClickEnabled.checked = Boolean(config.click_enabled);
   replaceSelectOptions(
     masterClickWav,
@@ -7623,6 +7633,7 @@ gpioForm.addEventListener("submit", (event) => {
     method: "POST",
     headers: { "content-type": "application/json" },
     body: JSON.stringify({
+      name: gpioName?.value.trim() || "GPIO",
       pins: selectedGpioPins(),
       active_low: gpioActiveLow.checked,
       bounce_ms: Number(gpioBounceMs.value),
@@ -7658,6 +7669,7 @@ masterClockForm.addEventListener("submit", (event) => {
     method: "POST",
     headers: { "content-type": "application/json" },
     body: JSON.stringify({
+      name: masterName?.value.trim() || "Master clock",
       enabled: masterEnabled.checked,
       bpm: Number(masterBpm.value),
       bpm_min: Number(masterBpmMin.value),
@@ -7671,6 +7683,7 @@ masterClockForm.addEventListener("submit", (event) => {
       tap_tempo_min_taps: Number(masterTapTempoMinTaps.value),
       bpm_step: Number(masterBpmStep.value),
       bpm_quantize: Number(masterBpmQuantize.value),
+      beat_flash_ms: Number(masterBeatFlashMs.value),
       click_audio_device: masterClickDevice.value,
     }),
   })

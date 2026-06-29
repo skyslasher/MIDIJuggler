@@ -29,7 +29,13 @@ from midijuggler.modules.base import GeneratorModule
 
 CLOCK_MODULE = "clock"
 BPM_EPSILON = 1e-6
-BEAT_FLASH_DURATION_SECONDS = 0.12
+BEAT_FLASH_INTERVAL_RATIO = 0.9
+BEAT_INTERVAL_MS_KEYS = {
+    "eighth": "eighth_ms",
+    "quarter": "quarter_ms",
+    "half": "half_ms",
+    "whole": "whole_ms",
+}
 CLOCK_MIDI_OUTPUT_POINTS = {
     MIDI_TIMING_CLOCK: "midi_tick",
     MIDI_START: "midi_start",
@@ -332,15 +338,31 @@ class MasterClockGenerator(GeneratorModule):
 
     async def publish_beat(self) -> None:
         await self._cancel_beat_off()
-        await self.store.write(float_value(DataPointId(CLOCK_MODULE, "beat"), 1.0))
+        point = DataPointId(CLOCK_MODULE, "beat")
+        await self.store.write(float_value(point, 0.0))
+        await self.store.write(float_value(point, 1.0))
+        flash_seconds = self._effective_beat_flash_seconds()
         self._beat_off_task = asyncio.create_task(
-            self._clear_beat_flash(),
+            self._clear_beat_flash(flash_seconds),
             name="clock-beat-off",
         )
 
-    async def _clear_beat_flash(self) -> None:
+    def _beat_interval_ms(self) -> float:
+        key = BEAT_INTERVAL_MS_KEYS.get(
+            self.clock.click_interval,
+            "quarter_ms",
+        )
+        return self.clock.parameters.as_controls()[key]
+
+    def _effective_beat_flash_seconds(self) -> float:
+        configured_ms = self.clock.config.beat_flash_ms
+        interval_ms = self._beat_interval_ms()
+        effective_ms = min(configured_ms, interval_ms * BEAT_FLASH_INTERVAL_RATIO)
+        return max(effective_ms, 1.0) / 1000.0
+
+    async def _clear_beat_flash(self, duration_seconds: float) -> None:
         try:
-            await asyncio.sleep(BEAT_FLASH_DURATION_SECONDS)
+            await asyncio.sleep(duration_seconds)
             await self.store.write(float_value(DataPointId(CLOCK_MODULE, "beat"), 0.0))
         finally:
             self._beat_off_task = None

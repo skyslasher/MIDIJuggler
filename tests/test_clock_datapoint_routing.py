@@ -548,8 +548,6 @@ def test_tap_tempo_while_running_preserves_transport_position() -> None:
 
 
 def test_clock_beat_pulses_on_click_interval() -> None:
-    from midijuggler.modules.generator.master_clock import BEAT_FLASH_DURATION_SECONDS
-
     config = parse_config({"master_clock": {"enabled": True, "click_interval": "quarter"}})
     store = DataPointStore()
     master_clock = MasterClock(config.master_clock, EventBus())
@@ -567,12 +565,31 @@ def test_clock_beat_pulses_on_click_interval() -> None:
         await clock_gen.start()
         await master_clock.emit_tick()
         assert store.float_value("clock.beat") == 1.0
-        await asyncio.sleep(BEAT_FLASH_DURATION_SECONDS + 0.02)
+        await asyncio.sleep(clock_gen._effective_beat_flash_seconds() + 0.02)
         assert store.float_value("clock.beat") == 0.0
 
     asyncio.run(scenario())
 
-    assert received == [1.0, 0.0]
+    assert received == [0.0, 1.0, 0.0]
+
+
+def test_clock_beat_flash_caps_to_click_interval() -> None:
+    config = parse_config(
+        {
+            "master_clock": {
+                "enabled": True,
+                "bpm": 240.0,
+                "click_interval": "eighth",
+                "beat_flash_ms": 120.0,
+            }
+        }
+    )
+    store = DataPointStore()
+    master_clock = MasterClock(config.master_clock, EventBus())
+    clock_gen = MasterClockGenerator(master_clock, store)
+
+    # Eighth note at 240 BPM is 125 ms; flash is capped to 90% of that interval.
+    assert clock_gen._effective_beat_flash_seconds() == pytest.approx(0.1125, abs=0.001)
 
 
 def test_clock_beat_publishes_without_audio_click() -> None:
@@ -600,8 +617,6 @@ def test_clock_beat_publishes_without_audio_click() -> None:
 
 
 def test_clock_beat_routes_to_led_via_passthrough() -> None:
-    from midijuggler.modules.generator.master_clock import BEAT_FLASH_DURATION_SECONDS
-
     store = DataPointStore()
     master_clock = MasterClock(parse_config({}).master_clock, EventBus())
     clock_gen = MasterClockGenerator(master_clock, store)
@@ -637,8 +652,8 @@ def test_clock_beat_routes_to_led_via_passthrough() -> None:
         await clock_gen.start()
         await graph.start()
         await master_clock.emit_tick()
-        await asyncio.sleep(BEAT_FLASH_DURATION_SECONDS + 0.02)
+        await asyncio.sleep(clock_gen._effective_beat_flash_seconds() + 0.02)
 
     asyncio.run(scenario())
 
-    assert received == [1.0, 0.0]
+    assert received == [0.0, 1.0, 0.0]
