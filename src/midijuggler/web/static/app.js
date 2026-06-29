@@ -1615,6 +1615,20 @@ function collectExpandedConnectionIds() {
   return expanded;
 }
 
+function collectExpandedDeviceUids() {
+  const expanded = new Set();
+  for (const card of deviceInstances.querySelectorAll(".device-card")) {
+    const details = card.querySelector(":scope > details.adapter-instance-accordion");
+    if (details?.open) {
+      const uid = card.dataset.deviceUid || card.dataset.deviceId || "";
+      if (uid) {
+        expanded.add(uid);
+      }
+    }
+  }
+  return expanded;
+}
+
 function renderMappingsList(connections) {
   const expandedConnectionIds = collectExpandedConnectionIds();
   updateConnectionsTableHeader(connections);
@@ -2172,7 +2186,7 @@ async function refreshDeviceConfigCache({ rerenderCards = false } = {}) {
   devicesConfig = config;
   deviceAdapterOptions = config.adapter_options || [];
   refreshDeviceDisplayNames(config.devices || []);
-  if (rerenderCards || !configurationView.hidden) {
+  if (rerenderCards) {
     renderDevicesConfig(config);
   } else {
     mergeDeviceAdapterOptionsIntoCards(deviceAdapterOptions);
@@ -3424,6 +3438,8 @@ function saveDeviceCard(card) {
 
 function createDeviceCard(device = {}, options = {}) {
   const isNew = Boolean(options.isNew);
+  const expandedDeviceUids = options.expandedDeviceUids || new Set();
+  const deviceUid = device.uid || device.id || "";
   const card = document.createElement("section");
   card.className = "midi-adapter-card device-card";
   card.dataset.deviceUid = device.uid || device.id || "";
@@ -3437,7 +3453,7 @@ function createDeviceCard(device = {}, options = {}) {
     deviceInstanceSummaryLabel(device, isNew),
   );
   const { body, title, details } = accordion;
-  if (isNew) {
+  if (isNew || expandedDeviceUids.has(deviceUid)) {
     details.open = true;
   }
 
@@ -3626,6 +3642,7 @@ function renderDevicesConfig(config) {
   devicesConfig = config;
   deviceAdapterOptions = config.adapter_options || [];
   const devices = config.devices || [];
+  const expandedDeviceUids = collectExpandedDeviceUids();
   refreshDeviceDisplayNames(devices);
   deviceInstances.replaceChildren();
   if (!devices.length) {
@@ -3636,7 +3653,9 @@ function renderDevicesConfig(config) {
     return;
   }
   for (const device of devices) {
-    deviceInstances.appendChild(createDeviceCard(device));
+    deviceInstances.appendChild(
+      createDeviceCard(device, { expandedDeviceUids }),
+    );
   }
 }
 
@@ -3668,6 +3687,7 @@ function addMissingDevicesFromAdapters() {
   const existingAdapters = new Set(
     collectDevicesFromCards().map((device) => device.adapter).filter(Boolean),
   );
+  const expandedDeviceUids = collectExpandedDeviceUids();
   let added = 0;
   for (const adapter of deviceAdapterOptions) {
     if (existingAdapters.has(adapter.uid || adapter.name)) {
@@ -3685,7 +3705,7 @@ function addMissingDevicesFromAdapters() {
           library: adapter.library,
           library_kind: adapter.library_kind,
         },
-        { isNew: true },
+        { isNew: true, expandedDeviceUids },
       ),
     );
     existingAdapters.add(adapter.uid || adapter.name);
