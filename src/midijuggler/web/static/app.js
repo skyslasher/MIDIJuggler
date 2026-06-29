@@ -779,6 +779,10 @@ function isDisconnectedEndpoint(endpoint) {
   return endpoint === DISCONNECTED_ENDPOINT;
 }
 
+function isDisconnectedConnection(connection) {
+  return isDisconnectedEndpoint(connection.source) || isDisconnectedEndpoint(connection.target);
+}
+
 function connectionEndpointModule(endpoint) {
   if (!endpoint || typeof endpoint !== "string") {
     return "";
@@ -1441,7 +1445,9 @@ function createConnectionListItem(connection) {
 
   const card = document.createElement("section");
   card.className = "midi-adapter-card connection-card";
-  if (connection.enabled === false) {
+  if (isDisconnectedConnection(connection)) {
+    card.classList.add("connection-card-disconnected");
+  } else if (connection.enabled === false) {
     card.classList.add("connection-card-disabled");
   }
   card.dataset.connectionId = connection.id;
@@ -1501,6 +1507,10 @@ function createConnectionListItem(connection) {
     const reverseButton = document.createElement("button");
     reverseButton.type = "button";
     reverseButton.textContent = "Reverse connection";
+    reverseButton.disabled = isDisconnectedConnection(connection);
+    reverseButton.title = reverseButton.disabled
+      ? "Reconnect source and target before creating a feedback connection"
+      : "";
     reverseButton.addEventListener("click", () => createReverseMapping(connection.id));
 
     const deleteButton = document.createElement("button");
@@ -1709,6 +1719,14 @@ async function saveRoutingSettings() {
 }
 
 async function createReverseMapping(connectionId) {
+  const connection = storedConnections.find((entry) => entry.id === connectionId);
+  if (connection && isDisconnectedConnection(connection)) {
+    if (learnMessage) {
+      learnMessage.textContent =
+        "error: reconnect source and target before creating a feedback connection";
+    }
+    return;
+  }
   if (learnMessage) {
     learnMessage.textContent = "creating feedback connection...";
   }

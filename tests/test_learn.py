@@ -184,6 +184,35 @@ def test_upsert_connection_replaces_same_source() -> None:
     assert updated[0].id == "new"
 
 
+def test_upsert_connection_preserves_other_disconnected_sources() -> None:
+    from midijuggler.datapoint.disconnected import disconnected_endpoint
+
+    placeholder = disconnected_endpoint()
+    first = ConnectionSpec(
+        id="first",
+        source=placeholder,
+        target=placeholder,
+        enabled=False,
+    )
+    second = ConnectionSpec(
+        id="second",
+        source=placeholder,
+        target=placeholder,
+        enabled=False,
+    )
+    feedback = ConnectionSpec(
+        id="first-feedback",
+        source=placeholder,
+        target=placeholder,
+        enabled=False,
+    )
+
+    updated = upsert_connection([first, second], feedback)
+
+    assert len(updated) == 3
+    assert {connection.id for connection in updated} == {"first", "second", "first-feedback"}
+
+
 def test_select_source_datapoint_sets_waiting_target() -> None:
     controller = LearnController()
     controller.set_enabled(True)

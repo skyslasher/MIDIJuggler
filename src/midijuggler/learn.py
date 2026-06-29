@@ -8,6 +8,7 @@ from typing import Any
 
 from midijuggler.config import AdapterConfig, AppConfig
 from midijuggler.datapoint.bridge import adapter_control_to_datapoint, legacy_target_to_datapoint
+from midijuggler.datapoint.disconnected import is_disconnected_endpoint
 from midijuggler.datapoint.types import ConnectionSpec, DataPointId, ModifierKind
 from midijuggler.datapoint.store import DataPointStore
 from midijuggler.device.registry import DeviceRegistry
@@ -445,9 +446,9 @@ def upsert_connection(
 ) -> list[ConnectionSpec]:
     """Replace an existing connection with the same source or id, otherwise append."""
 
-    updated = [
-        existing for existing in connections if existing.source != connection.source
-    ]
+    updated = list(connections)
+    if not is_disconnected_endpoint(connection.source):
+        updated = [existing for existing in updated if existing.source != connection.source]
     updated = [existing for existing in updated if existing.id != connection.id]
     updated.append(connection)
     return updated

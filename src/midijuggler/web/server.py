@@ -487,6 +487,14 @@ class WebInterface:
         if original is None:
             return web.Response(text=f"unknown connection id: {connection_id!r}", status=404)
 
+        from midijuggler.datapoint.disconnected import is_disconnected_endpoint
+
+        if is_disconnected_endpoint(original.source) or is_disconnected_endpoint(original.target):
+            return web.Response(
+                text="cannot reverse a connection with a disconnected endpoint",
+                status=400,
+            )
+
         feedback = reverse_connection(original, self.datapoint_store)
         updated_connections = upsert_connection(stored, feedback)
         self._apply_stored_connections(updated_connections)

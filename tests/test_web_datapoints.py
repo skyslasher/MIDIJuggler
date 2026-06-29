@@ -423,3 +423,40 @@ invert = false
 
     reloaded = load_config(config_path)
     assert len(reloaded.connections) == 2
+
+
+def test_reverse_connection_api_rejects_disconnected_endpoints(tmp_path) -> None:
+    from midijuggler.datapoint.disconnected import disconnected_endpoint
+
+    config_path = tmp_path / "config.toml"
+    placeholder = disconnected_endpoint()
+    config_path.write_text(
+        f"""
+[[connections]]
+id = "orphaned"
+source = "{placeholder}"
+target = "{placeholder}"
+enabled = false
+""".strip()
+        + "\n",
+        encoding="utf-8",
+    )
+    config = load_config(config_path)
+    interface = WebInterface(
+        config,
+        EventBus(),
+        ClockBpmTracker(),
+        MasterClock(config.master_clock, EventBus()),
+        config_path=config_path,
+    )
+
+    async def scenario() -> int:
+        app = interface.create_app()
+        async with TestClient(TestServer(app)) as client:
+            response = await client.post(
+                "/api/connections/reverse",
+                json={"id": "orphaned"},
+            )
+            return response.status
+
+    assert asyncio.run(scenario()) == 400

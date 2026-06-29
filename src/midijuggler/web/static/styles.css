@@ -702,8 +702,18 @@ legend {
   overflow-anchor: none;
 }
 
-.connection-card-disabled {
+.connection-card-disabled .connection-route-summary,
+.connection-card-disabled .mapping-meta {
   opacity: 0.55;
+}
+
+.connection-card-disconnected .connection-route-summary,
+.connection-card-disconnected .mapping-meta {
+  opacity: 0.75;
+}
+
+.connection-card-disconnected .connection-route-cell {
+  color: #f0a8a8;
 }
 
 .connection-card .connection-enabled-toggle {
