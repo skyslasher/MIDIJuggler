@@ -82,6 +82,12 @@ const learnPanel = document.querySelector("#learn-panel");
 const learnStatus = document.querySelector("#learn-status");
 const configIssuesBanner = document.querySelector("#config-issues-banner");
 const configIssuesList = document.querySelector("#config-issues-list");
+const connectionImpactDialog = document.querySelector("#connection-impact-dialog");
+const connectionImpactSummary = document.querySelector("#connection-impact-summary");
+const connectionImpactList = document.querySelector("#connection-impact-list");
+const connectionImpactRemapRow = document.querySelector("#connection-impact-remap-row");
+const connectionImpactRemapSelect = document.querySelector("#connection-impact-remap-select");
+const connectionImpactRemapButton = document.querySelector("#connection-impact-remap");
 const learnFields = document.querySelector("#learn-fields");
 const learnSourceInstance = document.querySelector("#learn-source-instance");
 const learnSourceDatapoint = document.querySelector("#learn-source-datapoint");
@@ -154,6 +160,10 @@ let adapterLibraryConfig = {};
 let storedConnections = [];
 let editingConnectionId = "";
 let connectionSort = { column: "source", direction: "asc" };
+const DISCONNECTED_MODULE = "nicht_verbunden";
+const DISCONNECTED_POINT = "nicht_verbunden";
+const DISCONNECTED_ENDPOINT = `${DISCONNECTED_MODULE}.${DISCONNECTED_POINT}`;
+const DISCONNECTED_LABEL = "Nicht verbunden";
 const monitorLibraryCache = { midi: {}, osc: {} };
 const adapterConnectionStatus = {};
 
@@ -428,6 +438,9 @@ function setAdapterCardIdentity(card, instance, { isNew = false } = {}) {
 }
 
 function learnInstanceLabel(module) {
+  if (module === DISCONNECTED_MODULE) {
+    return DISCONNECTED_LABEL;
+  }
   if (deviceDisplayByUid[module]) {
     return deviceDisplayByUid[module];
   }
@@ -701,6 +714,16 @@ function fillLearnPointSelect(select, instance, direction, previousPointId) {
     resetDatapointFilterInput(select);
     return;
   }
+  if (instance === DISCONNECTED_MODULE) {
+    const option = document.createElement("option");
+    option.value = DISCONNECTED_ENDPOINT;
+    option.textContent = DISCONNECTED_LABEL;
+    select.appendChild(option);
+    select.value = DISCONNECTED_ENDPOINT;
+    select.disabled = false;
+    resetDatapointFilterInput(select);
+    return;
+  }
   const points = learnPointsForInstance(instance, direction);
   const filter = ensureDatapointFilterInput(select);
   const filterTerm = filter?.value.trim().toLowerCase() || "";
@@ -752,8 +775,293 @@ function fillLearnPointSelect(select, instance, direction, previousPointId) {
   }
 }
 
-function fillLearnInstanceSelect(select, direction, previousInstance) {
-  const instances = learnInstancesForDirection(direction);
+function isDisconnectedEndpoint(endpoint) {
+  return endpoint === DISCONNECTED_ENDPOINT;
+}
+
+function connectionEndpointModule(endpoint) {
+  if (!endpoint || typeof endpoint !== "string") {
+    return "";
+  }
+  return endpoint.split(".")[0] || "";
+}
+
+function connectionEndpointPoint(endpoint) {
+  const separatorIndex = endpoint.indexOf(".");
+  return separatorIndex >= 0 ? endpoint.slice(separatorIndex + 1) : "";
+}
+
+function deviceByUid(uid) {
+  return (devicesConfig?.devices || []).find(
+    (device) => (device.uid || device.id) === uid,
+  ) || null;
+}
+
+function deviceCompatibilityProfile(device) {
+  if (!device) {
+    return null;
+  }
+  return {
+    library_kind: (device.library_kind || "").trim(),
+    library: (device.library || "").trim(),
+  };
+}
+
+function devicesCompatibleWith(profile, candidate) {
+  if (!profile) {
+    return true;
+  }
+  const candidateKind = (candidate.library_kind || "").trim();
+  const profileKind = (profile.library_kind || "").trim();
+  if (profileKind && candidateKind !== profileKind) {
+    return false;
+  }
+  const candidateLibrary = (candidate.library || "").trim();
+  const profileLibrary = (profile.library || "").trim();
+  if (profileLibrary && candidateLibrary !== profileLibrary) {
+    return false;
+  }
+  return true;
+}
+
+function compatibleReplacementDevices(removedDevice) {
+  const profile = deviceCompatibilityProfile(removedDevice);
+  if (!profile || (!profile.library_kind && !profile.library)) {
+    return [];
+  }
+  const removedUid = removedDevice.uid || removedDevice.id;
+  return (devicesConfig?.devices || []).filter(
+    (device) => (device.uid || device.id) !== removedUid
+      && devicesCompatibleWith(profile, device),
+  );
+}
+
+function boundDeviceUidForAdapter(adapterUid) {
+  return boundDeviceForAdapter(adapterUid)?.uid
+    || boundDeviceForAdapter(adapterUid)?.id
+    || "";
+}
+
+function compatibleModulesForDirection(referenceDevice, direction) {
+  if (!referenceDevice) {
+    return null;
+  }
+  const profile = deviceCompatibilityProfile(referenceDevice);
+  if (!profile.library_kind && !profile.library) {
+    return null;
+  }
+  const refUid = referenceDevice.uid || referenceDevice.id;
+  const allowed = new Set(learnInstancesForDirection(direction));
+  const modules = (devicesConfig?.devices || [])
+    .filter((device) => {
+      const uid = device.uid || device.id;
+      return uid !== refUid && devicesCompatibleWith(profile, device) && allowed.has(uid);
+    })
+    .map((device) => device.uid || device.id);
+  return modules.length ? modules : null;
+}
+
+function connectionUsesModule(connection, moduleUid) {
+  const prefix = `${moduleUid}.`;
+  return connection.source.startsWith(prefix) || connection.target.startsWith(prefix);
+}
+
+function connectionsAffectedByModuleRemoval(moduleUid) {
+  if (!moduleUid) {
+    return [];
+  }
+  return storedConnections.filter((connection) => connectionUsesModule(connection, moduleUid));
+}
+
+function datapointExistsForModule(module, pointId, direction) {
+  return learnPointsForInstance(module, direction).some((entry) => entry.id === pointId);
+}
+
+function remapConnectionEndpoint(endpoint, removedModule, replacementModule, direction) {
+  if (!endpoint.startsWith(`${removedModule}.`)) {
+    return endpoint;
+  }
+  const point = connectionEndpointPoint(endpoint);
+  if (replacementModule) {
+    const candidate = `${replacementModule}.${point}`;
+    if (datapointExistsForModule(replacementModule, candidate, direction)) {
+      return candidate;
+    }
+  }
+  return DISCONNECTED_ENDPOINT;
+}
+
+function applyConnectionsModuleRemoval(connections, removedModule, replacementModule) {
+  return connections.map((connection) => {
+    if (!connectionUsesModule(connection, removedModule)) {
+      return connection;
+    }
+    const source = remapConnectionEndpoint(
+      connection.source,
+      removedModule,
+      replacementModule,
+      "input",
+    );
+    const target = remapConnectionEndpoint(
+      connection.target,
+      removedModule,
+      replacementModule,
+      "output",
+    );
+    const enabled =
+      connection.enabled !== false
+      && !isDisconnectedEndpoint(source)
+      && !isDisconnectedEndpoint(target);
+    return {
+      ...connection,
+      source,
+      target,
+      enabled,
+    };
+  });
+}
+
+function showConnectionImpactDialog(affectedConnections, replacementDevices, removedLabel) {
+  if (!connectionImpactDialog) {
+    return Promise.resolve({ action: "disconnect" });
+  }
+
+  connectionImpactSummary.textContent =
+    `${affectedConnections.length} Connection(s) nutzen ${removedLabel} als Quelle oder Ziel. `
+    + "Auf ein kompatibles Device umbiegen oder mit "
+    + `"${DISCONNECTED_LABEL}" deaktivieren.`;
+
+  connectionImpactList.replaceChildren();
+  for (const connection of affectedConnections) {
+    const item = document.createElement("li");
+    item.textContent =
+      `${connection.id}: ${formatDatapointDisplay(connection.source)} → `
+      + `${formatDatapointDisplay(connection.target)}`;
+    connectionImpactList.appendChild(item);
+  }
+
+  const hasReplacements = replacementDevices.length > 0;
+  connectionImpactRemapRow.hidden = !hasReplacements;
+  connectionImpactRemapButton.hidden = !hasReplacements;
+  connectionImpactRemapSelect.replaceChildren();
+  if (hasReplacements) {
+    for (const device of replacementDevices) {
+      const option = document.createElement("option");
+      option.value = device.uid || device.id;
+      option.textContent = device.name || device.uid || device.id;
+      connectionImpactRemapSelect.appendChild(option);
+    }
+  }
+
+  connectionImpactDialog.returnValue = "cancel";
+  connectionImpactDialog.showModal();
+  return new Promise((resolve) => {
+    connectionImpactDialog.addEventListener(
+      "close",
+      () => {
+        const action = connectionImpactDialog.returnValue || "cancel";
+        if (action === "remap") {
+          resolve({
+            action,
+            replacementUid: connectionImpactRemapSelect.value,
+          });
+          return;
+        }
+        resolve({ action });
+      },
+      { once: true },
+    );
+  });
+}
+
+async function runWithConnectionRemovalImpact(moduleUid, removedLabel, proceed) {
+  if (!moduleUid) {
+    await proceed();
+    return;
+  }
+  const affected = connectionsAffectedByModuleRemoval(moduleUid);
+  if (!affected.length) {
+    await proceed();
+    return;
+  }
+
+  const removedDevice = deviceByUid(moduleUid);
+  const replacements = removedDevice ? compatibleReplacementDevices(removedDevice) : [];
+  const choice = await showConnectionImpactDialog(affected, replacements, removedLabel);
+  if (choice.action === "cancel") {
+    return;
+  }
+
+  const replacementUid = choice.action === "remap" ? choice.replacementUid : null;
+  const updatedConnections = applyConnectionsModuleRemoval(
+    storedConnections,
+    moduleUid,
+    replacementUid,
+  );
+  await saveStoredConnections(updatedConnections);
+  await proceed();
+}
+
+async function deleteAdapterWithConnectionImpact(adapterUid, removedLabel, deleteAdapter) {
+  const deviceUid = boundDeviceUidForAdapter(adapterUid);
+  await runWithConnectionRemovalImpact(deviceUid, removedLabel, async () => {
+    if (deviceUid) {
+      const deviceCard = deviceInstances.querySelector(
+        `.device-card[data-device-uid="${deviceUid}"]`,
+      );
+      if (deviceCard) {
+        deviceCard.remove();
+        const config = await persistDevices(collectDevicesFromCards());
+        renderDevicesConfig(config);
+      }
+    }
+    await deleteAdapter();
+    await loadLearnDatapoints().catch(() => null);
+  });
+}
+
+function connectionEditInstanceOptions(connection) {
+  const sourceModule = connectionEndpointModule(connection.source);
+  const targetModule = connectionEndpointModule(connection.target);
+  const sourceDevice = deviceByUid(sourceModule);
+  const targetDevice = deviceByUid(targetModule);
+  const sourceDisconnected = isDisconnectedEndpoint(connection.source);
+  const targetDisconnected = isDisconnectedEndpoint(connection.target);
+
+  return {
+    source: {
+      previousInstance: sourceDisconnected ? DISCONNECTED_MODULE : sourceModule,
+      allowedModules: sourceDisconnected
+        ? compatibleModulesForDirection(targetDevice, "input")
+        : null,
+      includeDisconnected: sourceDisconnected,
+    },
+    target: {
+      previousInstance: targetDisconnected ? DISCONNECTED_MODULE : targetModule,
+      allowedModules: targetDisconnected
+        ? compatibleModulesForDirection(sourceDevice, "output")
+        : null,
+      includeDisconnected: targetDisconnected,
+    },
+  };
+}
+
+function fillLearnInstanceSelect(select, direction, previousInstance, options = {}) {
+  const { allowedModules = null, includeDisconnected = false } = options;
+  let instances = learnInstancesForDirection(direction);
+  if (allowedModules) {
+    const allowed = new Set(allowedModules);
+    instances = instances.filter((instance) => allowed.has(instance));
+  }
+  if (
+    includeDisconnected
+    || previousInstance === DISCONNECTED_MODULE
+    || isDisconnectedEndpoint(`${previousInstance}.${DISCONNECTED_POINT}`)
+  ) {
+    if (!instances.includes(DISCONNECTED_MODULE)) {
+      instances = [DISCONNECTED_MODULE, ...instances];
+    }
+  }
   select.replaceChildren();
   const placeholder = document.createElement("option");
   placeholder.value = "";
@@ -767,6 +1075,8 @@ function fillLearnInstanceSelect(select, direction, previousInstance) {
   }
   if (previousInstance && instances.includes(previousInstance)) {
     select.value = previousInstance;
+  } else if (previousInstance === DISCONNECTED_MODULE) {
+    select.value = DISCONNECTED_MODULE;
   }
 }
 
@@ -812,6 +1122,9 @@ function clearLearnEndpointSelects() {
 function formatDatapointDisplay(pointId) {
   if (!pointId || typeof pointId !== "string") {
     return pointId;
+  }
+  if (isDisconnectedEndpoint(pointId)) {
+    return DISCONNECTED_LABEL;
   }
   const separatorIndex = pointId.indexOf(".");
   if (separatorIndex < 0) {
@@ -939,9 +1252,21 @@ function refreshInlineConnectionEditorSelects() {
   const previousSourcePoint = sourceDatapoint.value;
   const previousTargetInstance = targetInstance.value;
   const previousTargetPoint = targetDatapoint.value;
-
-  fillLearnInstanceSelect(sourceInstance, "input", previousSourceInstance);
-  fillLearnInstanceSelect(targetInstance, "output", previousTargetInstance);
+  const connection = storedConnections.find((entry) => entry.id === editingConnectionId);
+  if (!connection) {
+    fillLearnInstanceSelect(sourceInstance, "input", previousSourceInstance);
+    fillLearnInstanceSelect(targetInstance, "output", previousTargetInstance);
+  } else {
+    const editOptions = connectionEditInstanceOptions(connection);
+    fillLearnInstanceSelect(sourceInstance, "input", previousSourceInstance, {
+      allowedModules: editOptions.source.allowedModules,
+      includeDisconnected: editOptions.source.includeDisconnected,
+    });
+    fillLearnInstanceSelect(targetInstance, "output", previousTargetInstance, {
+      allowedModules: editOptions.target.allowedModules,
+      includeDisconnected: editOptions.target.includeDisconnected,
+    });
+  }
   fillLearnPointSelect(
     sourceDatapoint,
     sourceInstance.value,
@@ -1060,12 +1385,29 @@ function createConnectionEditForm(connection) {
     enabledLabel,
   );
 
-  const sourceInstanceName = connection.source.split(".")[0];
-  const targetInstanceName = connection.target.split(".")[0];
-  fillLearnInstanceSelect(sourceInstance, "input", sourceInstanceName);
-  fillLearnInstanceSelect(targetInstance, "output", targetInstanceName);
-  fillLearnPointSelect(sourceDatapoint, sourceInstanceName, "input", connection.source);
-  fillLearnPointSelect(targetDatapoint, targetInstanceName, "output", connection.target);
+  const previousTargetPoint = targetDatapoint.value;
+
+  const editOptions = connectionEditInstanceOptions(connection);
+  fillLearnInstanceSelect(sourceInstance, "input", editOptions.source.previousInstance, {
+    allowedModules: editOptions.source.allowedModules,
+    includeDisconnected: editOptions.source.includeDisconnected,
+  });
+  fillLearnInstanceSelect(targetInstance, "output", editOptions.target.previousInstance, {
+    allowedModules: editOptions.target.allowedModules,
+    includeDisconnected: editOptions.target.includeDisconnected,
+  });
+  fillLearnPointSelect(
+    sourceDatapoint,
+    sourceInstance.value || editOptions.source.previousInstance,
+    "input",
+    connection.source,
+  );
+  fillLearnPointSelect(
+    targetDatapoint,
+    targetInstance.value || editOptions.target.previousInstance,
+    "output",
+    connection.target,
+  );
   modifierSelect.value = connection.modifier || "range_map";
   syncConnectionEditRangeFieldsVisibility(form);
 
@@ -2605,11 +2947,13 @@ function confirmDeviceDelete(card) {
 }
 
 function deleteDeviceCard(card) {
-  if (!confirmDeviceDelete(card)) {
-    return;
-  }
+  const moduleUid = card.dataset.deviceUid || card.dataset.deviceId || "";
+  const affected = connectionsAffectedByModuleRemoval(moduleUid);
 
   if (card.dataset.isNew === "true") {
+    if (!confirmDeviceDelete(card)) {
+      return;
+    }
     card.remove();
     if (!deviceInstances.querySelector(".device-card") && devicesMessage) {
       devicesMessage.textContent = "";
@@ -2617,26 +2961,32 @@ function deleteDeviceCard(card) {
     return;
   }
 
-  card.remove();
-  const devices = collectDevicesFromCards();
-  if (devicesMessage) {
-    devicesMessage.textContent = "deleting...";
+  if (!affected.length && !confirmDeviceDelete(card)) {
+    return;
   }
 
-  persistDevices(devices)
-    .then((config) => {
-      renderDevicesConfig(config);
-      if (devicesMessage) {
-        devicesMessage.textContent = "deleted";
-      }
-      return loadLearnDatapoints().catch(() => null);
-    })
-    .catch((error) => {
-      if (devicesMessage) {
-        devicesMessage.textContent = `error: ${error.message}`;
-      }
-      return loadDevicesConfig();
-    });
+  const removedLabel =
+    card.querySelector('[data-field="name"]')?.value.trim() ||
+    moduleUid ||
+    "this device";
+
+  runWithConnectionRemovalImpact(moduleUid, `"${removedLabel}"`, async () => {
+    card.remove();
+    if (devicesMessage) {
+      devicesMessage.textContent = "deleting...";
+    }
+    const config = await persistDevices(collectDevicesFromCards());
+    renderDevicesConfig(config);
+    if (devicesMessage) {
+      devicesMessage.textContent = "deleted";
+    }
+    await loadLearnDatapoints().catch(() => null);
+  }).catch((error) => {
+    if (devicesMessage) {
+      devicesMessage.textContent = `error: ${error.message}`;
+    }
+    return loadDevicesConfig();
+  });
 }
 
 function saveDeviceCard(card) {
@@ -3564,33 +3914,41 @@ function deleteHidAdapterCard(card) {
     card.remove();
     return;
   }
-  const instanceLabel = card.dataset.instanceName || card.dataset.instanceUid || "";
-  if (!window.confirm(`Delete HID adapter instance "${instanceLabel}"?`)) {
+  const uid = card.dataset.instanceUid || card.dataset.instanceName;
+  const instanceLabel = card.dataset.instanceName || uid || "";
+  let message = `Delete HID adapter instance "${instanceLabel}"?`;
+  const deviceUid = boundDeviceUidForAdapter(uid);
+  if (deviceUid) {
+    const affected = connectionsAffectedByModuleRemoval(deviceUid);
+    if (affected.length) {
+      message += `\n\n${affected.length} connection(s) use the bound device as source or target.`;
+    }
+  }
+  if (!window.confirm(message)) {
     return;
   }
-  const uid = card.dataset.instanceUid || card.dataset.instanceName;
-  fetch("/api/hid-adapters", {
-    method: "POST",
-    headers: { "content-type": "application/json" },
-    body: JSON.stringify({
-      instances: [],
-      deleted: [uid],
-    }),
-  })
-    .then(async (response) => {
+
+  deleteAdapterWithConnectionImpact(uid, `"${instanceLabel}"`, async () => {
+    hidMessage.textContent = "deleting...";
+    const config = await fetch("/api/hid-adapters", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({
+        instances: [],
+        deleted: [uid],
+      }),
+    }).then(async (response) => {
       if (!response.ok) {
         throw new Error(await response.text());
       }
       return response.json();
-    })
-    .then((config) => {
-      pruneLearnMonitorDatapointsForDeletedHidInstance(uid);
-      renderHidAdaptersConfig(config);
-      hidMessage.textContent = "deleted";
-    })
-    .catch((error) => {
-      hidMessage.textContent = `error: ${error.message}`;
     });
+    pruneLearnMonitorDatapointsForDeletedHidInstance(uid);
+    renderHidAdaptersConfig(config);
+    hidMessage.textContent = "deleted";
+  }).catch((error) => {
+    hidMessage.textContent = `error: ${error.message}`;
+  });
 }
 
 function handleHidLearnCapture(event) {
@@ -4953,7 +5311,16 @@ function confirmMidiAdapterDelete(card) {
   }
 
   const name = card.dataset.instanceUid || card.dataset.instanceName;
-  return window.confirm(`Delete adapter instance "${card.dataset.instanceName || name}"? This cannot be undone.`);
+  let message =
+    `Delete adapter instance "${card.dataset.instanceName || name}"? This cannot be undone.`;
+  const deviceUid = boundDeviceUidForAdapter(name);
+  if (deviceUid) {
+    const affected = connectionsAffectedByModuleRemoval(deviceUid);
+    if (affected.length) {
+      message += `\n\n${affected.length} connection(s) use the bound device as source or target.`;
+    }
+  }
+  return window.confirm(message);
 }
 
 function panelMessageForMidiKind(kind) {
@@ -4988,22 +5355,23 @@ function deleteMidiAdapterCard(card, kind) {
   }
 
   const uid = card.dataset.instanceUid || card.dataset.instanceName;
+  const { name } = adapterInstanceNameFromCard(card);
   const panelMessage = panelMessageForMidiKind(kind);
-  card.remove();
-  panelMessage.textContent = "deleting...";
+  const removedLabel = `"${name || uid}"`;
 
-  persistMidiAdapterChanges(kind, { instances: [], deleted: [uid] })
-    .then((config) => {
-      midiAdaptersConfig = config;
-      renderMidiAdapterSection(kind, config);
-      panelMessage.textContent = "deleted";
-    })
-    .catch((error) => {
-      panelMessage.textContent = `error: ${error.message}`;
-      if (midiAdaptersConfig) {
-        renderMidiAdapterSection(kind, midiAdaptersConfig);
-      }
-    });
+  deleteAdapterWithConnectionImpact(uid, removedLabel, async () => {
+    card.remove();
+    panelMessage.textContent = "deleting...";
+    const config = await persistMidiAdapterChanges(kind, { instances: [], deleted: [uid] });
+    midiAdaptersConfig = config;
+    renderMidiAdapterSection(kind, config);
+    panelMessage.textContent = "deleted";
+  }).catch((error) => {
+    panelMessage.textContent = `error: ${error.message}`;
+    if (midiAdaptersConfig) {
+      renderMidiAdapterSection(kind, midiAdaptersConfig);
+    }
+  });
 }
 
 function saveMidiAdapterCard(card) {
@@ -5863,21 +6231,22 @@ function deleteOscAdapterCard(card) {
   }
 
   const uid = card.dataset.instanceUid || card.dataset.instanceName;
-  card.remove();
-  oscMessage.textContent = "deleting...";
+  const { name } = adapterInstanceNameFromCard(card);
+  const removedLabel = `"${name || uid}"`;
 
-  persistOscAdapterChanges({ instances: [], deleted: [uid] })
-    .then((config) => {
-      oscAdaptersConfig = config;
-      renderOscAdaptersConfig(config);
-      oscMessage.textContent = "deleted";
-    })
-    .catch((error) => {
-      oscMessage.textContent = `error: ${error.message}`;
-      if (oscAdaptersConfig) {
-        renderOscAdaptersConfig(oscAdaptersConfig);
-      }
-    });
+  deleteAdapterWithConnectionImpact(uid, removedLabel, async () => {
+    card.remove();
+    oscMessage.textContent = "deleting...";
+    const config = await persistOscAdapterChanges({ instances: [], deleted: [uid] });
+    oscAdaptersConfig = config;
+    renderOscAdaptersConfig(config);
+    oscMessage.textContent = "deleted";
+  }).catch((error) => {
+    oscMessage.textContent = `error: ${error.message}`;
+    if (oscAdaptersConfig) {
+      renderOscAdaptersConfig(oscAdaptersConfig);
+    }
+  });
 }
 
 function saveOscAdapterCard(card) {
@@ -6231,21 +6600,22 @@ function deleteWingNativeAdapterCard(card) {
   }
 
   const uid = card.dataset.instanceUid || card.dataset.instanceName;
-  card.remove();
-  wingNativeMessage.textContent = "deleting...";
+  const { name } = adapterInstanceNameFromCard(card);
+  const removedLabel = `"${name || uid}"`;
 
-  persistWingNativeAdapterChanges({ instances: [], deleted: [uid] })
-    .then((config) => {
-      wingNativeAdaptersConfig = config;
-      renderWingNativeAdaptersConfig(config);
-      wingNativeMessage.textContent = "deleted";
-    })
-    .catch((error) => {
-      wingNativeMessage.textContent = `error: ${error.message}`;
-      if (wingNativeAdaptersConfig) {
-        renderWingNativeAdaptersConfig(wingNativeAdaptersConfig);
-      }
-    });
+  deleteAdapterWithConnectionImpact(uid, removedLabel, async () => {
+    card.remove();
+    wingNativeMessage.textContent = "deleting...";
+    const config = await persistWingNativeAdapterChanges({ instances: [], deleted: [uid] });
+    wingNativeAdaptersConfig = config;
+    renderWingNativeAdaptersConfig(config);
+    wingNativeMessage.textContent = "deleted";
+  }).catch((error) => {
+    wingNativeMessage.textContent = `error: ${error.message}`;
+    if (wingNativeAdaptersConfig) {
+      renderWingNativeAdaptersConfig(wingNativeAdaptersConfig);
+    }
+  });
 }
 
 function saveWingNativeAdapterCard(card) {

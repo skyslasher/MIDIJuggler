@@ -34,6 +34,27 @@
         <ul id="config-issues-list"></ul>
       </div>
 
+      <dialog id="connection-impact-dialog" class="connection-impact-dialog">
+        <form method="dialog" class="connection-impact-form">
+          <h2>Betroffene Connections</h2>
+          <p id="connection-impact-summary" class="hint"></p>
+          <ul id="connection-impact-list" class="connection-impact-list"></ul>
+          <label id="connection-impact-remap-row" class="stacked-field" hidden>
+            Auf kompatibles Device umbiegen
+            <select id="connection-impact-remap-select"></select>
+          </label>
+          <div class="connection-impact-actions">
+            <button type="submit" value="cancel">Abbrechen</button>
+            <button type="submit" value="disconnect" class="danger-button">
+              Betroffene Connections deaktivieren
+            </button>
+            <button type="submit" value="remap" id="connection-impact-remap" hidden>
+              Connections umbiegen
+            </button>
+          </div>
+        </form>
+      </dialog>
+
       <section class="toolbar">
         <button id="configuration-toggle" type="button">Configuration</button>
         <button id="configuration-exit" type="button" hidden>Exit configuration</button>

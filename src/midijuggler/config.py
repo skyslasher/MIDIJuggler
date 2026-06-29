@@ -10,6 +10,7 @@ import tomllib
 
 LOGGER = logging.getLogger(__name__)
 
+from midijuggler.datapoint.disconnected import is_reserved_connection_module
 from midijuggler.datapoint.types import ConnectionSpec, ModifierKind, SCALE_CURVES
 from midijuggler.device.identity import device_display_name, resolve_adapter_uid
 from midijuggler.device.types import CustomPointSpec, DeviceConfig
@@ -1104,7 +1105,7 @@ def _finalize_devices_and_connections(
         invalid_endpoint = False
         for endpoint in (connection.source, connection.target):
             module = endpoint.partition(".")[0]
-            if module in {"clock", "mapping"}:
+            if is_reserved_connection_module(module):
                 continue
             resolved = resolve_connection_device_module(module, accepted_devices)
             if resolved is None:
@@ -1287,7 +1288,7 @@ def normalize_connection_endpoint(
     devices: dict[str, DeviceConfig],
 ) -> str:
     module, separator, point = endpoint.partition(".")
-    if not separator or module in {"clock", "mapping"}:
+    if not separator or is_reserved_connection_module(module):
         return endpoint
 
     resolved = resolve_connection_device_module(module, devices)
@@ -1363,7 +1364,7 @@ def _validate_devices_and_connections(
     for connection in connections:
         for endpoint in (connection.source, connection.target):
             module = endpoint.partition(".")[0]
-            if module in {"clock", "mapping"}:
+            if is_reserved_connection_module(module):
                 continue
             resolved = resolve_connection_device_module(module, devices)
             if resolved is None:

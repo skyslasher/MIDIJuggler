@@ -67,6 +67,44 @@ header {
   margin-top: 0.35rem;
 }
 
+.connection-impact-dialog {
+  background: #182032;
+  border: 1px solid #b44;
+  border-radius: 16px;
+  color: #eef2ff;
+  max-width: 42rem;
+  padding: 0;
+  width: min(92vw, 42rem);
+}
+
+.connection-impact-dialog::backdrop {
+  background: rgb(0 0 0 / 55%);
+}
+
+.connection-impact-form {
+  display: grid;
+  gap: 1rem;
+  padding: 1.25rem 1.5rem 1.5rem;
+}
+
+.connection-impact-form h2 {
+  margin: 0;
+}
+
+.connection-impact-list {
+  margin: 0;
+  max-height: 12rem;
+  overflow: auto;
+  padding-left: 1.25rem;
+}
+
+.connection-impact-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.75rem;
+  justify-content: flex-end;
+}
+
 .header-clock {
   align-items: center;
   display: flex;

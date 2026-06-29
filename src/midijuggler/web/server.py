@@ -29,6 +29,7 @@ from midijuggler.alsa import (
     write_master_clock_pcm_config,
 )
 from midijuggler.clock import ClockBpmTracker
+from midijuggler.datapoint.reconcile import apply_module_removal_to_connections
 from midijuggler.config import (
     adapter_device_options,
     DEFAULT_ADAPTERS,
@@ -347,11 +348,26 @@ class WebInterface:
         previous_device_uids = set(self.config.devices.keys())
         object.__setattr__(self.config, "devices", devices)
         self.device_registry.reload_from_config(self.config)
+
+        removed_device_uids = previous_device_uids - set(devices.keys())
+        if removed_device_uids:
+            connections = list(self.config.connections)
+            for removed_uid in removed_device_uids:
+                connections = apply_module_removal_to_connections(
+                    connections,
+                    removed_uid,
+                    replacement_module=None,
+                )
+            object.__setattr__(self.config, "connections", connections)
+            self._apply_stored_connections(connections)
+
         persisted = False
         persist_error = ""
         if self.config_path is not None:
             try:
                 save_devices(self.config_path, devices)
+                if removed_device_uids:
+                    save_connections(self.config_path, self.config.connections)
                 persisted = True
             except OSError as exc:
                 persist_error = str(exc)
