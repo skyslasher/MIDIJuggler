@@ -214,6 +214,48 @@ def test_adapter_device_options_lists_configured_adapters() -> None:
     assert by_name["x32_foh"]["bound_device_id"] == "x32_foh"
 
 
+def test_supplement_devices_uses_adapter_display_name() -> None:
+    from midijuggler.config import AdapterConfig, supplement_devices
+
+    devices = supplement_devices(
+        {},
+        {
+            "device_f7a5b4b0": AdapterConfig(
+                enabled=True,
+                options={"midi_library": "behringer_xtouch_mini"},
+                kind="midi",
+                name="X-Touch Mini",
+            )
+        },
+    )
+
+    device = devices["device_f7a5b4b0"]
+    assert device.uid == "device_f7a5b4b0"
+    assert device.name == "X-Touch Mini"
+    assert device.adapter == "device_f7a5b4b0"
+
+
+def test_enrich_device_from_adapter_syncs_legacy_auto_name() -> None:
+    from midijuggler.config import AdapterConfig, enrich_device_from_adapter
+
+    device = DeviceConfig(
+        uid="device_f7a5b4b0",
+        name="device_f7a5b4b0",
+        adapter="device_f7a5b4b0",
+        library="behringer_xtouch_mini",
+        library_kind="midi",
+    )
+    adapter = AdapterConfig(
+        enabled=True,
+        options={"midi_library": "behringer_xtouch_mini"},
+        kind="midi",
+        name="X-Touch Mini",
+    )
+
+    enriched = enrich_device_from_adapter(device, adapter)
+    assert enriched.name == "X-Touch Mini"
+
+
 def test_save_devices_round_trip(tmp_path) -> None:
     path = tmp_path / "config.toml"
     path.write_text(

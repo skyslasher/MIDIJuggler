@@ -958,7 +958,7 @@ def _infer_device_from_adapter(instance_name: str, adapter: AdapterConfig) -> De
             )
     return DeviceConfig(
         uid=instance_name,
-        name=instance_name,
+        name=adapter.display_name(instance_name),
         adapter=instance_name,
         library=library,
         library_kind=library_kind,
@@ -1026,15 +1026,20 @@ def enrich_device_from_adapter(
         if device.feedback_refresh_interval > 0
         else inferred.feedback_refresh_interval
     )
+    name = device.name
+    display_name = adapter.display_name(device.adapter)
+    if name == device.uid and display_name != device.uid:
+        name = display_name
     if (
         library == device.library
         and library_kind == device.library_kind
         and feedback_refresh_interval == device.feedback_refresh_interval
+        and name == device.name
     ):
         return device
     return DeviceConfig(
         uid=device.uid,
-        name=device.name,
+        name=name,
         adapter=device.adapter,
         library=library,
         library_kind=library_kind,
