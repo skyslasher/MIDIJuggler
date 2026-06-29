@@ -164,7 +164,7 @@ class EventToDataPointBridge:
         device = self.device_registry.device_for_adapter(adapter_name)
         if device is None:
             raise ValueError(f"no device configured for adapter {adapter_name!r}")
-        return device.id
+        return device.uid
 
 
 def adapter_control_to_datapoint(
@@ -173,7 +173,7 @@ def adapter_control_to_datapoint(
     device_registry: DeviceRegistry,
 ) -> str:
     device = device_registry.require_device_for_adapter(adapter_name)
-    return str(DataPointId(device.id, control))
+    return str(DataPointId(device.uid, control))
 
 
 def _midi_message_point_id(event: MidiMessageEvent) -> str:

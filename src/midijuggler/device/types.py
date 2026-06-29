@@ -5,6 +5,8 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from typing import Any
 
+from midijuggler.device.identity import device_display_name
+
 _DEFAULT_XTOUCH_VALUE_CHANNEL = 11
 _DEFAULT_XTOUCH_DISPLAY_CHANNEL = 12
 
@@ -48,8 +50,9 @@ class CustomPointSpec:
 class DeviceConfig:
     """Logical device bound to one I/O adapter instance."""
 
-    id: str
+    uid: str
     adapter: str
+    name: str = ""
     library: str = ""
     library_kind: str = ""
     label: str = ""
@@ -58,17 +61,27 @@ class DeviceConfig:
     midi_value_channel: int = _DEFAULT_XTOUCH_VALUE_CHANNEL
     midi_display_channel: int = _DEFAULT_XTOUCH_DISPLAY_CHANNEL
 
+    @property
+    def id(self) -> str:
+        """Backward-compatible alias for the stable internal device uid."""
+
+        return self.uid
+
+    def display_name(self) -> str:
+        return device_display_name(self.uid, self.name)
+
     def as_dict(self) -> dict[str, Any]:
         payload: dict[str, Any] = {
-            "id": self.id,
+            "uid": self.uid,
+            "name": self.display_name(),
             "adapter": self.adapter,
         }
-        if self.label:
-            payload["label"] = self.label
         if self.library:
             payload["library"] = self.library
         if self.library_kind:
             payload["library_kind"] = self.library_kind
+        if self.label and self.label != self.name:
+            payload["label"] = self.label
         if self.feedback_refresh_interval > 0:
             payload["feedback_refresh_interval"] = self.feedback_refresh_interval
         if self.midi_value_channel != _DEFAULT_XTOUCH_VALUE_CHANNEL:

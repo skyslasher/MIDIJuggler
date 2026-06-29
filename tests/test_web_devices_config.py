@@ -82,7 +82,8 @@ pins = [17]
 
     payload = asyncio.run(scenario())
     assert payload["persisted"] is True
-    assert payload["devices"][0]["id"] == "foot_switches"
+    assert payload["devices"][0]["uid"] == "foot_switches"
+    assert payload["devices"][0]["name"] == "foot_switches"
     saved = load_config(config_path)
     assert saved.devices["foot_switches"].adapter == "gpio"
 

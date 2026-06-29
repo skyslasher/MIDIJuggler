@@ -5,6 +5,7 @@ from __future__ import annotations
 import json
 from typing import Any
 
+from midijuggler.device.identity import generate_device_uid, parse_device_identity
 from midijuggler.device.types import CustomPointSpec, DeviceConfig
 
 
@@ -27,12 +28,13 @@ def import_device(raw: Any) -> DeviceConfig:
 
     if not isinstance(raw, dict):
         raise ValueError("device must be an object")
-    device_id = str(raw.get("id", "")).strip()
     adapter = str(raw.get("adapter", "")).strip()
-    if not device_id:
-        raise ValueError("device.id is required")
     if not adapter:
         raise ValueError("device.adapter is required")
+    uid_raw = str(raw.get("uid", "")).strip() or str(raw.get("id", "")).strip()
+    if not uid_raw:
+        uid_raw = generate_device_uid(adapter)
+    uid, name = parse_device_identity({**raw, "uid": uid_raw}, field_name="device")
     custom_points = tuple(
         _import_custom_point(index, item)
         for index, item in enumerate(raw.get("custom_points", []), start=1)
@@ -69,7 +71,8 @@ def import_device(raw: Any) -> DeviceConfig:
             "behringer_xtouch_mini"
         )
     return DeviceConfig(
-        id=device_id,
+        uid=uid,
+        name=name,
         adapter=adapter,
         library=library,
         library_kind=str(raw.get("library_kind", "")).strip(),

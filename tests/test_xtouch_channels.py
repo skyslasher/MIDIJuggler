@@ -36,7 +36,8 @@ def test_xtouch_channel_helpers_read_device_config() -> None:
     from conftest import midi_device
 
     device = DeviceConfig(
-        id="xtouch_mini",
+        uid="xtouch_mini",
+        name="xtouch_mini",
         adapter="xtouch_mini",
         library="behringer_xtouch_mini",
         midi_value_channel=3,

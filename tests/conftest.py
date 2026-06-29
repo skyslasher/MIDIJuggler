@@ -14,7 +14,13 @@ if TYPE_CHECKING:
 
 
 def gpio_device(device_id: str = "gpio", adapter: str = "gpio") -> dict:
-    return {"id": device_id, "adapter": adapter, "library_kind": "gpio"}
+    return {
+        "uid": device_id,
+        "name": device_id,
+        "id": device_id,
+        "adapter": adapter,
+        "library_kind": "gpio",
+    }
 
 
 def midi_device(
@@ -23,7 +29,13 @@ def midi_device(
     adapter: str | None = None,
     library: str = "",
 ) -> dict:
-    entry = {"id": device_id, "adapter": adapter or device_id, "library_kind": "midi"}
+    entry = {
+        "uid": device_id,
+        "name": device_id,
+        "id": device_id,
+        "adapter": adapter or device_id,
+        "library_kind": "midi",
+    }
     if library:
         entry["library"] = library
     return entry
@@ -37,6 +49,8 @@ def osc_device(
     library_kind: str = "osc",
 ) -> dict:
     return {
+        "uid": device_id,
+        "name": device_id,
         "id": device_id,
         "adapter": adapter or device_id,
         "library": library,
@@ -51,6 +65,8 @@ def wing_device(
     library: str = "behringer_wing",
 ) -> dict:
     return {
+        "uid": device_id,
+        "name": device_id,
         "id": device_id,
         "adapter": adapter or device_id,
         "library": library,
@@ -59,7 +75,7 @@ def wing_device(
 
 
 def hid_device(device_id: str = "gamepad", adapter: str = "gamepad") -> dict:
-    return {"id": device_id, "adapter": adapter, "library_kind": "hid"}
+    return {"uid": device_id, "name": device_id, "id": device_id, "adapter": adapter, "library_kind": "hid"}
 
 
 def midi_custom_point(point_id: str, **options) -> dict:

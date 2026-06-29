@@ -20,7 +20,7 @@ class HidIOModule(IOModule):
         store: DataPointStore,
         device_registry: DeviceRegistry,
     ) -> None:
-        super().__init__(device.id, store)
+        super().__init__(device.uid, store)
         self.adapter = adapter
         self.device = device
         self.device_registry = device_registry

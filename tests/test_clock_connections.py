@@ -62,9 +62,10 @@ def test_usable_clock_output_targets_requires_configured_ports() -> None:
         ),
     }
     devices = {
-        "midi": DeviceConfig(id="midi", adapter="midi", library_kind="midi"),
+        "midi": DeviceConfig(uid="midi", name="midi", adapter="midi", library_kind="midi"),
         "xtouch_mini": DeviceConfig(
-            id="xtouch_mini",
+            uid="xtouch_mini",
+            name="xtouch_mini",
             adapter="xtouch_mini",
             library="behringer_xtouch_mini",
             library_kind="midi",

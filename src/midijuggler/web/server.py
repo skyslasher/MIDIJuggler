@@ -315,16 +315,16 @@ class WebInterface:
         except ValueError as exc:
             return web.Response(text=str(exc), status=400)
 
-        devices = {device.id: device for device in imported}
+        devices = {device.uid: device for device in imported}
         bound_adapters: dict[str, str] = {}
         for device in devices.values():
             if device.adapter not in self.config.adapters:
                 return web.Response(
-                    text=f"device {device.id!r} references unknown adapter {device.adapter!r}",
+                    text=f"device {device.display_name()!r} references unknown adapter {device.adapter!r}",
                     status=400,
                 )
             existing = bound_adapters.get(device.adapter)
-            if existing is not None and existing != device.id:
+            if existing is not None and existing != device.uid:
                 return web.Response(
                     text=(
                         f"adapter {device.adapter!r} is already bound to device "
@@ -332,9 +332,9 @@ class WebInterface:
                     ),
                     status=400,
                 )
-            bound_adapters[device.adapter] = device.id
+            bound_adapters[device.adapter] = device.uid
 
-        previous_device_ids = set(self.config.devices.keys())
+        previous_device_uids = set(self.config.devices.keys())
         object.__setattr__(self.config, "devices", devices)
         self.device_registry.reload_from_config(self.config)
         persisted = False
@@ -349,7 +349,7 @@ class WebInterface:
             persist_error = "no config path available"
 
         await self._refresh_device_datapoints_after_config_change(
-            set(previous_device_ids),
+            set(previous_device_uids),
         )
 
         response = self.devices_payload()
@@ -371,7 +371,7 @@ class WebInterface:
 
         merged = dict(self.config.devices)
         for device in imported:
-            merged[device.id] = device
+            merged[device.uid] = device
         object.__setattr__(self.config, "devices", merged)
 
         persisted = False
@@ -1300,13 +1300,13 @@ class WebInterface:
             parameter = resolve_midi_target_parameter(
                 self.config,
                 self.device_registry,
-                device.id,
+                device.uid,
                 parameter_id,
             )
             value_min, value_max = lookup_midi_target_ranges(
                 self.config,
                 self.device_registry,
-                device.id,
+                device.uid,
                 parameter_id,
             )
             if "value" not in payload:
@@ -1596,7 +1596,9 @@ class WebInterface:
         if device is None:
             return {"device_id": "", "device_library": ""}
         payload: dict[str, Any] = {
-            "device_id": device.id,
+            "device_id": device.uid,
+            "device_uid": device.uid,
+            "device_name": device.display_name(),
             "device_library": str(device.library or "").strip(),
         }
         if payload["device_library"] == "behringer_xtouch_mini":
@@ -2119,7 +2121,7 @@ class WebInterface:
 
         adapter_config = self.config.adapters.get(name)
         if adapter_config is None:
-            self.datapoint_store.unregister_module_except(device.id, set())
+            self.datapoint_store.unregister_module_except(device.uid, set())
             return
 
         gpio_adapter = self.gpio_adapter
@@ -2134,7 +2136,7 @@ class WebInterface:
         )
         specs = module.datapoints()
         keep = {str(spec.id) for spec in specs}
-        self.datapoint_store.unregister_module_except(device.id, keep)
+        self.datapoint_store.unregister_module_except(device.uid, keep)
         self.datapoint_store.register_many(specs)
 
     def _refresh_midi_datapoints(self, name: str) -> None:
@@ -2147,7 +2149,7 @@ class WebInterface:
 
         adapter_config = self.config.adapters.get(name)
         if adapter_config is None:
-            self.datapoint_store.unregister_module_except(device.id, set())
+            self.datapoint_store.unregister_module_except(device.uid, set())
             return
 
         adapter = self.midi_adapters.get(name) or self.rtp_midi_adapters.get(name)
@@ -2168,7 +2170,7 @@ class WebInterface:
         )
         specs = module.datapoints()
         keep = {str(spec.id) for spec in specs}
-        self.datapoint_store.unregister_module_except(device.id, keep)
+        self.datapoint_store.unregister_module_except(device.uid, keep)
         self.datapoint_store.register_many(specs)
 
     def _refresh_hid_datapoints(self, name: str) -> None:
@@ -2185,7 +2187,7 @@ class WebInterface:
         module = HidIOModule(adapter, device, self.datapoint_store, self.device_registry)
         specs = module.datapoints()
         keep = {str(spec.id) for spec in specs}
-        self.datapoint_store.unregister_module_except(device.id, keep)
+        self.datapoint_store.unregister_module_except(device.uid, keep)
         self.datapoint_store.register_many(specs)
 
     async def _clear_osc_datapoints(self, name: str) -> None:
@@ -2227,7 +2229,7 @@ class WebInterface:
         if self._osc_io_modules is not None:
             self._osc_io_modules[name] = module
 
-        self.datapoint_store.unregister_module_except(device.id, set())
+        self.datapoint_store.unregister_module_except(device.uid, set())
         await module.start()
 
     async def _clear_wing_native_datapoints(self, name: str) -> None:
@@ -2268,7 +2270,7 @@ class WebInterface:
         if self._osc_io_modules is not None:
             self._osc_io_modules[name] = module
 
-        self.datapoint_store.unregister_module_except(device.id, set())
+        self.datapoint_store.unregister_module_except(device.uid, set())
         await module.start()
 
     async def apply_hid_adapters_config(self, payload: dict[str, Any]) -> dict[str, Any]:

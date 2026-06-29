@@ -46,7 +46,7 @@ def build_device_datapoints(
 
     if kind == "midi":
         _append_midi_library_points(device, adapter, specs, output_points)
-        specs.append(_midi_out_spec(device.id))
+        specs.append(_midi_out_spec(device.uid))
     elif kind in {"osc", "wing"}:
         _append_osc_library_points(device, kind, specs, output_points)
     elif kind == "gpio":
@@ -55,7 +55,7 @@ def build_device_datapoints(
         _append_hid_points(device, hid_adapter, specs)
 
     for point in device.custom_points:
-        spec = _custom_point_spec(device.id, point)
+        spec = _custom_point_spec(device.uid, point)
         specs.append(spec)
         if spec.direction in {
             DataPointDirection.OUTPUT,
@@ -94,7 +94,7 @@ def _append_midi_library_points(
         )
         specs.append(
             DataPointSpec(
-                id=DataPointId(device.id, parameter.id),
+                id=DataPointId(device.uid, parameter.id),
                 value_type=ValueType.FLOAT,
                 direction=direction,
                 label=parameter.label,
@@ -138,7 +138,7 @@ def _append_osc_library_points(
         point = parameter.address if parameter.address.startswith("/") else parameter.id
         specs.append(
             DataPointSpec(
-                id=DataPointId(device.id, point),
+                id=DataPointId(device.uid, point),
                 value_type=ValueType.FLOAT,
                 direction=direction,
                 label=parameter.label,
@@ -165,7 +165,7 @@ def _append_gpio_points(
     for gpio_input in gpio_adapter.inputs:
         specs.append(
             DataPointSpec(
-                id=DataPointId(device.id, gpio_input.control),
+                id=DataPointId(device.uid, gpio_input.control),
                 value_type=ValueType.FLOAT,
                 direction=DataPointDirection.INPUT,
                 label=f"GPIO pin {gpio_input.pin}",
@@ -187,7 +187,7 @@ def _append_hid_points(
     for hid_input in hid_adapter.inputs:
         specs.append(
             DataPointSpec(
-                id=DataPointId(device.id, hid_input.control),
+                id=DataPointId(device.uid, hid_input.control),
                 value_type=ValueType.FLOAT,
                 direction=DataPointDirection.INPUT,
                 label=hid_input.code_name,

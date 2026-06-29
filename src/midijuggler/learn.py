@@ -155,9 +155,9 @@ class LearnController:
         registry = device_registry or DeviceRegistry.from_config(config)
         source_device = registry.require_device_for_adapter(source.adapter)
         target_device = registry.require_device_for_adapter(target_adapter)
-        source_datapoint = str(DataPointId(source_device.id, source.control))
+        source_datapoint = str(DataPointId(source_device.uid, source.control))
         target_address = resolve_osc_target_address(config, target_device, target_parameter_id)
-        target_datapoint = str(DataPointId(target_device.id, target_address))
+        target_datapoint = str(DataPointId(target_device.uid, target_address))
         input_min, input_max = lookup_midi_source_ranges(
             config,
             source.adapter,
@@ -398,7 +398,7 @@ def lookup_midi_source_ranges(
 
     library_id = device.library.strip()
     if not library_id:
-        return _default_source_ranges(device.id, control_id)
+        return _default_source_ranges(device.uid, control_id)
 
     library = get_midi_library(library_id)
     parameter = next(
@@ -475,8 +475,8 @@ def resolve_target_datapoint(
     device = registry.require_device_for_adapter(adapter_name)
     target_address = resolve_osc_target_address(config, device, parameter_id)
     if target_address.startswith("/"):
-        return str(DataPointId(device.id, target_address))
-    return str(DataPointId(device.id, target_address))
+        return str(DataPointId(device.uid, target_address))
+    return str(DataPointId(device.uid, target_address))
 
 
 def lookup_datapoint_ranges(

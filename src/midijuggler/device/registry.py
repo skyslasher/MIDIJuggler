@@ -23,7 +23,7 @@ class DeviceRegistry:
                 raise ValueError(
                     f"adapter {device.adapter!r} is already bound to device {existing!r}"
                 )
-            self._adapter_to_device[device.adapter] = device.id
+            self._adapter_to_device[device.adapter] = device.uid
 
     @classmethod
     def from_config(cls, config: AppConfig) -> DeviceRegistry:
@@ -40,7 +40,7 @@ class DeviceRegistry:
                 raise ValueError(
                     f"adapter {device.adapter!r} is already bound to device {existing!r}"
                 )
-            self._adapter_to_device[device.adapter] = device.id
+            self._adapter_to_device[device.adapter] = device.uid
 
     def devices(self) -> list[DeviceConfig]:
         return list(self._devices.values())

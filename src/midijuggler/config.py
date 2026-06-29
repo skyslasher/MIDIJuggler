@@ -320,11 +320,10 @@ def _format_devices_section(devices: list[DeviceConfig]) -> str:
 def _format_device_config(device: DeviceConfig) -> str:
     lines = [
         "[[devices]]",
-        f"id = {_toml_string(device.id)}",
+        f"uid = {_toml_string(device.uid)}",
+        f"name = {_toml_string(device.display_name())}",
         f"adapter = {_toml_string(device.adapter)}",
     ]
-    if device.label:
-        lines.append(f"label = {_toml_string(device.label)}")
     if device.library:
         lines.append(f"library = {_toml_string(device.library)}")
     if device.library_kind:
@@ -911,7 +910,8 @@ def _infer_device_from_adapter(instance_name: str, adapter: AdapterConfig) -> De
                 default=DEFAULT_XTOUCH_DISPLAY_CHANNEL,
             )
     return DeviceConfig(
-        id=instance_name,
+        uid=instance_name,
+        name=instance_name,
         adapter=instance_name,
         library=library,
         library_kind=library_kind,
@@ -927,7 +927,7 @@ def adapter_device_options(
 ) -> list[dict[str, Any]]:
     """Describe adapter instances that can be bound to logical devices."""
 
-    bound_adapters = {device.adapter: device.id for device in devices.values()}
+    bound_adapters = {device.adapter: device.uid for device in devices.values()}
     options: list[dict[str, Any]] = []
     for instance_name, adapter in sorted(adapters.items()):
         if not _adapter_qualifies_for_device_inference(instance_name, adapter):
@@ -939,6 +939,7 @@ def adapter_device_options(
                 "kind": adapter.kind or instance_name,
                 "library": inferred.library,
                 "library_kind": inferred.library_kind,
+                "bound_device_uid": bound_adapters.get(instance_name, ""),
                 "bound_device_id": bound_adapters.get(instance_name, ""),
             }
         )
@@ -956,11 +957,10 @@ def supplement_devices(
     for instance_name, adapter in adapters.items():
         if instance_name in bound_adapters:
             continue
-        if instance_name in supplemented:
-            continue
         if not _adapter_qualifies_for_device_inference(instance_name, adapter):
             continue
-        supplemented[instance_name] = _infer_device_from_adapter(instance_name, adapter)
+        inferred = _infer_device_from_adapter(instance_name, adapter)
+        supplemented[inferred.uid] = inferred
     return supplemented
 
 
@@ -973,17 +973,18 @@ def _parse_devices(raw: Any, adapters: dict[str, AdapterConfig]) -> dict[str, De
     devices: dict[str, DeviceConfig] = {}
     for index, item in enumerate(raw, start=1):
         device = _parse_device(index, item)
-        if device.id in devices:
-            raise ValueError(f"devices[{index}] duplicates device id {device.id!r}")
+        if device.uid in devices:
+            raise ValueError(f"devices[{index}] duplicates device uid {device.uid!r}")
         if device.adapter not in adapters:
             raise ValueError(
                 f"devices[{index}] references unknown adapter {device.adapter!r}"
             )
-        devices[device.id] = device
+        devices[device.uid] = device
     return devices
 
 
 def _parse_device(index: int, raw: Any) -> DeviceConfig:
+    from midijuggler.device.identity import parse_device_identity
     from midijuggler.midi.xtouch_channels import (
         DEFAULT_XTOUCH_DISPLAY_CHANNEL,
         DEFAULT_XTOUCH_VALUE_CHANNEL,
@@ -995,14 +996,10 @@ def _parse_device(index: int, raw: Any) -> DeviceConfig:
     if not isinstance(raw, dict):
         raise ValueError(f"devices[{index}] must be a table")
 
-    device_id = str(raw.get("id", "")).strip()
     adapter = str(raw.get("adapter", "")).strip()
-    if not device_id:
-        raise ValueError(f"devices[{index}] missing required field: id")
     if not adapter:
         raise ValueError(f"devices[{index}] missing required field: adapter")
-    if ":" in device_id or any(character.isspace() for character in device_id):
-        raise ValueError(f"devices[{index}].id cannot contain ':' or whitespace")
+    uid, name = parse_device_identity(raw, field_name=f"devices[{index}]")
 
     custom_points = tuple(
         _parse_custom_point(index, point_index, point_raw)
@@ -1041,7 +1038,8 @@ def _parse_device(index: int, raw: Any) -> DeviceConfig:
             "supported for behringer_xtouch_mini"
         )
     return DeviceConfig(
-        id=device_id,
+        uid=uid,
+        name=name,
         adapter=adapter,
         library=library,
         library_kind=str(raw.get("library_kind", "")).strip(),
@@ -1135,17 +1133,21 @@ def resolve_connection_device_module(
     if module in devices:
         return module
 
-    adapter_to_device = {device.adapter: device.id for device in devices.values()}
+    for device in devices.values():
+        if device.name == module or device.display_name() == module:
+            return device.uid
+
+    adapter_to_device = {device.adapter: device.uid for device in devices.values()}
     if module in adapter_to_device:
         return adapter_to_device[module]
 
     prefix_matches = sorted(
         {
-            device.id
+            device.uid
             for device in devices.values()
-            if device.id == module
+            if device.uid == module
             or device.adapter == module
-            or device.id.startswith(f"{module}_")
+            or device.uid.startswith(f"{module}_")
             or device.adapter.startswith(f"{module}_")
         }
     )
@@ -1154,7 +1156,7 @@ def resolve_connection_device_module(
 
     library_matches = sorted(
         {
-            device.id
+            device.uid
             for device in devices.values()
             if device.library and _library_shorthand(device.library) == module
         }
@@ -1174,20 +1176,23 @@ def _validate_devices_and_connections(
         if device.adapter in adapter_bindings:
             raise ValueError(
                 f"adapter {device.adapter!r} is bound to multiple devices "
-                f"({adapter_bindings[device.adapter]!r} and {device.id!r})"
+                f"({adapter_bindings[device.adapter]!r} and {device.uid!r})"
             )
-        adapter_bindings[device.adapter] = device.id
+        adapter_bindings[device.adapter] = device.uid
 
     for connection in connections:
         for endpoint in (connection.source, connection.target):
             module = endpoint.partition(".")[0]
             if module in {"clock", "mapping"}:
                 continue
-            if module not in devices:
-                available = ", ".join(sorted(devices))
+            resolved = resolve_connection_device_module(module, devices)
+            if resolved is None:
+                available = ", ".join(
+                    sorted(device.display_name() for device in devices.values())
+                )
                 raise ValueError(
                     f"connection {connection.id!r} endpoint {endpoint!r} "
-                    f"must reference a configured device id "
+                    f"must reference a configured device "
                     f"(available: {available})"
                 )
 

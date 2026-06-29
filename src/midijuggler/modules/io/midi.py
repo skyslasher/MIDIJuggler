@@ -34,7 +34,7 @@ class MidiIOModule(IOModule):
         config: AppConfig,
         device_registry: DeviceRegistry,
     ) -> None:
-        super().__init__(device.id, store)
+        super().__init__(device.uid, store)
         self.adapter = adapter
         self.device = device
         self.config = config

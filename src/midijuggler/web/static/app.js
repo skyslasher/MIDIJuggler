@@ -135,6 +135,7 @@ let cachedOscLibrary = null;
 let socket;
 let gpioConfig = null;
 let devicesConfig = null;
+let deviceDisplayByUid = {};
 let deviceAdapterOptions = [];
 let cachedOscLibraryList = [];
 let cachedMidiLibraryList = [];
@@ -367,7 +368,26 @@ function filterLearnRegistryDatapoints(entries, direction) {
   );
 }
 
+function refreshDeviceDisplayNames(devices) {
+  deviceDisplayByUid = {};
+  for (const device of devices || []) {
+    const uid = device.uid || device.id || "";
+    if (!uid) {
+      continue;
+    }
+    deviceDisplayByUid[uid] = device.name || device.label || uid;
+  }
+}
+
+function generateDeviceUid(adapter) {
+  const base = String(adapter || "device").replace(/[^a-zA-Z0-9_]+/g, "_").toLowerCase() || "device";
+  return `${base}_${Math.random().toString(16).slice(2, 10)}`;
+}
+
 function learnInstanceLabel(module) {
+  if (deviceDisplayByUid[module]) {
+    return deviceDisplayByUid[module];
+  }
   if (module === "clock") {
     return "Master clock";
   }
@@ -2261,7 +2281,7 @@ function deviceLibraryForAdapter(adapterName) {
 function adapterDeviceLibraryHint(adapterName) {
   const device = boundDeviceForAdapter(adapterName);
   if (device?.library) {
-    return `Control library: ${device.library} (device ${device.id})`;
+    return `Control library: ${device.library} (device ${device.name || device.uid || device.id})`;
   }
   return "Configure the control library on the Device bound to this adapter.";
 }
@@ -2334,7 +2354,7 @@ function applyAdapterDefaultsToDeviceCard(card) {
   const adapter = adapterOptionByName(adapterName);
   const kindField = card.querySelector('[data-field="library_kind"]');
   const libraryField = card.querySelector('[data-field="library"]');
-  const idField = card.querySelector('[data-field="id"]');
+  const nameField = card.querySelector('[data-field="name"]');
   if (!adapter || !kindField || !libraryField) {
     return;
   }
@@ -2345,9 +2365,12 @@ function applyAdapterDefaultsToDeviceCard(card) {
   if (!libraryField.value && adapter.library) {
     libraryField.value = adapter.library;
   }
-  if (idField && !idField.value.trim()) {
-    idField.value = adapterName;
-    idField.dispatchEvent(new Event("input", { bubbles: true }));
+  if (!card.dataset.deviceUid) {
+    card.dataset.deviceUid = generateDeviceUid(adapterName);
+  }
+  if (nameField && !nameField.value.trim()) {
+    nameField.value = adapterName;
+    nameField.dispatchEvent(new Event("input", { bubbles: true }));
   }
 }
 
@@ -2355,7 +2378,7 @@ function deviceInstanceSummaryLabel(device, isNew) {
   if (isNew) {
     return "New device";
   }
-  return device.id || "Unnamed device";
+  return device.name || device.uid || device.id || "Unnamed device";
 }
 
 function createDeviceCustomPointRow(point = {}, onDirty = null) {
@@ -2404,12 +2427,13 @@ function collectDeviceFromCard(card) {
     })
     .filter(Boolean);
   const device = {
-    id: card.querySelector('[data-field="id"]')?.value.trim() || "",
+    uid: card.dataset.deviceUid || generateDeviceUid(card.querySelector('[data-field="adapter"]')?.value.trim() || "device"),
+    name: card.querySelector('[data-field="name"]')?.value.trim() || "",
     adapter: card.querySelector('[data-field="adapter"]')?.value.trim() || "",
-    label: card.querySelector('[data-field="label"]')?.value.trim() || "",
     library: card.querySelector('[data-field="library"]')?.value.trim() || "",
     library_kind: card.querySelector('[data-field="library_kind"]')?.value.trim() || "",
   };
+  card.dataset.deviceUid = device.uid;
   if (isXtouchMiniLibrary(device.library)) {
     const feedbackRefresh = card.querySelector('[data-field="feedback_refresh_interval"]');
     const valueChannel = card.querySelector('[data-field="midi_value_channel"]');
@@ -2460,24 +2484,27 @@ function updateDeviceCardDirtyState(card) {
 }
 
 function validateDeviceCard(card) {
-  const idInput = card.querySelector('[data-field="id"]');
+  const nameInput = card.querySelector('[data-field="name"]');
   const adapterSelect = card.querySelector('[data-field="adapter"]');
-  const id = idInput?.value.trim() || "";
+  const name = nameInput?.value.trim() || "";
   const adapter = adapterSelect?.value.trim() || "";
-  if (!id) {
-    showDeviceCardMessage(card, "device id is required");
-    idInput?.focus();
+  if (!name) {
+    showDeviceCardMessage(card, "device name is required");
+    nameInput?.focus();
     return false;
   }
-  if (/[:\s]/.test(id)) {
-    showDeviceCardMessage(card, "device id cannot contain ':' or whitespace");
-    idInput?.focus();
+  if (name.includes(":")) {
+    showDeviceCardMessage(card, "device name cannot contain ':'");
+    nameInput?.focus();
     return false;
   }
   if (!adapter) {
     showDeviceCardMessage(card, "adapter instance is required");
     adapterSelect?.focus();
     return false;
+  }
+  if (!card.dataset.deviceUid) {
+    card.dataset.deviceUid = generateDeviceUid(adapter);
   }
   return true;
 }
@@ -2516,12 +2543,15 @@ function attachDeviceCardControls(card) {
 
 function confirmDeviceDelete(card) {
   if (card.dataset.isNew === "true") {
-    const id = card.querySelector('[data-field="id"]')?.value.trim();
-    const label = id ? `"${id}"` : "this new device";
+    const name = card.querySelector('[data-field="name"]')?.value.trim();
+    const label = name ? `"${name}"` : "this new device";
     return window.confirm(`Discard ${label}?`);
   }
-  const id = card.dataset.deviceId || card.querySelector('[data-field="id"]')?.value.trim();
-  return window.confirm(`Delete device "${id}"? This cannot be undone.`);
+  const name =
+    card.querySelector('[data-field="name"]')?.value.trim() ||
+    card.dataset.deviceUid ||
+    "this device";
+  return window.confirm(`Delete device "${name}"? This cannot be undone.`);
 }
 
 function deleteDeviceCard(card) {
@@ -2581,8 +2611,15 @@ function saveDeviceCard(card) {
           devicesMessage.textContent = status;
         }
       } else {
-        card.dataset.deviceId = collectDeviceFromCard(card).id;
+        card.dataset.deviceUid = collectDeviceFromCard(card).uid;
+        card.dataset.deviceId = card.dataset.deviceUid;
         card.dataset.savedState = deviceCardStateSignature(card);
+        const savedDevice = collectDeviceFromCard(card);
+        deviceDisplayByUid[savedDevice.uid] = savedDevice.name || savedDevice.uid;
+        const title = card.querySelector(".adapter-instance-title");
+        if (title) {
+          title.textContent = deviceInstanceSummaryLabel(savedDevice);
+        }
         updateDeviceCardDirtyState(card);
         showDeviceCardMessage(card, status, { autoHide: true });
       }
@@ -2598,7 +2635,8 @@ function createDeviceCard(device = {}, options = {}) {
   const isNew = Boolean(options.isNew);
   const card = document.createElement("section");
   card.className = "midi-adapter-card device-card";
-  card.dataset.deviceId = device.id || "";
+  card.dataset.deviceUid = device.uid || device.id || "";
+  card.dataset.deviceId = card.dataset.deviceUid;
   card.dataset.deviceLibrary = device.library || "";
   if (isNew) {
     card.dataset.isNew = "true";
@@ -2635,16 +2673,12 @@ function createDeviceCard(device = {}, options = {}) {
   fields.className = "device-fields";
   fields.innerHTML = `
     <label class="stacked-field">
-      Device id
-      <input data-field="id" type="text" autocomplete="off" spellcheck="false" />
+      Device name
+      <input data-field="name" type="text" autocomplete="off" spellcheck="false" />
     </label>
     <label class="stacked-field">
       Adapter instance
       <select data-field="adapter"></select>
-    </label>
-    <label class="stacked-field">
-      Label
-      <input data-field="label" type="text" autocomplete="off" spellcheck="false" />
     </label>
     <label class="stacked-field">
       Library kind
@@ -2691,10 +2725,9 @@ function createDeviceCard(device = {}, options = {}) {
     kindSelect.appendChild(option);
   }
 
-  const idInput = fields.querySelector('[data-field="id"]');
-  idInput.value = device.id || "";
+  const nameInput = fields.querySelector('[data-field="name"]');
+  nameInput.value = device.name || device.label || device.uid || device.id || "";
   adapterSelect.value = device.adapter || "";
-  fields.querySelector('[data-field="label"]').value = device.label || "";
   kindSelect.value = device.library_kind || "";
   fillDeviceLibrarySelect(
     fields.querySelector('[data-field="library"]'),
@@ -2781,7 +2814,14 @@ function createDeviceCard(device = {}, options = {}) {
     markDirty();
   });
 
-  if (!device.id && device.adapter) {
+  nameInput.addEventListener("input", () => {
+    const title = card.querySelector(".adapter-instance-title");
+    if (title) {
+      title.textContent = nameInput.value.trim() || deviceInstanceSummaryLabel({ name: nameInput.value });
+    }
+  });
+
+  if ((!device.uid && !device.id) && device.adapter) {
     applyAdapterDefaultsToDeviceCard(card);
   }
 
@@ -2793,8 +2833,9 @@ function createDeviceCard(device = {}, options = {}) {
 function renderDevicesConfig(config) {
   devicesConfig = config;
   deviceAdapterOptions = config.adapter_options || [];
-  deviceInstances.replaceChildren();
   const devices = config.devices || [];
+  refreshDeviceDisplayNames(devices);
+  deviceInstances.replaceChildren();
   if (!devices.length) {
     const empty = document.createElement("p");
     empty.className = "hint";
@@ -2826,7 +2867,8 @@ function addMissingDevicesFromAdapters() {
     deviceInstances.appendChild(
       createDeviceCard(
         {
-          id: adapter.name,
+          uid: generateDeviceUid(adapter.name),
+          name: adapter.name,
           adapter: adapter.name,
           library: adapter.library,
           library_kind: adapter.library_kind,

@@ -44,7 +44,7 @@ def test_parse_config_rejects_unknown_connection_device() -> None:
             }
         )
     except ValueError as exc:
-        assert "device id" in str(exc)
+        assert "configured device" in str(exc)
         assert "foot_switches" in str(exc)
     else:
         raise AssertionError("expected unknown device rejection")
@@ -203,11 +203,11 @@ midi_library = "behringer_xtouch_mini"
     )
     devices = {
         "xtouch": DeviceConfig(
-            id="xtouch",
+            uid="xtouch",
+            name="FOH X-Touch",
             adapter="xtouch_mini",
             library="behringer_xtouch_mini",
             library_kind="midi",
-            label="FOH X-Touch",
         )
     }
     save_devices(path, devices)
@@ -241,7 +241,8 @@ direction = "source"
     )
     devices = {
         "xtouch": DeviceConfig(
-            id="xtouch",
+            uid="xtouch",
+            name="xtouch",
             adapter="xtouch_mini",
             library="behringer_xtouch_mini",
             library_kind="midi",
