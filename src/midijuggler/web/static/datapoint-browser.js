@@ -749,6 +749,48 @@
     return null;
   }
 
+  function isValidPath(roots, selectedPath) {
+    if (!selectedPath?.length) {
+      return false;
+    }
+    let nodes = roots;
+    for (let index = 0; index < selectedPath.length; index += 1) {
+      const nodeId = selectedPath[index];
+      const node = nodes.find((entry) => entry.id === nodeId);
+      if (!node) {
+        return false;
+      }
+      if (index === selectedPath.length - 1) {
+        return true;
+      }
+      if (!node.children?.length) {
+        return false;
+      }
+      nodes = node.children;
+    }
+    return false;
+  }
+
+  function resolveColumnBrowserPath(roots, select, previousPointId, preservedPath) {
+    const committedPointId = select.value || previousPointId || "";
+    if (committedPointId) {
+      const pathToCommitted = findPathToEntry(roots, committedPointId) || [];
+      const preservedLeaf = preservedPath.length
+        ? findNodeById(roots, preservedPath[preservedPath.length - 1])
+        : null;
+      if (preservedLeaf?.entry && preservedLeaf.entry.id === committedPointId) {
+        return preservedPath;
+      }
+      if (pathToCommitted.length) {
+        return pathToCommitted;
+      }
+    }
+    if (isValidPath(roots, preservedPath)) {
+      return preservedPath;
+    }
+    return [];
+  }
+
   function columnsForSelection(roots, selectedPath) {
     const columns = [roots];
     for (const nodeId of selectedPath) {
@@ -792,7 +834,8 @@
     select.classList.remove("datapoint-select-companion");
   }
 
-  function renderColumnBrowser(browser, select, roots, selectedPath) {
+  function renderColumnBrowser(browser, select, roots, selectedPath, options = {}) {
+    const { scrollToSelection = true } = options;
     browser.replaceChildren();
     const toolbar = document.createElement("div");
     toolbar.className = "datapoint-browser-toolbar";
@@ -838,6 +881,9 @@
           if (item.entry) {
             select.value = item.entry.id;
             select.dispatchEvent(new Event("change", { bubbles: true }));
+          } else if (select.value) {
+            select.value = "";
+            select.dispatchEvent(new Event("change", { bubbles: true }));
           }
           browser.dataset.selectedPath = JSON.stringify(nextPath);
           renderColumnBrowser(browser, select, roots, nextPath);
@@ -848,7 +894,7 @@
     });
 
     const selectedColumn = columnsEl.querySelector(".datapoint-browser-item.selected");
-    if (selectedColumn) {
+    if (scrollToSelection && selectedColumn) {
       selectedColumn.scrollIntoView({ block: "nearest" });
     }
   }
@@ -904,16 +950,29 @@
       return false;
     }
 
-    let selectedPath = [];
-    if (previousPointId) {
-      selectedPath = findPathToEntry(roots, previousPointId) || [];
+    let preservedPath = [];
+    try {
+      preservedPath = JSON.parse(browser.dataset.selectedPath || "[]");
+    } catch {
+      preservedPath = [];
     }
+
+    const previousPathJson = browser.dataset.selectedPath || "[]";
+    let selectedPath = resolveColumnBrowserPath(
+      roots,
+      select,
+      previousPointId,
+      preservedPath,
+    );
     if (!selectedPath.length && roots.length === 1) {
       selectedPath = [roots[0].id];
     }
 
-    browser.dataset.selectedPath = JSON.stringify(selectedPath);
-    renderColumnBrowser(browser, select, roots, selectedPath);
+    const newPathJson = JSON.stringify(selectedPath);
+    browser.dataset.selectedPath = newPathJson;
+    renderColumnBrowser(browser, select, roots, selectedPath, {
+      scrollToSelection: previousPathJson !== newPathJson,
+    });
     return true;
   }
 

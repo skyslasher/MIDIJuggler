@@ -247,10 +247,7 @@ function renderStatus(status) {
     loadLearnDatapoints();
   }
   if (learnMode) {
-    void refreshDeviceConfigCache().then(() => {
-      renderLearnDatapointSelects();
-      refreshMappingEditorSelects();
-    });
+    void refreshDeviceConfigCache().catch(() => null);
   }
   if (status.created_connection || status.created_mapping) {
     const created = status.created_connection || status.created_mapping;
@@ -303,7 +300,6 @@ function renderLearnState(learn) {
     return;
   }
 
-  renderLearnDatapointSelects();
   syncLearnRangeFieldsVisibility();
   syncLearnSourceFromServer(learn);
 
@@ -7078,6 +7074,8 @@ learnSourceDatapoint.addEventListener("change", () => {
   applyLearnDatapointRanges(learnSourceDatapoint.selectedOptions[0], "input");
   if (learnSourceDatapoint.value) {
     selectLearnSourceDatapoint(learnSourceDatapoint.value);
+  } else {
+    clearLearnSourceOnServer();
   }
 });
 
