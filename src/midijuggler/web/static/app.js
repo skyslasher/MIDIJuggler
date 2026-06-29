@@ -167,6 +167,7 @@ let cachedMidiLibraryList = [];
 let hidAdaptersConfig = null;
 let hidLearnInstanceName = "";
 let masterClockConfig = null;
+let masterBpmDirty = false;
 let tapPulseTimer = null;
 let midiAdaptersConfig = null;
 let oscAdaptersConfig = null;
@@ -275,6 +276,7 @@ function renderStatus(status) {
 
   if (status.master_clock) {
     const clock = status.master_clock;
+    syncMasterClockRuntimeState(clock);
     const params = clock.parameters || {};
     masterClock.replaceChildren();
     masterClock.append(
@@ -7204,6 +7206,7 @@ function renderMasterClockConfig(config) {
   masterEnabled.checked = Boolean(config.enabled);
   masterAutoStart.checked = Boolean(config.auto_start);
   masterSendTransport.checked = Boolean(config.send_transport);
+  masterBpmDirty = false;
   masterBpm.value = config.bpm;
   masterBpmMin.value = config.bpm_min;
   masterBpmMax.value = config.bpm_max;
@@ -7232,6 +7235,42 @@ function renderMasterClockConfig(config) {
   updateMasterClickDeviceHint(config);
 
   renderAdapterTargetList(masterOutputTargets, config.available_output_targets || []);
+}
+
+function syncMasterClockRuntimeState(clock) {
+  if (!clock || clock.bpm == null) {
+    return;
+  }
+  if (masterClockConfig) {
+    masterClockConfig = { ...masterClockConfig, bpm: clock.bpm };
+  }
+  if (!masterBpmDirty && masterBpm) {
+    masterBpm.value = clock.bpm;
+  }
+}
+
+function masterClockFormPayload() {
+  const bpm = masterBpmDirty
+    ? Number(masterBpm.value)
+    : Number(masterClockConfig?.bpm ?? masterBpm.value);
+  return {
+    name: masterName?.value.trim() || "Master clock",
+    enabled: masterEnabled.checked,
+    bpm,
+    bpm_min: Number(masterBpmMin.value),
+    bpm_max: Number(masterBpmMax.value),
+    auto_start: masterAutoStart.checked,
+    output_targets: selectedMasterOutputTargets(),
+    send_transport: masterSendTransport.checked,
+    click_enabled: masterClickEnabled.checked,
+    click_wav: masterClickWav.value,
+    click_interval: masterClickInterval.value,
+    tap_tempo_min_taps: Number(masterTapTempoMinTaps.value),
+    bpm_step: Number(masterBpmStep.value),
+    bpm_quantize: Number(masterBpmQuantize.value),
+    beat_flash_ms: Number(masterBeatFlashMs.value),
+    click_audio_device: masterClickDevice.value,
+  };
 }
 
 function renderAdapterTargetList(container, targets) {
@@ -7318,6 +7357,7 @@ function connect() {
       appendEvent(data.payload);
       if (data.payload.kind === "BpmChangedEvent") {
         bpm.textContent = data.payload.bpm.toFixed(1);
+        syncMasterClockRuntimeState({ bpm: data.payload.bpm });
       }
     }
   });
@@ -7668,24 +7708,7 @@ masterClockForm.addEventListener("submit", (event) => {
   fetch("/api/master-clock", {
     method: "POST",
     headers: { "content-type": "application/json" },
-    body: JSON.stringify({
-      name: masterName?.value.trim() || "Master clock",
-      enabled: masterEnabled.checked,
-      bpm: Number(masterBpm.value),
-      bpm_min: Number(masterBpmMin.value),
-      bpm_max: Number(masterBpmMax.value),
-      auto_start: masterAutoStart.checked,
-      output_targets: selectedMasterOutputTargets(),
-      send_transport: masterSendTransport.checked,
-      click_enabled: masterClickEnabled.checked,
-      click_wav: masterClickWav.value,
-      click_interval: masterClickInterval.value,
-      tap_tempo_min_taps: Number(masterTapTempoMinTaps.value),
-      bpm_step: Number(masterBpmStep.value),
-      bpm_quantize: Number(masterBpmQuantize.value),
-      beat_flash_ms: Number(masterBeatFlashMs.value),
-      click_audio_device: masterClickDevice.value,
-    }),
+    body: JSON.stringify(masterClockFormPayload()),
   })
     .then(async (response) => {
       if (!response.ok) {
@@ -7750,6 +7773,12 @@ loadOscAdaptersConfig();
 loadWingNativeAdaptersConfig();
 loadHidAdaptersConfig();
 fetch("/api/gpio").then((response) => response.json()).then(renderGpioConfig);
+masterBpm?.addEventListener("input", () => {
+  masterBpmDirty = true;
+});
+masterBpm?.addEventListener("change", () => {
+  masterBpmDirty = true;
+});
 fetch("/api/master-clock").then((response) => response.json()).then(renderMasterClockConfig);
 fetch("/api/osc-libraries").then((response) => response.json()).then(renderOscLibraries);
 fetch("/api/midi-libraries").then((response) => response.json()).then(renderMidiLibraries);

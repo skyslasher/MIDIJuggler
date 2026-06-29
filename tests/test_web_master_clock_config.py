@@ -128,6 +128,28 @@ def test_master_clock_config_payload_includes_beat_flash_and_name() -> None:
     assert payload["beat_flash_ms"] == pytest.approx(80.0)
 
 
+def test_master_clock_config_payload_uses_live_bpm() -> None:
+    config = parse_config({"master_clock": {"enabled": True, "bpm": 120.0}})
+    master_clock = MasterClock(config.master_clock, EventBus())
+
+    async def scenario() -> None:
+        await master_clock.set_bpm(140.0)
+
+    asyncio.run(scenario())
+
+    interface = WebInterface(
+        config,
+        EventBus(),
+        ClockBpmTracker(),
+        master_clock,
+    )
+
+    payload = interface.master_clock_config_payload()
+
+    assert payload["bpm"] == pytest.approx(140.0)
+    assert master_clock.config.bpm == pytest.approx(140.0)
+
+
 def test_apply_master_clock_config_persists_name_and_beat_flash_ms(tmp_path: Path) -> None:
     config_file = tmp_path / "config.toml"
     config_file.write_text(

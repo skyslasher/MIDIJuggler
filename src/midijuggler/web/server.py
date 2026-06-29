@@ -3392,7 +3392,7 @@ class WebInterface:
         selected_outputs = set(config.output_targets)
         return {
             "enabled": config.enabled,
-            "bpm": config.bpm,
+            "bpm": self.master_clock.bpm,
             "bpm_min": config.bpm_min,
             "bpm_max": config.bpm_max,
             "auto_start": config.auto_start,
