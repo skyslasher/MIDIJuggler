@@ -107,3 +107,38 @@ def test_service_registers_device_datapoints_for_disabled_midi_adapter() -> None
         entry["id"] == "device_xtouch.layer_a_encoder_1_turn"
         for entry in specs
     )
+
+
+def test_service_registers_osc_custom_datapoints_for_disabled_adapter() -> None:
+    config = parse_config(
+        {
+            "adapters": {
+                "osc_custom": {
+                    "type": "osc",
+                    "enabled": False,
+                    "host": "127.0.0.1",
+                    "port": 10023,
+                },
+            },
+            "devices": [
+                {
+                    "uid": "desk_custom",
+                    "name": "Custom OSC Desk",
+                    "adapter": "osc_custom",
+                    "library_kind": "osc",
+                    "custom_points": [
+                        {"id": "/custom/fader", "direction": "bidirectional"},
+                    ],
+                }
+            ],
+        }
+    )
+    service = MIDIJugglerService(config)
+
+    async def scenario() -> None:
+        await service.module_registry.start_all()
+        await service.web.refresh_all_device_datapoints()
+
+    asyncio.run(scenario())
+    specs = service.datapoint_store.registry_snapshot()
+    assert any(entry["id"] == "desk_custom./custom/fader" for entry in specs)

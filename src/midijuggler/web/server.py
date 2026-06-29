@@ -2418,21 +2418,15 @@ class WebInterface:
     async def _refresh_osc_datapoints(self, name: str) -> None:
         if self.datapoint_store is None:
             return
-        adapter = self.osc_adapters.get(name)
-        if adapter is None or not adapter.config.enabled:
-            await self._clear_osc_datapoints(name)
-            return
-
         device = self.device_registry.device_for_adapter(name)
-        if device is None:
+        adapter_config = self.config.adapters.get(name)
+        if device is None or adapter_config is None:
             await self._clear_osc_datapoints(name)
             return
 
-        module = None
-        if self._osc_io_modules is not None:
-            existing = self._osc_io_modules.get(name)
-            if existing is not None and existing.running:
-                await existing.stop()
+        adapter = self.osc_adapters.get(name)
+        if adapter is None:
+            adapter = OscAdapter(name=name, config=adapter_config, bus=self.bus)
 
         module = OscIOModule(
             adapter,
@@ -2441,10 +2435,24 @@ class WebInterface:
             self.config,
             self.device_registry,
         )
+        specs = module.datapoints()
+        keep = {str(spec.id) for spec in specs}
+        self.datapoint_store.unregister_module_except(device.uid, keep)
+        self.datapoint_store.register_many(specs)
+
+        if not adapter_config.enabled:
+            if self._osc_io_modules is not None:
+                existing = self._osc_io_modules.pop(name, None)
+                if existing is not None and existing.running:
+                    await existing.stop()
+            return
+
         if self._osc_io_modules is not None:
+            existing = self._osc_io_modules.get(name)
+            if existing is not None and existing.running:
+                await existing.stop()
             self._osc_io_modules[name] = module
 
-        self.datapoint_store.unregister_module_except(device.uid, set())
         await module.start()
 
     async def _clear_wing_native_datapoints(self, name: str) -> None:
@@ -2460,20 +2468,15 @@ class WebInterface:
     async def _refresh_wing_native_datapoints(self, name: str) -> None:
         if self.datapoint_store is None:
             return
-        adapter = self.wing_native_adapters.get(name)
-        if adapter is None or not adapter.config.enabled:
-            await self._clear_wing_native_datapoints(name)
-            return
-
         device = self.device_registry.device_for_adapter(name)
-        if device is None:
+        adapter_config = self.config.adapters.get(name)
+        if device is None or adapter_config is None:
             await self._clear_wing_native_datapoints(name)
             return
 
-        if self._osc_io_modules is not None:
-            existing = self._osc_io_modules.get(name)
-            if existing is not None and existing.running:
-                await existing.stop()
+        adapter = self.wing_native_adapters.get(name)
+        if adapter is None:
+            adapter = WingNativeAdapter(name=name, config=adapter_config, bus=self.bus)
 
         module = WingNativeIOModule(
             adapter,
@@ -2482,10 +2485,24 @@ class WebInterface:
             self.config,
             self.device_registry,
         )
+        specs = module.datapoints()
+        keep = {str(spec.id) for spec in specs}
+        self.datapoint_store.unregister_module_except(device.uid, keep)
+        self.datapoint_store.register_many(specs)
+
+        if not adapter_config.enabled:
+            if self._osc_io_modules is not None:
+                existing = self._osc_io_modules.pop(name, None)
+                if existing is not None and existing.running:
+                    await existing.stop()
+            return
+
         if self._osc_io_modules is not None:
+            existing = self._osc_io_modules.get(name)
+            if existing is not None and existing.running:
+                await existing.stop()
             self._osc_io_modules[name] = module
 
-        self.datapoint_store.unregister_module_except(device.uid, set())
         await module.start()
 
     async def apply_hid_adapters_config(self, payload: dict[str, Any]) -> dict[str, Any]:
