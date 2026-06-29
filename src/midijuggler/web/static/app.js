@@ -6010,8 +6010,8 @@ function validateAdapterInstanceName(name) {
   if (!trimmed) {
     return "instance name is required";
   }
-  if (trimmed.includes(":") || /\s/.test(trimmed)) {
-    return "instance name cannot contain ':' or whitespace";
+  if (trimmed.includes(":")) {
+    return "instance name cannot contain ':'";
   }
   return "";
 }
