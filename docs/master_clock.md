@@ -53,6 +53,22 @@ modifier = "passthrough"
 Available clock inputs include `clock.bpm_set`, `clock.bpm_up`,
 `clock.bpm_down`, `clock.start`, and `clock.stop`.
 
+Available clock outputs include `clock.beat`, a short 0/1 flash aligned with
+`click_interval` (quarter, eighth, half, whole). Connect it to a controller
+feedback target for a visible beat indicator:
+
+```toml
+[[connections]]
+id = "clock-beat-to-xtouch-led"
+source = "clock.beat"
+target = "xtouch_mini.layer_a_top_button_8_led"
+modifier = "passthrough"
+```
+
+`clock.beat` pulses to `1.0` on each beat and returns to `0.0` after about
+120 ms. The audio click can stay disabled; beat output follows the same timing
+as `ClickEvent`.
+
 ## Legacy remote control
 
 When `runtime.datapoint_routing = false`, the older TOML fields still work:

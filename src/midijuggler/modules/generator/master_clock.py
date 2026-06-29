@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+import contextlib
 
 from midijuggler.datapoint.store import DataPointStore
 from midijuggler.datapoint.types import (
@@ -28,6 +29,7 @@ from midijuggler.modules.base import GeneratorModule
 
 CLOCK_MODULE = "clock"
 BPM_EPSILON = 1e-6
+BEAT_FLASH_DURATION_SECONDS = 0.12
 CLOCK_MIDI_OUTPUT_POINTS = {
     MIDI_TIMING_CLOCK: "midi_tick",
     MIDI_START: "midi_start",
@@ -46,6 +48,7 @@ class MasterClockGenerator(GeneratorModule):
         self._start_stop_pressed = False
         self._bpm_up_pressed = False
         self._bpm_down_pressed = False
+        self._beat_off_task: asyncio.Task[None] | None = None
 
     def datapoints(self) -> list[DataPointSpec]:
         return [
@@ -173,6 +176,16 @@ class MasterClockGenerator(GeneratorModule):
                 protocol="clock",
                 category="timing",
             ),
+            DataPointSpec(
+                id=DataPointId(CLOCK_MODULE, "beat"),
+                value_type=ValueType.FLOAT,
+                direction=DataPointDirection.INPUT,
+                label="Beat flash pulse",
+                value_min=0.0,
+                value_max=1.0,
+                protocol="clock",
+                category="timing",
+            ),
         ]
 
     async def start(self) -> None:
@@ -193,6 +206,8 @@ class MasterClockGenerator(GeneratorModule):
         await self._publish_outputs()
 
     async def stop(self) -> None:
+        await self._cancel_beat_off()
+        await self.store.write(float_value(DataPointId(CLOCK_MODULE, "beat"), 0.0))
         await super().stop()
 
     async def _on_input(self, value: DataPointValue) -> None:
@@ -314,6 +329,29 @@ class MasterClockGenerator(GeneratorModule):
         await self.store.write(
             midi_message_value(DataPointId(CLOCK_MODULE, point), status & 0xFF)
         )
+
+    async def publish_beat(self) -> None:
+        await self._cancel_beat_off()
+        await self.store.write(float_value(DataPointId(CLOCK_MODULE, "beat"), 1.0))
+        self._beat_off_task = asyncio.create_task(
+            self._clear_beat_flash(),
+            name="clock-beat-off",
+        )
+
+    async def _clear_beat_flash(self) -> None:
+        try:
+            await asyncio.sleep(BEAT_FLASH_DURATION_SECONDS)
+            await self.store.write(float_value(DataPointId(CLOCK_MODULE, "beat"), 0.0))
+        finally:
+            self._beat_off_task = None
+
+    async def _cancel_beat_off(self) -> None:
+        if self._beat_off_task is None:
+            return
+        self._beat_off_task.cancel()
+        with contextlib.suppress(asyncio.CancelledError):
+            await self._beat_off_task
+        self._beat_off_task = None
 
     async def _publish_outputs(self) -> None:
         await self.store.write(

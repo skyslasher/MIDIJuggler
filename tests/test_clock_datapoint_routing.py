@@ -240,7 +240,7 @@ def test_master_clock_datapoint_directions_match_connection_roles() -> None:
     clock = MasterClock(parse_config({}).master_clock, EventBus())
     specs = {str(spec.id): spec for spec in MasterClockGenerator(clock, store).datapoints()}
 
-    for point in ("bpm", "running", "midi_tick", "quarter_ms", "eighth_ms"):
+    for point in ("bpm", "running", "midi_tick", "quarter_ms", "eighth_ms", "beat"):
         assert specs[f"clock.{point}"].direction.value == "input"
 
     for point in ("bpm_set", "bpm_up", "bpm_down", "start", "stop", "start_stop", "tap_tempo"):
@@ -545,3 +545,100 @@ def test_tap_tempo_while_running_preserves_transport_position() -> None:
         assert master_clock.bpm == pytest.approx(120.5)
 
     asyncio.run(scenario())
+
+
+def test_clock_beat_pulses_on_click_interval() -> None:
+    from midijuggler.modules.generator.master_clock import BEAT_FLASH_DURATION_SECONDS
+
+    config = parse_config({"master_clock": {"enabled": True, "click_interval": "quarter"}})
+    store = DataPointStore()
+    master_clock = MasterClock(config.master_clock, EventBus())
+    clock_gen = MasterClockGenerator(master_clock, store)
+    store.register_many(clock_gen.datapoints())
+    received: list[float | None] = []
+
+    async def handler(value: DataPointValue) -> None:
+        received.append(value.float_value)
+
+    store.subscribe("clock.beat", handler)
+
+    async def scenario() -> None:
+        master_clock.bind_datapoint_sink(clock_gen)
+        await clock_gen.start()
+        await master_clock.emit_tick()
+        assert store.float_value("clock.beat") == 1.0
+        await asyncio.sleep(BEAT_FLASH_DURATION_SECONDS + 0.02)
+        assert store.float_value("clock.beat") == 0.0
+
+    asyncio.run(scenario())
+
+    assert received == [1.0, 0.0]
+
+
+def test_clock_beat_publishes_without_audio_click() -> None:
+    config = parse_config(
+        {
+            "master_clock": {
+                "enabled": True,
+                "click_enabled": False,
+                "click_interval": "quarter",
+            }
+        }
+    )
+    store = DataPointStore()
+    master_clock = MasterClock(config.master_clock, EventBus())
+    clock_gen = MasterClockGenerator(master_clock, store)
+    store.register_many(clock_gen.datapoints())
+
+    async def scenario() -> None:
+        master_clock.bind_datapoint_sink(clock_gen)
+        await clock_gen.start()
+        await master_clock.emit_tick()
+        assert store.float_value("clock.beat") == 1.0
+
+    asyncio.run(scenario())
+
+
+def test_clock_beat_routes_to_led_via_passthrough() -> None:
+    from midijuggler.modules.generator.master_clock import BEAT_FLASH_DURATION_SECONDS
+
+    store = DataPointStore()
+    master_clock = MasterClock(parse_config({}).master_clock, EventBus())
+    clock_gen = MasterClockGenerator(master_clock, store)
+    store.register_many(clock_gen.datapoints())
+    store.register(
+        DataPointSpec(
+            id=DataPointId("xtouch", "layer_a_top_button_1_led"),
+            value_type=ValueType.FLOAT,
+            direction=DataPointDirection.INPUT,
+            protocol="midi",
+        )
+    )
+    graph = ModifierGraph(
+        store,
+        [
+            ConnectionSpec(
+                id="beat-to-led",
+                source="clock.beat",
+                target="xtouch.layer_a_top_button_1_led",
+                modifier=ModifierKind.PASSTHROUGH,
+            )
+        ],
+    )
+    received: list[float | None] = []
+
+    async def handler(value: DataPointValue) -> None:
+        received.append(value.float_value)
+
+    store.subscribe("xtouch.layer_a_top_button_1_led", handler)
+
+    async def scenario() -> None:
+        master_clock.bind_datapoint_sink(clock_gen)
+        await clock_gen.start()
+        await graph.start()
+        await master_clock.emit_tick()
+        await asyncio.sleep(BEAT_FLASH_DURATION_SECONDS + 0.02)
+
+    asyncio.run(scenario())
+
+    assert received == [1.0, 0.0]

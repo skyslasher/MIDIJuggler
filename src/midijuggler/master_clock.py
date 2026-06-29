@@ -36,6 +36,8 @@ MIDI_STOP = 0xFC
 class ClockDatapointSink(Protocol):
     async def publish_midi_message(self, status: int) -> None: ...
 
+    async def publish_beat(self) -> None: ...
+
 
 CLICK_INTERVAL_TICKS = {
     "eighth": MIDI_CLOCK_TICKS_PER_QUARTER // 2,
@@ -433,6 +435,8 @@ class MasterClock:
         self.position_ticks += 1
 
     async def _emit_click(self) -> None:
+        if self._datapoint_sink is not None:
+            await self._datapoint_sink.publish_beat()
         if self.config.click_enabled:
             self._trigger_click()
         position_ticks = self.position_ticks
