@@ -48,3 +48,54 @@ if (!path || path.length < 3) {{
 }}
 """
     subprocess.run(["node", "-e", script], check=True, cwd=ROOT)
+
+
+@pytest.mark.skipif(shutil.which("node") is None, reason="node not installed")
+def test_datapoint_browser_builds_midi_channel_facets() -> None:
+    script = f"""
+global.window = {{}};
+eval({json.dumps(BROWSER_JS.read_text(encoding="utf-8"))});
+const browser = global.window.MidiJugglerDatapointBrowser;
+const entries = [
+  {{ id: "1", point: "ch_1_fader", label: "Channel 1 Fader", category: "channel" }},
+  {{ id: "2", point: "ch_1_mute", label: "Channel 1 Mute", category: "channel" }},
+  {{ id: "3", point: "ch_1_solo", label: "Channel 1 Solo", category: "channel" }},
+  {{ id: "4", point: "ch_2_fader", label: "Channel 2 Fader", category: "channel" }},
+  {{ id: "5", point: "ch_2_mute", label: "Channel 2 Mute", category: "channel" }},
+  {{ id: "6", point: "ch_2_pan_encoder", label: "Channel 2 Pan Encoder", category: "channel" }},
+  {{ id: "7", point: "transport_play", label: "Transport Play", category: "transport" }},
+  {{ id: "8", point: "transport_stop", label: "Transport Stop", category: "transport" }},
+];
+const roots = browser.buildMidiFacetRoots(entries);
+if (roots.length < 2) {{
+  throw new Error(`expected channel and transport facets, got ${{roots.map((root) => root.label).join(", ")}}`);
+}}
+const path = (function findPath(nodes, entryId, path = []) {{
+  for (const node of nodes) {{
+    const nextPath = [...path, node.id];
+    if (node.entry?.id === entryId) return nextPath;
+    if (node.children) {{
+      const found = findPath(node.children, entryId, nextPath);
+      if (found) return found;
+    }}
+  }}
+  return null;
+}})(roots, "1");
+if (!path || path.length < 3) {{
+  throw new Error(`expected channel -> fader path, got ${{JSON.stringify(path)}}`);
+}}
+const channelNode = (function findNode(nodes, nodeId) {{
+  for (const node of nodes) {{
+    if (node.id === nodeId) return node;
+    if (node.children) {{
+      const found = findNode(node.children, nodeId);
+      if (found) return found;
+    }}
+  }}
+  return null;
+}})(roots, path[1]);
+if (!channelNode || channelNode.label !== "Channel 1") {{
+  throw new Error(`expected Channel 1 branch, got ${{channelNode?.label}}`);
+}}
+"""
+    subprocess.run(["node", "-e", script], check=True, cwd=ROOT)

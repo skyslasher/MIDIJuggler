@@ -2391,14 +2391,16 @@ class WebInterface:
     def _refresh_hid_datapoints(self, name: str) -> None:
         if self.datapoint_store is None:
             return
+        device = self.device_registry.device_for_adapter(name)
+        adapter_config = self.config.adapters.get(name)
+        if device is None or adapter_config is None:
+            self.datapoint_store.unregister_module_except(name, set())
+            return
+
         adapter = self.hid_adapters.get(name)
         if adapter is None:
-            self.datapoint_store.unregister_module_except(name, set())
-            return
-        device = self.device_registry.device_for_adapter(name)
-        if device is None:
-            self.datapoint_store.unregister_module_except(name, set())
-            return
+            adapter = HidAdapter(name=name, config=adapter_config, bus=self.bus)
+
         module = HidIOModule(adapter, device, self.datapoint_store, self.device_registry)
         specs = module.datapoints()
         keep = {str(spec.id) for spec in specs}

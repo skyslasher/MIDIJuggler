@@ -2,12 +2,23 @@ import asyncio
 
 import pytest
 
+from midijuggler.adapters.hid import EV_KEY
 from midijuggler.config import parse_config
 from midijuggler.eventbus import EventBus
 from midijuggler.events import ControlEvent
 from midijuggler.service import MIDIJugglerService
 
-from conftest import gpio_device, midi_device
+from conftest import gpio_device, hid_device, midi_device
+
+
+@pytest.fixture
+def fake_evdev_codes(monkeypatch: pytest.MonkeyPatch) -> None:
+    def resolve(name: str) -> tuple[int, int]:
+        if str(name).strip().upper() == "BTN_A":
+            return EV_KEY, 304
+        raise ValueError(f"unknown evdev code: {name!r}")
+
+    monkeypatch.setattr("midijuggler.adapters.hid.resolve_evdev_code", resolve)
 
 
 def test_service_routes_through_datapoint_store(
@@ -142,3 +153,28 @@ def test_service_registers_osc_custom_datapoints_for_disabled_adapter() -> None:
     asyncio.run(scenario())
     specs = service.datapoint_store.registry_snapshot()
     assert any(entry["id"] == "desk_custom./custom/fader" for entry in specs)
+
+
+def test_service_registers_hid_datapoints_for_disabled_adapter(fake_evdev_codes: None) -> None:
+    config = parse_config(
+        {
+            "adapters": {
+                "gamepad": {
+                    "type": "hid",
+                    "enabled": False,
+                    "device": "/dev/input/event0",
+                    "codes": ["BTN_A"],
+                },
+            },
+            "devices": [hid_device("gamepad")],
+        }
+    )
+    service = MIDIJugglerService(config)
+
+    async def scenario() -> None:
+        await service.module_registry.start_all()
+        await service.web.refresh_all_device_datapoints()
+
+    asyncio.run(scenario())
+    specs = service.datapoint_store.registry_snapshot()
+    assert any(entry["id"] == "gamepad.btn_a" for entry in specs)

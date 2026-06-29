@@ -62,6 +62,22 @@
     dly: "delay_tap",
   };
 
+  const MIDI_CONTROL_LABELS = {
+    fader: "Fader",
+    mute: "Mute",
+    solo: "Solo",
+    select: "Select",
+    pan_encoder: "Pan Encoder",
+    record_arm: "Record Arm",
+    lcd_track_name: "LCD Track Name",
+    rewind: "Rewind",
+    fast_forward: "Fast Forward",
+    stop: "Stop",
+    play: "Play",
+    record: "Record",
+    loop: "Loop",
+  };
+
   function controlLabel(control) {
     return OSC_CONTROL_LABELS[control] || control.replace(/_/g, " ");
   }
@@ -79,6 +95,61 @@
       numeric: true,
       sensitivity: "base",
     });
+  }
+
+  function midiControlLabel(control) {
+    return MIDI_CONTROL_LABELS[control] || control.replace(/_/g, " ");
+  }
+
+  function parseMidiLibraryPath(point, label) {
+    if (point) {
+      const channelMatch = point.match(/^ch_(\d+)_(.+)$/);
+      if (channelMatch) {
+        const scopeNum = Number.parseInt(channelMatch[1], 10);
+        const control = channelMatch[2];
+        if (Number.isFinite(scopeNum) && control) {
+          return {
+            scope: "channel",
+            scopeNum,
+            control,
+            controlLabel: midiControlLabel(control),
+          };
+        }
+      }
+      const transportMatch = point.match(/^transport_(.+)$/);
+      if (transportMatch?.[1]) {
+        const control = transportMatch[1];
+        return {
+          scope: "transport",
+          control,
+          controlLabel: midiControlLabel(control),
+        };
+      }
+    }
+
+    const labelMatch = String(label || "").match(/^Channel (\d+) (.+)$/i);
+    if (labelMatch) {
+      const scopeNum = Number.parseInt(labelMatch[1], 10);
+      const controlLabel = labelMatch[2].trim();
+      if (Number.isFinite(scopeNum) && controlLabel) {
+        const control = controlLabel.toLowerCase().replace(/\s+/g, "_");
+        return {
+          scope: "channel",
+          scopeNum,
+          control,
+          controlLabel,
+        };
+      }
+    }
+    return null;
+  }
+
+  function enrichMidiEntry(entry) {
+    const parsed = parseMidiLibraryPath(entry.point, entry.label);
+    if (!parsed) {
+      return null;
+    }
+    return { ...parsed, entry };
   }
 
   function parseOscTargetPath(point, category) {
@@ -576,6 +647,46 @@
     return facets;
   }
 
+  function buildMidiChannelFacet(items) {
+    const channelItems = items.filter((item) => item.scope === "channel");
+    if (!channelItems.length) {
+      return null;
+    }
+    const children = buildScopeNumberLeaves(
+      channelItems,
+      "facet:midi:channel",
+      (scopeNum) => `Channel ${scopeNum}`,
+    );
+    return makeBranch("facet:midi:channel", "Channels", children, "Channels");
+  }
+
+  function buildMidiTransportFacet(items) {
+    const transportItems = items.filter((item) => item.scope === "transport");
+    if (!transportItems.length) {
+      return null;
+    }
+    const children = transportItems
+      .sort((left, right) => compareLabels(left.controlLabel, right.controlLabel))
+      .map((item) =>
+        makeLeaf(
+          `facet:midi:transport:${item.control}`,
+          item.controlLabel,
+          item.entry,
+          item.controlLabel,
+        ),
+      );
+    return makeBranch("facet:midi:transport", "Transport", children, "Transport");
+  }
+
+  function buildMidiFacetRoots(entries) {
+    const parsed = entries.map(enrichMidiEntry).filter(Boolean);
+    if (parsed.length < 8) {
+      return [];
+    }
+    const facets = [buildMidiChannelFacet(parsed), buildMidiTransportFacet(parsed)].filter(Boolean);
+    return facets;
+  }
+
   function buildCategoryFacetRoots(entries, categoryLabels, categoryOrder, categoryKeyFn) {
     const groups = new Map();
     for (const entry of entries) {
@@ -662,8 +773,10 @@
     if (!entries.length) {
       return false;
     }
-    const parsedCount = entries.map(enrichOscEntry).filter(Boolean).length;
-    if (parsedCount >= 8) {
+    const structuredCount = entries.filter(
+      (entry) => enrichOscEntry(entry) || enrichMidiEntry(entry),
+    ).length;
+    if (structuredCount >= 8) {
       return true;
     }
     return entries.length > threshold;
@@ -778,10 +891,13 @@
     select.classList.add("datapoint-select-companion");
 
     const oscRoots = buildOscFacetRoots(filtered);
+    const midiRoots = oscRoots.length > 0 ? [] : buildMidiFacetRoots(filtered);
     const roots =
       oscRoots.length > 0
         ? oscRoots
-        : buildCategoryFacetRoots(filtered, categoryLabels, categoryOrder, categoryKeyFn);
+        : midiRoots.length > 0
+          ? midiRoots
+          : buildCategoryFacetRoots(filtered, categoryLabels, categoryOrder, categoryKeyFn);
 
     if (!roots.length) {
       teardownColumnBrowser(select);
@@ -803,8 +919,11 @@
 
   window.MidiJugglerDatapointBrowser = {
     parseOscTargetPath,
+    parseMidiLibraryPath,
     enrichOscEntry,
+    enrichMidiEntry,
     buildOscFacetRoots,
+    buildMidiFacetRoots,
     shouldUseColumnBrowser,
     syncColumnBrowser,
     teardownColumnBrowser,
