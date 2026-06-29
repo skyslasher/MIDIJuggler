@@ -1,0 +1,706 @@
+[library]
+id = "behringer_wing"
+name = "Behringer Wing MIDI Remote"
+vendor = "Behringer"
+model = "Wing"
+notes = "WING Port 4 MIDI remote-control mapping from the official WING MIDI documentation. Faders use MIDI channel 1, mutes channel 2, pan channel 3. Input channel faders cover channels 1-40 (CC 12-31 and 44-63). DCA faders use channel 4, DCA and mute-group mutes use channel 5. FX slots 1-8 use MIDI channels 9-16 with CC 12-58; FX slots 9-16 use the same MIDI channels with CC 70-110. Values are 7-bit (0-127)."
+
+[[templates]]
+id = "ch_{channel}_fdr"
+label = "Channel {channel} Fader"
+address = "wing-midi://ch/{channel}/fdr"
+range_name = "channel"
+range_start = 1
+range_end = 20
+derived = [
+  { name = "cc_number", source = "channel", offset = 11 },
+]
+message_type = "control_change"
+value_type = "int"
+value_min = 0
+value_max = 127
+category = "channel"
+direction = "target"
+midi_channel = 1
+number = "{cc_number}"
+description = "Channel {channel} fader on Wing MIDI channel 1, CC {cc_number}."
+
+[[templates]]
+id = "ch_{channel}_fdr"
+label = "Channel {channel} Fader"
+address = "wing-midi://ch/{channel}/fdr"
+range_name = "channel"
+range_start = 21
+range_end = 40
+derived = [
+  { name = "cc_number", source = "channel", offset = 23 },
+]
+message_type = "control_change"
+value_type = "int"
+value_min = 0
+value_max = 127
+category = "channel"
+direction = "target"
+midi_channel = 1
+number = "{cc_number}"
+description = "Channel {channel} fader on Wing MIDI channel 1, CC {cc_number}."
+
+[[templates]]
+id = "ch_{channel}_mute"
+label = "Channel {channel} Mute"
+address = "wing-midi://ch/{channel}/mute"
+range_name = "channel"
+range_start = 1
+range_end = 20
+derived = [
+  { name = "cc_number", source = "channel", offset = 11 },
+]
+message_type = "control_change"
+value_type = "int"
+value_min = 0
+value_max = 127
+category = "channel"
+direction = "target"
+midi_channel = 2
+number = "{cc_number}"
+description = "Channel {channel} mute on Wing MIDI channel 2, CC {cc_number}."
+
+[[templates]]
+id = "ch_{channel}_mute"
+label = "Channel {channel} Mute"
+address = "wing-midi://ch/{channel}/mute"
+range_name = "channel"
+range_start = 21
+range_end = 40
+derived = [
+  { name = "cc_number", source = "channel", offset = 23 },
+]
+message_type = "control_change"
+value_type = "int"
+value_min = 0
+value_max = 127
+category = "channel"
+direction = "target"
+midi_channel = 2
+number = "{cc_number}"
+description = "Channel {channel} mute on Wing MIDI channel 2, CC {cc_number}."
+
+[[templates]]
+id = "ch_{channel}_pan"
+label = "Channel {channel} Pan"
+address = "wing-midi://ch/{channel}/pan"
+range_name = "channel"
+range_start = 1
+range_end = 20
+derived = [
+  { name = "cc_number", source = "channel", offset = 11 },
+]
+message_type = "control_change"
+value_type = "int"
+value_min = 0
+value_max = 127
+category = "channel"
+direction = "target"
+midi_channel = 3
+number = "{cc_number}"
+description = "Channel {channel} pan on Wing MIDI channel 3, CC {cc_number}."
+
+[[templates]]
+id = "ch_{channel}_pan"
+label = "Channel {channel} Pan"
+address = "wing-midi://ch/{channel}/pan"
+range_name = "channel"
+range_start = 21
+range_end = 40
+derived = [
+  { name = "cc_number", source = "channel", offset = 23 },
+]
+message_type = "control_change"
+value_type = "int"
+value_min = 0
+value_max = 127
+category = "channel"
+direction = "target"
+midi_channel = 3
+number = "{cc_number}"
+description = "Channel {channel} pan on Wing MIDI channel 3, CC {cc_number}."
+
+[[templates]]
+id = "aux_{aux}_fdr"
+label = "Aux {aux} Fader"
+address = "wing-midi://aux/{aux}/fdr"
+range_name = "aux"
+range_start = 1
+range_end = 8
+derived = [
+  { name = "cc_number", source = "aux", offset = 69 },
+]
+message_type = "control_change"
+value_type = "int"
+value_min = 0
+value_max = 127
+category = "aux"
+direction = "target"
+midi_channel = 1
+number = "{cc_number}"
+description = "Aux {aux} fader on Wing MIDI channel 1, CC {cc_number}."
+
+[[templates]]
+id = "aux_{aux}_mute"
+label = "Aux {aux} Mute"
+address = "wing-midi://aux/{aux}/mute"
+range_name = "aux"
+range_start = 1
+range_end = 8
+derived = [
+  { name = "cc_number", source = "aux", offset = 69 },
+]
+message_type = "control_change"
+value_type = "int"
+value_min = 0
+value_max = 127
+category = "aux"
+direction = "target"
+midi_channel = 2
+number = "{cc_number}"
+description = "Aux {aux} mute on Wing MIDI channel 2, CC {cc_number}."
+
+[[templates]]
+id = "aux_{aux}_pan"
+label = "Aux {aux} Pan"
+address = "wing-midi://aux/{aux}/pan"
+range_name = "aux"
+range_start = 1
+range_end = 8
+derived = [
+  { name = "cc_number", source = "aux", offset = 69 },
+]
+message_type = "control_change"
+value_type = "int"
+value_min = 0
+value_max = 127
+category = "aux"
+direction = "target"
+midi_channel = 3
+number = "{cc_number}"
+description = "Aux {aux} pan on Wing MIDI channel 3, CC {cc_number}."
+
+[[templates]]
+id = "bus_{bus}_fdr"
+label = "Bus {bus} Fader"
+address = "wing-midi://bus/{bus}/fdr"
+range_name = "bus"
+range_start = 1
+range_end = 16
+derived = [
+  { name = "cc_number", source = "bus", offset = 77 },
+]
+message_type = "control_change"
+value_type = "int"
+value_min = 0
+value_max = 127
+category = "bus"
+direction = "target"
+midi_channel = 1
+number = "{cc_number}"
+description = "Bus {bus} fader on Wing MIDI channel 1, CC {cc_number}."
+
+[[templates]]
+id = "bus_{bus}_mute"
+label = "Bus {bus} Mute"
+address = "wing-midi://bus/{bus}/mute"
+range_name = "bus"
+range_start = 1
+range_end = 16
+derived = [
+  { name = "cc_number", source = "bus", offset = 77 },
+]
+message_type = "control_change"
+value_type = "int"
+value_min = 0
+value_max = 127
+category = "bus"
+direction = "target"
+midi_channel = 2
+number = "{cc_number}"
+description = "Bus {bus} mute on Wing MIDI channel 2, CC {cc_number}."
+
+[[templates]]
+id = "bus_{bus}_pan"
+label = "Bus {bus} Pan"
+address = "wing-midi://bus/{bus}/pan"
+range_name = "bus"
+range_start = 1
+range_end = 16
+derived = [
+  { name = "cc_number", source = "bus", offset = 77 },
+]
+message_type = "control_change"
+value_type = "int"
+value_min = 0
+value_max = 127
+category = "bus"
+direction = "target"
+midi_channel = 3
+number = "{cc_number}"
+description = "Bus {bus} pan on Wing MIDI channel 3, CC {cc_number}."
+
+[[templates]]
+id = "mtx_{matrix}_fdr"
+label = "Matrix {matrix} Fader"
+address = "wing-midi://mtx/{matrix}/fdr"
+range_name = "matrix"
+range_start = 1
+range_end = 8
+derived = [
+  { name = "cc_number", source = "matrix", offset = 103 },
+]
+message_type = "control_change"
+value_type = "int"
+value_min = 0
+value_max = 127
+category = "matrix"
+direction = "target"
+midi_channel = 1
+number = "{cc_number}"
+description = "Matrix {matrix} fader on Wing MIDI channel 1, CC {cc_number}."
+
+[[templates]]
+id = "mtx_{matrix}_mute"
+label = "Matrix {matrix} Mute"
+address = "wing-midi://mtx/{matrix}/mute"
+range_name = "matrix"
+range_start = 1
+range_end = 8
+derived = [
+  { name = "cc_number", source = "matrix", offset = 103 },
+]
+message_type = "control_change"
+value_type = "int"
+value_min = 0
+value_max = 127
+category = "matrix"
+direction = "target"
+midi_channel = 2
+number = "{cc_number}"
+description = "Matrix {matrix} mute on Wing MIDI channel 2, CC {cc_number}."
+
+[[templates]]
+id = "mtx_{matrix}_pan"
+label = "Matrix {matrix} Pan"
+address = "wing-midi://mtx/{matrix}/pan"
+range_name = "matrix"
+range_start = 1
+range_end = 8
+derived = [
+  { name = "cc_number", source = "matrix", offset = 103 },
+]
+message_type = "control_change"
+value_type = "int"
+value_min = 0
+value_max = 127
+category = "matrix"
+direction = "target"
+midi_channel = 3
+number = "{cc_number}"
+description = "Matrix {matrix} pan on Wing MIDI channel 3, CC {cc_number}."
+
+[[templates]]
+id = "dca_{dca}_fdr"
+label = "DCA {dca} Fader"
+address = "wing-midi://dca/{dca}/fdr"
+range_name = "dca"
+range_start = 1
+range_end = 16
+derived = [
+  { name = "cc_number", source = "dca", offset = 11 },
+]
+message_type = "control_change"
+value_type = "int"
+value_min = 0
+value_max = 127
+category = "dca"
+direction = "target"
+midi_channel = 4
+number = "{cc_number}"
+description = "DCA {dca} fader on Wing MIDI channel 4, CC {cc_number}."
+
+[[templates]]
+id = "dca_{dca}_mute"
+label = "DCA {dca} Mute"
+address = "wing-midi://dca/{dca}/mute"
+range_name = "dca"
+range_start = 1
+range_end = 16
+derived = [
+  { name = "cc_number", source = "dca", offset = 11 },
+]
+message_type = "control_change"
+value_type = "int"
+value_min = 0
+value_max = 127
+category = "dca"
+direction = "target"
+midi_channel = 5
+number = "{cc_number}"
+description = "DCA {dca} mute on Wing MIDI channel 5, CC {cc_number}."
+
+[[templates]]
+id = "mute_group_{group}_mute"
+label = "Mute Group {group} Mute"
+address = "wing-midi://mute_group/{group}/mute"
+range_name = "group"
+range_start = 1
+range_end = 4
+derived = [
+  { name = "cc_number", source = "group", offset = 27 },
+]
+message_type = "control_change"
+value_type = "int"
+value_min = 0
+value_max = 127
+category = "mute_group"
+direction = "target"
+midi_channel = 5
+number = "{cc_number}"
+description = "Mute group {group} on Wing MIDI channel 5, CC {cc_number}."
+
+[[templates]]
+id = "mute_group_{group}_mute"
+label = "Mute Group {group} Mute"
+address = "wing-midi://mute_group/{group}/mute"
+range_name = "group"
+range_start = 5
+range_end = 8
+derived = [
+  { name = "cc_number", source = "group", offset = 39 },
+]
+message_type = "control_change"
+value_type = "int"
+value_min = 0
+value_max = 127
+category = "mute_group"
+direction = "target"
+midi_channel = 5
+number = "{cc_number}"
+description = "Mute group {group} on Wing MIDI channel 5, CC {cc_number}."
+
+[[parameters]]
+id = "main_1_fdr"
+label = "Main 1 Fader"
+address = "wing-midi://main/1/fdr"
+message_type = "control_change"
+value_type = "int"
+value_min = 0
+value_max = 127
+category = "main"
+direction = "target"
+midi_channel = 1
+number = 94
+description = "Main 1 fader on Wing MIDI channel 1, CC 94."
+
+[[parameters]]
+id = "main_2_fdr"
+label = "Main 2 Fader"
+address = "wing-midi://main/2/fdr"
+message_type = "control_change"
+value_type = "int"
+value_min = 0
+value_max = 127
+category = "main"
+direction = "target"
+midi_channel = 1
+number = 95
+description = "Main 2 fader on Wing MIDI channel 1, CC 95."
+
+[[parameters]]
+id = "main_3_fdr"
+label = "Main 3 Fader"
+address = "wing-midi://main/3/fdr"
+message_type = "control_change"
+value_type = "int"
+value_min = 0
+value_max = 127
+category = "main"
+direction = "target"
+midi_channel = 1
+number = 102
+description = "Main 3 fader on Wing MIDI channel 1, CC 102."
+
+[[parameters]]
+id = "main_4_fdr"
+label = "Main 4 Fader"
+address = "wing-midi://main/4/fdr"
+message_type = "control_change"
+value_type = "int"
+value_min = 0
+value_max = 127
+category = "main"
+direction = "target"
+midi_channel = 1
+number = 103
+description = "Main 4 fader on Wing MIDI channel 1, CC 103."
+
+[[parameters]]
+id = "main_1_mute"
+label = "Main 1 Mute"
+address = "wing-midi://main/1/mute"
+message_type = "control_change"
+value_type = "int"
+value_min = 0
+value_max = 127
+category = "main"
+direction = "target"
+midi_channel = 2
+number = 94
+description = "Main 1 mute on Wing MIDI channel 2, CC 94."
+
+[[parameters]]
+id = "main_2_mute"
+label = "Main 2 Mute"
+address = "wing-midi://main/2/mute"
+message_type = "control_change"
+value_type = "int"
+value_min = 0
+value_max = 127
+category = "main"
+direction = "target"
+midi_channel = 2
+number = 95
+description = "Main 2 mute on Wing MIDI channel 2, CC 95."
+
+[[parameters]]
+id = "main_3_mute"
+label = "Main 3 Mute"
+address = "wing-midi://main/3/mute"
+message_type = "control_change"
+value_type = "int"
+value_min = 0
+value_max = 127
+category = "main"
+direction = "target"
+midi_channel = 2
+number = 102
+description = "Main 3 mute on Wing MIDI channel 2, CC 102."
+
+[[parameters]]
+id = "main_4_mute"
+label = "Main 4 Mute"
+address = "wing-midi://main/4/mute"
+message_type = "control_change"
+value_type = "int"
+value_min = 0
+value_max = 127
+category = "main"
+direction = "target"
+midi_channel = 2
+number = 103
+description = "Main 4 mute on Wing MIDI channel 2, CC 103."
+
+[[templates]]
+id = "fx_{slot}_insert_on"
+label = "FX {slot} Insert On"
+address = "wing-midi://fx/{slot}/insert_on"
+range_name = "slot"
+range_start = 1
+range_end = 8
+derived = [
+  { name = "midi_channel", source = "slot", offset = 8 },
+]
+message_type = "control_change"
+value_type = "int"
+value_min = 0
+value_max = 127
+category = "fx"
+direction = "target"
+midi_channel = "{midi_channel}"
+number = 12
+description = "FX slot {slot} insert on/off on Wing MIDI channel {midi_channel}, CC 12."
+
+[[templates]]
+id = "fx_{slot}_fxmix"
+label = "FX {slot} Mix"
+address = "wing-midi://fx/{slot}/fxmix"
+range_name = "slot"
+range_start = 1
+range_end = 8
+derived = [
+  { name = "midi_channel", source = "slot", offset = 8 },
+]
+message_type = "control_change"
+value_type = "int"
+value_min = 0
+value_max = 127
+category = "fx"
+direction = "target"
+midi_channel = "{midi_channel}"
+number = 13
+description = "FX slot {slot} mix on Wing MIDI channel {midi_channel}, CC 13."
+
+[[templates]]
+id = "fx_{slot}_fxmodel"
+label = "FX {slot} Model"
+address = "wing-midi://fx/{slot}/fxmodel"
+range_name = "slot"
+range_start = 1
+range_end = 8
+derived = [
+  { name = "midi_channel", source = "slot", offset = 8 },
+]
+message_type = "control_change"
+value_type = "int"
+value_min = 0
+value_max = 127
+category = "fx"
+direction = "target"
+midi_channel = "{midi_channel}"
+number = 14
+description = "FX slot {slot} model select on Wing MIDI channel {midi_channel}, CC 14."
+
+[[templates]]
+id = "fx_{slot}_param_{param}"
+label = "FX {slot} Parameter {param}"
+address = "wing-midi://fx/{slot}/param/{param}"
+ranges = [
+  { name = "slot", start = 1, end = 8 },
+  { name = "param", start = 1, end = 17 },
+]
+derived = [
+  { name = "midi_channel", source = "slot", offset = 8 },
+  { name = "cc_number", source = "param", offset = 14 },
+]
+message_type = "control_change"
+value_type = "int"
+value_min = 0
+value_max = 127
+category = "fx"
+direction = "target"
+midi_channel = "{midi_channel}"
+number = "{cc_number}"
+description = "FX slot {slot} parameter {param} on Wing MIDI channel {midi_channel}, CC {cc_number}."
+
+[[templates]]
+id = "fx_{slot}_param_{param}"
+label = "FX {slot} Parameter {param}"
+address = "wing-midi://fx/{slot}/param/{param}"
+ranges = [
+  { name = "slot", start = 1, end = 8 },
+  { name = "param", start = 18, end = 32 },
+]
+derived = [
+  { name = "midi_channel", source = "slot", offset = 8 },
+  { name = "cc_number", source = "param", offset = 26 },
+]
+message_type = "control_change"
+value_type = "int"
+value_min = 0
+value_max = 127
+category = "fx"
+direction = "target"
+midi_channel = "{midi_channel}"
+number = "{cc_number}"
+description = "FX slot {slot} parameter {param} on Wing MIDI channel {midi_channel}, CC {cc_number}."
+
+[[templates]]
+id = "fx_{slot}_insert_on"
+label = "FX {slot} Insert On"
+address = "wing-midi://fx/{slot}/insert_on"
+range_name = "slot"
+range_start = 9
+range_end = 16
+derived = [
+  { name = "midi_channel", source = "slot", offset = 0 },
+]
+message_type = "control_change"
+value_type = "int"
+value_min = 0
+value_max = 127
+category = "fx"
+direction = "target"
+midi_channel = "{midi_channel}"
+number = 70
+description = "FX slot {slot} insert on/off on Wing MIDI channel {midi_channel}, CC 70."
+
+[[templates]]
+id = "fx_{slot}_fxmix"
+label = "FX {slot} Mix"
+address = "wing-midi://fx/{slot}/fxmix"
+range_name = "slot"
+range_start = 9
+range_end = 16
+derived = [
+  { name = "midi_channel", source = "slot", offset = 0 },
+]
+message_type = "control_change"
+value_type = "int"
+value_min = 0
+value_max = 127
+category = "fx"
+direction = "target"
+midi_channel = "{midi_channel}"
+number = 71
+description = "FX slot {slot} mix on Wing MIDI channel {midi_channel}, CC 71."
+
+[[templates]]
+id = "fx_{slot}_fxmodel"
+label = "FX {slot} Model"
+address = "wing-midi://fx/{slot}/fxmodel"
+range_name = "slot"
+range_start = 9
+range_end = 16
+derived = [
+  { name = "midi_channel", source = "slot", offset = 0 },
+]
+message_type = "control_change"
+value_type = "int"
+value_min = 0
+value_max = 127
+category = "fx"
+direction = "target"
+midi_channel = "{midi_channel}"
+number = 72
+description = "FX slot {slot} model select on Wing MIDI channel {midi_channel}, CC 72."
+
+[[templates]]
+id = "fx_{slot}_param_{param}"
+label = "FX {slot} Parameter {param}"
+address = "wing-midi://fx/{slot}/param/{param}"
+ranges = [
+  { name = "slot", start = 9, end = 16 },
+  { name = "param", start = 1, end = 23 },
+]
+derived = [
+  { name = "midi_channel", source = "slot", offset = 0 },
+  { name = "cc_number", source = "param", offset = 72 },
+]
+message_type = "control_change"
+value_type = "int"
+value_min = 0
+value_max = 127
+category = "fx"
+direction = "target"
+midi_channel = "{midi_channel}"
+number = "{cc_number}"
+description = "FX slot {slot} parameter {param} on Wing MIDI channel {midi_channel}, CC {cc_number}."
+
+[[templates]]
+id = "fx_{slot}_param_{param}"
+label = "FX {slot} Parameter {param}"
+address = "wing-midi://fx/{slot}/param/{param}"
+ranges = [
+  { name = "slot", start = 9, end = 16 },
+  { name = "param", start = 24, end = 32 },
+]
+derived = [
+  { name = "midi_channel", source = "slot", offset = 0 },
+  { name = "cc_number", source = "param", offset = 78 },
+]
+message_type = "control_change"
+value_type = "int"
+value_min = 0
+value_max = 127
+category = "fx"
+direction = "target"
+midi_channel = "{midi_channel}"
+number = "{cc_number}"
+description = "FX slot {slot} parameter {param} on Wing MIDI channel {midi_channel}, CC {cc_number}."

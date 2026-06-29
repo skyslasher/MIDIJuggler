@@ -6,6 +6,7 @@ adapter implementations can use for learn mode, routing and feedback.
 
 Available libraries:
 
+- `behringer_wing`
 - `behringer_xtouch_mini`
 - `presonus_faderport`
 
@@ -13,6 +14,7 @@ The web API exposes the packaged libraries:
 
 ```text
 GET /api/midi-libraries
+GET /api/midi-libraries/behringer_wing
 GET /api/midi-libraries/behringer_xtouch_mini
 GET /api/midi-libraries/presonus_faderport
 ```
@@ -94,6 +96,52 @@ input_min = 0.0
 input_max = 127.0
 output_min = 0.0
 output_max = 1.0
+```
+
+## Behringer Wing
+
+The Wing library maps the official WING Port 4 MIDI remote-control CC layout
+from the WING MIDI documentation:
+
+- Channel faders: MIDI channel 1, CC 12-31 (channels 1-20) and CC 44-63 (21-40)
+- Channel mutes: MIDI channel 2, same CC numbers
+- Channel pan: MIDI channel 3, same CC numbers
+- Aux, bus and matrix faders/mutes/pan follow the same CC blocks on channels 1-3
+- DCA faders: MIDI channel 4; DCA and mute-group mutes: MIDI channel 5
+- Main faders/mutes: CC 94/95 and 102/103
+- FX slots 1-8: MIDI channels 9-16, CC 12-58
+- FX slots 9-16: MIDI channels 9-16, CC 70-110
+
+Common logical IDs mirror the OSC library where MIDI remote supports them:
+
+```text
+ch_1_fdr
+ch_1_mute
+ch_1_pan
+bus_1_fdr
+dca_1_fdr
+fx_1_fxmix
+fx_9_param_24
+```
+
+Note: the Wing MIDI remote covers input channels 1-40 only. Channels 41-48
+and per-send levels are available via OSC/native protocols, not this MIDI map.
+
+Example device bound to a Wing MIDI output:
+
+```toml
+[adapters.wing_midi]
+type = "midi"
+enabled = true
+output_port = "WING MIDI 1"
+midi_library = "behringer_wing"
+
+[[devices]]
+uid = "wing_desk"
+name = "Wing Desk"
+adapter = "wing_midi"
+library = "behringer_wing"
+library_kind = "midi"
 ```
 
 ## PreSonus FaderPort 8/16
