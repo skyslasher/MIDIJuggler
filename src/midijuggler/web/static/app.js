@@ -621,6 +621,7 @@ function resetDatapointFilterInput(select) {
     filter.value = "";
     filter.hidden = true;
   }
+  window.MidiJugglerDatapointBrowser?.teardownColumnBrowser(select);
 }
 
 function fillLearnPointSelect(select, instance, direction, previousPointId) {
@@ -668,6 +669,23 @@ function fillLearnPointSelect(select, instance, direction, previousPointId) {
     .map((entry) => entry.id);
   if (previous && availableIds.includes(previous)) {
     select.value = previous;
+  }
+
+  const browser = window.MidiJugglerDatapointBrowser;
+  if (browser) {
+    const usingColumns = browser.syncColumnBrowser(select, points, {
+      previousPointId: select.value,
+      filterTerm,
+      threshold: DATAPOINT_FILTER_THRESHOLD,
+      categoryLabels: DATAPOINT_CATEGORY_LABELS,
+      categoryOrder: DATAPOINT_CATEGORY_ORDER,
+      categoryKeyFn: datapointCategoryKey,
+      matchesFilterFn: datapointMatchesFilter,
+    });
+    if (usingColumns && filter) {
+      filter.hidden = false;
+      filter.placeholder = "Filter data points";
+    }
   }
 }
 

@@ -705,6 +705,82 @@ legend {
   box-sizing: border-box;
 }
 
+.datapoint-column-browser {
+  display: grid;
+  gap: 0.5rem;
+}
+
+.datapoint-browser-toolbar {
+  color: #a9b8d8;
+  font-size: 0.85rem;
+}
+
+.datapoint-browser-summary {
+  min-height: 1.2rem;
+}
+
+.datapoint-browser-columns {
+  display: flex;
+  overflow-x: auto;
+  border: 1px solid #2b3752;
+  border-radius: 10px;
+  background: #121826;
+  min-height: 180px;
+  max-height: 260px;
+}
+
+.datapoint-browser-column {
+  display: flex;
+  flex-direction: column;
+  min-width: 150px;
+  max-width: 190px;
+  border-right: 1px solid #2b3752;
+  overflow-y: auto;
+  flex-shrink: 0;
+}
+
+.datapoint-browser-column:last-child {
+  border-right: none;
+}
+
+.datapoint-browser-item {
+  appearance: none;
+  background: transparent;
+  border: 0;
+  border-bottom: 1px solid rgb(43 55 82 / 45%);
+  color: inherit;
+  cursor: pointer;
+  font: inherit;
+  padding: 0.45rem 0.65rem;
+  text-align: left;
+  width: 100%;
+}
+
+.datapoint-browser-item:hover {
+  background: #1f2a42;
+}
+
+.datapoint-browser-item.selected {
+  background: #2a4470;
+  color: #ffffff;
+}
+
+.datapoint-browser-item.leaf.selected {
+  background: #35608f;
+}
+
+.datapoint-select-companion {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  opacity: 0;
+  pointer-events: none;
+}
+
+.stacked-field:has(.datapoint-column-browser) {
+  position: relative;
+}
+
 .learn-actions {
   display: flex;
   flex-wrap: wrap;
