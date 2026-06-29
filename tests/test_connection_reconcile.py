@@ -1,6 +1,9 @@
 from midijuggler.config import parse_config
 from midijuggler.datapoint.disconnected import disconnected_endpoint
-from midijuggler.datapoint.reconcile import apply_module_removal_to_connections
+from midijuggler.datapoint.reconcile import (
+    apply_module_removal_to_connections,
+    connection_uses_module,
+)
 from midijuggler.datapoint.types import ConnectionSpec, ModifierKind
 
 from conftest import gpio_device, midi_device, osc_device
@@ -66,3 +69,14 @@ def test_apply_module_removal_remaps_to_compatible_device_when_point_exists() ->
 
     assert updated[0].target == "wing_b.ch_1_fdr"
     assert updated[0].enabled is True
+
+
+def test_connection_uses_module_matches_exact_module_only() -> None:
+    connection = ConnectionSpec(
+        id="other-gpio",
+        source="gpio_footswitch.pin17",
+        target="midi.cc_1",
+    )
+
+    assert not connection_uses_module(connection, "gpio")
+    assert connection_uses_module(connection, "gpio_footswitch")

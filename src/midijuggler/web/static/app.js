@@ -862,8 +862,13 @@ function compatibleModulesForDirection(referenceDevice, direction) {
 }
 
 function connectionUsesModule(connection, moduleUid) {
-  const prefix = `${moduleUid}.`;
-  return connection.source.startsWith(prefix) || connection.target.startsWith(prefix);
+  if (!moduleUid) {
+    return false;
+  }
+  return (
+    connectionEndpointModule(connection.source) === moduleUid
+    || connectionEndpointModule(connection.target) === moduleUid
+  );
 }
 
 function connectionsAffectedByModuleRemoval(moduleUid) {
@@ -878,7 +883,7 @@ function datapointExistsForModule(module, pointId, direction) {
 }
 
 function remapConnectionEndpoint(endpoint, removedModule, replacementModule, direction) {
-  if (!endpoint.startsWith(`${removedModule}.`)) {
+  if (connectionEndpointModule(endpoint) !== removedModule) {
     return endpoint;
   }
   const point = connectionEndpointPoint(endpoint);
@@ -1011,7 +1016,9 @@ async function deleteAdapterWithConnectionImpact(adapterUid, removedLabel, delet
       );
       if (deviceCard) {
         deviceCard.remove();
-        const config = await persistDevices(collectDevicesFromCards());
+        const config = await persistDevices(
+          collectDevicesForPersist({ excludeUids: [deviceUid] }),
+        );
         renderDevicesConfig(config);
       }
     }
@@ -2975,7 +2982,9 @@ function deleteDeviceCard(card) {
     if (devicesMessage) {
       devicesMessage.textContent = "deleting...";
     }
-    const config = await persistDevices(collectDevicesFromCards());
+    const config = await persistDevices(
+      collectDevicesForPersist({ excludeUids: [moduleUid] }),
+    );
     renderDevicesConfig(config);
     if (devicesMessage) {
       devicesMessage.textContent = "deleted";
@@ -2999,7 +3008,7 @@ function saveDeviceCard(card) {
   showDeviceCardMessage(card, "saving...");
   saveButton.disabled = true;
 
-  persistDevices(collectDevicesFromCards())
+  persistDevices(collectDevicesForPersist())
     .then((config) => {
       const status =
         config.persisted === false
@@ -3249,6 +3258,21 @@ function renderDevicesConfig(config) {
 
 function collectDevicesFromCards() {
   return [...deviceInstances.querySelectorAll(".device-card")].map(collectDeviceFromCard);
+}
+
+function collectDevicesForPersist({ excludeUids = [] } = {}) {
+  const excluded = new Set((excludeUids || []).filter(Boolean));
+  const fromCards = collectDevicesFromCards();
+  const cardUids = new Set(fromCards.map((device) => device.uid).filter(Boolean));
+  const merged = [...fromCards];
+  for (const device of devicesConfig?.devices || []) {
+    const uid = device.uid || device.id;
+    if (!uid || excluded.has(uid) || cardUids.has(uid)) {
+      continue;
+    }
+    merged.push(device);
+  }
+  return merged;
 }
 
 function addMissingDevicesFromAdapters() {

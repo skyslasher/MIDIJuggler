@@ -320,3 +320,57 @@ enabled = true
             return response.status
 
     assert asyncio.run(scenario()) == 400
+
+
+def test_set_devices_config_does_not_reconcile_connections(tmp_path) -> None:
+    config_path = tmp_path / "config.toml"
+    config_path.write_text(
+        """
+[adapters.gpio]
+enabled = true
+pins = [17]
+
+[adapters.x32_foh]
+type = "osc"
+enabled = true
+osc_library = "behringer_x32"
+
+[adapters.xtouch_mini]
+enabled = true
+type = "midi"
+
+[[connections]]
+id = "gpio-to-x32"
+source = "gpio.pin17"
+target = "x32_foh.ch_1"
+enabled = true
+""".strip()
+        + "\n",
+        encoding="utf-8",
+    )
+
+    async def scenario() -> list[dict]:
+        interface = _interface(config_path)
+        app = interface.create_app()
+        async with TestClient(TestServer(app)) as client:
+            response = await client.post(
+                "/api/devices",
+                json={
+                    "devices": [
+                        midi_device(
+                            "xtouch_mini",
+                            adapter="xtouch_mini",
+                            library="behringer_xtouch_mini",
+                        )
+                    ]
+                },
+            )
+            assert response.status == 200
+
+            payload = await (await client.get("/api/connections")).json()
+            return payload["stored_connections"]
+
+    stored = asyncio.run(scenario())
+    assert stored[0]["source"] == "gpio.pin17"
+    assert stored[0]["target"] == "x32_foh.ch_1"
+    assert stored[0]["enabled"] is True

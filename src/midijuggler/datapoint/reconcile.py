@@ -10,8 +10,13 @@ from midijuggler.datapoint.types import ConnectionSpec
 
 
 def connection_uses_module(connection: ConnectionSpec, module: str) -> bool:
-    prefix = f"{module}."
-    return connection.source.startswith(prefix) or connection.target.startswith(prefix)
+    if not module:
+        return False
+    for endpoint in (connection.source, connection.target):
+        endpoint_module, separator, _ = endpoint.partition(".")
+        if separator and endpoint_module == module:
+            return True
+    return False
 
 
 def _remap_endpoint(
