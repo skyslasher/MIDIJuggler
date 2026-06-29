@@ -76,8 +76,15 @@ LEGACY_USB_MIDI_KIND = "usb_midi"
 
 def load_config(path: str | Path) -> AppConfig:
     config_path = Path(path)
-    with config_path.open("rb") as handle:
-        raw = tomllib.load(handle)
+    try:
+        with config_path.open("rb") as handle:
+            raw = tomllib.load(handle)
+    except tomllib.TOMLDecodeError as exc:
+        hint = _toml_decode_hint(exc)
+        raise ValueError(
+            f"Invalid TOML in {config_path} at line {exc.lineno}, column {exc.colno}: {exc.msg}. "
+            f"{hint}"
+        ) from exc
     return parse_config(raw)
 
 
@@ -350,24 +357,50 @@ def _format_custom_point_lines(point: CustomPointSpec) -> list[str]:
     return lines
 
 
+def _toml_decode_hint(exc: tomllib.TOMLDecodeError) -> str:
+    if exc.msg == "Cannot overwrite a value":
+        return (
+            "Each connection needs its own [[connections]] header; do not reuse "
+            "[connections] or connections = [...] together with [[connections]]."
+        )
+    return "Check for duplicate keys, missing table headers, or mixed TOML syntax."
+
+
+def _is_toml_section_header(line: str) -> bool:
+    stripped = line.strip()
+    return stripped.startswith("[") and stripped.endswith("]")
+
+
 def _remove_connection_sections(text: str) -> str:
     lines = text.splitlines()
     kept: list[str] = []
     index = 0
     while index < len(lines):
-        if lines[index].strip() == "[[connections]]":
+        stripped = lines[index].strip()
+        if stripped == "[[connections]]":
             index += 1
             while index < len(lines):
-                stripped = lines[index].strip()
-                if stripped == "[[connections]]":
+                inner = lines[index].strip()
+                if inner == "[[connections]]":
                     break
-                if (
-                    stripped.startswith("[")
-                    and stripped.endswith("]")
-                    and stripped != "[[connections]]"
-                ):
+                if _is_toml_section_header(inner) and inner != "[[connections]]":
                     break
                 index += 1
+            continue
+        if stripped == "[connections]":
+            index += 1
+            while index < len(lines):
+                inner = lines[index].strip()
+                if _is_toml_section_header(inner):
+                    break
+                index += 1
+            continue
+        if stripped.startswith("connections") and "=" in stripped:
+            if "[" in stripped and "]" not in stripped:
+                index += 1
+                while index < len(lines) and "]" not in lines[index]:
+                    index += 1
+            index += 1
             continue
         kept.append(lines[index])
         index += 1
