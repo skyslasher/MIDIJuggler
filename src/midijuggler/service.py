@@ -307,6 +307,8 @@ class MIDIJugglerService:
 
 async def run_from_config(config_path: str) -> None:
     config = load_config(config_path)
+    for issue in config.load_issues:
+        LOGGER.error("Configuration issue: %s", issue)
     service = MIDIJugglerService(config, config_path=config_path)
     with contextlib.suppress(asyncio.CancelledError):
         await service.run_forever()

@@ -80,6 +80,8 @@ const monitorDisplayModeSelect = document.querySelector("#monitor-display-mode")
 const learnToggle = document.querySelector("#learn-toggle");
 const learnPanel = document.querySelector("#learn-panel");
 const learnStatus = document.querySelector("#learn-status");
+const configIssuesBanner = document.querySelector("#config-issues-banner");
+const configIssuesList = document.querySelector("#config-issues-list");
 const learnFields = document.querySelector("#learn-fields");
 const learnSourceInstance = document.querySelector("#learn-source-instance");
 const learnSourceDatapoint = document.querySelector("#learn-source-datapoint");
@@ -197,8 +199,27 @@ function pulseTapButton() {
   }, 150);
 }
 
+function renderConfigIssuesBanner(issues) {
+  if (!configIssuesBanner || !configIssuesList) {
+    return;
+  }
+  const entries = Array.isArray(issues) ? issues.filter(Boolean) : [];
+  configIssuesList.replaceChildren();
+  if (!entries.length) {
+    configIssuesBanner.hidden = true;
+    return;
+  }
+  for (const issue of entries) {
+    const item = document.createElement("li");
+    item.textContent = issue;
+    configIssuesList.appendChild(item);
+  }
+  configIssuesBanner.hidden = false;
+}
+
 function renderStatus(status) {
   updateAppTitle(status.hostname);
+  renderConfigIssuesBanner(status.config_issues || []);
   const displayedBpm = status.master_clock?.bpm || status.bpm;
   bpm.textContent = displayedBpm ? displayedBpm.toFixed(1) : "--";
   learnMode = Boolean(status.learn_mode);

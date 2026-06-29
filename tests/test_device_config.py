@@ -287,7 +287,66 @@ def test_parse_config_skips_devices_with_unknown_adapter() -> None:
                 {"uid": "foot_switches", "adapter": "gpio", "library_kind": "gpio"},
                 {"uid": "orphan", "adapter": "missing_adapter", "library_kind": "midi"},
             ],
-        }
+        },
+        strict=False,
     )
 
     assert set(config.devices) == {"foot_switches"}
+    assert any("missing_adapter" in issue for issue in config.load_issues)
+
+
+def test_parse_config_lenient_skips_duplicate_device_uid() -> None:
+    config = parse_config(
+        {
+            "adapters": {
+                "wing_midi_1": {"type": "midi", "enabled": True},
+            },
+            "devices": [
+                {
+                    "uid": "wing_midi_1",
+                    "adapter": "wing_midi_1",
+                    "library": "behringer_wing",
+                    "library_kind": "midi",
+                },
+                {
+                    "uid": "wing_midi_1",
+                    "adapter": "wing_midi_1",
+                    "library": "behringer_wing",
+                    "library_kind": "midi",
+                },
+            ],
+        },
+        strict=False,
+    )
+
+    assert set(config.devices) == {"wing_midi_1"}
+    assert any("duplicates device uid 'wing_midi_1'" in issue for issue in config.load_issues)
+
+
+def test_parse_config_strict_rejects_duplicate_device_uid() -> None:
+    import pytest
+
+    with pytest.raises(ValueError, match="duplicates device uid 'wing_midi_1'"):
+        parse_config(
+            {
+                "adapters": {
+                    "wing_midi_1": {"type": "midi", "enabled": True},
+                },
+                "devices": [
+                    {
+                        "uid": "wing_midi_1",
+                        "adapter": "wing_midi_1",
+                        "library": "behringer_wing",
+                        "library_kind": "midi",
+                    },
+                    {
+                        "uid": "wing_midi_1",
+                        "adapter": "wing_midi_1",
+                        "library": "behringer_wing",
+                        "library_kind": "midi",
+                    },
+                ],
+            },
+            strict=True,
+        )
+

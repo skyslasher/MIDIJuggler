@@ -137,9 +137,9 @@ id = "second"
         encoding="utf-8",
     )
 
-    with pytest.raises(ValueError, match="Invalid TOML") as exc_info:
-        load_config(config_path)
+    config = load_config(config_path)
 
-    message = str(exc_info.value)
+    assert any("Invalid TOML" in issue for issue in config.load_issues)
+    message = config.load_issues[0]
     assert "line 11" in message
     assert "[[connections]]" in message

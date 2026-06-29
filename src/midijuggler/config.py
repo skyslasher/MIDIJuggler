@@ -75,6 +75,7 @@ class AppConfig:
     devices: dict[str, DeviceConfig] = field(default_factory=dict)
     master_clock: MasterClockConfig = field(default_factory=MasterClockConfig)
     connections: list[ConnectionSpec] = field(default_factory=list)
+    load_issues: tuple[str, ...] = ()
 
 
 DEFAULT_ADAPTERS = ("osc", "midi", "rtp_midi", "gpio", "hid", "wing_native")
@@ -82,18 +83,38 @@ MULTI_INSTANCE_ADAPTERS = ("osc", "midi", "rtp_midi", "hid", "wing_native")
 LEGACY_USB_MIDI_KIND = "usb_midi"
 
 
+def _record_config_issue(issues: list[str] | None, message: str) -> None:
+    if issues is None:
+        raise ValueError(message)
+    issues.append(message)
+    LOGGER.warning(message)
+
+
 def load_config(path: str | Path) -> AppConfig:
     config_path = Path(path)
+    prefix_issues: list[str] = []
     try:
         with config_path.open("rb") as handle:
             raw = tomllib.load(handle)
     except tomllib.TOMLDecodeError as exc:
         hint = _toml_decode_hint(exc)
-        raise ValueError(
-            f"Invalid TOML in {config_path} at line {exc.lineno}, column {exc.colno}: {exc.msg}. "
-            f"{hint}"
-        ) from exc
-    return parse_config(raw)
+        prefix_issues.append(
+            f"Invalid TOML in {config_path} at line {exc.lineno}, column {exc.colno}: "
+            f"{exc.msg}. {hint}"
+        )
+        raw = {}
+    config = parse_config(raw, strict=False)
+    if not prefix_issues:
+        return config
+    return AppConfig(
+        web=config.web,
+        runtime=config.runtime,
+        adapters=config.adapters,
+        devices=config.devices,
+        master_clock=config.master_clock,
+        connections=config.connections,
+        load_issues=tuple(prefix_issues + list(config.load_issues)),
+    )
 
 
 def save_midi_adapter_configs(
@@ -691,11 +712,13 @@ def _normalize_legacy_usb_midi(raw: dict[str, Any]) -> None:
                     mapping[field] = "midi" + value[len(LEGACY_USB_MIDI_KIND) :]
 
 
-def parse_config(raw: dict[str, Any]) -> AppConfig:
+def parse_config(raw: dict[str, Any], *, strict: bool = True) -> AppConfig:
+    issues: list[str] | None = None if strict else []
     _normalize_legacy_usb_midi(raw)
     if raw.get("mappings"):
-        raise ValueError(
-            "[[mappings]] is no longer supported; configure [[devices]] and [[connections]]"
+        _record_config_issue(
+            issues,
+            "[[mappings]] is no longer supported; configure [[devices]] and [[connections]]",
         )
     web_raw = raw.get("web", {})
     web = WebConfig(
@@ -704,17 +727,19 @@ def parse_config(raw: dict[str, Any]) -> AppConfig:
     )
 
     adapters = _parse_adapters(raw.get("adapters", {}))
-    devices = _parse_devices(raw.get("devices", []), adapters)
+    devices = _parse_devices(raw.get("devices", []), adapters, issues)
     devices = normalize_device_adapter_refs(devices, adapters)
     devices = supplement_devices(devices, adapters)
     master_clock = _parse_master_clock(raw.get("master_clock", {}))
-    connections = [
-        _parse_connection(index, connection_raw)
-        for index, connection_raw in enumerate(raw.get("connections", []), start=1)
-    ]
+    connections = _parse_connections(raw.get("connections", []), issues)
     connections = normalize_connections(connections, devices)
     runtime = _parse_runtime(raw.get("runtime", {}))
-    _validate_devices_and_connections(devices, adapters, connections)
+    devices, connections = _finalize_devices_and_connections(
+        devices,
+        adapters,
+        connections,
+        issues,
+    )
 
     return AppConfig(
         web=web,
@@ -723,6 +748,7 @@ def parse_config(raw: dict[str, Any]) -> AppConfig:
         devices=devices,
         master_clock=master_clock,
         connections=connections,
+        load_issues=tuple(issues or ()),
     )
 
 
@@ -977,32 +1003,126 @@ def supplement_devices(
     return supplemented
 
 
-def _parse_devices(raw: Any, adapters: dict[str, AdapterConfig]) -> dict[str, DeviceConfig]:
+def _parse_devices(
+    raw: Any,
+    adapters: dict[str, AdapterConfig],
+    issues: list[str] | None = None,
+) -> dict[str, DeviceConfig]:
     if raw is None:
         raw = []
     if not isinstance(raw, list):
-        raise ValueError("devices must be a list of [[devices]] tables")
+        _record_config_issue(issues, "devices must be a list of [[devices]] tables")
+        return {}
 
     devices: dict[str, DeviceConfig] = {}
     for index, item in enumerate(raw, start=1):
         try:
             device = _parse_device(index, item, adapters)
         except ValueError as exc:
-            if "references unknown adapter" not in str(exc):
+            message = str(exc)
+            if "references unknown adapter" in message:
+                if issues is None:
+                    LOGGER.warning("%s; skipping device entry", message)
+                else:
+                    _record_config_issue(issues, f"{message}; skipping device entry")
+                continue
+            if issues is None:
                 raise
-            LOGGER.warning("%s; skipping device entry", exc)
+            _record_config_issue(issues, f"{message}; skipping device entry")
             continue
         if device.uid in devices:
-            raise ValueError(f"devices[{index}] duplicates device uid {device.uid!r}")
+            message = f"devices[{index}] duplicates device uid {device.uid!r}"
+            if issues is None:
+                raise ValueError(message)
+            _record_config_issue(issues, f"{message}; skipping device entry")
+            continue
         if device.adapter not in adapters:
-            LOGGER.warning(
-                "devices[%s] references unknown adapter %r; skipping device entry",
-                index,
-                device.adapter,
+            _record_config_issue(
+                issues,
+                f"devices[{index}] references unknown adapter {device.adapter!r}; "
+                "skipping device entry",
             )
             continue
         devices[device.uid] = device
     return devices
+
+
+def _parse_connections(raw: Any, issues: list[str] | None = None) -> list[ConnectionSpec]:
+    if raw is None:
+        return []
+    if not isinstance(raw, list):
+        _record_config_issue(issues, "connections must be a list of [[connections]] tables")
+        return []
+
+    connections: list[ConnectionSpec] = []
+    for index, connection_raw in enumerate(raw, start=1):
+        try:
+            connections.append(_parse_connection(index, connection_raw))
+        except ValueError as exc:
+            _record_config_issue(
+                issues,
+                f"{exc}; skipping connection entry",
+            )
+            if issues is None:
+                raise
+    return connections
+
+
+def _finalize_devices_and_connections(
+    devices: dict[str, DeviceConfig],
+    adapters: dict[str, AdapterConfig],
+    connections: list[ConnectionSpec],
+    issues: list[str] | None,
+) -> tuple[dict[str, DeviceConfig], list[ConnectionSpec]]:
+    if issues is None:
+        _validate_devices_and_connections(devices, adapters, connections)
+        return devices, connections
+
+    accepted_devices: dict[str, DeviceConfig] = {}
+    adapter_bindings: dict[str, str] = {}
+    for device in devices.values():
+        if device.adapter not in adapters:
+            _record_config_issue(
+                issues,
+                f"device {device.uid!r} references unknown adapter {device.adapter!r}; "
+                "skipping device entry",
+            )
+            continue
+        if device.adapter in adapter_bindings:
+            _record_config_issue(
+                issues,
+                f"adapter {device.adapter!r} is bound to multiple devices "
+                f"({adapter_bindings[device.adapter]!r} and {device.uid!r}); "
+                f"skipping device {device.uid!r}",
+            )
+            continue
+        adapter_bindings[device.adapter] = device.uid
+        accepted_devices[device.uid] = device
+
+    accepted_connections: list[ConnectionSpec] = []
+    for connection in connections:
+        invalid_endpoint = False
+        for endpoint in (connection.source, connection.target):
+            module = endpoint.partition(".")[0]
+            if module in {"clock", "mapping"}:
+                continue
+            resolved = resolve_connection_device_module(module, accepted_devices)
+            if resolved is None:
+                available = ", ".join(
+                    sorted(device.display_name() for device in accepted_devices.values())
+                )
+                _record_config_issue(
+                    issues,
+                    f"connection {connection.id!r} endpoint {endpoint!r} "
+                    f"must reference a configured device "
+                    f"(available: {available}); skipping connection",
+                )
+                invalid_endpoint = True
+                break
+        if not invalid_endpoint:
+            accepted_connections.append(connection)
+
+    return accepted_devices, accepted_connections
 
 
 def normalize_device_adapter_refs(

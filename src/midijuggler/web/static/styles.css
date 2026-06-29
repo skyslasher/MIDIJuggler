@@ -37,6 +37,36 @@ header {
   padding: 1.5rem;
 }
 
+.config-issues-banner {
+  background: #3a1f24;
+  border: 1px solid #b44;
+  border-radius: 16px;
+  color: #ffd9de;
+  margin: 0 1.5rem 1rem;
+  padding: 1rem 1.25rem;
+}
+
+.config-issues-banner strong {
+  color: #ffb4bd;
+  display: block;
+  font-size: 1.05rem;
+  margin-bottom: 0.35rem;
+}
+
+.config-issues-banner .hint {
+  color: #f0c4c9;
+  margin-bottom: 0.75rem;
+}
+
+.config-issues-banner ul {
+  margin: 0;
+  padding-left: 1.25rem;
+}
+
+.config-issues-banner li + li {
+  margin-top: 0.35rem;
+}
+
 .header-clock {
   align-items: center;
   display: flex;

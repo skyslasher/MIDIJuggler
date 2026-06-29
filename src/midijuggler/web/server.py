@@ -643,7 +643,7 @@ class WebInterface:
             raise FileNotFoundError("no config path available")
         if not content.strip():
             raise ValueError("config content is empty")
-        parse_config(tomllib.loads(content))
+        parse_config(tomllib.loads(content), strict=True)
         temp_path = self.config_path.with_suffix(self.config_path.suffix + ".tmp")
         temp_path.write_text(content.rstrip() + "\n", encoding="utf-8")
         temp_path.replace(self.config_path)
@@ -1168,6 +1168,7 @@ class WebInterface:
     def _status_payload(self) -> dict[str, Any]:
         return {
             "hostname": get_hostname(),
+            "config_issues": list(self.config.load_issues),
             "bpm": self.clock.bpm,
             "master_clock": {
                 "enabled": self.master_clock.config.enabled,
