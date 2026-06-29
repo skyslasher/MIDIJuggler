@@ -77,6 +77,22 @@
         </form>
       </dialog>
 
+      <dialog id="connection-source-learn-dialog" class="connection-source-learn-dialog">
+        <div class="connection-source-learn-form">
+          <h2>Learn source data point</h2>
+          <p id="connection-source-learn-instance" class="hint"></p>
+          <ol id="connection-source-learn-log" class="connection-source-learn-log events"></ol>
+          <div class="connection-source-learn-controls">
+            <button type="button" id="connection-source-learn-toggle">Start</button>
+          </div>
+          <div class="connection-source-learn-actions">
+            <button type="button" id="connection-source-learn-cancel">Cancel</button>
+            <button type="button" id="connection-source-learn-apply" disabled>Apply</button>
+          </div>
+          <p id="connection-source-learn-message" class="message"></p>
+        </div>
+      </dialog>
+
       <dialog id="connection-import-dialog" class="connection-transfer-dialog">
         <form method="dialog" class="connection-transfer-form">
           <h2>Connections importieren</h2>
@@ -136,10 +152,20 @@
                   Instance
                   <select id="learn-source-instance"></select>
                 </label>
-                <label class="stacked-field">
-                  Data point
-                  <select id="learn-source-datapoint" disabled></select>
-                </label>
+                <div class="connection-source-learn-row">
+                  <label class="stacked-field">
+                    Data point
+                    <select id="learn-source-datapoint" disabled></select>
+                  </label>
+                  <button
+                    type="button"
+                    id="learn-source-learn"
+                    class="connection-source-learn-btn"
+                    disabled
+                  >
+                    Learn
+                  </button>
+                </div>
               </div>
               <div class="learn-endpoint-group">
                 <h4 class="learn-endpoint-title">Target</h4>
@@ -218,9 +244,6 @@
         </article>
         <article class="monitor-panel">
           <h2>Monitor</h2>
-          <p id="learn-monitor-hint" class="hint learn-monitor-hint" hidden>
-            Create connection: click a monitor message or choose source instance and data point in the Connections card.
-          </p>
           <label class="inline-field monitor-filter">
             <input id="show-clock-ticks" type="checkbox" />
             Show clock ticks

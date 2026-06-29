@@ -69,7 +69,7 @@ class LearnController:
                 enabled=True,
                 phase="waiting_source",
                 message=(
-                    "Select a source data point from the list or click a monitor message."
+                    "Select a source data point from the list or use Learn."
                 ),
             )
         else:
@@ -83,7 +83,7 @@ class LearnController:
             enabled=True,
             phase="waiting_source",
             message=(
-                "Select a source data point from the list or click a monitor message."
+                "Select a source data point from the list or use Learn."
             ),
         )
         return self._state

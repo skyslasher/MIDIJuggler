@@ -106,6 +106,14 @@ const connectionImportDeviceA = document.querySelector("#connection-import-devic
 const connectionImportDeviceB = document.querySelector("#connection-import-device-b");
 const connectionImportMessage = document.querySelector("#connection-import-message");
 const connectionImportSubmit = document.querySelector("#connection-import-submit");
+const connectionSourceLearnDialog = document.querySelector("#connection-source-learn-dialog");
+const connectionSourceLearnInstance = document.querySelector("#connection-source-learn-instance");
+const connectionSourceLearnLog = document.querySelector("#connection-source-learn-log");
+const connectionSourceLearnToggle = document.querySelector("#connection-source-learn-toggle");
+const connectionSourceLearnApply = document.querySelector("#connection-source-learn-apply");
+const connectionSourceLearnCancel = document.querySelector("#connection-source-learn-cancel");
+const connectionSourceLearnMessage = document.querySelector("#connection-source-learn-message");
+const learnSourceLearnButton = document.querySelector("#learn-source-learn");
 const learnFields = document.querySelector("#learn-fields");
 const learnSourceInstance = document.querySelector("#learn-source-instance");
 const learnSourceDatapoint = document.querySelector("#learn-source-datapoint");
@@ -123,7 +131,6 @@ const learnInvert = document.querySelector("#learn-invert");
 const learnCreate = document.querySelector("#learn-create");
 const learnClear = document.querySelector("#learn-clear");
 const learnMessage = document.querySelector("#learn-message");
-const learnMonitorHint = document.querySelector("#learn-monitor-hint");
 const configurationToggle = document.querySelector("#configuration-toggle");
 const configurationExit = document.querySelector("#configuration-exit");
 const monitorView = document.querySelector("#monitor-view");
@@ -141,13 +148,11 @@ const devicesMessage = document.querySelector("#devices-message");
 const connectionState = document.querySelector("#connection-state");
 
 let learnMode = false;
-let learnPhase = "idle";
-let learnSourceKey = "";
 let learnSourceDatapointId = "";
 let lastServerLearnSourceDatapoint = "";
-let selectedMonitorEventItem = null;
 let learnRegistryDatapoints = [];
 let learnMonitorDatapoints = new Map();
+let connectionSourceLearnState = null;
 const LEARN_HIDDEN_MODULES = new Set(["mapping", "modifier_graph"]);
 const LEARN_STREAM_VALUE_TYPES = new Set(["midi_message", "osc_message"]);
 const LEARN_STREAM_POINT_SUFFIXES = new Set([
@@ -255,12 +260,8 @@ function renderStatus(status) {
   learnMode = Boolean(status.learn_mode);
   learnToggle.textContent = learnMode ? "Close connection" : "Create connection";
   learnToggle.classList.toggle("active-button", learnMode);
-  learnPhase = status.learn?.phase || "idle";
-  learnSourceKey = status.learn?.source || "";
   learnSourceDatapointId = status.learn?.source_datapoint || "";
   renderLearnState(status.learn || {});
-  updateMonitorLearnHint();
-  highlightSelectedMonitorEvent();
   if (learnMode && !learnRegistryDatapoints.length) {
     loadLearnDatapoints();
   }
@@ -315,15 +316,13 @@ function renderLearnState(learn) {
   learnFields.hidden = !learnMode;
   if (!learnMode) {
     learnMessage.textContent = "";
-    selectedMonitorEventItem = null;
     clearLearnEndpointSelects();
-    refreshMonitorEventLearnState();
     return;
   }
 
   syncLearnRangeFieldsVisibility();
   syncLearnSourceFromServer(learn);
-  refreshMonitorEventLearnState();
+  syncConnectionSourceLearnButton(learnSourceLearnButton, learnSourceInstance);
 }
 
 function datapointModule(entry) {
@@ -1106,6 +1105,7 @@ function renderLearnDatapointSelects() {
   const targetInstance = learnTargetInstance.value;
   fillLearnPointSelect(learnSourceDatapoint, sourceInstance, "input", previousSourcePoint);
   fillLearnPointSelect(learnTargetDatapoint, targetInstance, "output", previousTargetPoint);
+  syncConnectionSourceLearnButton(learnSourceLearnButton, learnSourceInstance);
 }
 
 function refreshMappingEditorSelects() {
@@ -1361,6 +1361,285 @@ function createStackedField(labelText, control) {
   return label;
 }
 
+function syncConnectionSourceLearnButton(button, instanceSelect) {
+  if (!button) {
+    return;
+  }
+  const instance = instanceSelect?.value?.trim() || "";
+  button.disabled = !instance || instance === DISCONNECTED_MODULE;
+}
+
+function connectionLearnAdapterForInstance(instanceUid) {
+  return deviceByUid(instanceUid)?.adapter?.trim() || instanceUid;
+}
+
+function connectionLearnEventMatchesInstance(event, instanceUid) {
+  if (!instanceUid || !event) {
+    return false;
+  }
+  const adapter = connectionLearnAdapterForInstance(instanceUid);
+  if (event.kind === "DataPointValue" && event.id) {
+    return event.id.split(".")[0] === instanceUid;
+  }
+  const source = String(event.source || "").trim();
+  return source === adapter || source === instanceUid;
+}
+
+function connectionLearnEventToDatapointId(event, instanceUid) {
+  if (event.kind === "DataPointValue" && event.id) {
+    return event.id;
+  }
+  let control = "";
+  if (
+    event.kind === "GpioEvent"
+    || event.kind === "HidEvent"
+    || event.kind === "HidLearnEvent"
+    || event.kind === "ControlEvent"
+  ) {
+    control = event.control || event.suggested_control || "";
+  } else if (event.kind === "OscMessageEvent") {
+    control = event.canonical_address || event.address || "";
+  } else if (event.kind === "MidiMessageEvent") {
+    control = event.control || "";
+  }
+  if (!control) {
+    return "";
+  }
+  return `${instanceUid}.${control}`;
+}
+
+function isDatapointInLearnRegistry(pointId) {
+  return learnRegistryDatapoints.some((entry) => entry.id === pointId);
+}
+
+async function ensureLearnCustomDatapoint(instanceUid, pointId, label) {
+  if (isDatapointInLearnRegistry(pointId)) {
+    return;
+  }
+  const controlId = connectionEndpointPoint(pointId);
+  if (!controlId) {
+    throw new Error("learned data point has no control id");
+  }
+  await ensureDevicesConfigLoaded();
+  const device = deviceByUid(instanceUid);
+  if (!device) {
+    throw new Error(`device ${instanceUid} not found`);
+  }
+  const existingCustom = (device.custom_points || []).some((point) => point.id === controlId);
+  if (existingCustom) {
+    return;
+  }
+  const cleanedLabel = String(label || "")
+    .replace(/^monitor · /, "")
+    .trim();
+  const customPoint = {
+    id: controlId,
+    direction: "input",
+  };
+  if (cleanedLabel && cleanedLabel !== controlId) {
+    customPoint.label = cleanedLabel;
+  }
+  const devices = (devicesConfig?.devices || []).map((entry) => {
+    const uid = entry.uid || entry.id;
+    if (uid !== instanceUid) {
+      return entry;
+    }
+    return {
+      ...entry,
+      custom_points: [...(entry.custom_points || []), customPoint],
+    };
+  });
+  const config = await persistDevices(devices);
+  devicesConfig = config;
+  refreshDeviceDisplayNames(config.devices || []);
+  await loadLearnDatapoints();
+}
+
+function stopConnectionSourceLearnLogging() {
+  if (!connectionSourceLearnState) {
+    return;
+  }
+  connectionSourceLearnState.logging = false;
+  if (connectionSourceLearnToggle) {
+    connectionSourceLearnToggle.textContent = "Start";
+  }
+}
+
+function resetConnectionSourceLearnSelection() {
+  if (!connectionSourceLearnState) {
+    return;
+  }
+  connectionSourceLearnState.selectedIndex = -1;
+  if (connectionSourceLearnApply) {
+    connectionSourceLearnApply.disabled = true;
+  }
+  for (const item of connectionSourceLearnLog?.querySelectorAll(".connection-source-learn-entry-selected") || []) {
+    item.classList.remove("connection-source-learn-entry-selected");
+  }
+}
+
+function renderConnectionSourceLearnLog() {
+  if (!connectionSourceLearnLog || !connectionSourceLearnState) {
+    return;
+  }
+  connectionSourceLearnLog.replaceChildren();
+  for (let index = 0; index < connectionSourceLearnState.entries.length; index += 1) {
+    const entry = connectionSourceLearnState.entries[index];
+    const item = document.createElement("li");
+    item.className = "connection-source-learn-entry";
+    item.textContent = entry.line;
+    if (index === connectionSourceLearnState.selectedIndex) {
+      item.classList.add("connection-source-learn-entry-selected");
+    }
+    item.addEventListener("click", () => {
+      connectionSourceLearnState.selectedIndex = index;
+      if (connectionSourceLearnApply) {
+        connectionSourceLearnApply.disabled = false;
+      }
+      for (const row of connectionSourceLearnLog.querySelectorAll(".connection-source-learn-entry")) {
+        row.classList.toggle("connection-source-learn-entry-selected", row === item);
+      }
+    });
+    connectionSourceLearnLog.appendChild(item);
+  }
+}
+
+function appendConnectionSourceLearnEvent(event) {
+  const state = connectionSourceLearnState;
+  if (!state?.logging || !isLearnSelectableEvent(event)) {
+    return;
+  }
+  if (event.kind === "ClickEvent") {
+    return;
+  }
+  if (isClockTick(event) && !showClockTicks.checked) {
+    return;
+  }
+  if (isFeedbackRefresh(event) && !showFeedbackRefresh.checked) {
+    return;
+  }
+  if (!connectionLearnEventMatchesInstance(event, state.instanceUid)) {
+    return;
+  }
+  const pointId = connectionLearnEventToDatapointId(event, state.instanceUid);
+  if (!pointId || !isLearnSelectableMonitorPointId(pointId)) {
+    return;
+  }
+  const time = new Date().toLocaleTimeString();
+  const line = formatMonitorEventLine(event, time);
+  state.entries.unshift({
+    event,
+    pointId,
+    line,
+    label: monitorDatapointLabel(event, pointId),
+  });
+  if (state.entries.length > 100) {
+    state.entries.length = 100;
+  }
+  renderConnectionSourceLearnLog();
+}
+
+function closeConnectionSourceLearnDialog() {
+  stopConnectionSourceLearnLogging();
+  connectionSourceLearnState = null;
+  if (connectionSourceLearnMessage) {
+    connectionSourceLearnMessage.textContent = "";
+  }
+  if (connectionSourceLearnLog) {
+    connectionSourceLearnLog.replaceChildren();
+  }
+  if (connectionSourceLearnApply) {
+    connectionSourceLearnApply.disabled = true;
+  }
+  if (connectionSourceLearnToggle) {
+    connectionSourceLearnToggle.textContent = "Start";
+  }
+}
+
+function openConnectionSourceLearnDialog(instanceUid, onApply) {
+  if (!connectionSourceLearnDialog || !instanceUid) {
+    return;
+  }
+  closeConnectionSourceLearnDialog();
+  connectionSourceLearnState = {
+    instanceUid,
+    logging: false,
+    selectedIndex: -1,
+    entries: [],
+    onApply,
+  };
+  if (connectionSourceLearnInstance) {
+    connectionSourceLearnInstance.textContent =
+      `Instance: ${learnInstanceLabel(instanceUid)} — press Start, trigger the control, then select an entry and Apply.`;
+  }
+  if (connectionSourceLearnMessage) {
+    connectionSourceLearnMessage.textContent = "";
+  }
+  if (connectionSourceLearnApply) {
+    connectionSourceLearnApply.disabled = true;
+  }
+  if (connectionSourceLearnToggle) {
+    connectionSourceLearnToggle.textContent = "Start";
+  }
+  connectionSourceLearnDialog.showModal();
+}
+
+async function applyConnectionSourceLearnSelection() {
+  const state = connectionSourceLearnState;
+  if (!state || state.selectedIndex < 0) {
+    return;
+  }
+  const entry = state.entries[state.selectedIndex];
+  if (!entry?.pointId) {
+    return;
+  }
+  stopConnectionSourceLearnLogging();
+  if (connectionSourceLearnMessage) {
+    connectionSourceLearnMessage.textContent = "applying...";
+  }
+  if (connectionSourceLearnApply) {
+    connectionSourceLearnApply.disabled = true;
+  }
+  try {
+    await ensureLearnCustomDatapoint(state.instanceUid, entry.pointId, entry.label);
+    rememberMonitorDatapoint(entry.event);
+    state.onApply?.(entry.pointId);
+    connectionSourceLearnDialog?.close();
+  } catch (error) {
+    if (connectionSourceLearnMessage) {
+      connectionSourceLearnMessage.textContent = `error: ${error.message}`;
+    }
+    if (connectionSourceLearnApply) {
+      connectionSourceLearnApply.disabled = false;
+    }
+  }
+}
+
+function attachConnectionSourceLearnButton(button, instanceSelect, datapointSelect, onApply) {
+  syncConnectionSourceLearnButton(button, instanceSelect);
+  button.addEventListener("click", () => {
+    const instanceUid = instanceSelect.value?.trim() || "";
+    if (!instanceUid || instanceUid === DISCONNECTED_MODULE) {
+      return;
+    }
+    openConnectionSourceLearnDialog(instanceUid, (pointId) => {
+      fillLearnPointSelect(datapointSelect, instanceUid, "input", pointId);
+      applyLearnDatapointRanges(datapointSelect.selectedOptions[0], "input");
+      onApply?.(pointId);
+    });
+  });
+  return () => syncConnectionSourceLearnButton(button, instanceSelect);
+}
+
+function createConnectionSourceLearnButton(instanceSelect, datapointSelect, onApply) {
+  const button = document.createElement("button");
+  button.type = "button";
+  button.className = "connection-source-learn-btn";
+  button.textContent = "Learn";
+  attachConnectionSourceLearnButton(button, instanceSelect, datapointSelect, onApply);
+  return button;
+}
+
 function createConnectionEditForm(connection) {
   const form = document.createElement("div");
   form.className = "connection-edit-form";
@@ -1372,9 +1651,16 @@ function createConnectionEditForm(connection) {
   sourceInstance.dataset.field = "source_instance";
   const sourceDatapoint = document.createElement("select");
   sourceDatapoint.dataset.field = "source_datapoint";
+  const sourceLearnButton = createConnectionSourceLearnButton(sourceInstance, sourceDatapoint);
+  const sourceDatapointRow = document.createElement("div");
+  sourceDatapointRow.className = "connection-source-learn-row";
+  sourceDatapointRow.append(
+    createStackedField("Data point", sourceDatapoint),
+    sourceLearnButton,
+  );
   sourceGroup.append(
     createStackedField("Instance", sourceInstance),
-    createStackedField("Data point", sourceDatapoint),
+    sourceDatapointRow,
   );
 
   const targetGroup = document.createElement("div");
@@ -1478,6 +1764,7 @@ function createConnectionEditForm(connection) {
     resetDatapointFilterInput(sourceDatapoint);
     fillLearnPointSelect(sourceDatapoint, sourceInstance.value, "input", "");
     sourceDatapoint.disabled = !sourceInstance.value;
+    syncConnectionSourceLearnButton(sourceLearnButton, sourceInstance);
   });
   targetInstance.addEventListener("change", () => {
     resetDatapointFilterInput(targetDatapoint);
@@ -2360,7 +2647,6 @@ function completeLearnMapping() {
 
 function clearLearnSource() {
   learnMessage.textContent = "";
-  selectedMonitorEventItem = null;
   clearLearnEndpointSelects();
   if (socket && socket.readyState === WebSocket.OPEN) {
     socket.send(JSON.stringify({ type: "learn_clear" }));
@@ -2454,118 +2740,6 @@ function monitorDatapointLabel(event, pointId) {
     return `monitor · ${pointId}`;
   }
   return `monitor · ${formatMonitorEventLine(event, "")}`.trim();
-}
-
-function monitorSourceKeyForEvent(event) {
-  if (event.kind === "DataPointValue" && event.id) {
-    const module = event.id.split(".")[0];
-    const point = event.id.slice(module.length + 1);
-    return `${module}:${point}`;
-  }
-  if (event.kind === "GpioEvent" || event.kind === "HidEvent" || event.kind === "HidLearnEvent" || event.kind === "ControlEvent") {
-    const control = event.control || event.suggested_control || "";
-    return `${event.source}:${control}`;
-  }
-  if (event.kind === "OscMessageEvent") {
-    const address = event.canonical_address || event.address;
-    return `${event.source}:${address}`;
-  }
-  if (event.kind === "MidiMessageEvent" && event.control) {
-    return `${event.source}:${event.control}`;
-  }
-  return "";
-}
-
-function updateMonitorLearnHint() {
-  if (!learnMonitorHint) {
-    return;
-  }
-  learnMonitorHint.hidden = !learnMode;
-  if (!learnMode) {
-    return;
-  }
-  if (learnPhase === "waiting_target" && (learnSourceDatapointId || learnSourceKey)) {
-    const sourceLabel = formatDatapointDisplay(learnSourceDatapointId || learnSourceKey);
-    learnMonitorHint.textContent = `Source selected: ${sourceLabel}. Click another message to change it, or pick target data points in the Connections card.`;
-    return;
-  }
-  learnMonitorHint.textContent = "Create connection: click a monitor message or choose source instance and data point in the Connections card.";
-}
-
-function refreshMonitorEventLearnState() {
-  for (const item of events.querySelectorAll(".monitor-event")) {
-    const event = item.monitorEvent;
-    if (!event) {
-      continue;
-    }
-    const selectable = learnMode && isLearnSelectableEvent(event);
-    item.classList.toggle("monitor-event-selectable", selectable);
-    if (selectable) {
-      item.title = "Select as connection source";
-      item.onclick = () => selectMonitorEvent(event, item);
-    } else {
-      item.removeAttribute("title");
-      item.onclick = null;
-    }
-  }
-  highlightSelectedMonitorEvent();
-}
-
-function highlightSelectedMonitorEvent() {
-  let matchedSelection = false;
-  for (const item of events.querySelectorAll(".monitor-event")) {
-    const event = item.monitorEvent;
-    const sourceKey = event ? monitorSourceKeyForEvent(event) : "";
-    const selected = Boolean(
-      learnMode &&
-      (learnSourceDatapointId || learnSourceKey) &&
-      (
-        (sourceKey && sourceKey === learnSourceKey) ||
-        (event && eventToDatapointId(event) === learnSourceDatapointId) ||
-        item === selectedMonitorEventItem
-      ),
-    );
-    item.classList.toggle("monitor-event-selected", selected);
-    if (selected) {
-      matchedSelection = true;
-    }
-  }
-  if (!matchedSelection) {
-    selectedMonitorEventItem = null;
-  }
-}
-
-function selectMonitorEvent(event, item) {
-  if (selectedMonitorEventItem) {
-    selectedMonitorEventItem.classList.remove("monitor-event-selected");
-  }
-  selectedMonitorEventItem = item;
-  if (item) {
-    item.classList.add("monitor-event-selected");
-  }
-  learnMessage.textContent = "selecting source...";
-  const payload = { type: "learn_select", event };
-
-  if (socket && socket.readyState === WebSocket.OPEN) {
-    socket.send(JSON.stringify(payload));
-    return;
-  }
-
-  fetch("/api/learn/source", {
-    method: "POST",
-    headers: { "content-type": "application/json" },
-    body: JSON.stringify({ event }),
-  })
-    .then(async (response) => {
-      if (!response.ok) {
-        throw new Error(await response.text());
-      }
-      return response.json();
-    })
-    .then(renderStatus)
-    .catch((error) => {
-      learnMessage.textContent = `error: ${error.message}`;
-    });
 }
 
 function adapterMidiLibraryId(adapterName) {
@@ -3002,17 +3176,14 @@ function appendEvent(event) {
   if (isLearnSelectableEvent(event)) {
     rememberMonitorDatapoint(event);
   }
+  if (connectionSourceLearnState?.logging) {
+    appendConnectionSourceLearnEvent(event);
+  }
   const item = document.createElement("li");
   item.className = "monitor-event";
   item.monitorEvent = event;
   item.monitorEventTime = new Date().toLocaleTimeString();
   applyMonitorEventDisplay(item);
-
-  if (learnMode && isLearnSelectableEvent(event)) {
-    item.classList.add("monitor-event-selectable");
-    item.title = "Select as connection source";
-    item.onclick = () => selectMonitorEvent(event, item);
-  }
 
   events.prepend(item);
 
@@ -3802,7 +3973,6 @@ function pruneLearnMonitorDatapointsForHidInstance(
   }
   if (changed && learnMode) {
     renderLearnDatapointSelects();
-    highlightSelectedMonitorEvent();
   }
 }
 
@@ -3820,7 +3990,6 @@ function pruneLearnMonitorDatapointsForDeletedHidInstance(instanceName) {
   }
   if (changed && learnMode) {
     renderLearnDatapointSelects();
-    highlightSelectedMonitorEvent();
   }
 }
 
@@ -4057,7 +4226,6 @@ function createHidInputRow(input = {}) {
         learnMonitorDatapoints.delete(`${instanceName}.${control}`);
         if (learnMode) {
           renderLearnDatapointSelects();
-          highlightSelectedMonitorEvent();
         }
       }
       updateHidAdapterCardDirtyState(card);
@@ -7433,6 +7601,53 @@ learnSourceInstance.addEventListener("change", () => {
   resetDatapointFilterInput(learnSourceDatapoint);
   fillLearnPointSelect(learnSourceDatapoint, learnSourceInstance.value, "input", "");
   clearLearnSourceOnServer();
+  syncConnectionSourceLearnButton(learnSourceLearnButton, learnSourceInstance);
+});
+
+attachConnectionSourceLearnButton(
+  learnSourceLearnButton,
+  learnSourceInstance,
+  learnSourceDatapoint,
+  (pointId) => {
+    if (learnMode && pointId) {
+      selectLearnSourceDatapoint(pointId);
+    }
+  },
+);
+
+connectionSourceLearnToggle?.addEventListener("click", () => {
+  if (!connectionSourceLearnState) {
+    return;
+  }
+  if (connectionSourceLearnState.logging) {
+    stopConnectionSourceLearnLogging();
+    return;
+  }
+  connectionSourceLearnState.logging = true;
+  resetConnectionSourceLearnSelection();
+  if (connectionSourceLearnToggle) {
+    connectionSourceLearnToggle.textContent = "Stop";
+  }
+  if (connectionSourceLearnMessage) {
+    connectionSourceLearnMessage.textContent = "";
+  }
+});
+
+connectionSourceLearnApply?.addEventListener("click", () => {
+  void applyConnectionSourceLearnSelection();
+});
+
+connectionSourceLearnCancel?.addEventListener("click", () => {
+  connectionSourceLearnDialog?.close();
+});
+
+connectionSourceLearnDialog?.addEventListener("close", () => {
+  closeConnectionSourceLearnDialog();
+});
+
+connectionSourceLearnDialog?.addEventListener("cancel", (event) => {
+  event.preventDefault();
+  connectionSourceLearnDialog.close();
 });
 
 learnTargetInstance.addEventListener("change", () => {

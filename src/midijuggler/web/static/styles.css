@@ -68,7 +68,8 @@ header {
 }
 
 .connection-impact-dialog,
-.connection-transfer-dialog {
+.connection-transfer-dialog,
+.connection-source-learn-dialog {
   background: #182032;
   border: 1px solid #b44;
   border-radius: 16px;
@@ -79,19 +80,22 @@ header {
 }
 
 .connection-impact-dialog::backdrop,
-.connection-transfer-dialog::backdrop {
+.connection-transfer-dialog::backdrop,
+.connection-source-learn-dialog::backdrop {
   background: rgb(0 0 0 / 55%);
 }
 
 .connection-impact-form,
-.connection-transfer-form {
+.connection-transfer-form,
+.connection-source-learn-form {
   display: grid;
   gap: 1rem;
   padding: 1.25rem 1.5rem 1.5rem;
 }
 
 .connection-impact-form h2,
-.connection-transfer-form h2 {
+.connection-transfer-form h2,
+.connection-source-learn-form h2 {
   margin: 0;
 }
 
@@ -103,7 +107,9 @@ header {
 }
 
 .connection-impact-actions,
-.connection-transfer-actions {
+.connection-transfer-actions,
+.connection-source-learn-actions,
+.connection-source-learn-controls {
   display: flex;
   flex-wrap: wrap;
   gap: 0.75rem;
@@ -866,6 +872,48 @@ legend {
   gap: 0.5rem;
 }
 
+.connection-source-learn-row {
+  align-items: flex-end;
+  display: flex;
+  gap: 0.75rem;
+}
+
+.connection-source-learn-row .stacked-field {
+  flex: 1;
+  min-width: 0;
+}
+
+.connection-source-learn-btn {
+  flex-shrink: 0;
+  margin-bottom: 0.15rem;
+}
+
+.connection-source-learn-log {
+  background: #101827;
+  border: 1px solid #31405e;
+  border-radius: 12px;
+  margin: 0;
+  max-height: 16rem;
+  overflow: auto;
+  padding: 0.75rem 0.75rem 0.75rem 2rem;
+}
+
+.connection-source-learn-entry {
+  border-radius: 8px;
+  cursor: pointer;
+  margin-left: -0.35rem;
+  padding: 0.2rem 0.35rem;
+}
+
+.connection-source-learn-entry:hover {
+  background: rgb(61 109 179 / 22%);
+}
+
+.connection-source-learn-entry-selected {
+  background: rgb(61 109 179 / 35%);
+  outline: 1px solid #6f9be0;
+}
+
 .active-button {
   background: #3d6db3;
   border-color: #6f9be0;
@@ -956,26 +1004,6 @@ article {
   line-height: 1.45;
   padding-left: 1.5rem;
   word-break: break-word;
-}
-
-.monitor-event-selectable {
-  border-radius: 8px;
-  cursor: pointer;
-  margin-left: -0.35rem;
-  padding: 0.2rem 0.35rem;
-}
-
-.monitor-event-selectable:hover {
-  background: rgb(61 109 179 / 22%);
-}
-
-.monitor-event-selected {
-  background: rgb(61 109 179 / 35%);
-  outline: 1px solid #6f9be0;
-}
-
-.learn-monitor-hint {
-  margin-bottom: 0.75rem;
 }
 
 .monitor-filter {
