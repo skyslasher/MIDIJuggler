@@ -31,6 +31,12 @@ _DIRECTION_MAP = {
 }
 
 
+def _optional_library_range(value: float | None) -> float | None:
+    if value is None:
+        return None
+    return float(value)
+
+
 def build_device_datapoints(
     device: DeviceConfig,
     adapter: AdapterConfig,
@@ -98,8 +104,8 @@ def _append_midi_library_points(
                 value_type=ValueType.FLOAT,
                 direction=direction,
                 label=parameter.label,
-                value_min=float(parameter.value_min),
-                value_max=float(parameter.value_max),
+                value_min=_optional_library_range(parameter.value_min),
+                value_max=_optional_library_range(parameter.value_max),
                 protocol="midi",
                 input_mode=(
                     parameter.value_type if parameter.direction == "source" else ""
@@ -142,8 +148,8 @@ def _append_osc_library_points(
                 value_type=ValueType.FLOAT,
                 direction=direction,
                 label=parameter.label,
-                value_min=float(parameter.value_min),
-                value_max=float(parameter.value_max),
+                value_min=_optional_library_range(parameter.value_min),
+                value_max=_optional_library_range(parameter.value_max),
                 protocol=protocol,
                 category=parameter.category,
             )

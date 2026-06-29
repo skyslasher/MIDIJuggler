@@ -56,3 +56,33 @@ def test_midi_library_datapoints_include_category() -> None:
     encoder = next(spec for spec in specs if spec.id.point == "layer_a_encoder_1_turn")
 
     assert encoder.category == "encoder"
+
+
+def test_midi_library_datapoints_allow_missing_value_ranges() -> None:
+    config = parse_config(
+        {
+            "adapters": {
+                "faderport": {
+                    "type": "midi",
+                    "enabled": True,
+                    "midi_library": "presonus_faderport",
+                }
+            },
+            "devices": [
+                {
+                    "id": "faderport",
+                    "adapter": "faderport",
+                    "library": "presonus_faderport",
+                    "library_kind": "midi",
+                }
+            ],
+        }
+    )
+    device = config.devices["faderport"]
+    adapter = config.adapters["faderport"]
+
+    specs, _output_points = build_device_datapoints(device, adapter)
+    lcd = next(spec for spec in specs if spec.id.point == "ch_1_lcd_track_name")
+
+    assert lcd.value_min is None
+    assert lcd.value_max is None
