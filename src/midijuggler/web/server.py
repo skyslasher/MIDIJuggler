@@ -463,6 +463,7 @@ class WebInterface:
                         output_max=float(item.get("output_max", 127.0)),
                         invert=bool(item.get("invert", False)),
                         scale_curve=scale_curve,
+                        factor=float(item.get("factor", 1.0)),
                         enabled=bool(item.get("enabled", True)),
                     )
                 )
@@ -1009,6 +1010,9 @@ class WebInterface:
         scale_curve = str(payload.get("scale_curve", "linear")).strip() or "linear"
         if scale_curve not in SCALE_CURVES:
             raise ValueError(f"unsupported scale_curve: {scale_curve!r}")
+        factor = float(payload.get("factor", 1.0))
+        if modifier == ModifierKind.FACTOR and factor == 0.0:
+            raise ValueError("factor must not be zero")
 
         connection = self.learn.build_connection(
             source_datapoint=source_datapoint,
@@ -1020,6 +1024,7 @@ class WebInterface:
             output_max=output_max,
             invert=invert,
             scale_curve=scale_curve,
+            factor=factor,
             connection_id=str(payload.get("id", "")).strip() or None,
         )
 

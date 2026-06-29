@@ -193,6 +193,7 @@ class LearnController:
         output_max: float = 127.0,
         invert: bool = False,
         scale_curve: str = "linear",
+        factor: float = 1.0,
         connection_id: str | None = None,
     ) -> ConnectionSpec:
         DataPointId.parse(source_datapoint)
@@ -209,6 +210,7 @@ class LearnController:
             output_max=output_max,
             invert=invert,
             scale_curve=scale_curve,
+            factor=factor,
         )
 
 
@@ -541,4 +543,6 @@ def reverse_connection(
         output_min=connection.input_min,
         output_max=connection.input_max,
         invert=connection.invert,
+        scale_curve=connection.scale_curve,
+        factor=connection.factor,
     )

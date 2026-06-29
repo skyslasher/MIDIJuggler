@@ -26,6 +26,7 @@ class DataPointDirection(str, Enum):
 class ModifierKind(str, Enum):
     RANGE_MAP = "range_map"
     PASSTHROUGH = "passthrough"
+    FACTOR = "factor"
 
 
 SCALE_CURVES = frozenset({"linear", "log_to_linear", "linear_to_log"})
@@ -136,6 +137,7 @@ class ConnectionSpec:
     output_max: float = 127.0
     invert: bool = False
     scale_curve: str = "linear"
+    factor: float = 1.0
     enabled: bool = True
 
     def as_dict(self) -> dict[str, Any]:
@@ -151,6 +153,8 @@ class ConnectionSpec:
             "invert": self.invert,
             "enabled": self.enabled,
         }
+        if self.modifier == ModifierKind.FACTOR or self.factor != 1.0:
+            payload["factor"] = self.factor
         if self.scale_curve != "linear":
             payload["scale_curve"] = self.scale_curve
         return payload

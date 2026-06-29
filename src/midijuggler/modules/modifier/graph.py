@@ -24,6 +24,7 @@ from midijuggler.modules.modifier.feedback_suppress import (
     control_group,
     reciprocal_feedback_pairs,
 )
+from midijuggler.modules.modifier.factor import FactorTransform, apply_factor
 from midijuggler.modules.modifier.range_map import (
     RangeMapTransform,
     apply_output_scale_curve,
@@ -52,6 +53,7 @@ class ModifierGraph(ModifierModule):
         super().__init__("modifier_graph", store)
         self.connections = list(connections)
         self._source_index: dict[str, list[tuple[ConnectionSpec, RangeMapTransform]]] = {}
+        self._factor_index: dict[str, list[tuple[ConnectionSpec, FactorTransform]]] = {}
         self._passthrough_index: dict[str, list[ConnectionSpec]] = {}
         self._subscribed_sources: set[str] = set()
         self._feedback_suppressor = FeedbackSuppressor(feedback_suppress_ms)
@@ -74,12 +76,19 @@ class ModifierGraph(ModifierModule):
 
     def _rebuild_index(self) -> None:
         self._source_index.clear()
+        self._factor_index.clear()
         self._passthrough_index.clear()
         for connection in self.connections:
             if not connection.enabled:
                 continue
             if connection.modifier == ModifierKind.PASSTHROUGH:
                 self._passthrough_index.setdefault(connection.source, []).append(connection)
+                continue
+            if connection.modifier == ModifierKind.FACTOR:
+                transform = FactorTransform.from_connection(connection)
+                self._factor_index.setdefault(connection.source, []).append(
+                    (connection, transform)
+                )
                 continue
             transform = RangeMapTransform.from_connection(connection)
             self._source_index.setdefault(connection.source, []).append(
@@ -106,7 +115,7 @@ class ModifierGraph(ModifierModule):
             )
 
     def _sync_subscriptions(self) -> None:
-        sources = set(self._source_index) | set(self._passthrough_index)
+        sources = set(self._source_index) | set(self._factor_index) | set(self._passthrough_index)
         for source in sorted(sources):
             if source in self._subscribed_sources:
                 continue
@@ -155,29 +164,72 @@ class ModifierGraph(ModifierModule):
             mapped = self._map_value(key, numeric, connection.target, transform)
             if mapped is None:
                 continue
-            current = self.store.float_value(connection.target)
-            if (
-                not force_desk_forward
-                and current is not None
-                and abs(current - mapped) <= _compare_epsilon(
-                    self.store,
-                    connection.target,
-                )
-            ):
-                continue
-            emit_outputs = not (effective_suppress_source or suppress_target)
-            await self.store.write(
-                float_value(
-                    DataPointId.parse(connection.target),
-                    mapped,
-                    emit_outputs=emit_outputs,
-                )
+            await self._write_mapped_value(
+                connection,
+                mapped,
+                force_desk_forward=force_desk_forward,
+                effective_suppress_source=effective_suppress_source,
+                suppress_target=suppress_target,
+                timestamp=value.timestamp,
             )
-            if emit_outputs:
-                self._feedback_suppressor.note_outbound_target(
+        for connection, transform in self._factor_index.get(key, []):
+            force_desk_forward = _should_force_desk_forward(key, connection.target)
+            suppress_target = False
+            if not force_desk_forward:
+                suppress_target = self._feedback_suppressor.should_suppress_target(
                     connection.target,
                     now=value.timestamp,
                 )
+            effective_suppress_source = False if force_desk_forward else suppress_source
+            if effective_suppress_source or suppress_target:
+                LOGGER.debug(
+                    "modifier_graph suppressed feedback %s -> %s",
+                    connection.source,
+                    connection.target,
+                )
+            mapped = apply_factor(numeric, transform)
+            await self._write_mapped_value(
+                connection,
+                mapped,
+                force_desk_forward=force_desk_forward,
+                effective_suppress_source=effective_suppress_source,
+                suppress_target=suppress_target,
+                timestamp=value.timestamp,
+            )
+
+    async def _write_mapped_value(
+        self,
+        connection: ConnectionSpec,
+        mapped: float,
+        *,
+        force_desk_forward: bool,
+        effective_suppress_source: bool,
+        suppress_target: bool,
+        timestamp: float,
+    ) -> None:
+        current = self.store.float_value(connection.target)
+        if (
+            not force_desk_forward
+            and current is not None
+            and abs(current - mapped) <= _compare_epsilon(
+                self.store,
+                connection.target,
+            )
+        ):
+            return
+        emit_outputs = not (effective_suppress_source or suppress_target)
+        await self.store.write(
+            float_value(
+                DataPointId.parse(connection.target),
+                mapped,
+                emit_outputs=emit_outputs,
+            )
+        )
+        if emit_outputs:
+            self._feedback_suppressor.note_outbound_target(
+                connection.target,
+                now=timestamp,
+            )
 
     def _map_value(
         self,

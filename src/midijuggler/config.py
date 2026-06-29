@@ -457,14 +457,21 @@ def _format_connection_spec(connection: ConnectionSpec) -> str:
         f"source = {_toml_string(connection.source)}",
         f"target = {_toml_string(connection.target)}",
         f"modifier = {_toml_string(connection.modifier.value)}",
-        f"input_min = {connection.input_min}",
-        f"input_max = {connection.input_max}",
-        f"output_min = {connection.output_min}",
-        f"output_max = {connection.output_max}",
-        f"invert = {_toml_bool(connection.invert)}",
     ]
-    if connection.scale_curve != "linear":
-        lines.append(f"scale_curve = {_toml_string(connection.scale_curve)}")
+    if connection.modifier == ModifierKind.FACTOR:
+        lines.append(f"factor = {connection.factor}")
+    else:
+        lines.extend(
+            [
+                f"input_min = {connection.input_min}",
+                f"input_max = {connection.input_max}",
+                f"output_min = {connection.output_min}",
+                f"output_max = {connection.output_max}",
+                f"invert = {_toml_bool(connection.invert)}",
+            ]
+        )
+        if connection.scale_curve != "linear":
+            lines.append(f"scale_curve = {_toml_string(connection.scale_curve)}")
     if not connection.enabled:
         lines.append(f"enabled = {_toml_bool(connection.enabled)}")
     return "\n".join(lines)
@@ -1326,6 +1333,7 @@ def normalize_connections(
                 output_max=connection.output_max,
                 invert=connection.invert,
                 scale_curve=connection.scale_curve,
+                factor=connection.factor,
                 enabled=connection.enabled,
             )
         )
@@ -1449,6 +1457,10 @@ def _parse_connection(index: int, raw: Any) -> ConnectionSpec:
             f"{', '.join(sorted(SCALE_CURVES))}"
         )
 
+    factor = _as_float(raw.get("factor", 1.0), f"connections[{index}].factor")
+    if modifier_kind == ModifierKind.FACTOR and factor == 0.0:
+        raise ValueError(f"connections[{index}] factor must not be zero")
+
     return ConnectionSpec(
         id=str(raw["id"]),
         source=str(raw["source"]),
@@ -1460,6 +1472,7 @@ def _parse_connection(index: int, raw: Any) -> ConnectionSpec:
         output_max=_as_float(raw.get("output_max", 127.0), f"connections[{index}].output_max"),
         invert=bool(raw.get("invert", False)),
         scale_curve=scale_curve,
+        factor=factor,
         enabled=bool(raw.get("enabled", True)),
     )
 

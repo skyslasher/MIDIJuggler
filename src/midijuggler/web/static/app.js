@@ -95,6 +95,8 @@ const learnTargetInstance = document.querySelector("#learn-target-instance");
 const learnTargetDatapoint = document.querySelector("#learn-target-datapoint");
 const learnModifier = document.querySelector("#learn-modifier");
 const learnRangeFields = document.querySelector("#learn-range-fields");
+const learnFactorField = document.querySelector("#learn-factor-field");
+const learnFactor = document.querySelector("#learn-factor");
 const learnInputMin = document.querySelector("#learn-input-min");
 const learnInputMax = document.querySelector("#learn-input-max");
 const learnOutputMin = document.querySelector("#learn-output-min");
@@ -1257,6 +1259,9 @@ function connectionMeta(connection) {
   if (connection.modifier === "passthrough") {
     return `${connection.id} · passthrough${disabled}`;
   }
+  if (connection.modifier === "factor") {
+    return `${connection.id} · × ${connection.factor ?? 1}${disabled}`;
+  }
   const scale =
     connection.scale_curve && connection.scale_curve !== "linear"
       ? ` · ${scaleCurveLabel(connection.scale_curve)}`
@@ -1271,8 +1276,12 @@ function connectionMeta(connection) {
 function syncConnectionEditRangeFieldsVisibility(form) {
   const modifier = form.querySelector('[data-field="modifier"]')?.value;
   const rangeFields = form.querySelector(".connection-edit-range-fields");
+  const factorField = form.querySelector(".connection-edit-factor-field");
   if (rangeFields) {
-    rangeFields.hidden = modifier === "passthrough";
+    rangeFields.hidden = modifier === "passthrough" || modifier === "factor";
+  }
+  if (factorField) {
+    factorField.hidden = modifier !== "factor";
   }
 }
 
@@ -1345,6 +1354,7 @@ function collectConnectionFromEditForm(form, connectionId) {
     output_max: Number(form.querySelector('[data-field="output_max"]')?.value),
     scale_curve: form.querySelector('[data-field="scale_curve"]')?.value || "linear",
     invert: Boolean(form.querySelector('[data-field="invert"]')?.checked),
+    factor: Number(form.querySelector('[data-field="factor"]')?.value ?? 1),
     enabled: Boolean(form.querySelector('[data-field="enabled"]')?.checked),
   };
 }
@@ -1390,6 +1400,7 @@ function createConnectionEditForm(connection) {
   modifierSelect.dataset.field = "modifier";
   modifierSelect.innerHTML = `
     <option value="range_map">Range map</option>
+    <option value="factor">Factor</option>
     <option value="passthrough">Passthrough</option>
   `;
 
@@ -1401,6 +1412,17 @@ function createConnectionEditForm(connection) {
     createNumberField("Output min", "output_min", connection.output_min ?? 0, -999999, 999999, "any"),
     createNumberField("Output max", "output_max", connection.output_max ?? 127, -999999, 999999, "any"),
   );
+
+  const factorField = createNumberField(
+    "Factor",
+    "factor",
+    connection.factor ?? 1,
+    -999999,
+    999999,
+    "any",
+  );
+  factorField.classList.add("connection-edit-factor-field");
+  factorField.hidden = true;
 
   const scaleCurveSelect = document.createElement("select");
   scaleCurveSelect.dataset.field = "scale_curve";
@@ -1428,6 +1450,7 @@ function createConnectionEditForm(connection) {
     sourceGroup,
     targetGroup,
     createStackedField("Modifier", modifierSelect),
+    factorField,
     rangeFields,
     enabledLabel,
   );
@@ -1822,8 +1845,11 @@ function applyLearnDatapointRanges(selectedOption, role) {
 }
 
 function syncLearnRangeFieldsVisibility() {
-  const showRanges = learnModifier.value !== "passthrough";
-  learnRangeFields.hidden = !showRanges;
+  const modifier = learnModifier.value;
+  learnRangeFields.hidden = modifier === "passthrough" || modifier === "factor";
+  if (learnFactorField) {
+    learnFactorField.hidden = modifier !== "factor";
+  }
 }
 
 async function loadLearnDatapoints() {
@@ -2030,6 +2056,7 @@ function completeLearnMapping() {
     output_max: Number(learnOutputMax.value),
     scale_curve: learnScaleCurve?.value || "linear",
     invert: learnInvert.checked,
+    factor: Number(learnFactor?.value ?? 1),
   };
   if (!targetDatapoint && targetAdapter && parameterId) {
     payload.target_adapter = targetAdapter;
