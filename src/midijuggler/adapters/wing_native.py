@@ -224,6 +224,58 @@ class WingNativeAdapter(Adapter):
             )
         )
 
+    async def send_test_message(self, address: str, value: float) -> None:
+        normalized = address.strip()
+        if not normalized.startswith("/"):
+            normalized = f"/{normalized}"
+        if self._client is None or not self.running:
+            raise OSError(f"Wing native adapter {self.name} is not running")
+
+        try:
+            node_id = await self._client.resolve_path(normalized)
+        except TimeoutError as exc:
+            raise OSError(
+                f"Wing native adapter {self.name} timed out resolving {normalized}"
+            ) from exc
+        except KeyError as exc:
+            raise ValueError(
+                f"Wing native adapter {self.name} could not resolve {normalized}: {exc}"
+            ) from exc
+
+        numeric_value = float(value)
+        if _FADER_PATH_MARKER in normalized:
+            output_range = self._fader_output_ranges.get(normalized)
+            if output_range is not None:
+                wire_value, raw = encode_wing_fader_wire(
+                    numeric_value,
+                    output_min=output_range[0],
+                    output_max=output_range[1],
+                )
+            else:
+                wire_value, raw = encode_wing_fader_wire(numeric_value)
+            self._pending_fader_sends[normalized] = _PendingFaderSend(
+                node_id=node_id,
+                wire_value=wire_value,
+                raw=raw,
+                display_value=numeric_value,
+                target="",
+            )
+            self._schedule_fader_send(normalized)
+            return
+
+        await self._client.set_float(node_id, numeric_value, raw=False)
+        self._connectivity.note_send()
+        self._echo_guard.record(normalized, numeric_value)
+        await self.bus.publish(
+            OscMessageEvent(
+                source=self.name,
+                address=normalized,
+                arguments=(numeric_value,),
+                direction="output",
+                canonical_address=normalized,
+            )
+        )
+
     def _schedule_fader_send(self, address: str) -> None:
         if address in self._fader_send_tasks and not self._fader_send_tasks[address].done():
             return

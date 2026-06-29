@@ -228,6 +228,10 @@ class WebInterface:
         app.router.add_post("/api/osc-adapters/test-send", self.test_send_osc_adapter)
         app.router.add_get("/api/wing-native-adapters", self.wing_native_adapters_config)
         app.router.add_post("/api/wing-native-adapters", self.set_wing_native_adapters_config)
+        app.router.add_post(
+            "/api/wing-native-adapters/test-send",
+            self.test_send_wing_native_adapter,
+        )
         app.router.add_get("/api/master-clock", self.master_clock_config)
         app.router.add_post("/api/master-clock", self.set_master_clock_config)
         app.router.add_post("/api/master-clock/tap", self.tap_master_clock)
@@ -243,6 +247,7 @@ class WebInterface:
         app.router.add_get("/api/datapoints", self.datapoints_config)
         app.router.add_get("/api/devices", self.devices_config)
         app.router.add_post("/api/devices", self.set_devices_config)
+        app.router.add_post("/api/devices/test-send", self.test_send_device)
         app.router.add_get("/api/devices/export", self.export_devices_config)
         app.router.add_post("/api/devices/import", self.import_devices_config)
         app.router.add_get("/api/connections", self.connections_config)
@@ -699,6 +704,26 @@ class WebInterface:
         payload = await request.json()
         try:
             response = await self.send_osc_adapter_test_message(payload)
+        except ValueError as exc:
+            raise web.HTTPBadRequest(text=str(exc)) from exc
+        except OSError as exc:
+            raise web.HTTPBadRequest(text=str(exc)) from exc
+        return web.json_response(response)
+
+    async def test_send_device(self, request: web.Request) -> web.Response:
+        payload = await request.json()
+        try:
+            response = await self.send_device_test_message(payload)
+        except ValueError as exc:
+            raise web.HTTPBadRequest(text=str(exc)) from exc
+        except OSError as exc:
+            raise web.HTTPBadRequest(text=str(exc)) from exc
+        return web.json_response(response)
+
+    async def test_send_wing_native_adapter(self, request: web.Request) -> web.Response:
+        payload = await request.json()
+        try:
+            response = await self.send_wing_native_adapter_test_message(payload)
         except ValueError as exc:
             raise web.HTTPBadRequest(text=str(exc)) from exc
         except OSError as exc:
@@ -1294,76 +1319,36 @@ class WebInterface:
         if not adapter.running:
             raise OSError(f"{kind} adapter {name} is not running")
 
-        feedback_point: str | None = None
-        feedback_value: float | None = None
-        parameter_id = str(payload.get("parameter_id", "")).strip()
-        parameter_label = ""
-        if parameter_id:
-            if kind != "midi":
-                raise ValueError("parameter_id is only supported for midi adapters")
-            device = self.device_registry.require_device_for_adapter(name)
-            parameter = resolve_midi_target_parameter(
-                self.config,
-                self.device_registry,
-                device.uid,
-                parameter_id,
-            )
-            value_min, value_max = lookup_midi_target_ranges(
-                self.config,
-                self.device_registry,
-                device.uid,
-                parameter_id,
-            )
-            if "value" not in payload:
-                raise ValueError("value is required when parameter_id is set")
-            feedback_value = float(payload["value"])
-            if feedback_value < value_min or feedback_value > value_max:
-                raise ValueError(
-                    f"value must be between {value_min} and {value_max} for {parameter.label}"
-                )
-            status, data = encode_midi_target_message(parameter, feedback_value)
-            parameter_label = parameter.label
-            feedback_point = parameter_id
-        else:
-            status, data = self._parse_midi_test_message(payload)
+        status, data = self._parse_midi_test_message(payload)
 
         if isinstance(adapter, MidiAdapter):
-            await adapter.send_test_message(
-                status,
-                data,
-                feedback_point=feedback_point,
-                feedback_value=feedback_value,
-            )
+            await adapter.send_test_message(status, data)
         else:
             await adapter.send_test_message(status, data)
-        response: dict[str, Any] = {
+        return {
             "ok": True,
             "name": name,
             "kind": kind,
             "status": status,
             "data": list(data),
         }
-        if parameter_id:
-            response["parameter_id"] = parameter_id
-            response["parameter_label"] = parameter_label
-        return response
 
-    def _resolve_osc_library_test_message(
+    def _resolve_device_library_test_message(
         self,
-        name: str,
+        device: DeviceConfig,
         parameter_id: str,
         payload: dict[str, Any],
     ) -> tuple[str, list[Any], str]:
-        device = self.device_registry.require_device_for_adapter(name)
         address = resolve_osc_target_address(self.config, device, parameter_id)
-        value_min, value_max = lookup_osc_target_ranges(self.config, name, parameter_id)
+        value_min, value_max = lookup_osc_target_ranges(
+            self.config,
+            device.adapter,
+            parameter_id,
+        )
 
         library_id = device.library.strip()
         if not library_id:
-            adapter = self.config.adapters.get(name)
-            if adapter is None:
-                raise ValueError(f"unknown OSC adapter instance: {name}")
-            library_id = str(adapter.options.get("osc_library", "")).strip()
+            raise ValueError(f"device {device.uid} has no library configured")
         library = get_osc_library(library_id)
         parameter = next(
             (entry for entry in library.parameters if entry.id == parameter_id),
@@ -1406,6 +1391,24 @@ class WebInterface:
             raise ValueError(f"OSC adapter {name} could not be started")
         return adapter
 
+    async def _resolve_wing_native_runtime_adapter(self, name: str) -> WingNativeAdapter:
+        adapter = self.wing_native_adapters.get(name)
+        if adapter is not None:
+            return adapter
+
+        config = self.config.adapters.get(name)
+        if config is None:
+            raise ValueError(f"unknown Wing native adapter instance: {name}")
+        if not config.enabled:
+            raise ValueError(
+                f"Wing native adapter {name} is disabled; enable it before testing"
+            )
+        await self._apply_wing_native_runtime_adapter(name, config)
+        adapter = self.wing_native_adapters.get(name)
+        if adapter is None:
+            raise ValueError(f"Wing native adapter {name} could not be started")
+        return adapter
+
     async def send_osc_adapter_test_message(self, payload: dict[str, Any]) -> dict[str, Any]:
         if not isinstance(payload, dict):
             raise ValueError("OSC test payload must be an object")
@@ -1418,31 +1421,197 @@ class WebInterface:
         if not adapter.running:
             raise OSError(f"OSC adapter {name} is not running")
 
-        parameter_id = str(payload.get("parameter_id", "")).strip()
-        parameter_label = ""
-        if parameter_id:
-            address, arguments, parameter_label = self._resolve_osc_library_test_message(
-                name,
-                parameter_id,
-                payload,
-            )
-        else:
-            address = str(payload.get("address", "")).strip()
-            if not address:
-                raise ValueError("address or parameter_id is required")
-            arguments = self._parse_osc_test_arguments(payload)
+        address = str(payload.get("address", "")).strip()
+        if not address:
+            raise ValueError("address is required")
+        arguments = self._parse_osc_test_arguments(payload)
 
         await adapter.send_test_message(address, arguments)
-        response: dict[str, Any] = {
+        return {
             "ok": True,
             "name": name,
             "address": address,
             "arguments": arguments,
         }
-        if parameter_id:
-            response["parameter_id"] = parameter_id
-            response["parameter_label"] = parameter_label
-        return response
+
+    async def send_wing_native_adapter_test_message(
+        self,
+        payload: dict[str, Any],
+    ) -> dict[str, Any]:
+        if not isinstance(payload, dict):
+            raise ValueError("Wing native test payload must be an object")
+
+        name = str(payload.get("name", "")).strip()
+        if not name:
+            raise ValueError("name is required")
+
+        adapter = await self._resolve_wing_native_runtime_adapter(name)
+        if not adapter.running:
+            raise OSError(f"Wing native adapter {name} is not running")
+
+        address = str(payload.get("address", "")).strip()
+        if not address:
+            raise ValueError("address is required")
+        if "value" not in payload:
+            raise ValueError("value is required")
+
+        value = float(payload["value"])
+        await adapter.send_test_message(address, value)
+        return {
+            "ok": True,
+            "name": name,
+            "address": address if address.startswith("/") else f"/{address}",
+            "value": value,
+        }
+
+    async def send_device_test_message(self, payload: dict[str, Any]) -> dict[str, Any]:
+        if not isinstance(payload, dict):
+            raise ValueError("device test payload must be an object")
+
+        uid = str(payload.get("uid", "")).strip()
+        if not uid:
+            raise ValueError("uid is required")
+
+        parameter_id = str(payload.get("parameter_id", "")).strip()
+        if not parameter_id:
+            raise ValueError("parameter_id is required")
+        if "value" not in payload:
+            raise ValueError("value is required")
+
+        device = self.device_registry.require(uid)
+        adapter_config = self.device_registry.adapter_for_device(uid)
+        adapter_kind = (adapter_config.kind or device.adapter).strip().lower()
+        library_kind = (device.library_kind or "").strip().lower()
+
+        if library_kind == "midi" or (
+            not library_kind and adapter_kind in {"midi", "rtp_midi"}
+        ):
+            return await self._send_device_midi_library_test(
+                device,
+                adapter_kind,
+                parameter_id,
+                payload,
+            )
+        if library_kind in {"osc", "wing"} or adapter_kind in {"osc", "wing_native"}:
+            return await self._send_device_osc_library_test(
+                device,
+                adapter_kind,
+                parameter_id,
+                payload,
+            )
+        raise ValueError(
+            f"device {uid} library kind {library_kind or adapter_kind!r} "
+            "does not support library test send"
+        )
+
+    async def _send_device_midi_library_test(
+        self,
+        device: DeviceConfig,
+        adapter_kind: str,
+        parameter_id: str,
+        payload: dict[str, Any],
+    ) -> dict[str, Any]:
+        if adapter_kind not in {"midi", "rtp_midi"}:
+            raise ValueError(
+                f"device {device.uid} is bound to adapter kind {adapter_kind!r}, "
+                "expected midi or rtp_midi"
+            )
+
+        adapter_name = device.adapter
+        adapter = (
+            self.midi_adapters.get(adapter_name)
+            if adapter_kind == "midi"
+            else self.rtp_midi_adapters.get(adapter_name)
+        )
+        if adapter is None:
+            raise ValueError(f"unknown {adapter_kind} adapter instance: {adapter_name}")
+        if not adapter.running:
+            raise OSError(f"{adapter_kind} adapter {adapter_name} is not running")
+
+        adapter_config = self.device_registry.adapter_for_device(device.uid)
+        parameter = resolve_midi_target_parameter(
+            self.config,
+            self.device_registry,
+            device.uid,
+            parameter_id,
+        )
+        value_min, value_max = lookup_midi_target_ranges(
+            self.config,
+            self.device_registry,
+            device.uid,
+            parameter_id,
+        )
+        feedback_value = float(payload["value"])
+        if feedback_value < value_min or feedback_value > value_max:
+            raise ValueError(
+                f"value must be between {value_min} and {value_max} for {parameter.label}"
+            )
+        status, data = encode_midi_target_message(
+            parameter,
+            feedback_value,
+            adapter=adapter_config,
+            device=device,
+        )
+
+        if isinstance(adapter, MidiAdapter):
+            await adapter.send_test_message(
+                status,
+                data,
+                feedback_point=parameter_id,
+                feedback_value=feedback_value,
+            )
+        else:
+            await adapter.send_test_message(status, data)
+
+        return {
+            "ok": True,
+            "uid": device.uid,
+            "parameter_id": parameter_id,
+            "parameter_label": parameter.label,
+            "status": status,
+            "data": list(data),
+        }
+
+    async def _send_device_osc_library_test(
+        self,
+        device: DeviceConfig,
+        adapter_kind: str,
+        parameter_id: str,
+        payload: dict[str, Any],
+    ) -> dict[str, Any]:
+        address, arguments, parameter_label = self._resolve_device_library_test_message(
+            device,
+            parameter_id,
+            payload,
+        )
+        adapter_name = device.adapter
+
+        if adapter_kind == "wing_native":
+            adapter = await self._resolve_wing_native_runtime_adapter(adapter_name)
+            if not adapter.running:
+                raise OSError(f"Wing native adapter {adapter_name} is not running")
+            if len(arguments) != 1:
+                raise ValueError("Wing native test send expects one numeric value")
+            await adapter.send_test_message(address, float(arguments[0]))
+        elif adapter_kind == "osc":
+            adapter = await self._resolve_osc_runtime_adapter(adapter_name)
+            if not adapter.running:
+                raise OSError(f"OSC adapter {adapter_name} is not running")
+            await adapter.send_test_message(address, arguments)
+        else:
+            raise ValueError(
+                f"device {device.uid} is bound to adapter kind {adapter_kind!r}, "
+                "expected osc or wing_native"
+            )
+
+        return {
+            "ok": True,
+            "uid": device.uid,
+            "parameter_id": parameter_id,
+            "parameter_label": parameter_label,
+            "address": address,
+            "arguments": arguments,
+        }
 
     def _should_list_osc_instance(self, name: str, adapter: AdapterConfig) -> bool:
         kind = adapter.kind or name

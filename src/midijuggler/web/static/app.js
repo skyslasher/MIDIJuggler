@@ -2398,6 +2398,9 @@ function applyAdapterDefaultsToDeviceCard(card) {
     nameField.value = adapter.name || adapterRef;
     nameField.dispatchEvent(new Event("input", { bubbles: true }));
   }
+  card.dataset.deviceLibrary = libraryField.value.trim();
+  card._deviceTestLibraryCache = null;
+  syncDeviceTestSendSection(card);
 }
 
 function deviceInstanceSummaryLabel(device, isNew) {
@@ -2723,6 +2726,7 @@ function createDeviceCard(device = {}, options = {}) {
 
   prependAdapterBodySections(body, [actions]);
   body.appendChild(fields);
+  body.appendChild(createDeviceTestSendSection());
 
   const message = document.createElement("p");
   message.className = "message device-card-message";
@@ -2813,7 +2817,9 @@ function createDeviceCard(device = {}, options = {}) {
   };
   librarySelect?.addEventListener("change", () => {
     card.dataset.deviceLibrary = librarySelect.value.trim();
+    card._deviceTestLibraryCache = null;
     updateXtouchFieldsVisibility();
+    syncDeviceTestSendSection(card);
     markDirty();
   });
   for (const point of device.custom_points || []) {
@@ -2832,7 +2838,9 @@ function createDeviceCard(device = {}, options = {}) {
       fields.querySelector('[data-field="library"]').value,
     );
     card.dataset.deviceLibrary = fields.querySelector('[data-field="library"]')?.value.trim() || "";
+    card._deviceTestLibraryCache = null;
     updateXtouchFieldsVisibility();
+    syncDeviceTestSendSection(card);
     markDirty();
   });
   fields.querySelector(".device-custom-point-add").addEventListener("click", () => {
@@ -2846,6 +2854,7 @@ function createDeviceCard(device = {}, options = {}) {
 
   mountAdapterInstanceCard(card, accordion);
   attachDeviceCardControls(card);
+  syncDeviceTestSendSection(card);
   return card;
 }
 
@@ -4052,61 +4061,40 @@ function sendAdapterTestMessage(card, kind) {
 
   let request;
   if (kind === "osc") {
-    const mode = card.querySelector('[data-test-field="osc_test_mode"]')?.value || "manual";
-    let body;
-    if (mode === "library") {
-      const parameterId =
-        card.querySelector('[data-test-field="osc_parameter"]')?.value.trim() || "";
-      if (!parameterId) {
-        showAdapterTestMessage(card, "select a library parameter");
-        return;
-      }
-      const value = Number(
-        card.querySelector('[data-test-field="osc_value_library"]')?.value || 0,
-      );
-      body = { name, parameter_id: parameterId, value };
-    } else {
-      const address = card.querySelector('[data-test-field="osc_address"]')?.value.trim() || "";
-      const value = Number(card.querySelector('[data-test-field="osc_value"]')?.value || 0);
-      body = { name, address, value };
-    }
+    const address = card.querySelector('[data-test-field="osc_address"]')?.value.trim() || "";
+    const value = Number(card.querySelector('[data-test-field="osc_value"]')?.value || 0);
     request = fetch("/api/osc-adapters/test-send", {
       method: "POST",
       headers: { "content-type": "application/json" },
-      body: JSON.stringify(body),
+      body: JSON.stringify({ name, address, value }),
+    });
+  } else if (kind === "wing_native") {
+    const address =
+      card.querySelector('[data-test-field="wing_native_address"]')?.value.trim() || "";
+    const value = Number(
+      card.querySelector('[data-test-field="wing_native_value"]')?.value || 0,
+    );
+    request = fetch("/api/wing-native-adapters/test-send", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ name, address, value }),
     });
   } else {
-    const mode = card.querySelector('[data-test-field="midi_test_mode"]')?.value || "manual";
-    let body;
-    if (mode === "library") {
-      const parameterId =
-        card.querySelector('[data-test-field="midi_parameter"]')?.value.trim() || "";
-      if (!parameterId) {
-        showAdapterTestMessage(card, "select a library parameter");
-        return;
-      }
-      const value = Number(
-        card.querySelector('[data-test-field="midi_value_library"]')?.value || 0,
-      );
-      body = { kind, name, parameter_id: parameterId, value };
-    } else {
-      const preset =
-        card.querySelector('[data-test-field="midi_preset"]')?.value || "control_change";
-      const channel = Number(card.querySelector('[data-test-field="midi_channel"]')?.value || 1);
-      const number = Number(card.querySelector('[data-test-field="midi_number"]')?.value || 0);
-      const value = Number(card.querySelector('[data-test-field="midi_value"]')?.value || 0);
-      const message = buildMidiTestMessage(preset, channel, number, value);
-      body = {
+    const preset =
+      card.querySelector('[data-test-field="midi_preset"]')?.value || "control_change";
+    const channel = Number(card.querySelector('[data-test-field="midi_channel"]')?.value || 1);
+    const number = Number(card.querySelector('[data-test-field="midi_number"]')?.value || 0);
+    const value = Number(card.querySelector('[data-test-field="midi_value"]')?.value || 0);
+    const message = buildMidiTestMessage(preset, channel, number, value);
+    request = fetch("/api/midi-adapters/test-send", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({
         kind,
         name,
         status: message.status,
         data: message.data,
-      };
-    }
-    request = fetch("/api/midi-adapters/test-send", {
-      method: "POST",
-      headers: { "content-type": "application/json" },
-      body: JSON.stringify(body),
+      }),
     });
   }
 
@@ -4118,8 +4106,8 @@ function sendAdapterTestMessage(card, kind) {
       return response.json();
     })
     .then((result) => {
-      const detail = result?.parameter_label
-        ? `sent ${result.parameter_label} (${result.address})`
+      const detail = result?.address
+        ? `sent ${result.address}`
         : "sent";
       showAdapterTestMessage(card, detail, { autoHide: true });
     })
@@ -4128,148 +4116,60 @@ function sendAdapterTestMessage(card, kind) {
     });
 }
 
-function oscLibraryIdFromCard(card) {
-  return (card.querySelector('[data-field="osc_library"]')?.value || "").trim();
-}
-
-function findOscTestLibraryParameter(card, parameterId) {
-  const parameters = card._oscTestLibraryCache?.parameters || [];
-  return parameters.find((parameter) => parameter.id === parameterId) || null;
-}
-
-function updateOscLibraryTestValueBounds(card) {
-  const parameterSelect = card.querySelector('[data-test-field="osc_parameter"]');
-  const valueInput = card.querySelector('[data-test-field="osc_value_library"]');
-  if (!parameterSelect || !valueInput) {
-    return;
+function deviceLibraryKindFromCard(card) {
+  const explicit = card.querySelector('[data-field="library_kind"]')?.value.trim() || "";
+  if (explicit) {
+    return explicit;
   }
-
-  const parameter = findOscTestLibraryParameter(card, parameterSelect.value);
-  if (!parameter) {
-    return;
-  }
-
-  const min = Number(parameter.value_min ?? 0);
-  const max = Number(parameter.value_max ?? 1);
-  const step = parameter.value_type === "int" ? 1 : 0.01;
-  valueInput.min = String(min);
-  valueInput.max = String(max);
-  valueInput.step = String(step);
-  valueInput.value = String(
-    parameter.value_type === "int" ? Math.round((min + max) / 2) : (min + max) / 2,
-  );
-}
-
-function syncOscTestSendMode(card) {
-  const libraryId = oscLibraryIdFromCard(card);
-  const modeRow = card.querySelector("[data-osc-test-mode-row]");
-  const modeSelect = card.querySelector('[data-test-field="osc_test_mode"]');
-  const manualPanel = card.querySelector("[data-osc-test-manual]");
-  const libraryPanel = card.querySelector("[data-osc-test-library]");
-  if (!modeRow || !modeSelect || !manualPanel || !libraryPanel) {
-    return;
-  }
-
-  const libraryAvailable = Boolean(libraryId);
-  modeRow.hidden = !libraryAvailable;
-  if (!libraryAvailable) {
-    modeSelect.value = "manual";
-  }
-
-  const libraryMode = libraryAvailable && modeSelect.value === "library";
-  manualPanel.hidden = libraryMode;
-  libraryPanel.hidden = !libraryMode;
-
-  if (libraryMode) {
-    loadOscTestLibraryParameters(card);
-  }
-}
-
-async function loadOscTestLibraryParameters(card) {
-  const libraryId = oscLibraryIdFromCard(card);
-  const parameterSelect = card.querySelector('[data-test-field="osc_parameter"]');
-  if (!libraryId || !parameterSelect) {
-    return;
-  }
-
-  if (card._oscTestLibraryCache?.id === libraryId) {
-    updateOscLibraryTestValueBounds(card);
-    return;
-  }
-
-  parameterSelect.replaceChildren();
-  const loadingOption = document.createElement("option");
-  loadingOption.value = "";
-  loadingOption.textContent = "Loading parameters...";
-  parameterSelect.appendChild(loadingOption);
-
-  try {
-    const response = await fetch(`/api/osc-libraries/${encodeURIComponent(libraryId)}`);
-    if (!response.ok) {
-      throw new Error(`could not load OSC library ${libraryId}`);
-    }
-    const library = await response.json();
-    card._oscTestLibraryCache = library;
-
-    parameterSelect.replaceChildren();
-    const placeholder = document.createElement("option");
-    placeholder.value = "";
-    placeholder.textContent = "Select OSC parameter";
-    parameterSelect.appendChild(placeholder);
-
-    for (const parameter of library.parameters || []) {
-      if (parameter.direction !== "target") {
-        continue;
-      }
-      const option = document.createElement("option");
-      option.value = parameter.id;
-      option.textContent = `${parameter.label} (${parameter.address})`;
-      parameterSelect.appendChild(option);
-    }
-    updateOscLibraryTestValueBounds(card);
-  } catch (error) {
-    parameterSelect.replaceChildren();
-    const errorOption = document.createElement("option");
-    errorOption.value = "";
-    errorOption.textContent = error.message;
-    parameterSelect.appendChild(errorOption);
-  }
-}
-
-function updateOscTestSendSection(card) {
-  if (card.dataset.instanceType !== "osc") {
-    return;
-  }
-  syncOscTestSendMode(card);
-}
-
-function midiLibraryIdFromCard(card) {
-  if (card.dataset.instanceType !== "midi") {
+  const libraryId = deviceLibraryIdFromCard(card);
+  if (!libraryId) {
     return "";
   }
-  const { name } = adapterInstanceNameFromCard(card);
-  return deviceLibraryForAdapter(name);
+  if (cachedMidiLibraryList.some((library) => library.id === libraryId)) {
+    return "midi";
+  }
+  if (cachedOscLibraryList.some((library) => library.id === libraryId)) {
+    return "osc";
+  }
+  return "";
 }
 
-function findMidiTestLibraryParameter(card, parameterId) {
-  const parameters = card._midiTestLibraryCache?.parameters || [];
+function deviceLibraryIdFromCard(card) {
+  return (
+    card.querySelector('[data-field="library"]')?.value.trim() ||
+    card.dataset.deviceLibrary ||
+    ""
+  );
+}
+
+function deviceTestUsesMidiLibrary(card) {
+  return deviceLibraryKindFromCard(card) === "midi";
+}
+
+function deviceTestUsesOscLibrary(card) {
+  const kind = deviceLibraryKindFromCard(card);
+  return kind === "osc" || kind === "wing";
+}
+
+function findDeviceTestLibraryParameter(card, parameterId) {
+  const parameters = card._deviceTestLibraryCache?.parameters || [];
   return parameters.find((parameter) => parameter.id === parameterId) || null;
 }
 
-function updateMidiLibraryTestValueBounds(card) {
-  const parameterSelect = card.querySelector('[data-test-field="midi_parameter"]');
-  const valueInput = card.querySelector('[data-test-field="midi_value_library"]');
+function updateDeviceLibraryTestValueBounds(card) {
+  const parameterSelect = card.querySelector('[data-test-field="device_parameter"]');
+  const valueInput = card.querySelector('[data-test-field="device_value"]');
   if (!parameterSelect || !valueInput) {
     return;
   }
 
-  const parameter = findMidiTestLibraryParameter(card, parameterSelect.value);
+  const parameter = findDeviceTestLibraryParameter(card, parameterSelect.value);
   if (!parameter) {
     return;
   }
 
-  const min = Number(parameter.value_min ?? 0);
-  const max = Number(parameter.value_max ?? 127);
+  const min = Number(parameter.value_min ?? (deviceTestUsesMidiLibrary(card) ? 0 : 0));
+  const max = Number(parameter.value_max ?? (deviceTestUsesMidiLibrary(card) ? 127 : 1));
   const step = parameter.value_type === "int" ? 1 : 0.01;
   valueInput.min = String(min);
   valueInput.max = String(max);
@@ -4279,42 +4179,29 @@ function updateMidiLibraryTestValueBounds(card) {
   );
 }
 
-function syncMidiTestSendMode(card) {
-  const libraryId = midiLibraryIdFromCard(card);
-  const modeRow = card.querySelector("[data-midi-test-mode-row]");
-  const modeSelect = card.querySelector('[data-test-field="midi_test_mode"]');
-  const manualPanel = card.querySelector("[data-midi-test-manual]");
-  const libraryPanel = card.querySelector("[data-midi-test-library]");
-  if (!manualPanel || !libraryPanel) {
+function syncDeviceTestSendSection(card) {
+  const fieldset = card.querySelector(".device-test-send");
+  if (!fieldset) {
     return;
   }
 
-  const libraryAvailable = Boolean(libraryId);
-  if (modeRow) {
-    modeRow.hidden = !libraryAvailable;
-  }
-  if (modeSelect && !libraryAvailable) {
-    modeSelect.value = "manual";
-  }
-
-  const libraryMode = libraryAvailable && modeSelect?.value === "library";
-  manualPanel.hidden = libraryMode;
-  libraryPanel.hidden = !libraryMode;
-
-  if (libraryMode) {
-    loadMidiTestLibraryParameters(card);
+  const libraryAvailable =
+    deviceTestUsesMidiLibrary(card) || deviceTestUsesOscLibrary(card);
+  fieldset.hidden = !libraryAvailable;
+  if (libraryAvailable) {
+    loadDeviceTestLibraryParameters(card);
   }
 }
 
-async function loadMidiTestLibraryParameters(card) {
-  const libraryId = midiLibraryIdFromCard(card);
-  const parameterSelect = card.querySelector('[data-test-field="midi_parameter"]');
+async function loadDeviceTestLibraryParameters(card) {
+  const libraryId = deviceLibraryIdFromCard(card);
+  const parameterSelect = card.querySelector('[data-test-field="device_parameter"]');
   if (!libraryId || !parameterSelect) {
     return;
   }
 
-  if (card._midiTestLibraryCache?.id === libraryId) {
-    updateMidiLibraryTestValueBounds(card);
+  if (card._deviceTestLibraryCache?.id === libraryId) {
+    updateDeviceLibraryTestValueBounds(card);
     return;
   }
 
@@ -4324,25 +4211,27 @@ async function loadMidiTestLibraryParameters(card) {
   loadingOption.textContent = "Loading parameters...";
   parameterSelect.appendChild(loadingOption);
 
+  const apiPrefix = deviceTestUsesMidiLibrary(card) ? "midi-libraries" : "osc-libraries";
+
   try {
-    const response = await fetch(`/api/midi-libraries/${encodeURIComponent(libraryId)}`);
+    const response = await fetch(`/api/${apiPrefix}/${encodeURIComponent(libraryId)}`);
     if (!response.ok) {
-      throw new Error(`could not load MIDI library ${libraryId}`);
+      throw new Error(`could not load library ${libraryId}`);
     }
     const library = await response.json();
-    card._midiTestLibraryCache = library;
+    card._deviceTestLibraryCache = library;
 
     parameterSelect.replaceChildren();
     const placeholder = document.createElement("option");
     placeholder.value = "";
-    placeholder.textContent = "Select MIDI parameter";
+    placeholder.textContent = "Select parameter";
     parameterSelect.appendChild(placeholder);
 
     for (const parameter of library.parameters || []) {
       if (parameter.direction !== "target") {
         continue;
       }
-      if (parameter.message_type === "sysex") {
+      if (deviceTestUsesMidiLibrary(card) && parameter.message_type === "sysex") {
         continue;
       }
       const option = document.createElement("option");
@@ -4350,7 +4239,7 @@ async function loadMidiTestLibraryParameters(card) {
       option.textContent = `${parameter.label} (${parameter.address})`;
       parameterSelect.appendChild(option);
     }
-    updateMidiLibraryTestValueBounds(card);
+    updateDeviceLibraryTestValueBounds(card);
   } catch (error) {
     parameterSelect.replaceChildren();
     const errorOption = document.createElement("option");
@@ -4360,12 +4249,88 @@ async function loadMidiTestLibraryParameters(card) {
   }
 }
 
-function updateMidiTestSendSection(card) {
-  if (card.dataset.instanceType !== "midi") {
+function sendDeviceTestMessage(card) {
+  if (card.dataset.isNew === "true") {
+    showDeviceCardMessage(card, "save the device before sending tests");
     return;
   }
-  syncMidiTestManualFields(card);
-  syncMidiTestSendMode(card);
+
+  const uid = card.dataset.deviceUid || card.dataset.deviceId || "";
+  if (!uid) {
+    showDeviceCardMessage(card, "device uid is required");
+    return;
+  }
+
+  const parameterId =
+    card.querySelector('[data-test-field="device_parameter"]')?.value.trim() || "";
+  if (!parameterId) {
+    showDeviceCardMessage(card, "select a library parameter");
+    return;
+  }
+
+  const value = Number(card.querySelector('[data-test-field="device_value"]')?.value || 0);
+  showDeviceCardMessage(card, "sending...");
+
+  fetch("/api/devices/test-send", {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({ uid, parameter_id: parameterId, value }),
+  })
+    .then(async (response) => {
+      if (!response.ok) {
+        throw new Error(await response.text());
+      }
+      return response.json();
+    })
+    .then((result) => {
+      const detail = result?.parameter_label
+        ? `sent ${result.parameter_label}${result.address ? ` (${result.address})` : ""}`
+        : "sent";
+      showDeviceCardMessage(card, detail, { autoHide: true });
+    })
+    .catch((error) => {
+      showDeviceCardMessage(card, `error: ${error.message}`);
+    });
+}
+
+function createDeviceTestSendSection() {
+  const fieldset = document.createElement("fieldset");
+  fieldset.className = "device-test-send adapter-test-send";
+  fieldset.hidden = true;
+
+  const legend = document.createElement("legend");
+  legend.textContent = "Send test";
+  fieldset.appendChild(legend);
+
+  const hint = document.createElement("p");
+  hint.className = "hint";
+  hint.textContent =
+    "Sends one library parameter through the bound adapter. Output appears in the monitor.";
+  fieldset.appendChild(hint);
+
+  const parameterLabel = document.createElement("label");
+  parameterLabel.textContent = "Parameter ";
+  const parameterSelect = document.createElement("select");
+  parameterSelect.dataset.testField = "device_parameter";
+  parameterSelect.addEventListener("change", () => {
+    updateDeviceLibraryTestValueBounds(parameterSelect.closest(".device-card"));
+  });
+  parameterLabel.appendChild(parameterSelect);
+  fieldset.appendChild(parameterLabel);
+
+  fieldset.appendChild(
+    createTestNumberField("Value", "device_value", 0.5, 0, 1, 0.01),
+  );
+
+  const sendButton = document.createElement("button");
+  sendButton.type = "button";
+  sendButton.textContent = "Send test";
+  sendButton.addEventListener("click", () => {
+    sendDeviceTestMessage(fieldset.closest(".device-card"));
+  });
+  fieldset.appendChild(sendButton);
+
+  return fieldset;
 }
 
 function createAdapterTestSendSection(kind, instance) {
@@ -4381,6 +4346,9 @@ function createAdapterTestSendSection(kind, instance) {
   if (kind === "osc") {
     hint.textContent =
       "Sends one OSC message to the configured remote host. Output appears in the monitor.";
+  } else if (kind === "wing_native") {
+    hint.textContent =
+      "Sends one native Wing path value. Output appears in the monitor.";
   } else if (kind === "rtp_midi") {
     hint.textContent =
       "Sends one MIDI message to the configured ALSA output port. Use this when RTP peers connect to a local ALSA port.";
@@ -4391,21 +4359,6 @@ function createAdapterTestSendSection(kind, instance) {
   fieldset.appendChild(hint);
 
   if (kind === "osc") {
-    const modeRow = document.createElement("label");
-    modeRow.dataset.oscTestModeRow = "true";
-    modeRow.hidden = true;
-    const modeSelect = document.createElement("select");
-    modeSelect.dataset.testField = "osc_test_mode";
-    modeSelect.appendChild(new Option("Manual address", "manual"));
-    modeSelect.appendChild(new Option("Library parameter", "library"));
-    modeSelect.addEventListener("change", () => {
-      syncOscTestSendMode(fieldset.closest(".midi-adapter-card"));
-    });
-    modeRow.append(document.createTextNode("Mode "), modeSelect);
-    fieldset.appendChild(modeRow);
-
-    const manualPanel = document.createElement("div");
-    manualPanel.dataset.oscTestManual = "true";
     const addressField = createTextField(
       "Address",
       "osc_address",
@@ -4413,51 +4366,23 @@ function createAdapterTestSendSection(kind, instance) {
     );
     addressField.querySelector("input").dataset.testField = "osc_address";
     delete addressField.querySelector("input").dataset.field;
-    manualPanel.appendChild(addressField);
+    fieldset.appendChild(addressField);
 
     const valueField = createNumberField("Value", "osc_value", 0.5, -1000000, 1000000, 0.01);
     valueField.querySelector("input").dataset.testField = "osc_value";
     delete valueField.querySelector("input").dataset.field;
-    manualPanel.appendChild(valueField);
-    fieldset.appendChild(manualPanel);
+    fieldset.appendChild(valueField);
+  } else if (kind === "wing_native") {
+    const addressField = createTextField("Native path", "wing_native_address", "/ch/1/fdr");
+    addressField.querySelector("input").dataset.testField = "wing_native_address";
+    delete addressField.querySelector("input").dataset.field;
+    fieldset.appendChild(addressField);
 
-    const libraryPanel = document.createElement("div");
-    libraryPanel.dataset.oscTestLibrary = "true";
-    libraryPanel.hidden = true;
-
-    const parameterLabel = document.createElement("label");
-    parameterLabel.textContent = "Parameter ";
-    const parameterSelect = document.createElement("select");
-    parameterSelect.dataset.testField = "osc_parameter";
-    parameterSelect.addEventListener("change", () => {
-      updateOscLibraryTestValueBounds(fieldset.closest(".midi-adapter-card"));
-    });
-    parameterLabel.appendChild(parameterSelect);
-    libraryPanel.appendChild(parameterLabel);
-
-    libraryPanel.appendChild(
-      createTestNumberField("Value", "osc_value_library", 0.5, 0, 1, 0.01),
-    );
-    fieldset.appendChild(libraryPanel);
+    const valueField = createNumberField("Value", "wing_native_value", 0.5, -1000000, 1000000, 0.01);
+    valueField.querySelector("input").dataset.testField = "wing_native_value";
+    delete valueField.querySelector("input").dataset.field;
+    fieldset.appendChild(valueField);
   } else {
-    if (kind === "midi") {
-      const modeRow = document.createElement("label");
-      modeRow.dataset.midiTestModeRow = "true";
-      modeRow.hidden = true;
-      const modeSelect = document.createElement("select");
-      modeSelect.dataset.testField = "midi_test_mode";
-      modeSelect.appendChild(new Option("Manual message", "manual"));
-      modeSelect.appendChild(new Option("Library parameter", "library"));
-      modeSelect.addEventListener("change", () => {
-        syncMidiTestSendMode(fieldset.closest(".midi-adapter-card"));
-      });
-      modeRow.append(document.createTextNode("Mode "), modeSelect);
-      fieldset.appendChild(modeRow);
-    }
-
-    const manualPanel = document.createElement("div");
-    manualPanel.dataset.midiTestManual = "true";
-
     const presetLabel = document.createElement("label");
     presetLabel.textContent = "Message ";
     const presetSelect = document.createElement("select");
@@ -4470,39 +4395,17 @@ function createAdapterTestSendSection(kind, instance) {
       syncMidiTestManualFields(presetSelect.closest(".midi-adapter-card"));
     });
     presetLabel.appendChild(presetSelect);
-    manualPanel.appendChild(presetLabel);
+    fieldset.appendChild(presetLabel);
 
-    manualPanel.appendChild(
+    fieldset.appendChild(
       createTestNumberField("Channel", "midi_channel", 1, 1, 16, 1),
     );
-    manualPanel.appendChild(
+    fieldset.appendChild(
       createTestSelectField("Number", "midi_number", buildMidiTestNumberOptions("control_change"), 1),
     );
-    manualPanel.appendChild(
+    fieldset.appendChild(
       createTestNumberField("Value", "midi_value", 64, 0, 127, 1),
     );
-    fieldset.appendChild(manualPanel);
-
-    if (kind === "midi") {
-      const libraryPanel = document.createElement("div");
-      libraryPanel.dataset.midiTestLibrary = "true";
-      libraryPanel.hidden = true;
-
-      const parameterLabel = document.createElement("label");
-      parameterLabel.textContent = "Parameter ";
-      const parameterSelect = document.createElement("select");
-      parameterSelect.dataset.testField = "midi_parameter";
-      parameterSelect.addEventListener("change", () => {
-        updateMidiLibraryTestValueBounds(fieldset.closest(".midi-adapter-card"));
-      });
-      parameterLabel.appendChild(parameterSelect);
-      libraryPanel.appendChild(parameterLabel);
-
-      libraryPanel.appendChild(
-        createTestNumberField("Value", "midi_value_library", 64, 0, 127, 1),
-      );
-      fieldset.appendChild(libraryPanel);
-    }
   }
 
   const message = document.createElement("p");
@@ -4815,8 +4718,6 @@ function createMidiAdapterCard(instance, config, options = {}) {
     nameField.querySelector("input")?.addEventListener("input", () => {
       updateDeviceLibraryHint();
       updateXtouchAdapterFieldsVisibility();
-      card._midiTestLibraryCache = null;
-      updateMidiTestSendSection(card);
     });
   } else {
   const roleOptions = [
@@ -4900,7 +4801,7 @@ function createMidiAdapterCard(instance, config, options = {}) {
   body.appendChild(createAdapterTestSendSection(instance.type, instance));
   attachMidiAdapterCardControls(card);
   if (instance.type === "midi") {
-    updateMidiTestSendSection(card);
+    syncMidiTestManualFields(card);
   }
   return card;
 }
@@ -5384,9 +5285,6 @@ function syncOscLibraryFromDeskMode(card) {
 
 function updateOscCardDeskMode(card) {
   syncOscLibraryFromDeskMode(card);
-  if (card._oscTestLibraryCache?.id !== oscLibraryIdFromCard(card)) {
-    card._oscTestLibraryCache = null;
-  }
   const deskMode = card.querySelector('[data-field="desk_mode"]')?.value || "";
   const deskModeActive = isDeskOscMode(deskMode);
   const libraryId = deskModeToLibraryId(deskMode);
@@ -5433,8 +5331,6 @@ function updateOscCardDeskMode(card) {
         "Desk mode: bind and send on the same OSC port so the mixer can reply to parameter changes.";
     }
   }
-
-  updateOscTestSendSection(card);
 }
 
 function applyDiscoveredDeskToCard(card, device) {
@@ -6282,6 +6178,7 @@ function createWingNativeAdapterCard(instance, config, options = {}) {
     ),
   );
 
+  body.appendChild(createAdapterTestSendSection("wing_native", instance));
   attachMidiAdapterCardControls(card);
   return card;
 }
