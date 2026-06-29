@@ -215,3 +215,45 @@ midi_library = "behringer_xtouch_mini"
 
     config = load_config(path)
     assert config.devices["xtouch"].library == "behringer_xtouch_mini"
+
+
+def test_save_devices_removes_custom_points_without_leaving_orphans(tmp_path) -> None:
+    path = tmp_path / "config.toml"
+    path.write_text(
+        """
+[adapters.xtouch_mini]
+type = "midi"
+enabled = true
+midi_library = "behringer_xtouch_mini"
+
+[[devices]]
+id = "xtouch"
+adapter = "xtouch_mini"
+library = "behringer_xtouch_mini"
+library_kind = "midi"
+
+[[devices.custom_points]]
+id = "custom_fader"
+direction = "source"
+""".strip()
+        + "\n",
+        encoding="utf-8",
+    )
+    devices = {
+        "xtouch": DeviceConfig(
+            id="xtouch",
+            adapter="xtouch_mini",
+            library="behringer_xtouch_mini",
+            library_kind="midi",
+        )
+    }
+
+    save_devices(path, devices)
+
+    saved_text = path.read_text(encoding="utf-8")
+    assert saved_text.count("[[devices]]") == 1
+    assert "[[devices.custom_points]]" not in saved_text
+    import tomllib
+
+    with path.open("rb") as handle:
+        tomllib.load(handle)

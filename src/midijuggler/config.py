@@ -285,17 +285,25 @@ def _remove_device_sections(text: str) -> str:
     kept: list[str] = []
     index = 0
     while index < len(lines):
-        if lines[index].strip() == "[[devices]]":
+        stripped = lines[index].strip()
+        if stripped == "[[devices]]":
             index += 1
             while index < len(lines):
-                stripped = lines[index].strip()
-                if stripped == "[[devices]]":
+                inner = lines[index].strip()
+                if inner == "[[devices]]":
                     break
-                if (
-                    stripped.startswith("[")
-                    and stripped.endswith("]")
-                    and stripped != "[[devices]]"
+                if _is_toml_section_header(inner) and inner not in (
+                    "[[devices]]",
+                    "[[devices.custom_points]]",
                 ):
+                    break
+                index += 1
+            continue
+        if stripped == "[[devices.custom_points]]":
+            index += 1
+            while index < len(lines):
+                inner = lines[index].strip()
+                if _is_toml_section_header(inner):
                     break
                 index += 1
             continue
@@ -361,7 +369,8 @@ def _toml_decode_hint(exc: tomllib.TOMLDecodeError) -> str:
     if exc.msg == "Cannot overwrite a value":
         return (
             "Each connection needs its own [[connections]] header; do not reuse "
-            "[connections] or connections = [...] together with [[connections]]."
+            "[connections] or connections = [...] together with [[connections]]. "
+            "Orphaned [[devices.custom_points]] blocks before [[devices]] also cause this."
         )
     return "Check for duplicate keys, missing table headers, or mixed TOML syntax."
 
