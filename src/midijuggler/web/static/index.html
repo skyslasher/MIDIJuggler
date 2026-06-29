@@ -100,16 +100,16 @@
               <label class="stacked-field">
                 Modifier
                 <select id="learn-modifier">
+                  <option value="passthrough" selected>Passthrough</option>
                   <option value="range_map">Range map</option>
                   <option value="factor">Factor</option>
-                  <option value="passthrough">Passthrough</option>
                 </select>
               </label>
               <label id="learn-factor-field" class="stacked-field learn-factor-field" hidden>
                 Factor
                 <input id="learn-factor" type="number" step="any" value="1" />
               </label>
-              <div id="learn-range-fields" class="learn-range-fields">
+              <div id="learn-range-fields" class="learn-range-fields" hidden>
                 <label class="stacked-field">
                   Input min
                   <input id="learn-input-min" type="number" step="any" value="0" />

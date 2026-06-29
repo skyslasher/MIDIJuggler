@@ -6991,6 +6991,8 @@ learnToggle.addEventListener("click", () => {
   learnMessage.textContent = "";
   if (enabled) {
     lastServerLearnSourceDatapoint = "";
+    learnModifier.value = "passthrough";
+    syncLearnRangeFieldsVisibility();
     loadLearnDatapoints();
   }
   if (socket && socket.readyState === WebSocket.OPEN) {
