@@ -287,7 +287,9 @@ function renderStatus(status) {
     masterTransport.classList.toggle("danger-button", Boolean(clock.running));
   }
 
-  mappings.replaceChildren();
+  if (Array.isArray(status.devices)) {
+    refreshDeviceDisplayNames(status.devices);
+  }
   storedConnections = status.stored_connections || [];
   renderMappingsList(storedConnections);
   if (feedbackSuppressMs && status.feedback_suppress_ms != null) {
@@ -1161,7 +1163,9 @@ function formatDatapointDisplay(pointId) {
   if (separatorIndex < 0) {
     return pointId;
   }
-  return `${pointId.slice(0, separatorIndex)}:${pointId.slice(separatorIndex + 1)}`;
+  const module = pointId.slice(0, separatorIndex);
+  const point = pointId.slice(separatorIndex + 1);
+  return `${learnInstanceLabel(module)}:${point}`;
 }
 
 const SCALE_CURVE_OPTIONS = [
@@ -1482,7 +1486,7 @@ function createConnectionEditForm(connection) {
   return form;
 }
 
-function createConnectionListItem(connection) {
+function createConnectionListItem(connection, expandedConnectionIds = new Set()) {
   const item = document.createElement("li");
   item.className = "mapping-item";
 
@@ -1499,7 +1503,7 @@ function createConnectionListItem(connection) {
   const accordion = createAdapterInstanceAccordion("");
   const { body, title, details } = accordion;
   setConnectionRouteSummary(title, connection);
-  details.open = isEditing;
+  details.open = isEditing || expandedConnectionIds.has(connection.id);
 
   if (isEditing) {
     const actions = document.createElement("div");
@@ -1584,7 +1588,11 @@ function replaceConnectionListItem(connectionId) {
   }
   const scrollY = window.scrollY;
   const existingItem = findConnectionListItem(connectionId);
-  const newItem = createConnectionListItem(connection);
+  const expandedConnectionIds = collectExpandedConnectionIds();
+  if (editingConnectionId === connectionId) {
+    expandedConnectionIds.add(connectionId);
+  }
+  const newItem = createConnectionListItem(connection, expandedConnectionIds);
   if (existingItem) {
     existingItem.replaceWith(newItem);
     window.scrollTo(0, scrollY);
@@ -1596,7 +1604,19 @@ function replaceConnectionListItem(connectionId) {
   renderMappingsList(storedConnections);
 }
 
+function collectExpandedConnectionIds() {
+  const expanded = new Set();
+  for (const card of mappings.querySelectorAll(".connection-card[data-connection-id]")) {
+    const details = card.querySelector("details");
+    if (details?.open) {
+      expanded.add(card.dataset.connectionId);
+    }
+  }
+  return expanded;
+}
+
 function renderMappingsList(connections) {
+  const expandedConnectionIds = collectExpandedConnectionIds();
   updateConnectionsTableHeader(connections);
   mappings.replaceChildren();
   if (!connections.length) {
@@ -1608,7 +1628,7 @@ function renderMappingsList(connections) {
   }
 
   for (const connection of sortedConnections(connections)) {
-    mappings.appendChild(createConnectionListItem(connection));
+    mappings.appendChild(createConnectionListItem(connection, expandedConnectionIds));
   }
 }
 
