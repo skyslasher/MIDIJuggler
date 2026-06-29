@@ -2778,7 +2778,7 @@ function createDeviceCard(device = {}, options = {}) {
   };
   updateXtouchFieldsVisibility();
 
-  bindDeviceInstanceTitle(title, idInput, { isNew });
+  bindDeviceInstanceTitle(title, nameInput, { isNew });
 
   const customPointsList = fields.querySelector(".custom-points-list");
   const markDirty = () => {
@@ -2812,13 +2812,6 @@ function createDeviceCard(device = {}, options = {}) {
   fields.querySelector(".device-custom-point-add").addEventListener("click", () => {
     customPointsList.appendChild(createDeviceCustomPointRow({}, markDirty));
     markDirty();
-  });
-
-  nameInput.addEventListener("input", () => {
-    const title = card.querySelector(".adapter-instance-title");
-    if (title) {
-      title.textContent = nameInput.value.trim() || deviceInstanceSummaryLabel({ name: nameInput.value });
-    }
   });
 
   if ((!device.uid && !device.id) && device.adapter) {
@@ -4552,13 +4545,13 @@ function bindAdapterInstanceTitle(title, nameInput, { isNew = false } = {}) {
   return update;
 }
 
-function bindDeviceInstanceTitle(title, idInput, { isNew = false } = {}) {
+function bindDeviceInstanceTitle(title, nameInput, { isNew = false } = {}) {
   const fallback = isNew ? "New device" : "Unnamed device";
   const update = () => {
-    title.textContent = (idInput?.value || "").trim() || fallback;
+    title.textContent = (nameInput?.value || "").trim() || fallback;
   };
-  idInput?.addEventListener("input", update);
-  idInput?.addEventListener("change", update);
+  nameInput?.addEventListener("input", update);
+  nameInput?.addEventListener("change", update);
   update();
 }
 
