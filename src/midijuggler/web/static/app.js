@@ -245,6 +245,12 @@ function renderStatus(status) {
   if (learnMode && !learnRegistryDatapoints.length) {
     loadLearnDatapoints();
   }
+  if (learnMode) {
+    void refreshDeviceConfigCache().then(() => {
+      renderLearnDatapointSelects();
+      refreshMappingEditorSelects();
+    });
+  }
   if (status.created_connection || status.created_mapping) {
     const created = status.created_connection || status.created_mapping;
     learnMessage.textContent = status.persisted === false
@@ -413,6 +419,11 @@ function refreshDeviceDisplayNames(devices) {
 function generateDeviceUid(adapter) {
   const base = String(adapter || "device").replace(/[^a-zA-Z0-9_]+/g, "_").toLowerCase() || "device";
   return `${base}_${Math.random().toString(16).slice(2, 10)}`;
+}
+
+function defaultDeviceUidForAdapter(adapter) {
+  const adapterRef = adapter?.uid || adapter?.name || "";
+  return adapter?.bound_device_uid || adapterRef || generateDeviceUid(adapterRef);
 }
 
 const generateInstanceUid = generateDeviceUid;
@@ -1020,9 +1031,7 @@ async function deleteAdapterWithConnectionImpact(adapterUid, removedLabel, delet
       );
       if (deviceCard) {
         deviceCard.remove();
-        const config = await persistDevices(
-          collectDevicesForPersist({ excludeUids: [deviceUid] }),
-        );
+        const config = await persistDevicesFromCards({ excludeUids: [deviceUid] });
         renderDevicesConfig(config);
       }
     }
@@ -1072,6 +1081,9 @@ function fillLearnInstanceSelect(select, direction, previousInstance, options = 
     if (!instances.includes(DISCONNECTED_MODULE)) {
       instances = [DISCONNECTED_MODULE, ...instances];
     }
+  }
+  if (previousInstance && !instances.includes(previousInstance)) {
+    instances = [previousInstance, ...instances];
   }
   select.replaceChildren();
   const placeholder = document.createElement("option");
@@ -1269,11 +1281,13 @@ function refreshInlineConnectionEditorSelects() {
     fillLearnInstanceSelect(targetInstance, "output", previousTargetInstance);
   } else {
     const editOptions = connectionEditInstanceOptions(connection);
-    fillLearnInstanceSelect(sourceInstance, "input", previousSourceInstance, {
+    const sourceInstanceValue = previousSourceInstance || editOptions.source.previousInstance;
+    const targetInstanceValue = previousTargetInstance || editOptions.target.previousInstance;
+    fillLearnInstanceSelect(sourceInstance, "input", sourceInstanceValue, {
       allowedModules: editOptions.source.allowedModules,
       includeDisconnected: editOptions.source.includeDisconnected,
     });
-    fillLearnInstanceSelect(targetInstance, "output", previousTargetInstance, {
+    fillLearnInstanceSelect(targetInstance, "output", targetInstanceValue, {
       allowedModules: editOptions.target.allowedModules,
       includeDisconnected: editOptions.target.includeDisconnected,
     });
@@ -1282,13 +1296,13 @@ function refreshInlineConnectionEditorSelects() {
     sourceDatapoint,
     sourceInstance.value,
     "input",
-    previousSourcePoint,
+    previousSourcePoint || connection?.source || "",
   );
   fillLearnPointSelect(
     targetDatapoint,
     targetInstance.value,
     "output",
-    previousTargetPoint,
+    previousTargetPoint || connection?.target || "",
   );
 }
 
@@ -1569,10 +1583,10 @@ function renderMappingsList(connections) {
   }
 }
 
-async function openMappingEditor(connection) {
+function openMappingEditor(connection) {
   editingConnectionId = connection.id;
   replaceConnectionListItem(connection.id);
-  await loadLearnDatapoints();
+  void loadLearnDatapoints();
 }
 
 function closeMappingEditor() {
@@ -1798,6 +1812,8 @@ async function loadLearnDatapoints() {
     }
     const payload = await response.json();
     learnRegistryDatapoints = (payload.datapoints || []).filter(isLearnSelectableDatapoint);
+    renderLearnDatapointSelects();
+    refreshMappingEditorSelects();
     await preloadLearnMidiLibraries(learnRegistryDatapoints);
     renderLearnDatapointSelects();
     refreshMappingEditorSelects();
@@ -1807,7 +1823,52 @@ async function loadLearnDatapoints() {
   }
 }
 
+async function refreshDeviceConfigCache({ rerenderCards = false } = {}) {
+  const response = await fetch("/api/devices");
+  if (!response.ok) {
+    throw new Error(await response.text());
+  }
+  const config = await response.json();
+  devicesConfig = config;
+  deviceAdapterOptions = config.adapter_options || [];
+  refreshDeviceDisplayNames(config.devices || []);
+  if (rerenderCards || !configurationView.hidden) {
+    renderDevicesConfig(config);
+  } else {
+    mergeDeviceAdapterOptionsIntoCards(deviceAdapterOptions);
+  }
+  return config;
+}
+
+function mergeDeviceAdapterOptionsIntoCards(options) {
+  for (const card of deviceInstances.querySelectorAll(".device-card")) {
+    const select = card.querySelector('[data-field="adapter"]');
+    if (!select) {
+      continue;
+    }
+    const current = select.value;
+    const known = new Set([...select.options].map((option) => option.value));
+    for (const adapter of options || []) {
+      const value = adapter.uid || adapter.name;
+      if (!value || known.has(value)) {
+        continue;
+      }
+      const option = document.createElement("option");
+      option.value = value;
+      option.textContent = adapter.library
+        ? `${adapter.name || value} (${adapter.library_kind || adapter.kind}, ${adapter.library})`
+        : `${adapter.name || value} (${adapter.library_kind || adapter.kind})`;
+      select.appendChild(option);
+      known.add(value);
+    }
+    if (current) {
+      select.value = current;
+    }
+  }
+}
+
 async function refreshMappingDataAfterAdapterChange() {
+  await refreshDeviceConfigCache();
   await loadLearnDatapoints();
   try {
     const statusResponse = await fetch("/api/status");
@@ -2780,7 +2841,7 @@ function applyAdapterDefaultsToDeviceCard(card) {
     libraryField.value = adapter.library;
   }
   if (!card.dataset.deviceUid) {
-    card.dataset.deviceUid = generateDeviceUid(adapter.uid || adapterRef);
+    card.dataset.deviceUid = defaultDeviceUidForAdapter(adapter);
   }
   if (nameField && !nameField.value.trim()) {
     nameField.value = adapter.name || adapterRef;
@@ -2831,6 +2892,8 @@ function createDeviceCustomPointRow(point = {}, onDirty = null) {
 }
 
 function collectDeviceFromCard(card) {
+  const adapterRef = card.querySelector('[data-field="adapter"]')?.value.trim() || "";
+  const adapter = adapterOptionByRef(adapterRef);
   const customPoints = [...card.querySelectorAll(".device-custom-point-row")]
     .map((row) => {
       const id = row.querySelector('[data-field="point_id"]')?.value.trim();
@@ -2844,9 +2907,13 @@ function collectDeviceFromCard(card) {
     })
     .filter(Boolean);
   const device = {
-    uid: card.dataset.deviceUid || generateDeviceUid(card.querySelector('[data-field="adapter"]')?.value.trim() || "device"),
-    name: card.querySelector('[data-field="name"]')?.value.trim() || "",
-    adapter: card.querySelector('[data-field="adapter"]')?.value.trim() || "",
+    uid: card.dataset.deviceUid || defaultDeviceUidForAdapter(adapter),
+    name:
+      card.querySelector('[data-field="name"]')?.value.trim()
+      || adapter?.name
+      || adapterRef
+      || "",
+    adapter: adapterRef,
     library: card.querySelector('[data-field="library"]')?.value.trim() || "",
     library_kind: card.querySelector('[data-field="library_kind"]')?.value.trim() || "",
   };
@@ -2921,7 +2988,7 @@ function validateDeviceCard(card) {
     return false;
   }
   if (!card.dataset.deviceUid) {
-    card.dataset.deviceUid = generateDeviceUid(adapter);
+    card.dataset.deviceUid = defaultDeviceUidForAdapter(adapterOptionByRef(adapter));
   }
   return true;
 }
@@ -2937,6 +3004,11 @@ function persistDevices(devices) {
     }
     return response.json();
   });
+}
+
+async function persistDevicesFromCards({ excludeUids = [] } = {}) {
+  await ensureDevicesConfigLoaded();
+  return persistDevices(collectDevicesForPersist({ excludeUids }));
 }
 
 function attachDeviceCardControls(card) {
@@ -3000,9 +3072,7 @@ function deleteDeviceCard(card) {
     if (devicesMessage) {
       devicesMessage.textContent = "deleting...";
     }
-    const config = await persistDevices(
-      collectDevicesForPersist({ excludeUids: [moduleUid] }),
-    );
+    const config = await persistDevicesFromCards({ excludeUids: [moduleUid] });
     renderDevicesConfig(config);
     if (devicesMessage) {
       devicesMessage.textContent = "deleted";
@@ -3026,7 +3096,7 @@ function saveDeviceCard(card) {
   showDeviceCardMessage(card, "saving...");
   saveButton.disabled = true;
 
-  persistDevices(collectDevicesForPersist())
+  persistDevicesFromCards()
     .then((config) => {
       const status =
         config.persisted === false
@@ -3278,14 +3348,19 @@ function collectDevicesFromCards() {
   return [...deviceInstances.querySelectorAll(".device-card")].map(collectDeviceFromCard);
 }
 
-function collectDevicesForPersist({ excludeUids = [] } = {}) {
+function collectDevicesForPersist({ excludeUids = [], devices = null } = {}) {
+  const configDevices = devices ?? devicesConfig?.devices ?? [];
   const excluded = new Set((excludeUids || []).filter(Boolean));
   const fromCards = collectDevicesFromCards();
   const cardUids = new Set(fromCards.map((device) => device.uid).filter(Boolean));
+  const boundAdapters = new Set(fromCards.map((device) => device.adapter).filter(Boolean));
   const merged = [...fromCards];
-  for (const device of devicesConfig?.devices || []) {
+  for (const device of configDevices) {
     const uid = device.uid || device.id;
     if (!uid || excluded.has(uid) || cardUids.has(uid)) {
+      continue;
+    }
+    if (device.adapter && boundAdapters.has(device.adapter)) {
       continue;
     }
     merged.push(device);
@@ -3308,7 +3383,7 @@ function addMissingDevicesFromAdapters() {
     deviceInstances.appendChild(
       createDeviceCard(
         {
-          uid: generateDeviceUid(adapter.uid || adapter.name),
+          uid: defaultDeviceUidForAdapter(adapter),
           name: adapter.name || adapter.uid,
           adapter: adapter.uid || adapter.name,
           library: adapter.library,
@@ -5440,7 +5515,7 @@ function saveMidiAdapterCard(card) {
       }
       return ensureDevicesConfigLoaded().then((deviceConfig) => {
         const devices = mergeBoundDeviceXtouchFields(
-          deviceConfig.devices || [],
+          collectDevicesForPersist({ devices: deviceConfig.devices || [] }),
           uid,
           xtouchFields,
         );
@@ -5464,6 +5539,7 @@ function saveMidiAdapterCard(card) {
         updateMidiAdapterCardDirtyState(card);
         showMidiAdapterCardMessage(card, status, { autoHide: true });
       }
+      return refreshMappingDataAfterAdapterChange();
     })
     .catch((error) => {
       showMidiAdapterCardMessage(card, `error: ${error.message}`);

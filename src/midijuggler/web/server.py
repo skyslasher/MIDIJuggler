@@ -43,6 +43,7 @@ from midijuggler.config import (
     parse_config,
     save_devices,
     save_gpio_adapter_options,
+    supplement_devices,
     save_connections,
     save_master_clock_config,
     save_runtime_config,
@@ -299,6 +300,12 @@ class WebInterface:
         return web.json_response(self.datapoints_payload())
 
     def devices_payload(self) -> dict[str, Any]:
+        object.__setattr__(
+            self.config,
+            "devices",
+            supplement_devices(dict(self.config.devices), self.config.adapters),
+        )
+        self.device_registry.reload_from_config(self.config)
         return {
             "devices": [device.as_dict() for device in self.config.devices.values()],
             "adapter_options": adapter_device_options(
@@ -2954,6 +2961,15 @@ class WebInterface:
             if updated.kind != "midi":
                 continue
             await self._apply_midi_runtime_adapter(name, updated)
+
+        previous_device_uids = set(self.config.devices.keys())
+        object.__setattr__(
+            self.config,
+            "devices",
+            supplement_devices(dict(self.config.devices), self.config.adapters),
+        )
+        self.device_registry.reload_from_config(self.config)
+        await self._refresh_device_datapoints_after_config_change(previous_device_uids)
 
         response = self.midi_adapters_config_payload()
         response.update({"persisted": persisted, "persist_error": persist_error})

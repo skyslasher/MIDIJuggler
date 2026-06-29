@@ -474,6 +474,54 @@ def test_apply_midi_adapters_config_creates_midi_instance(tmp_path: Path, monkey
     assert saved.adapters["stage_midi"].kind == "midi"
     assert saved.adapters["stage_midi"].options["input_port"] == "Stage In"
     assert "[adapters.stage_midi]" in config_file.read_text(encoding="utf-8")
+    assert "stage_midi" in interface.config.devices
+    assert interface.config.devices["stage_midi"].adapter == "stage_midi"
+
+
+def test_apply_midi_adapters_config_supplements_inferred_device(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    _mock_midi_ports(monkeypatch, [])
+    monkeypatch.setattr(MidiAdapter, "start", AsyncMock())
+
+    config_file = tmp_path / "config.toml"
+    config_file.write_text(
+        """
+        [adapters.midi]
+        enabled = false
+        """,
+        encoding="utf-8",
+    )
+    config = load_config(config_file)
+    interface = WebInterface(
+        config,
+        EventBus(),
+        ClockBpmTracker(),
+        MasterClock(config.master_clock, EventBus()),
+        config_path=config_file,
+    )
+
+    asyncio.run(
+        interface.apply_midi_adapters_config(
+            {
+                "kind": "midi",
+                "instances": [
+                    {
+                        "name": "xtouch_mini",
+                        "type": "midi",
+                        "enabled": True,
+                        "input_port": "X-TOUCH MINI",
+                        "output_port": "X-TOUCH MINI",
+                        "midi_library": "behringer_xtouch_mini",
+                    }
+                ],
+            }
+        )
+    )
+
+    assert "xtouch_mini" in interface.config.devices
+    assert interface.config.devices["xtouch_mini"].adapter == "xtouch_mini"
 
 
 def test_apply_midi_adapters_config_starts_created_midi_adapter(
