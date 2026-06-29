@@ -78,6 +78,30 @@
     loop: "Loop",
   };
 
+  const XTOUCH_LAYER_LABELS = {
+    a: "Layer A",
+    b: "Layer B",
+  };
+
+  const XTOUCH_CONTROL_KIND_LABELS = {
+    encoder_turn: "Encoder Turn",
+    encoder_push: "Encoder Push",
+    encoder_value: "Encoder Value",
+    encoder_led_ring: "Encoder LED Ring",
+    button: "Button",
+    button_led: "Button LED",
+    fader: "Fader",
+    layer_select: "Layer Select",
+    mode: "Mode",
+  };
+
+  const XTOUCH_ENCODER_KINDS = [
+    "encoder_turn",
+    "encoder_push",
+    "encoder_value",
+    "encoder_led_ring",
+  ];
+
   function controlLabel(control) {
     return OSC_CONTROL_LABELS[control] || control.replace(/_/g, " ");
   }
@@ -99,6 +123,177 @@
 
   function midiControlLabel(control) {
     return MIDI_CONTROL_LABELS[control] || control.replace(/_/g, " ");
+  }
+
+  function xtouchLayerLabel(layer) {
+    return XTOUCH_LAYER_LABELS[layer] || layer;
+  }
+
+  function xtouchControlKindLabel(controlKind) {
+    return XTOUCH_CONTROL_KIND_LABELS[controlKind] || controlKind.replace(/_/g, " ");
+  }
+
+  function xtouchEncoderLabel(encoderNum) {
+    return `Encoder ${encoderNum}`;
+  }
+
+  function xtouchButtonLabel(buttonRow, buttonNum, controlKind) {
+    const rowLabel = buttonRow === "top" ? "Top" : "Bottom";
+    const base = `${rowLabel} ${buttonNum}`;
+    return controlKind === "button_led" ? `${base} LED` : base;
+  }
+
+  function compareXtouchButtonItems(left, right) {
+    if (left.buttonRow !== right.buttonRow) {
+      return left.buttonRow === "top" ? -1 : 1;
+    }
+    return compareNumbers(left.buttonNum, right.buttonNum);
+  }
+
+  function parseXtouchMiniPath(point, label) {
+    if (point) {
+      let match = point.match(/^layer_(a|b)_encoder_(\d+)_(turn|push|value|led_ring)$/);
+      if (match) {
+        const layer = match[1];
+        const encoderNum = Number.parseInt(match[2], 10);
+        const action = match[3];
+        const kindMap = {
+          turn: "encoder_turn",
+          push: "encoder_push",
+          value: "encoder_value",
+          led_ring: "encoder_led_ring",
+        };
+        if (Number.isFinite(encoderNum)) {
+          return {
+            scope: "xtouch",
+            layer,
+            layerLabel: xtouchLayerLabel(layer),
+            controlKind: kindMap[action],
+            encoderNum,
+            buttonRow: null,
+            buttonNum: null,
+          };
+        }
+      }
+
+      match = point.match(/^layer_(a|b)_(top|bottom)_button_(\d+)(_led)?$/);
+      if (match) {
+        const layer = match[1];
+        const buttonNum = Number.parseInt(match[3], 10);
+        if (Number.isFinite(buttonNum)) {
+          return {
+            scope: "xtouch",
+            layer,
+            layerLabel: xtouchLayerLabel(layer),
+            controlKind: match[4] ? "button_led" : "button",
+            encoderNum: null,
+            buttonRow: match[2],
+            buttonNum,
+          };
+        }
+      }
+
+      match = point.match(/^layer_(a|b)_fader$/);
+      if (match) {
+        const layer = match[1];
+        return {
+          scope: "xtouch",
+          layer,
+          layerLabel: xtouchLayerLabel(layer),
+          controlKind: "fader",
+          encoderNum: null,
+          buttonRow: null,
+          buttonNum: null,
+        };
+      }
+
+      match = point.match(/^select_layer_(a|b)$/);
+      if (match) {
+        const layer = match[1];
+        return {
+          scope: "xtouch",
+          layer,
+          layerLabel: xtouchLayerLabel(layer),
+          controlKind: "layer_select",
+          encoderNum: null,
+          buttonRow: null,
+          buttonNum: null,
+        };
+      }
+
+      match = point.match(/^set_(standard|mc)_mode$/);
+      if (match) {
+        return {
+          scope: "xtouch",
+          layer: null,
+          layerLabel: null,
+          controlKind: "mode",
+          modeKind: match[1],
+          encoderNum: null,
+          buttonRow: null,
+          buttonNum: null,
+        };
+      }
+    }
+
+    const labelText = String(label || "");
+    let labelMatch = labelText.match(/^Layer ([AB]) Encoder (\d+) (Turn|Push|Value|LED Ring)$/i);
+    if (labelMatch) {
+      const layer = labelMatch[1].toLowerCase();
+      const encoderNum = Number.parseInt(labelMatch[2], 10);
+      const action = labelMatch[3].toLowerCase().replace(/\s+/g, "_");
+      const kindMap = {
+        turn: "encoder_turn",
+        push: "encoder_push",
+        value: "encoder_value",
+        led_ring: "encoder_led_ring",
+      };
+      const controlKind = kindMap[action];
+      if (controlKind && Number.isFinite(encoderNum)) {
+        return {
+          scope: "xtouch",
+          layer,
+          layerLabel: xtouchLayerLabel(layer),
+          controlKind,
+          encoderNum,
+          buttonRow: null,
+          buttonNum: null,
+        };
+      }
+    }
+
+    labelMatch = labelText.match(/^Layer ([AB]) (Top|Bottom) Button (\d+)( LED)?$/i);
+    if (labelMatch) {
+      const layer = labelMatch[1].toLowerCase();
+      const buttonNum = Number.parseInt(labelMatch[3], 10);
+      if (Number.isFinite(buttonNum)) {
+        return {
+          scope: "xtouch",
+          layer,
+          layerLabel: xtouchLayerLabel(layer),
+          controlKind: labelMatch[4] ? "button_led" : "button",
+          encoderNum: null,
+          buttonRow: labelMatch[2].toLowerCase(),
+          buttonNum,
+        };
+      }
+    }
+
+    labelMatch = labelText.match(/^Layer ([AB]) Fader$/i);
+    if (labelMatch) {
+      const layer = labelMatch[1].toLowerCase();
+      return {
+        scope: "xtouch",
+        layer,
+        layerLabel: xtouchLayerLabel(layer),
+        controlKind: "fader",
+        encoderNum: null,
+        buttonRow: null,
+        buttonNum: null,
+      };
+    }
+
+    return null;
   }
 
   function parseMidiLibraryPath(point, label) {
@@ -124,6 +319,11 @@
           control,
           controlLabel: midiControlLabel(control),
         };
+      }
+
+      const xtouchParsed = parseXtouchMiniPath(point, label);
+      if (xtouchParsed) {
+        return xtouchParsed;
       }
     }
 
@@ -678,7 +878,207 @@
     return makeBranch("facet:midi:transport", "Transport", children, "Transport");
   }
 
+  function buildXtouchEncoderKindFacet(items, controlKind) {
+    const filtered = items.filter((item) => item.controlKind === controlKind);
+    if (!filtered.length) {
+      return null;
+    }
+    const facetLabel = xtouchControlKindLabel(controlKind);
+    const byEncoder = groupBy(filtered, (item) => item.encoderNum);
+    const encoderChildren = [...byEncoder.entries()].map(([encoderNum, encoderItems]) => {
+      const layerChildren = encoderItems
+        .sort((left, right) => compareLabels(left.layer, right.layer))
+        .map((item) =>
+          makeLeaf(
+            `facet:xtouch:${controlKind}:enc:${encoderNum}:layer:${item.layer}`,
+            item.layerLabel,
+            item.entry,
+            item.layer,
+          ),
+        );
+      return makeBranch(
+        `facet:xtouch:${controlKind}:enc:${encoderNum}`,
+        xtouchEncoderLabel(encoderNum),
+        layerChildren,
+        Number(encoderNum),
+      );
+    });
+    return makeBranch(`facet:xtouch:${controlKind}`, facetLabel, encoderChildren, facetLabel);
+  }
+
+  function buildXtouchButtonsFacet(items) {
+    const filtered = items.filter(
+      (item) => item.controlKind === "button" || item.controlKind === "button_led",
+    );
+    if (!filtered.length) {
+      return null;
+    }
+    const byLayer = groupBy(filtered, (item) => item.layer);
+    const layerChildren = ["a", "b"]
+      .filter((layer) => byLayer.has(layer))
+      .map((layer) => {
+        const layerItems = byLayer.get(layer);
+        const buttonChildren = layerItems
+          .sort(compareXtouchButtonItems)
+          .map((item) =>
+            makeLeaf(
+              `facet:xtouch:buttons:${layer}:${item.buttonRow}:${item.buttonNum}:${item.controlKind}`,
+              xtouchButtonLabel(item.buttonRow, item.buttonNum, item.controlKind),
+              item.entry,
+              `${item.buttonRow}:${item.buttonNum}:${item.controlKind}`,
+            ),
+          );
+        return makeBranch(
+          `facet:xtouch:buttons:${layer}`,
+          xtouchLayerLabel(layer),
+          buttonChildren,
+          layer,
+        );
+      });
+    return makeBranch("facet:xtouch:buttons", "Buttons", layerChildren, "Buttons");
+  }
+
+  function buildXtouchLayerFacet(layer, items) {
+    const filtered = items.filter((item) => item.layer === layer);
+    if (!filtered.length) {
+      return null;
+    }
+    const byKind = groupBy(filtered, (item) => item.controlKind);
+    const children = [];
+
+    for (const controlKind of XTOUCH_ENCODER_KINDS) {
+      if (!byKind.has(controlKind)) {
+        continue;
+      }
+      const kindItems = byKind.get(controlKind);
+      const encoderChildren = kindItems
+        .sort((left, right) => compareNumbers(left.encoderNum, right.encoderNum))
+        .map((item) =>
+          makeLeaf(
+            `facet:xtouch:layer:${layer}:${controlKind}:${item.encoderNum}`,
+            xtouchEncoderLabel(item.encoderNum),
+            item.entry,
+            item.encoderNum,
+          ),
+        );
+      children.push(
+        makeBranch(
+          `facet:xtouch:layer:${layer}:${controlKind}`,
+          xtouchControlKindLabel(controlKind),
+          encoderChildren,
+          controlKind,
+        ),
+      );
+    }
+
+    if (byKind.has("fader")) {
+      for (const item of byKind.get("fader")) {
+        children.push(
+          makeLeaf(
+            `facet:xtouch:layer:${layer}:fader`,
+            xtouchControlKindLabel("fader"),
+            item.entry,
+            "fader",
+          ),
+        );
+      }
+    }
+
+    const buttonItems = [...(byKind.get("button") || []), ...(byKind.get("button_led") || [])];
+    if (buttonItems.length) {
+      const buttonChildren = buttonItems.sort(compareXtouchButtonItems).map((item) =>
+        makeLeaf(
+          `facet:xtouch:layer:${layer}:buttons:${item.buttonRow}:${item.buttonNum}:${item.controlKind}`,
+          xtouchButtonLabel(item.buttonRow, item.buttonNum, item.controlKind),
+          item.entry,
+          `${item.buttonRow}:${item.buttonNum}:${item.controlKind}`,
+        ),
+      );
+      children.push(
+        makeBranch(`facet:xtouch:layer:${layer}:buttons`, "Buttons", buttonChildren, "Buttons"),
+      );
+    }
+
+    if (byKind.has("layer_select")) {
+      for (const item of byKind.get("layer_select")) {
+        children.push(
+          makeLeaf(
+            `facet:xtouch:layer:${layer}:select`,
+            item.entry.label || item.layerLabel,
+            item.entry,
+            "layer_select",
+          ),
+        );
+      }
+    }
+
+    return makeBranch(
+      `facet:xtouch:layer:${layer}`,
+      xtouchLayerLabel(layer),
+      children,
+      layer,
+    );
+  }
+
+  function buildXtouchFadersFacet(items) {
+    const filtered = items.filter((item) => item.controlKind === "fader");
+    if (!filtered.length) {
+      return null;
+    }
+    const children = filtered
+      .sort((left, right) => compareLabels(left.layer, right.layer))
+      .map((item) =>
+        makeLeaf(
+          `facet:xtouch:faders:${item.layer}`,
+          item.layerLabel,
+          item.entry,
+          item.layer,
+        ),
+      );
+    return makeBranch("facet:xtouch:faders", "Faders", children, "Faders");
+  }
+
+  function buildXtouchModeFacet(items) {
+    const filtered = items.filter((item) => item.controlKind === "mode");
+    if (!filtered.length) {
+      return null;
+    }
+    const children = filtered
+      .sort((left, right) => compareLabels(left.entry.label || left.modeKind, right.entry.label || right.modeKind))
+      .map((item) =>
+        makeLeaf(
+          `facet:xtouch:mode:${item.modeKind}`,
+          item.entry.label || xtouchControlKindLabel("mode"),
+          item.entry,
+          item.modeKind,
+        ),
+      );
+    return makeBranch("facet:xtouch:mode", "Mode", children, "Mode");
+  }
+
+  function buildXtouchMiniFacetRoots(entries) {
+    const parsed = entries.map(enrichMidiEntry).filter((item) => item?.scope === "xtouch");
+    if (parsed.length < 8) {
+      return [];
+    }
+    return [
+      buildXtouchEncoderKindFacet(parsed, "encoder_turn"),
+      buildXtouchEncoderKindFacet(parsed, "encoder_push"),
+      buildXtouchButtonsFacet(parsed),
+      buildXtouchLayerFacet("a", parsed),
+      buildXtouchLayerFacet("b", parsed),
+      buildXtouchEncoderKindFacet(parsed, "encoder_value"),
+      buildXtouchEncoderKindFacet(parsed, "encoder_led_ring"),
+      buildXtouchFadersFacet(parsed),
+      buildXtouchModeFacet(parsed),
+    ].filter(Boolean);
+  }
+
   function buildMidiFacetRoots(entries) {
+    const xtouchRoots = buildXtouchMiniFacetRoots(entries);
+    if (xtouchRoots.length) {
+      return xtouchRoots;
+    }
     const parsed = entries.map(enrichMidiEntry).filter(Boolean);
     if (parsed.length < 8) {
       return [];
@@ -983,6 +1383,7 @@
     enrichMidiEntry,
     buildOscFacetRoots,
     buildMidiFacetRoots,
+    buildXtouchMiniFacetRoots,
     shouldUseColumnBrowser,
     syncColumnBrowser,
     teardownColumnBrowser,

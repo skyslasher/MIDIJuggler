@@ -99,3 +99,89 @@ if (!channelNode || channelNode.label !== "Channel 1") {{
 }}
 """
     subprocess.run(["node", "-e", script], check=True, cwd=ROOT)
+
+
+@pytest.mark.skipif(shutil.which("node") is None, reason="node not installed")
+def test_datapoint_browser_builds_xtouch_mini_facets() -> None:
+    script = f"""
+global.window = {{}};
+eval({json.dumps(BROWSER_JS.read_text(encoding="utf-8"))});
+const browser = global.window.MidiJugglerDatapointBrowser;
+const entries = [
+  {{ id: "1", point: "layer_a_encoder_1_turn", label: "Layer A Encoder 1 Turn", category: "encoder" }},
+  {{ id: "2", point: "layer_b_encoder_1_turn", label: "Layer B Encoder 1 Turn", category: "encoder" }},
+  {{ id: "3", point: "layer_a_encoder_1_push", label: "Layer A Encoder 1 Push", category: "encoder_push" }},
+  {{ id: "4", point: "layer_b_encoder_1_push", label: "Layer B Encoder 1 Push", category: "encoder_push" }},
+  {{ id: "5", point: "layer_a_top_button_1", label: "Layer A Top Button 1", category: "button" }},
+  {{ id: "6", point: "layer_a_bottom_button_1", label: "Layer A Bottom Button 1", category: "button" }},
+  {{ id: "7", point: "layer_b_top_button_1", label: "Layer B Top Button 1", category: "button" }},
+  {{ id: "8", point: "layer_a_fader", label: "Layer A Fader", category: "fader" }},
+  {{ id: "9", point: "layer_b_fader", label: "Layer B Fader", category: "fader" }},
+];
+const roots = browser.buildXtouchMiniFacetRoots(entries);
+const rootLabels = roots.map((root) => root.label);
+const expectedRoots = ["Encoder Turn", "Encoder Push", "Buttons", "Layer A", "Layer B", "Faders"];
+for (const label of expectedRoots) {{
+  if (!rootLabels.includes(label)) {{
+    throw new Error(`missing root facet ${{label}}, got ${{rootLabels.join(", ")}}`);
+  }}
+}}
+function findPath(nodes, entryId, path = []) {{
+  for (const node of nodes) {{
+    const nextPath = [...path, node.id];
+    if (node.entry?.id === entryId) return nextPath;
+    if (node.children) {{
+      const found = findPath(node.children, entryId, nextPath);
+      if (found) return found;
+    }}
+  }}
+  return null;
+}}
+function findNode(nodes, nodeId) {{
+  for (const node of nodes) {{
+    if (node.id === nodeId) return node;
+    if (node.children) {{
+      const found = findNode(node.children, nodeId);
+      if (found) return found;
+    }}
+  }}
+  return null;
+}}
+function expectPath(entryId, expectedLabels) {{
+  const path = findPath(roots, entryId);
+  if (!path) {{
+    throw new Error(`missing path for entry ${{entryId}}`);
+  }}
+  const labels = path.map((nodeId) => findNode(roots, nodeId)?.label).filter(Boolean);
+  if (JSON.stringify(labels) !== JSON.stringify(expectedLabels)) {{
+    throw new Error(`expected ${{JSON.stringify(expectedLabels)}} for ${{entryId}}, got ${{JSON.stringify(labels)}}`);
+  }}
+}}
+function expectSomePath(entryId, expectedLabels) {{
+  function walk(nodes, trail = []) {{
+    for (const node of nodes) {{
+      const nextTrail = [...trail, node.label];
+      if (node.entry?.id === entryId) {{
+        if (JSON.stringify(nextTrail) === JSON.stringify(expectedLabels)) {{
+          return true;
+        }}
+      }}
+      if (node.children && walk(node.children, nextTrail)) {{
+        return true;
+      }}
+    }}
+    return false;
+  }}
+  if (!walk(roots)) {{
+    throw new Error(`expected some path ${{JSON.stringify(expectedLabels)}} for ${{entryId}}`);
+  }}
+}}
+expectPath("1", ["Encoder Turn", "Encoder 1", "Layer A"]);
+expectPath("3", ["Encoder Push", "Encoder 1", "Layer A"]);
+expectPath("6", ["Buttons", "Layer A", "Bottom 1"]);
+expectPath("5", ["Buttons", "Layer A", "Top 1"]);
+expectSomePath("1", ["Layer A", "Encoder Turn", "Encoder 1"]);
+expectSomePath("4", ["Layer B", "Encoder Push", "Encoder 1"]);
+expectSomePath("7", ["Layer B", "Buttons", "Top 1"]);
+"""
+    subprocess.run(["node", "-e", script], check=True, cwd=ROOT)
