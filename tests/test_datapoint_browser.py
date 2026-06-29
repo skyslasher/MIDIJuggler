@@ -102,6 +102,60 @@ if (!channelNode || channelNode.label !== "Channel 1") {{
 
 
 @pytest.mark.skipif(shutil.which("node") is None, reason="node not installed")
+def test_datapoint_browser_builds_wing_midi_facets() -> None:
+    script = f"""
+global.window = {{}};
+eval({json.dumps(BROWSER_JS.read_text(encoding="utf-8"))});
+const browser = global.window.MidiJugglerDatapointBrowser;
+const entries = [
+  {{ id: "1", point: "ch_1_fdr", label: "Channel 1 Fader", category: "channel" }},
+  {{ id: "2", point: "ch_2_mute", label: "Channel 2 Mute", category: "channel" }},
+  {{ id: "3", point: "bus_1_fdr", label: "Bus 1 Fader", category: "bus" }},
+  {{ id: "4", point: "bus_1_mute", label: "Bus 1 Mute", category: "bus" }},
+  {{ id: "5", point: "main_1_fdr", label: "Main 1 Fader", category: "main" }},
+  {{ id: "6", point: "dca_4_fdr", label: "DCA 4 Fader", category: "dca" }},
+  {{ id: "7", point: "fx_1_insert_on", label: "FX 1 Insert on", category: "fx" }},
+  {{ id: "8", point: "fx_1_param_17", label: "FX 1 Parameter 17", category: "fx" }},
+  {{ id: "9", point: "mute_group_2_mute", label: "Mute group 2 Mute", category: "mute_group" }},
+];
+const roots = browser.buildMidiFacetRoots(entries);
+const rootLabels = roots.map((root) => root.label);
+for (const label of ["Channels", "Buses", "Main", "DCA", "FX", "Mute groups"]) {{
+  if (!rootLabels.includes(label)) {{
+    throw new Error(`missing root facet ${{label}}, got ${{rootLabels.join(", ")}}`);
+  }}
+}}
+function findPath(nodes, entryId, path = []) {{
+  for (const node of nodes) {{
+    const nextPath = [...path, node.id];
+    if (node.entry?.id === entryId) return nextPath;
+    if (node.children) {{
+      const found = findPath(node.children, entryId, nextPath);
+      if (found) return found;
+    }}
+  }}
+  return null;
+}}
+function findNode(nodes, nodeId) {{
+  for (const node of nodes) {{
+    if (node.id === nodeId) return node;
+    if (node.children) {{
+      const found = findNode(node.children, nodeId);
+      if (found) return found;
+    }}
+  }}
+  return null;
+}}
+const busPath = findPath(roots, "3");
+const busLabels = busPath.map((nodeId) => findNode(roots, nodeId)?.label).filter(Boolean);
+if (JSON.stringify(busLabels) !== JSON.stringify(["Buses", "Bus 1", "Fader"])) {{
+  throw new Error(`expected bus fader path, got ${{JSON.stringify(busLabels)}}`);
+}}
+"""
+    subprocess.run(["node", "-e", script], check=True, cwd=ROOT)
+
+
+@pytest.mark.skipif(shutil.which("node") is None, reason="node not installed")
 def test_datapoint_browser_builds_xtouch_mini_facets() -> None:
     script = f"""
 global.window = {{}};

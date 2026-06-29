@@ -64,18 +64,36 @@
 
   const MIDI_CONTROL_LABELS = {
     fader: "Fader",
+    fdr: "Fader",
     mute: "Mute",
+    pan: "Pan",
     solo: "Solo",
     select: "Select",
     pan_encoder: "Pan Encoder",
     record_arm: "Record Arm",
     lcd_track_name: "LCD Track Name",
+    insert_on: "Insert on",
+    fxmix: "FX mix",
+    fxmodel: "FX model",
+    param: "Parameter",
     rewind: "Rewind",
     fast_forward: "Fast Forward",
     stop: "Stop",
     play: "Play",
     record: "Record",
     loop: "Loop",
+  };
+
+  const MIDI_SCOPE_LABELS = {
+    channel: "Channels",
+    aux: "Aux",
+    bus: "Buses",
+    matrix: "Matrix",
+    dca: "DCA",
+    main: "Main",
+    mute_group: "Mute groups",
+    fx: "FX",
+    transport: "Transport",
   };
 
   const XTOUCH_LAYER_LABELS = {
@@ -122,7 +140,93 @@
   }
 
   function midiControlLabel(control) {
+    if (control.startsWith("param_")) {
+      const paramNum = control.slice("param_".length);
+      return paramNum ? `Parameter ${paramNum}` : "Parameter";
+    }
     return MIDI_CONTROL_LABELS[control] || control.replace(/_/g, " ");
+  }
+
+  function midiScopeLabel(scope) {
+    return MIDI_SCOPE_LABELS[scope] || scope.replace(/_/g, " ");
+  }
+
+  function normalizeMidiControl(control) {
+    return WING_SHORT_CONTROLS[control] || control;
+  }
+
+  function parseWingScopedMidiPath(point) {
+    const scopedMatch = point.match(/^(aux|bus|mtx|dca|main)_(\d+)_(.+)$/);
+    if (scopedMatch) {
+      const scopeMap = {
+        aux: "aux",
+        bus: "bus",
+        mtx: "matrix",
+        dca: "dca",
+        main: "main",
+      };
+      const scope = scopeMap[scopedMatch[1]];
+      const scopeNum = Number.parseInt(scopedMatch[2], 10);
+      const rawControl = scopedMatch[3];
+      if (!scope || !Number.isFinite(scopeNum) || !rawControl) {
+        return null;
+      }
+      const control = normalizeMidiControl(rawControl);
+      return {
+        scope,
+        scopeNum,
+        control,
+        controlLabel: midiControlLabel(control),
+      };
+    }
+
+    const muteGroupMatch = point.match(/^mute_group_(\d+)_mute$/);
+    if (muteGroupMatch) {
+      const scopeNum = Number.parseInt(muteGroupMatch[1], 10);
+      if (!Number.isFinite(scopeNum)) {
+        return null;
+      }
+      return {
+        scope: "mute_group",
+        scopeNum,
+        control: "mute",
+        controlLabel: midiControlLabel("mute"),
+      };
+    }
+
+    const fxParamMatch = point.match(/^fx_(\d+)_param_(\d+)$/);
+    if (fxParamMatch) {
+      const scopeNum = Number.parseInt(fxParamMatch[1], 10);
+      const paramNum = Number.parseInt(fxParamMatch[2], 10);
+      if (!Number.isFinite(scopeNum) || !Number.isFinite(paramNum)) {
+        return null;
+      }
+      const control = `param_${paramNum}`;
+      return {
+        scope: "fx",
+        scopeNum,
+        control,
+        controlLabel: midiControlLabel(control),
+      };
+    }
+
+    const fxMatch = point.match(/^fx_(\d+)_(.+)$/);
+    if (fxMatch) {
+      const scopeNum = Number.parseInt(fxMatch[1], 10);
+      const rawControl = fxMatch[2];
+      if (!Number.isFinite(scopeNum) || !rawControl) {
+        return null;
+      }
+      const control = normalizeMidiControl(rawControl);
+      return {
+        scope: "fx",
+        scopeNum,
+        control,
+        controlLabel: midiControlLabel(control),
+      };
+    }
+
+    return null;
   }
 
   function xtouchLayerLabel(layer) {
@@ -324,6 +428,41 @@
       const xtouchParsed = parseXtouchMiniPath(point, label);
       if (xtouchParsed) {
         return xtouchParsed;
+      }
+
+      const wingParsed = parseWingScopedMidiPath(point);
+      if (wingParsed) {
+        return wingParsed;
+      }
+    }
+
+    const wingLabelMatch = String(label || "").match(
+      /^(Channel|Aux|Bus|Matrix|DCA|Main|Mute group|FX)\s+(\d+)\s+(.+)$/i,
+    );
+    if (wingLabelMatch) {
+      const scopeMap = {
+        channel: "channel",
+        aux: "aux",
+        bus: "bus",
+        matrix: "matrix",
+        dca: "dca",
+        main: "main",
+        "mute group": "mute_group",
+        fx: "fx",
+      };
+      const scope = scopeMap[wingLabelMatch[1].toLowerCase()];
+      const scopeNum = Number.parseInt(wingLabelMatch[2], 10);
+      const controlLabelText = wingLabelMatch[3].trim();
+      if (scope && Number.isFinite(scopeNum) && controlLabelText) {
+        const control = normalizeMidiControl(
+          controlLabelText.toLowerCase().replace(/\s+/g, "_"),
+        );
+        return {
+          scope,
+          scopeNum,
+          control,
+          controlLabel: controlLabelText,
+        };
       }
     }
 
@@ -847,19 +986,6 @@
     return facets;
   }
 
-  function buildMidiChannelFacet(items) {
-    const channelItems = items.filter((item) => item.scope === "channel");
-    if (!channelItems.length) {
-      return null;
-    }
-    const children = buildScopeNumberLeaves(
-      channelItems,
-      "facet:midi:channel",
-      (scopeNum) => `Channel ${scopeNum}`,
-    );
-    return makeBranch("facet:midi:channel", "Channels", children, "Channels");
-  }
-
   function buildMidiTransportFacet(items) {
     const transportItems = items.filter((item) => item.scope === "transport");
     if (!transportItems.length) {
@@ -876,6 +1002,42 @@
         ),
       );
     return makeBranch("facet:midi:transport", "Transport", children, "Transport");
+  }
+
+  function buildMidiScopeFacet(items, scope, nodePrefix, branchLabel, labelForNumber) {
+    const scopedItems = items.filter((item) => item.scope === scope);
+    if (!scopedItems.length) {
+      return null;
+    }
+    const children = buildScopeNumberLeaves(scopedItems, nodePrefix, labelForNumber);
+    return makeBranch(nodePrefix, branchLabel, children, branchLabel);
+  }
+
+  function buildMidiFxFacet(items) {
+    const fxItems = items.filter((item) => item.scope === "fx");
+    if (!fxItems.length) {
+      return null;
+    }
+    const bySlot = groupBy(fxItems, (item) => item.scopeNum);
+    const slotChildren = [...bySlot.entries()].map(([scopeNum, slotItems]) => {
+      const controlChildren = slotItems
+        .sort((left, right) => compareLabels(left.controlLabel, right.controlLabel))
+        .map((item) =>
+          makeLeaf(
+            `facet:midi:fx:${scopeNum}:${item.control}`,
+            item.controlLabel,
+            item.entry,
+            item.controlLabel,
+          ),
+        );
+      return makeBranch(
+        `facet:midi:fx:${scopeNum}`,
+        `FX ${scopeNum}`,
+        controlChildren,
+        Number(scopeNum),
+      );
+    });
+    return makeBranch("facet:midi:fx", midiScopeLabel("fx"), slotChildren, midiScopeLabel("fx"));
   }
 
   function buildXtouchEncoderKindFacet(items, controlKind) {
@@ -1088,7 +1250,27 @@
     if (parsed.length < 8) {
       return [];
     }
-    const facets = [buildMidiChannelFacet(parsed), buildMidiTransportFacet(parsed)].filter(Boolean);
+    const facets = [
+      buildMidiScopeFacet(parsed, "channel", "facet:midi:channel", midiScopeLabel("channel"), (scopeNum) =>
+        `Channel ${scopeNum}`,
+      ),
+      buildMidiScopeFacet(parsed, "aux", "facet:midi:aux", midiScopeLabel("aux"), (scopeNum) => `Aux ${scopeNum}`),
+      buildMidiScopeFacet(parsed, "bus", "facet:midi:bus", midiScopeLabel("bus"), (scopeNum) => `Bus ${scopeNum}`),
+      buildMidiScopeFacet(parsed, "matrix", "facet:midi:matrix", midiScopeLabel("matrix"), (scopeNum) =>
+        `Matrix ${scopeNum}`,
+      ),
+      buildMidiScopeFacet(parsed, "dca", "facet:midi:dca", midiScopeLabel("dca"), (scopeNum) => `DCA ${scopeNum}`),
+      buildMidiScopeFacet(parsed, "main", "facet:midi:main", midiScopeLabel("main"), (scopeNum) => `Main ${scopeNum}`),
+      buildMidiScopeFacet(
+        parsed,
+        "mute_group",
+        "facet:midi:mute_group",
+        midiScopeLabel("mute_group"),
+        (scopeNum) => `Mute group ${scopeNum}`,
+      ),
+      buildMidiFxFacet(parsed),
+      buildMidiTransportFacet(parsed),
+    ].filter(Boolean);
     return facets;
   }
 
