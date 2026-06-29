@@ -170,6 +170,31 @@ def test_parse_config_supplements_missing_adapter_devices() -> None:
     assert config.connections[0].target == "x32_foh./ch/01/mix/fader"
 
 
+def test_parse_config_enriches_device_library_from_adapter() -> None:
+    config = parse_config(
+        {
+            "adapters": {
+                "xtouch_mini": {
+                    "type": "midi",
+                    "enabled": True,
+                    "midi_library": "behringer_xtouch_mini",
+                },
+            },
+            "devices": [
+                {
+                    "id": "device_220b4dff",
+                    "name": "X-Touch Mini",
+                    "adapter": "xtouch_mini",
+                }
+            ],
+        }
+    )
+
+    device = config.devices["device_220b4dff"]
+    assert device.library == "behringer_xtouch_mini"
+    assert device.library_kind == "midi"
+
+
 def test_adapter_device_options_lists_configured_adapters() -> None:
     from midijuggler.config import adapter_device_options
 

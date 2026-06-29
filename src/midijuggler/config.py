@@ -731,6 +731,7 @@ def parse_config(raw: dict[str, Any], *, strict: bool = True) -> AppConfig:
     devices = _parse_devices(raw.get("devices", []), adapters, issues)
     devices = normalize_device_adapter_refs(devices, adapters)
     devices = supplement_devices(devices, adapters)
+    devices = normalize_device_libraries(devices, adapters)
     master_clock = _parse_master_clock(raw.get("master_clock", {}))
     connections = _parse_connections(raw.get("connections", []), issues)
     connections = normalize_connections(connections, devices)
@@ -1002,6 +1003,54 @@ def supplement_devices(
         inferred = _infer_device_from_adapter(instance_name, adapter)
         supplemented[inferred.uid] = inferred
     return supplemented
+
+
+def enrich_device_from_adapter(
+    device: DeviceConfig,
+    adapter: AdapterConfig,
+) -> DeviceConfig:
+    """Fill missing device library metadata from the bound adapter."""
+
+    inferred = _infer_device_from_adapter(device.adapter, adapter)
+    library = device.library or inferred.library
+    library_kind = device.library_kind or inferred.library_kind
+    feedback_refresh_interval = (
+        device.feedback_refresh_interval
+        if device.feedback_refresh_interval > 0
+        else inferred.feedback_refresh_interval
+    )
+    if (
+        library == device.library
+        and library_kind == device.library_kind
+        and feedback_refresh_interval == device.feedback_refresh_interval
+    ):
+        return device
+    return DeviceConfig(
+        uid=device.uid,
+        name=device.name,
+        adapter=device.adapter,
+        library=library,
+        library_kind=library_kind,
+        label=device.label,
+        custom_points=device.custom_points,
+        feedback_refresh_interval=feedback_refresh_interval,
+        midi_value_channel=device.midi_value_channel,
+        midi_display_channel=device.midi_display_channel,
+    )
+
+
+def normalize_device_libraries(
+    devices: dict[str, DeviceConfig],
+    adapters: dict[str, AdapterConfig],
+) -> dict[str, DeviceConfig]:
+    normalized: dict[str, DeviceConfig] = {}
+    for uid, device in devices.items():
+        adapter = adapters.get(device.adapter)
+        if adapter is None:
+            normalized[uid] = device
+            continue
+        normalized[uid] = enrich_device_from_adapter(device, adapter)
+    return normalized
 
 
 def _parse_devices(

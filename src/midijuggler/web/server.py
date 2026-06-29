@@ -44,6 +44,7 @@ from midijuggler.config import (
     save_devices,
     save_gpio_adapter_options,
     supplement_devices,
+    normalize_device_libraries,
     save_connections,
     save_master_clock_config,
     save_runtime_config,
@@ -303,7 +304,10 @@ class WebInterface:
         object.__setattr__(
             self.config,
             "devices",
-            supplement_devices(dict(self.config.devices), self.config.adapters),
+            normalize_device_libraries(
+                supplement_devices(dict(self.config.devices), self.config.adapters),
+                self.config.adapters,
+            ),
         )
         self.device_registry.reload_from_config(self.config)
         return {
@@ -327,12 +331,13 @@ class WebInterface:
         except ValueError as exc:
             return web.Response(text=str(exc), status=400)
 
-        from midijuggler.config import normalize_device_adapter_refs
+        from midijuggler.config import normalize_device_adapter_refs, normalize_device_libraries
 
         devices = normalize_device_adapter_refs(
             {device.uid: device for device in imported},
             self.config.adapters,
         )
+        devices = normalize_device_libraries(devices, self.config.adapters)
         bound_adapters: dict[str, str] = {}
         for device in devices.values():
             if device.adapter not in self.config.adapters:
@@ -2966,7 +2971,10 @@ class WebInterface:
         object.__setattr__(
             self.config,
             "devices",
-            supplement_devices(dict(self.config.devices), self.config.adapters),
+            normalize_device_libraries(
+                supplement_devices(dict(self.config.devices), self.config.adapters),
+                self.config.adapters,
+            ),
         )
         self.device_registry.reload_from_config(self.config)
         await self._refresh_device_datapoints_after_config_change(previous_device_uids)

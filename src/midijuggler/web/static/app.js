@@ -3318,6 +3318,8 @@ function createDeviceCard(device = {}, options = {}) {
 
   if ((!device.uid && !device.id) && device.adapter) {
     applyAdapterDefaultsToDeviceCard(card);
+  } else if (device.adapter && (!device.library || !device.library_kind)) {
+    applyAdapterDefaultsToDeviceCard(card);
   }
 
   mountAdapterInstanceCard(card, accordion);
