@@ -913,29 +913,34 @@
     if (!filtered.length) {
       return null;
     }
-    const byLayer = groupBy(filtered, (item) => item.layer);
-    const layerChildren = ["a", "b"]
-      .filter((layer) => byLayer.has(layer))
-      .map((layer) => {
-        const layerItems = byLayer.get(layer);
-        const buttonChildren = layerItems
-          .sort(compareXtouchButtonItems)
+    const byButton = groupBy(
+      filtered,
+      (item) => `${item.buttonRow}:${item.buttonNum}:${item.controlKind}`,
+    );
+    const buttonChildren = [...byButton.entries()]
+      .sort(([leftKey], [rightKey]) =>
+        compareXtouchButtonItems(byButton.get(leftKey)[0], byButton.get(rightKey)[0]),
+      )
+      .map(([buttonKey, buttonItems]) => {
+        const sample = buttonItems[0];
+        const layerChildren = buttonItems
+          .sort((left, right) => compareLabels(left.layer, right.layer))
           .map((item) =>
             makeLeaf(
-              `facet:xtouch:buttons:${layer}:${item.buttonRow}:${item.buttonNum}:${item.controlKind}`,
-              xtouchButtonLabel(item.buttonRow, item.buttonNum, item.controlKind),
+              `facet:xtouch:buttons:${buttonKey}:layer:${item.layer}`,
+              item.layerLabel,
               item.entry,
-              `${item.buttonRow}:${item.buttonNum}:${item.controlKind}`,
+              item.layer,
             ),
           );
         return makeBranch(
-          `facet:xtouch:buttons:${layer}`,
-          xtouchLayerLabel(layer),
-          buttonChildren,
-          layer,
+          `facet:xtouch:buttons:${buttonKey}`,
+          xtouchButtonLabel(sample.buttonRow, sample.buttonNum, sample.controlKind),
+          layerChildren,
+          `${sample.buttonRow}:${sample.buttonNum}:${sample.controlKind}`,
         );
       });
-    return makeBranch("facet:xtouch:buttons", "Buttons", layerChildren, "Buttons");
+    return makeBranch("facet:xtouch:buttons", "Buttons", buttonChildren, "Buttons");
   }
 
   function buildXtouchLayerFacet(layer, items) {

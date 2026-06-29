@@ -178,8 +178,8 @@ function expectSomePath(entryId, expectedLabels) {{
 }}
 expectPath("1", ["Encoder Turn", "Encoder 1", "Layer A"]);
 expectPath("3", ["Encoder Push", "Encoder 1", "Layer A"]);
-expectPath("6", ["Buttons", "Layer A", "Bottom 1"]);
-expectPath("5", ["Buttons", "Layer A", "Top 1"]);
+expectPath("6", ["Buttons", "Bottom 1", "Layer A"]);
+expectPath("5", ["Buttons", "Top 1", "Layer A"]);
 expectSomePath("1", ["Layer A", "Encoder Turn", "Encoder 1"]);
 expectSomePath("4", ["Layer B", "Encoder Push", "Encoder 1"]);
 expectSomePath("7", ["Layer B", "Buttons", "Top 1"]);
