@@ -126,6 +126,7 @@ let learnMode = false;
 let learnPhase = "idle";
 let learnSourceKey = "";
 let learnSourceDatapointId = "";
+let lastServerLearnSourceDatapoint = "";
 let selectedMonitorEventItem = null;
 let learnOscInstances = [];
 let learnRegistryDatapoints = [];
@@ -304,7 +305,7 @@ function renderLearnState(learn) {
 
   renderLearnDatapointSelects();
   syncLearnRangeFieldsVisibility();
-  applyLearnSourceSelection(learn.source_datapoint || "");
+  syncLearnSourceFromServer(learn);
 
   const previousAdapter = learnOscAdapter.value;
   learnOscAdapter.replaceChildren();
@@ -1135,11 +1136,36 @@ function applyLearnSourceSelection(pointId) {
   applyLearnDatapointRanges(learnSourceDatapoint.selectedOptions[0], "input");
 }
 
+function syncLearnSourceFromServer(learn) {
+  const serverSource = learn?.source_datapoint || "";
+  if (serverSource === lastServerLearnSourceDatapoint) {
+    return;
+  }
+  lastServerLearnSourceDatapoint = serverSource;
+  if (serverSource) {
+    applyLearnSourceSelection(serverSource);
+  }
+}
+
+function clearLearnSourceOnServer() {
+  lastServerLearnSourceDatapoint = learnSourceDatapointId || lastServerLearnSourceDatapoint;
+  if (socket && socket.readyState === WebSocket.OPEN) {
+    socket.send(JSON.stringify({ type: "learn_clear" }));
+    return;
+  }
+  fetch("/api/learn/clear", {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: "{}",
+  }).catch(() => null);
+}
+
 function clearLearnEndpointSelects() {
   learnSourceInstance.value = "";
   learnTargetInstance.value = "";
   fillLearnPointSelect(learnSourceDatapoint, "", "input", "");
   fillLearnPointSelect(learnTargetDatapoint, "", "output", "");
+  lastServerLearnSourceDatapoint = "";
 }
 
 function formatDatapointDisplay(pointId) {
@@ -1818,7 +1844,7 @@ async function loadLearnDatapoints() {
     await preloadLearnMidiLibraries(learnRegistryDatapoints);
     renderLearnDatapointSelects();
     refreshMappingEditorSelects();
-    applyLearnSourceSelection(learnSourceDatapointId);
+    syncLearnSourceFromServer({ source_datapoint: learnSourceDatapointId });
   } catch (error) {
     learnMessage.textContent = `error: could not load data points (${error.message})`;
   }
@@ -1900,7 +1926,6 @@ function rememberMonitorDatapoint(event) {
   learnMonitorDatapoints.set(pointId, monitorDatapointLabel(event, pointId));
   if (learnMode) {
     renderLearnDatapointSelects();
-    applyLearnSourceSelection(learnSourceDatapointId);
   }
 }
 
@@ -7021,6 +7046,7 @@ learnToggle.addEventListener("click", () => {
   const enabled = !learnMode;
   learnMessage.textContent = "";
   if (enabled) {
+    lastServerLearnSourceDatapoint = "";
     loadLearnDatapoints();
   }
   if (socket && socket.readyState === WebSocket.OPEN) {
@@ -7038,6 +7064,7 @@ learnSourceInstance.addEventListener("change", () => {
   learnMessage.textContent = "";
   resetDatapointFilterInput(learnSourceDatapoint);
   fillLearnPointSelect(learnSourceDatapoint, learnSourceInstance.value, "input", "");
+  clearLearnSourceOnServer();
 });
 
 learnTargetInstance.addEventListener("change", () => {
