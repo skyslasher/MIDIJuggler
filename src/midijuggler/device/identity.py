@@ -78,6 +78,11 @@ def resolve_adapter_instance_identity(
     return uid, name
 
 
+def adapter_ref_slug(value: str) -> str:
+    slug = re.sub(r"[^a-zA-Z0-9_]+", "_", value.strip().lower()).strip("_")
+    return re.sub(r"_+", "_", slug)
+
+
 def resolve_adapter_uid(adapter_ref: str, adapters: dict[str, Any]) -> str | None:
     ref = adapter_ref.strip()
     if not ref:
@@ -88,4 +93,18 @@ def resolve_adapter_uid(adapter_ref: str, adapters: dict[str, Any]) -> str | Non
         display = getattr(adapter, "name", "") or ""
         if ref == display or ref == device_display_name(uid, display):
             return uid
+
+    ref_slug = adapter_ref_slug(ref)
+    if not ref_slug:
+        return None
+
+    slug_matches: list[str] = []
+    for uid, adapter in adapters.items():
+        display = getattr(adapter, "name", "") or ""
+        candidates = {uid, display, device_display_name(uid, display)}
+        if any(adapter_ref_slug(candidate) == ref_slug for candidate in candidates if candidate):
+            slug_matches.append(uid)
+
+    if len(slug_matches) == 1:
+        return slug_matches[0]
     return None

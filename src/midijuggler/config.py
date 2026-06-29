@@ -3,9 +3,12 @@
 from __future__ import annotations
 
 from dataclasses import dataclass, field
+import logging
 from pathlib import Path
 from typing import Any
 import tomllib
+
+LOGGER = logging.getLogger(__name__)
 
 from midijuggler.datapoint.types import ConnectionSpec, ModifierKind, SCALE_CURVES
 from midijuggler.device.identity import device_display_name, resolve_adapter_uid
@@ -982,13 +985,22 @@ def _parse_devices(raw: Any, adapters: dict[str, AdapterConfig]) -> dict[str, De
 
     devices: dict[str, DeviceConfig] = {}
     for index, item in enumerate(raw, start=1):
-        device = _parse_device(index, item, adapters)
+        try:
+            device = _parse_device(index, item, adapters)
+        except ValueError as exc:
+            if "references unknown adapter" not in str(exc):
+                raise
+            LOGGER.warning("%s; skipping device entry", exc)
+            continue
         if device.uid in devices:
             raise ValueError(f"devices[{index}] duplicates device uid {device.uid!r}")
         if device.adapter not in adapters:
-            raise ValueError(
-                f"devices[{index}] references unknown adapter {device.adapter!r}"
+            LOGGER.warning(
+                "devices[%s] references unknown adapter %r; skipping device entry",
+                index,
+                device.adapter,
             )
+            continue
         devices[device.uid] = device
     return devices
 

@@ -258,3 +258,36 @@ direction = "source"
 
     with path.open("rb") as handle:
         tomllib.load(handle)
+
+
+def test_resolve_adapter_uid_matches_slugged_legacy_refs() -> None:
+    from midijuggler.config import AdapterConfig
+    from midijuggler.device.identity import resolve_adapter_uid
+
+    adapters = {
+        "wing_midi_1": AdapterConfig(
+            enabled=True,
+            kind="midi",
+            options={},
+            name="Wing_MIDI_1",
+        )
+    }
+
+    assert resolve_adapter_uid("wing__midi_1", adapters) == "wing_midi_1"
+    assert resolve_adapter_uid("Wing MIDI 1", adapters) == "wing_midi_1"
+
+
+def test_parse_config_skips_devices_with_unknown_adapter() -> None:
+    config = parse_config(
+        {
+            "adapters": {
+                "gpio": {"enabled": True, "pins": [17]},
+            },
+            "devices": [
+                {"uid": "foot_switches", "adapter": "gpio", "library_kind": "gpio"},
+                {"uid": "orphan", "adapter": "missing_adapter", "library_kind": "midi"},
+            ],
+        }
+    )
+
+    assert set(config.devices) == {"foot_switches"}
