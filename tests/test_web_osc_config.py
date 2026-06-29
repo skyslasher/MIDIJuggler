@@ -533,8 +533,8 @@ def test_apply_osc_adapters_config_can_rename_instance(tmp_path: Path) -> None:
             {
                 "instances": [
                     {
+                        "uid": "x32_foh",
                         "name": "foh_x32",
-                        "previous_name": "x32_foh",
                         "enabled": True,
                         "listen_host": "0.0.0.0",
                         "osc_port": 10023,
@@ -550,7 +550,8 @@ def test_apply_osc_adapters_config_can_rename_instance(tmp_path: Path) -> None:
     saved_text = config_file.read_text(encoding="utf-8")
 
     assert result["persisted"] is True
-    assert "x32_foh" not in saved.adapters
-    assert saved.adapters["foh_x32"].enabled is True
-    assert "[adapters.foh_x32]" in saved_text
-    assert "[adapters.x32_foh]" not in saved_text
+    assert "x32_foh" in saved.adapters
+    assert saved.adapters["x32_foh"].name == "foh_x32"
+    assert saved.adapters["x32_foh"].enabled is True
+    assert "[adapters.x32_foh]" in saved_text
+    assert 'name = "foh_x32"' in saved_text

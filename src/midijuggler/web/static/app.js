@@ -280,10 +280,10 @@ function renderLearnState(learn) {
 
   for (const instance of learnOscInstances) {
     const option = document.createElement("option");
-    option.value = instance.name;
+    option.value = instance.uid || instance.name;
     option.textContent = instance.osc_library
-      ? `${instance.name} (${instance.osc_library})`
-      : instance.name;
+      ? `${instance.name || instance.uid} (${instance.osc_library})`
+      : instance.name || instance.uid;
     option.dataset.libraryId = instance.osc_library || "";
     learnOscAdapter.appendChild(option);
   }
@@ -382,6 +382,28 @@ function refreshDeviceDisplayNames(devices) {
 function generateDeviceUid(adapter) {
   const base = String(adapter || "device").replace(/[^a-zA-Z0-9_]+/g, "_").toLowerCase() || "device";
   return `${base}_${Math.random().toString(16).slice(2, 10)}`;
+}
+
+const generateInstanceUid = generateDeviceUid;
+
+function adapterInstanceUid(instance) {
+  return String(instance?.uid || instance?.name || "").trim();
+}
+
+function adapterOptionByUid(uid) {
+  return (deviceAdapterOptions || []).find(
+    (entry) => (entry.uid || entry.name) === uid,
+  ) || null;
+}
+
+function adapterOptionByRef(ref) {
+  return adapterOptionByUid(ref) || adapterOptionByName(ref);
+}
+
+function setAdapterCardIdentity(card, instance, { isNew = false } = {}) {
+  const uid = adapterInstanceUid(instance) || (isNew ? generateInstanceUid() : "");
+  card.dataset.instanceUid = uid;
+  card.dataset.instanceName = instance.name || uid;
 }
 
 function learnInstanceLabel(module) {
@@ -1879,12 +1901,12 @@ function adapterConnectionBadgeClass(connection) {
   }
 }
 
-function setAdapterConnectionStatus(adapterName, connection) {
+function setAdapterConnectionStatus(adapterUid, connection) {
   const normalized = normalizeAdapterConnection(connection);
-  if (!adapterName || !normalized?.detail) {
+  if (!adapterUid || !normalized?.detail) {
     return;
   }
-  adapterConnectionStatus[adapterName] = normalized;
+  adapterConnectionStatus[adapterUid] = normalized;
   updateAdapterConnectionBadges();
 }
 
@@ -1899,7 +1921,7 @@ function applyAdapterRuntimeConnectionsFromStatus(adapters) {
 function applyAdapterRuntimeConnectionsFromConfig(instances) {
   for (const instance of instances || []) {
     if (instance.runtime_connection) {
-      setAdapterConnectionStatus(instance.name, instance.runtime_connection);
+      setAdapterConnectionStatus(instance.uid || instance.name, instance.runtime_connection);
     }
   }
 }
@@ -1910,8 +1932,8 @@ function updateAdapterConnectionBadges() {
     if (!badge) {
       continue;
     }
-    const adapterName = card.dataset.instanceName;
-    const connection = adapterConnectionStatus[adapterName];
+    const adapterUid = card.dataset.instanceUid || card.dataset.instanceName;
+    const connection = adapterConnectionStatus[adapterUid];
     const label = adapterConnectionBadgeText(connection);
     if (!label) {
       badge.hidden = true;
@@ -2149,11 +2171,15 @@ function formatMonitorEventLine(event, time) {
 }
 
 function isHidAdapterSource(source) {
-  return (hidAdaptersConfig?.instances || []).some((instance) => instance.name === source);
+  return (hidAdaptersConfig?.instances || []).some(
+    (instance) => instance.uid === source || instance.name === source,
+  );
 }
 
 function isWingNativeAdapterSource(source) {
-  return (wingNativeAdaptersConfig?.instances || []).some((instance) => instance.name === source);
+  return (wingNativeAdaptersConfig?.instances || []).some(
+    (instance) => instance.uid === source || instance.name === source,
+  );
 }
 
 function monitorTransportLabel(source) {
@@ -2350,8 +2376,8 @@ function fillDeviceLibrarySelect(select, kind, selectedValue) {
 }
 
 function applyAdapterDefaultsToDeviceCard(card) {
-  const adapterName = card.querySelector('[data-field="adapter"]')?.value || "";
-  const adapter = adapterOptionByName(adapterName);
+  const adapterRef = card.querySelector('[data-field="adapter"]')?.value || "";
+  const adapter = adapterOptionByRef(adapterRef);
   const kindField = card.querySelector('[data-field="library_kind"]');
   const libraryField = card.querySelector('[data-field="library"]');
   const nameField = card.querySelector('[data-field="name"]');
@@ -2366,10 +2392,10 @@ function applyAdapterDefaultsToDeviceCard(card) {
     libraryField.value = adapter.library;
   }
   if (!card.dataset.deviceUid) {
-    card.dataset.deviceUid = generateDeviceUid(adapterName);
+    card.dataset.deviceUid = generateDeviceUid(adapter.uid || adapterRef);
   }
   if (nameField && !nameField.value.trim()) {
-    nameField.value = adapterName;
+    nameField.value = adapter.name || adapterRef;
     nameField.dispatchEvent(new Event("input", { bubbles: true }));
   }
 }
@@ -2710,10 +2736,10 @@ function createDeviceCard(device = {}, options = {}) {
   adapterSelect.appendChild(placeholder);
   for (const adapter of deviceAdapterOptions) {
     const option = document.createElement("option");
-    option.value = adapter.name;
+    option.value = adapter.uid || adapter.name;
     option.textContent = adapter.library
-      ? `${adapter.name} (${adapter.library_kind || adapter.kind}, ${adapter.library})`
-      : `${adapter.name} (${adapter.library_kind || adapter.kind})`;
+      ? `${adapter.name || adapter.uid} (${adapter.library_kind || adapter.kind}, ${adapter.library})`
+      : `${adapter.name || adapter.uid} (${adapter.library_kind || adapter.kind})`;
     adapterSelect.appendChild(option);
   }
 
@@ -2731,7 +2757,7 @@ function createDeviceCard(device = {}, options = {}) {
   kindSelect.value = device.library_kind || "";
   fillDeviceLibrarySelect(
     fields.querySelector('[data-field="library"]'),
-    device.library_kind || adapterOptionByName(device.adapter)?.library_kind || "",
+    device.library_kind || adapterOptionByRef(device.adapter)?.library_kind || "",
     device.library || "",
   );
 
@@ -2851,7 +2877,7 @@ function addMissingDevicesFromAdapters() {
   );
   let added = 0;
   for (const adapter of deviceAdapterOptions) {
-    if (existingAdapters.has(adapter.name)) {
+    if (existingAdapters.has(adapter.uid || adapter.name)) {
       continue;
     }
     if (deviceInstances.querySelector(".hint") && added === 0) {
@@ -2860,16 +2886,16 @@ function addMissingDevicesFromAdapters() {
     deviceInstances.appendChild(
       createDeviceCard(
         {
-          uid: generateDeviceUid(adapter.name),
-          name: adapter.name,
-          adapter: adapter.name,
+          uid: generateDeviceUid(adapter.uid || adapter.name),
+          name: adapter.name || adapter.uid,
+          adapter: adapter.uid || adapter.name,
           library: adapter.library,
           library_kind: adapter.library_kind,
         },
         { isNew: true },
       ),
     );
-    existingAdapters.add(adapter.name);
+    existingAdapters.add(adapter.uid || adapter.name);
     added += 1;
   }
   if (devicesMessage) {
@@ -2987,7 +3013,7 @@ function syncLearnMonitorDatapointsFromHidConfig(config) {
 
 function hidConfiguredControls(instanceName) {
   const configInstance = (hidAdaptersConfig?.instances || []).find(
-    (entry) => entry.name === instanceName,
+    (entry) => entry.uid === instanceName || entry.name === instanceName,
   );
   if (!configInstance) {
     return null;
@@ -3015,7 +3041,7 @@ function renderHidAdaptersConfig(config) {
   const openInstances = new Set(
     [...hidInstances.querySelectorAll(".hid-adapter-card")].flatMap((card) => {
       const details = card.querySelector("details");
-      return details?.open ? [card.dataset.instanceName] : [];
+      return details?.open ? [card.dataset.instanceUid || card.dataset.instanceName] : [];
     }),
   );
 
@@ -3024,7 +3050,7 @@ function renderHidAdaptersConfig(config) {
   hidInstances.replaceChildren();
   for (const instance of config.instances || []) {
     const card = createHidAdapterCard(instance, config);
-    if (openInstances.has(instance.name)) {
+    if (openInstances.has(instance.uid || instance.name)) {
       const details = card.querySelector("details");
       if (details) {
         details.open = true;
@@ -3043,7 +3069,7 @@ function syncHidLearnState(config) {
   hidLearnInstanceName = config.learn_active || "";
   for (const card of hidInstances.querySelectorAll(".hid-adapter-card")) {
     const learnButton = card.querySelector(".hid-learn-button");
-    const isActive = card.dataset.instanceName === hidLearnInstanceName;
+    const isActive = (card.dataset.instanceUid || card.dataset.instanceName) === hidLearnInstanceName;
     card.dataset.learnActive = isActive ? "true" : "false";
     if (learnButton) {
       learnButton.textContent = isActive ? "Stop learning" : "Learn input";
@@ -3298,15 +3324,15 @@ function appendLearnedHidInput(card, event) {
 }
 
 function setHidLearnMode(card, active) {
-  const name = (card.dataset.instanceName || "").trim();
-  if (!name || card.dataset.isNew === "true") {
+  const uid = (card.dataset.instanceUid || card.dataset.instanceName || "").trim();
+  if (!uid || card.dataset.isNew === "true") {
     showHidAdapterCardMessage(card, "save the instance before learning inputs");
     return;
   }
   fetch("/api/hid-adapters/learn", {
     method: "POST",
     headers: { "content-type": "application/json" },
-    body: JSON.stringify({ name, active }),
+    body: JSON.stringify({ name: uid, active }),
   })
     .then(async (response) => {
       if (!response.ok) {
@@ -3317,7 +3343,7 @@ function setHidLearnMode(card, active) {
     .then((config) => {
       syncHidLearnState(config);
       hidMessage.textContent = active
-        ? `learning inputs for ${name}; press a key, button, or move an axis`
+        ? `learning inputs for ${card.dataset.instanceName || uid}; press a key, button, or move an axis`
         : "";
     })
     .catch((error) => {
@@ -3330,7 +3356,7 @@ function createHidAdapterCard(instance, config) {
   const isNew = Boolean(instance.__isNew);
   const card = document.createElement("section");
   card.className = "midi-adapter-card hid-adapter-card";
-  card.dataset.instanceName = instance.name || "";
+  setAdapterCardIdentity(card, instance, { isNew });
   card.dataset.instanceType = "hid";
   if (isNew) {
     card.dataset.isNew = "true";
@@ -3465,7 +3491,7 @@ function saveHidAdapterCard(card) {
     return;
   }
   showHidAdapterCardMessage(card, "saving...");
-  const savedName = card.dataset.instanceName;
+  const savedUid = card.dataset.instanceUid || card.dataset.instanceName;
   fetch("/api/hid-adapters", {
     method: "POST",
     headers: { "content-type": "application/json" },
@@ -3483,7 +3509,7 @@ function saveHidAdapterCard(card) {
     .then((config) => {
       renderHidAdaptersConfig(config);
       const savedCard = [...hidInstances.querySelectorAll(".hid-adapter-card")].find(
-        (entry) => entry.dataset.instanceName === savedName,
+        (entry) => (entry.dataset.instanceUid || entry.dataset.instanceName) === savedUid,
       );
       if (savedCard) {
         showHidAdapterCardMessage(
@@ -3508,16 +3534,17 @@ function deleteHidAdapterCard(card) {
     card.remove();
     return;
   }
-  const instanceName = card.dataset.instanceName || "";
-  if (!window.confirm(`Delete HID adapter instance "${instanceName}"?`)) {
+  const instanceLabel = card.dataset.instanceName || card.dataset.instanceUid || "";
+  if (!window.confirm(`Delete HID adapter instance "${instanceLabel}"?`)) {
     return;
   }
+  const uid = card.dataset.instanceUid || card.dataset.instanceName;
   fetch("/api/hid-adapters", {
     method: "POST",
     headers: { "content-type": "application/json" },
     body: JSON.stringify({
       instances: [],
-      deleted: [card.dataset.instanceName],
+      deleted: [uid],
     }),
   })
     .then(async (response) => {
@@ -3527,7 +3554,7 @@ function deleteHidAdapterCard(card) {
       return response.json();
     })
     .then((config) => {
-      pruneLearnMonitorDatapointsForDeletedHidInstance(instanceName);
+      pruneLearnMonitorDatapointsForDeletedHidInstance(uid);
       renderHidAdaptersConfig(config);
       hidMessage.textContent = "deleted";
     })
@@ -3541,7 +3568,7 @@ function handleHidLearnCapture(event) {
     return;
   }
   const card = [...hidInstances.querySelectorAll(".hid-adapter-card")].find(
-    (entry) => entry.dataset.instanceName === event.source,
+    (entry) => (entry.dataset.instanceUid || entry.dataset.instanceName) === event.source,
   );
   if (card) {
     appendLearnedHidInput(card, event);
@@ -3590,8 +3617,10 @@ function refreshRtpJoinSelects(config) {
     if (!roleSelect || !joinSelect || roleSelect.value.trim().toLowerCase() !== "join") {
       continue;
     }
-    const instanceName = card.dataset.instanceName;
-    const instance = (config.instances || []).find((item) => item.name === instanceName);
+    const instanceUid = card.dataset.instanceUid || card.dataset.instanceName;
+    const instance = (config.instances || []).find(
+      (item) => (item.uid || item.name) === instanceUid,
+    );
     const choices = joinRtpSessionChoices(config, instance);
     replaceSelectOptions(
       joinSelect,
@@ -3626,6 +3655,7 @@ function midiPortChoices(config) {
 function defaultMidiInstanceTemplate(config) {
   const portChoices = midiPortChoices(config);
   return {
+    uid: generateInstanceUid(),
     name: "",
     type: "midi",
     enabled: false,
@@ -3639,6 +3669,7 @@ function defaultMidiInstanceTemplate(config) {
 
 function defaultRtpMidiInstanceTemplate() {
   return {
+    uid: generateInstanceUid(),
     name: "",
     type: "rtp_midi",
     enabled: false,
@@ -4595,33 +4626,21 @@ function createAdapterNameField(instance, defaultNames, { isNew = false } = {}) 
   input?.addEventListener("input", refreshNameHint);
   input?.addEventListener("blur", refreshNameHint);
 
-  if (!isNew && defaultNames.has(instance.name)) {
-    input.disabled = true;
-    input.title = "Default instances cannot be renamed";
-  }
   return field;
 }
 
 function adapterInstanceNameFromCard(card) {
+  const uid = (card.dataset.instanceUid || card.dataset.instanceName || "").trim();
   const nameInput = card.querySelector('[data-field="adapter_name"]');
-  const name = (nameInput?.value || card.dataset.instanceName || "").trim();
-  const payload = { name };
-  if (
-    card.dataset.isNew !== "true" &&
-    name &&
-    name !== card.dataset.instanceName &&
-    !nameInput?.disabled
-  ) {
-    payload.previous_name = card.dataset.instanceName;
-  }
-  return payload;
+  const name = (nameInput?.value || card.dataset.instanceName || uid).trim();
+  return { uid, name };
 }
 
 function createMidiAdapterCard(instance, config, options = {}) {
   const isNew = Boolean(options.isNew);
   const card = document.createElement("section");
   card.className = "midi-adapter-card";
-  card.dataset.instanceName = instance.name;
+  setAdapterCardIdentity(card, instance, { isNew });
   card.dataset.instanceType = instance.type;
   if (isNew) {
     card.dataset.isNew = "true";
@@ -4640,7 +4659,7 @@ function createMidiAdapterCard(instance, config, options = {}) {
   statusBadge.hidden = true;
 
   if (instance.runtime_connection) {
-    setAdapterConnectionStatus(instance.name, instance.runtime_connection);
+    setAdapterConnectionStatus(instance.uid || instance.name, instance.runtime_connection);
   }
 
   const actions = document.createElement("div");
@@ -4662,7 +4681,7 @@ function createMidiAdapterCard(instance, config, options = {}) {
     card,
     () => deleteMidiAdapterCard(card, instance.type),
     {
-      protectedDelete: !isNew && DEFAULT_MIDI_ADAPTER_NAMES.has(instance.name),
+      protectedDelete: !isNew && DEFAULT_MIDI_ADAPTER_NAMES.has(instance.uid || instance.name),
       panelMessage: panelMessageForMidiKind(instance.type),
     },
   );
@@ -4742,7 +4761,7 @@ function createMidiAdapterCard(instance, config, options = {}) {
     echoGuardWrap.className = "midi-echo-guard-field";
     echoGuardWrap.append(echoGuardField, echoGuardHint);
     body.appendChild(echoGuardWrap);
-    const boundDevice = boundDeviceForAdapter(instance.name);
+    const boundDevice = boundDeviceForAdapter(instance.uid || instance.name);
     const xtouchLibrary =
       instance.device_library ||
       boundDevice?.library ||
@@ -5011,8 +5030,8 @@ function confirmMidiAdapterDelete(card) {
     return window.confirm(`Discard ${label}?`);
   }
 
-  const name = card.dataset.instanceName;
-  return window.confirm(`Delete adapter instance "${name}"? This cannot be undone.`);
+  const name = card.dataset.instanceUid || card.dataset.instanceName;
+  return window.confirm(`Delete adapter instance "${card.dataset.instanceName || name}"? This cannot be undone.`);
 }
 
 function panelMessageForMidiKind(kind) {
@@ -5046,12 +5065,12 @@ function deleteMidiAdapterCard(card, kind) {
     return;
   }
 
-  const name = card.dataset.instanceName;
+  const uid = card.dataset.instanceUid || card.dataset.instanceName;
   const panelMessage = panelMessageForMidiKind(kind);
   card.remove();
   panelMessage.textContent = "deleting...";
 
-  persistMidiAdapterChanges(kind, { instances: [], deleted: [name] })
+  persistMidiAdapterChanges(kind, { instances: [], deleted: [uid] })
     .then((config) => {
       midiAdaptersConfig = config;
       renderMidiAdapterSection(kind, config);
@@ -5081,7 +5100,7 @@ function saveMidiAdapterCard(card) {
     instances: [collectMidiAdapterInstanceFrom(card)],
   })
     .then((config) => {
-      const { name } = adapterInstanceNameFromCard(card);
+      const { uid } = adapterInstanceNameFromCard(card);
       const xtouchFields = collectBoundDeviceXtouchFieldsFromCard(card);
       const xtouchWrap = card.querySelector(".midi-xtouch-device-fields");
       if (xtouchWrap?.hidden || !Object.keys(xtouchFields).length) {
@@ -5090,7 +5109,7 @@ function saveMidiAdapterCard(card) {
       return ensureDevicesConfigLoaded().then((deviceConfig) => {
         const devices = mergeBoundDeviceXtouchFields(
           deviceConfig.devices || [],
-          name,
+          uid,
           xtouchFields,
         );
         return persistDevices(devices).then((savedDevices) => {
@@ -5275,6 +5294,7 @@ function buildNewOscInstanceTemplate() {
   const listenPort = suggestedOscListenPort();
   return {
     ...defaultOscInstanceTemplate(),
+    uid: generateInstanceUid(),
     name: suggestedOscInstanceNameFromTemplate(),
     listen_port: listenPort,
     osc_port: listenPort,
@@ -5591,6 +5611,7 @@ function createOscInstanceFromDiscoveredDesk(device) {
   };
   const instance = {
     ...defaultOscInstanceTemplate(),
+    uid: generateInstanceUid(),
     name: suggestedOscInstanceName(device),
     desk_mode: deskMode,
     osc_library: deskModeToLibraryId(deskMode),
@@ -5680,7 +5701,7 @@ function createOscAdapterCard(instance, config, options = {}) {
   const isNew = Boolean(options.isNew);
   const card = document.createElement("section");
   card.className = "midi-adapter-card";
-  card.dataset.instanceName = instance.name;
+  setAdapterCardIdentity(card, instance, { isNew });
   card.dataset.instanceType = "osc";
   if (isNew) {
     card.dataset.isNew = "true";
@@ -5924,11 +5945,11 @@ function deleteOscAdapterCard(card) {
     return;
   }
 
-  const name = card.dataset.instanceName;
+  const uid = card.dataset.instanceUid || card.dataset.instanceName;
   card.remove();
   oscMessage.textContent = "deleting...";
 
-  persistOscAdapterChanges({ instances: [], deleted: [name] })
+  persistOscAdapterChanges({ instances: [], deleted: [uid] })
     .then((config) => {
       oscAdaptersConfig = config;
       renderOscAdaptersConfig(config);
@@ -6030,6 +6051,7 @@ function defaultWingNativeInstanceTemplate() {
 
 function buildNewWingNativeInstanceTemplate() {
   const template = defaultWingNativeInstanceTemplate();
+  template.uid = generateInstanceUid();
   template.name = suggestWingNativeInstanceName();
   return template;
 }
@@ -6096,20 +6118,21 @@ function updateWingNativeCardConnectivity(card, instance) {
 }
 
 function updateWingNativeConnectivityFromStatus(status) {
-  const byName = new Map();
+  const byUid = new Map();
   for (const instance of status.wing_native_instances || []) {
-    byName.set(instance.name, instance);
+    byUid.set(instance.uid || instance.name, instance);
   }
   for (const [name, adapter] of Object.entries(status.adapters || {})) {
-    if (adapter.wing_connectivity && !byName.has(name)) {
-      byName.set(name, { name, connectivity: adapter.wing_connectivity });
+    if (adapter.wing_connectivity && !byUid.has(name)) {
+      byUid.set(name, { uid: name, name, connectivity: adapter.wing_connectivity });
     }
   }
   for (const card of wingNativeInstances.querySelectorAll(".midi-adapter-card")) {
-    const instance = byName.get(card.dataset.instanceName);
+    const instanceUid = card.dataset.instanceUid || card.dataset.instanceName;
+    const instance = byUid.get(instanceUid);
     updateWingNativeCardConnectivity(card, instance);
     if (instance?.runtime_connection) {
-      setAdapterConnectionStatus(instance.name, instance.runtime_connection);
+      setAdapterConnectionStatus(instance.uid || instance.name, instance.runtime_connection);
     }
   }
   updateAdapterConnectionBadges();
@@ -6119,7 +6142,7 @@ function createWingNativeAdapterCard(instance, config, options = {}) {
   const isNew = Boolean(options.isNew);
   const card = document.createElement("section");
   card.className = "midi-adapter-card";
-  card.dataset.instanceName = instance.name;
+  setAdapterCardIdentity(card, instance, { isNew });
   card.dataset.instanceType = "wing_native";
   if (isNew) {
     card.dataset.isNew = "true";
@@ -6137,7 +6160,7 @@ function createWingNativeAdapterCard(instance, config, options = {}) {
   statusBadge.className = "adapter-status-badge adapter-status-unknown";
   statusBadge.hidden = true;
   if (instance.runtime_connection) {
-    setAdapterConnectionStatus(instance.name, instance.runtime_connection);
+    setAdapterConnectionStatus(instance.uid || instance.name, instance.runtime_connection);
   }
 
   const actions = document.createElement("div");
@@ -6155,7 +6178,7 @@ function createWingNativeAdapterCard(instance, config, options = {}) {
   deleteButton.className = "midi-adapter-delete";
   deleteButton.textContent = "Delete";
   wireAdapterDeleteButton(deleteButton, card, () => deleteWingNativeAdapterCard(card), {
-    protectedDelete: !isNew && DEFAULT_WING_NATIVE_INSTANCE_NAMES.has(instance.name),
+    protectedDelete: !isNew && DEFAULT_WING_NATIVE_INSTANCE_NAMES.has(instance.uid || instance.name),
     panelMessage: wingNativeMessage,
   });
   actions.appendChild(deleteButton);
@@ -6289,11 +6312,11 @@ function deleteWingNativeAdapterCard(card) {
     return;
   }
 
-  const name = card.dataset.instanceName;
+  const uid = card.dataset.instanceUid || card.dataset.instanceName;
   card.remove();
   wingNativeMessage.textContent = "deleting...";
 
-  persistWingNativeAdapterChanges({ instances: [], deleted: [name] })
+  persistWingNativeAdapterChanges({ instances: [], deleted: [uid] })
     .then((config) => {
       wingNativeAdaptersConfig = config;
       renderWingNativeAdaptersConfig(config);

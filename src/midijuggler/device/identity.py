@@ -18,6 +18,9 @@ def generate_device_uid(adapter: str) -> str:
     return f"{base}_{secrets.token_hex(4)}"
 
 
+generate_instance_uid = generate_device_uid
+
+
 def validate_device_uid(uid: str, *, field_name: str = "device.uid") -> str:
     value = uid.strip()
     if not value:
@@ -56,3 +59,33 @@ def parse_device_identity(raw: dict[str, Any], *, field_name: str = "device") ->
         display_name = legacy_id or uid
     display_name = validate_device_name(display_name, field_name=f"{field_name}.name")
     return uid, display_name
+
+
+def resolve_adapter_instance_identity(
+    raw: dict[str, Any],
+    *,
+    field_name: str = "adapter instance",
+) -> tuple[str, str]:
+    uid = str(raw.get("uid", "")).strip()
+    name = str(raw.get("name", "")).strip()
+    previous_name = str(raw.get("previous_name", "")).strip()
+    if not uid:
+        uid = previous_name or name
+    uid = validate_device_uid(uid, field_name=f"{field_name} uid")
+    if not name:
+        name = uid
+    name = validate_device_name(name, field_name=f"{field_name} name")
+    return uid, name
+
+
+def resolve_adapter_uid(adapter_ref: str, adapters: dict[str, Any]) -> str | None:
+    ref = adapter_ref.strip()
+    if not ref:
+        return None
+    if ref in adapters:
+        return ref
+    for uid, adapter in adapters.items():
+        display = getattr(adapter, "name", "") or ""
+        if ref == display or ref == device_display_name(uid, display):
+            return uid
+    return None

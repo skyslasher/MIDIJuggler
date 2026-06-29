@@ -711,8 +711,8 @@ def test_apply_midi_adapters_config_can_rename_instance(tmp_path: Path, monkeypa
                 "kind": "midi",
                 "instances": [
                     {
+                        "uid": "stage_midi",
                         "name": "foh_midi",
-                        "previous_name": "stage_midi",
                         "enabled": True,
                         "input_port": "FOH In",
                         "output_port": "FOH Out",
@@ -726,13 +726,14 @@ def test_apply_midi_adapters_config_can_rename_instance(tmp_path: Path, monkeypa
     saved_text = config_file.read_text(encoding="utf-8")
 
     assert result["persisted"] is True
-    assert "stage_midi" not in saved.adapters
-    assert saved.adapters["foh_midi"].options["input_port"] == "FOH In"
-    assert "[adapters.foh_midi]" in saved_text
-    assert "[adapters.stage_midi]" not in saved_text
+    assert "stage_midi" in saved.adapters
+    assert saved.adapters["stage_midi"].name == "foh_midi"
+    assert saved.adapters["stage_midi"].options["input_port"] == "FOH In"
+    assert "[adapters.stage_midi]" in saved_text
+    assert 'name = "foh_midi"' in saved_text
 
 
-def test_apply_midi_adapters_config_rejects_default_rename() -> None:
+def test_apply_midi_adapters_config_can_rename_default_display_name() -> None:
     config = parse_config({"adapters": {"midi": {"enabled": True}}})
     interface = WebInterface(
         config,
@@ -741,20 +742,77 @@ def test_apply_midi_adapters_config_rejects_default_rename() -> None:
         MasterClock(config.master_clock, EventBus()),
     )
 
-    with pytest.raises(ValueError, match="cannot rename default adapter instance"):
-        asyncio.run(
-            interface.apply_midi_adapters_config(
-                {
-                    "instances": [
-                        {
-                            "name": "foh_midi",
-                            "previous_name": "midi",
-                            "enabled": True,
-                        }
-                    ]
-                }
-            )
+    result = asyncio.run(
+        interface.apply_midi_adapters_config(
+            {
+                "instances": [
+                    {
+                        "uid": "midi",
+                        "name": "foh_midi",
+                        "enabled": True,
+                    }
+                ]
+            }
         )
+    )
+
+    assert result["persisted"] is False
+    assert "midi" in interface.config.adapters
+    assert interface.config.adapters["midi"].name == "foh_midi"
+
+
+def test_apply_midi_adapters_config_rename_preserves_device_binding(
+    tmp_path: Path, monkeypatch
+) -> None:
+    _mock_midi_ports(monkeypatch, [])
+    config_file = tmp_path / "config.toml"
+    config_file.write_text(
+        """
+        [adapters.stage_midi]
+        type = "midi"
+        enabled = true
+        input_port = "Stage In"
+        output_port = "Stage Out"
+
+        [[devices]]
+        uid = "stage_desk"
+        name = "Stage Desk"
+        adapter = "stage_midi"
+        library = "behringer_xtouch_mini"
+        library_kind = "midi"
+        """,
+        encoding="utf-8",
+    )
+    config = load_config(config_file)
+    interface = WebInterface(
+        config,
+        EventBus(),
+        ClockBpmTracker(),
+        MasterClock(config.master_clock, EventBus()),
+        config_path=config_file,
+    )
+
+    asyncio.run(
+        interface.apply_midi_adapters_config(
+            {
+                "kind": "midi",
+                "instances": [
+                    {
+                        "uid": "stage_midi",
+                        "name": "FOH MIDI",
+                        "enabled": True,
+                        "input_port": "FOH In",
+                        "output_port": "FOH Out",
+                    }
+                ],
+            }
+        )
+    )
+
+    reloaded = load_config(config_file)
+    assert "stage_midi" in reloaded.adapters
+    assert reloaded.adapters["stage_midi"].name == "FOH MIDI"
+    assert reloaded.devices["stage_desk"].adapter == "stage_midi"
 
 
 def test_web_interface_exposes_cached_adapter_runtime_status() -> None:

@@ -8,6 +8,7 @@ from typing import Any
 import tomllib
 
 from midijuggler.datapoint.types import ConnectionSpec, ModifierKind, SCALE_CURVES
+from midijuggler.device.identity import device_display_name, resolve_adapter_uid
 from midijuggler.device.types import CustomPointSpec, DeviceConfig
 from midijuggler.modules.modifier.feedback_suppress import parse_feedback_suppress_ms
 from midijuggler.osc.desk_protocol import desk_mode_for_library
@@ -30,6 +31,10 @@ class AdapterConfig:
     enabled: bool = False
     options: dict[str, Any] = field(default_factory=dict)
     kind: str = ""
+    name: str = ""
+
+    def display_name(self, uid: str) -> str:
+        return device_display_name(uid, self.name)
 
 
 @dataclass(frozen=True)
@@ -537,13 +542,14 @@ def _replace_toml_section(text: str, header: str, section: str) -> str:
     return "\n".join(new_lines).rstrip() + "\n"
 
 
-def _format_adapter_section(instance_name: str, adapter: AdapterConfig) -> str:
-    kind = adapter.kind or instance_name
+def _format_adapter_section(instance_uid: str, adapter: AdapterConfig) -> str:
+    kind = adapter.kind or instance_uid
     lines = [
-        f"[adapters.{instance_name}]",
+        f"[adapters.{instance_uid}]",
+        f"name = {_toml_string(adapter.display_name(instance_uid))}",
         f"enabled = {_toml_bool(adapter.enabled)}",
     ]
-    if instance_name not in DEFAULT_ADAPTERS:
+    if instance_uid not in DEFAULT_ADAPTERS:
         lines.append(f"type = {_toml_string(kind)}")
 
     inputs = adapter.options.get("inputs")
@@ -562,7 +568,7 @@ def _format_adapter_section(instance_name: str, adapter: AdapterConfig) -> str:
         for entry in inputs:
             if not isinstance(entry, dict):
                 continue
-            section += f"[[adapters.{instance_name}.inputs]]\n"
+            section += f"[[adapters.{instance_uid}.inputs]]\n"
             for field in sorted(entry):
                 section += f"{field} = {_format_toml_value(entry[field])}\n"
     return section + "\n"
@@ -696,6 +702,7 @@ def parse_config(raw: dict[str, Any]) -> AppConfig:
 
     adapters = _parse_adapters(raw.get("adapters", {}))
     devices = _parse_devices(raw.get("devices", []), adapters)
+    devices = normalize_device_adapter_refs(devices, adapters)
     devices = supplement_devices(devices, adapters)
     master_clock = _parse_master_clock(raw.get("master_clock", {}))
     connections = [
@@ -796,7 +803,7 @@ def _parse_adapters(raw: Any) -> dict[str, AdapterConfig]:
         raise ValueError("adapters must be a table")
 
     adapters = {
-        name: AdapterConfig(enabled=False, options={}, kind=name)
+        name: AdapterConfig(enabled=False, options={}, kind=name, name=name)
         for name in DEFAULT_ADAPTERS
     }
 
@@ -834,12 +841,14 @@ def _parse_adapter(instance_name: str, raw: Any) -> AdapterConfig:
     options = {
         key: value
         for key, value in raw.items()
-        if key not in {"enabled", "type"}
+        if key not in {"enabled", "type", "name"}
     }
+    display_name = str(raw.get("name", "")).strip() or instance_name
     return AdapterConfig(
         enabled=bool(raw.get("enabled", False)),
         options=options,
         kind=kind,
+        name=display_name,
     )
 
 
@@ -935,7 +944,8 @@ def adapter_device_options(
         inferred = _infer_device_from_adapter(instance_name, adapter)
         options.append(
             {
-                "name": instance_name,
+                "uid": instance_name,
+                "name": adapter.display_name(instance_name),
                 "kind": adapter.kind or instance_name,
                 "library": inferred.library,
                 "library_kind": inferred.library_kind,
@@ -972,7 +982,7 @@ def _parse_devices(raw: Any, adapters: dict[str, AdapterConfig]) -> dict[str, De
 
     devices: dict[str, DeviceConfig] = {}
     for index, item in enumerate(raw, start=1):
-        device = _parse_device(index, item)
+        device = _parse_device(index, item, adapters)
         if device.uid in devices:
             raise ValueError(f"devices[{index}] duplicates device uid {device.uid!r}")
         if device.adapter not in adapters:
@@ -983,7 +993,39 @@ def _parse_devices(raw: Any, adapters: dict[str, AdapterConfig]) -> dict[str, De
     return devices
 
 
-def _parse_device(index: int, raw: Any) -> DeviceConfig:
+def normalize_device_adapter_refs(
+    devices: dict[str, DeviceConfig],
+    adapters: dict[str, AdapterConfig],
+) -> dict[str, DeviceConfig]:
+    normalized: dict[str, DeviceConfig] = {}
+    for device_uid, device in devices.items():
+        resolved_adapter = resolve_adapter_uid(device.adapter, adapters)
+        if resolved_adapter is None:
+            normalized[device_uid] = device
+            continue
+        if resolved_adapter == device.adapter:
+            normalized[device_uid] = device
+            continue
+        normalized[device_uid] = DeviceConfig(
+            uid=device.uid,
+            name=device.name,
+            adapter=resolved_adapter,
+            library=device.library,
+            library_kind=device.library_kind,
+            label=device.label,
+            custom_points=device.custom_points,
+            feedback_refresh_interval=device.feedback_refresh_interval,
+            midi_value_channel=device.midi_value_channel,
+            midi_display_channel=device.midi_display_channel,
+        )
+    return normalized
+
+
+def _parse_device(
+    index: int,
+    raw: Any,
+    adapters: dict[str, AdapterConfig],
+) -> DeviceConfig:
     from midijuggler.device.identity import parse_device_identity
     from midijuggler.midi.xtouch_channels import (
         DEFAULT_XTOUCH_DISPLAY_CHANNEL,
@@ -999,6 +1041,12 @@ def _parse_device(index: int, raw: Any) -> DeviceConfig:
     adapter = str(raw.get("adapter", "")).strip()
     if not adapter:
         raise ValueError(f"devices[{index}] missing required field: adapter")
+    resolved_adapter = resolve_adapter_uid(adapter, adapters)
+    if resolved_adapter is None:
+        raise ValueError(
+            f"devices[{index}] references unknown adapter {adapter!r}"
+        )
+    adapter = resolved_adapter
     uid, name = parse_device_identity(raw, field_name=f"devices[{index}]")
 
     custom_points = tuple(

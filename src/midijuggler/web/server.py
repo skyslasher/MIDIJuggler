@@ -315,7 +315,12 @@ class WebInterface:
         except ValueError as exc:
             return web.Response(text=str(exc), status=400)
 
-        devices = {device.uid: device for device in imported}
+        from midijuggler.config import normalize_device_adapter_refs
+
+        devices = normalize_device_adapter_refs(
+            {device.uid: device for device in imported},
+            self.config.adapters,
+        )
         bound_adapters: dict[str, str] = {}
         for device in devices.values():
             if device.adapter not in self.config.adapters:
@@ -1471,7 +1476,8 @@ class WebInterface:
         desk_mode = str(options.get("desk_mode", "")) or desk_mode_for_library(osc_library)
         runtime_adapter = self.osc_adapters.get(name)
         return {
-            "name": name,
+            "uid": name,
+            "name": adapter.display_name(name),
             "type": "osc",
             "enabled": adapter.enabled,
             "runtime_active": runtime_adapter is not None and runtime_adapter.running,
@@ -1501,7 +1507,8 @@ class WebInterface:
         options = dict(adapter.options)
         runtime_adapter = self.wing_native_adapters.get(name)
         payload: dict[str, Any] = {
-            "name": name,
+            "uid": name,
+            "name": adapter.display_name(name),
             "type": "wing_native",
             "enabled": adapter.enabled,
             "runtime_active": runtime_adapter is not None and runtime_adapter.running,
@@ -1945,7 +1952,8 @@ class WebInterface:
                 }
             )
         return {
-            "name": name,
+            "uid": name,
+            "name": adapter.display_name(name),
             "type": "hid",
             "enabled": adapter.enabled,
             "runtime_active": runtime_adapter is not None and runtime_adapter.running,
@@ -2286,8 +2294,6 @@ class WebInterface:
             raise ValueError("deleted must be a list")
 
         deleted_names: list[str] = []
-        renamed_from: list[str] = []
-        runtime_renames: list[tuple[str, str, str]] = []
         updates: dict[str, AdapterConfig] = {}
 
         for raw_name in raw_deleted:
@@ -2307,44 +2313,34 @@ class WebInterface:
             if not isinstance(raw_instance, dict):
                 raise ValueError("each HID adapter instance must be an object")
 
-            name = str(raw_instance.get("name", "")).strip()
-            if not name:
-                raise ValueError("each HID adapter instance requires a name")
+            uid, display_name = self._adapter_instance_identity(raw_instance)
 
-            previous_name = str(raw_instance.get("previous_name", "")).strip()
-            if previous_name and previous_name != name:
-                kind = self._rename_adapter_config_instance(
-                    previous_name,
-                    name,
-                    allowed_kinds={"hid"},
-                )
-                renamed_from.append(previous_name)
-                runtime_renames.append((previous_name, name, kind))
-
-            if name not in self.config.adapters:
-                _validate_adapter_instance_name(name)
+            if uid not in self.config.adapters:
+                _validate_adapter_instance_name(uid)
                 kind = str(raw_instance.get("type", "hid")).strip()
                 if kind != "hid":
-                    raise ValueError(f"adapter {name} must use type 'hid', not {kind!r}")
+                    raise ValueError(f"adapter {uid} must use type 'hid', not {kind!r}")
                 current_options: dict[str, Any] = {}
                 enabled = bool(raw_instance.get("enabled", False))
             else:
-                current = self.config.adapters[name]
-                kind = current.kind or name
+                current = self.config.adapters[uid]
+                kind = current.kind or uid
                 if kind != "hid":
-                    raise ValueError(f"adapter {name} is not a HID adapter")
+                    raise ValueError(f"adapter {uid} is not a HID adapter")
                 current_options = current.options
                 enabled = bool(raw_instance.get("enabled", current.enabled))
 
             options = self._normalized_hid_options(raw_instance, current_options)
-            updated = AdapterConfig(enabled=enabled, options=options, kind="hid")
-            updates[name] = updated
-            self.config.adapters[name] = updated
+            updated = AdapterConfig(
+                enabled=enabled,
+                options=options,
+                kind="hid",
+                name=display_name,
+            )
+            updates[uid] = updated
+            self.config.adapters[uid] = updated
 
         removed_names = [*deleted_names]
-        for old_name in renamed_from:
-            if old_name not in removed_names:
-                removed_names.append(old_name)
 
         persisted = False
         persist_error = ""
@@ -2364,9 +2360,6 @@ class WebInterface:
                 )
         elif self.config_path is None and (updates or removed_names):
             persist_error = "no config path available"
-
-        for old_name, new_name, kind in runtime_renames:
-            await self._rename_runtime_adapter(old_name, new_name, kind)
 
         for name in deleted_names:
             adapter = self.hid_adapters.pop(name, None)
@@ -2393,24 +2386,32 @@ class WebInterface:
         if not name:
             raise ValueError("name is required")
         active = bool(payload.get("active", False))
+        from midijuggler.device.identity import resolve_adapter_uid
+
+        uid = resolve_adapter_uid(name, self.config.adapters) or name
 
         if active:
             for instance_name, adapter in self.hid_adapters.items():
-                if instance_name != name:
+                if instance_name != uid:
                     await adapter.set_learn_active(False)
-            adapter = await self._resolve_hid_runtime_adapter(name)
+            adapter = await self._resolve_hid_runtime_adapter(uid)
             if not adapter.running:
-                raise ValueError(f"HID adapter {name} is not running")
+                raise ValueError(f"HID adapter {uid} is not running")
             await adapter.set_learn_active(True)
-            self._hid_learn_instance = name
+            self._hid_learn_instance = uid
         else:
-            adapter = self.hid_adapters.get(name)
+            adapter = self.hid_adapters.get(uid)
             if adapter is not None:
                 await adapter.set_learn_active(False)
-            if self._hid_learn_instance == name:
+            if self._hid_learn_instance == uid:
                 self._hid_learn_instance = None
 
         return self.hid_adapters_config_payload()
+
+    def _adapter_instance_identity(self, raw_instance: dict[str, Any]) -> tuple[str, str]:
+        from midijuggler.device.identity import resolve_adapter_instance_identity
+
+        return resolve_adapter_instance_identity(raw_instance)
 
     def _rename_adapter_config_instance(
         self,
@@ -2686,49 +2687,35 @@ class WebInterface:
             self.config.adapters.pop(name, None)
 
         updates: dict[str, AdapterConfig] = {}
-        renamed_from: list[str] = []
-        runtime_renames: list[tuple[str, str, str]] = []
         for raw_instance in raw_instances:
             if not isinstance(raw_instance, dict):
                 raise ValueError("each MIDI adapter instance must be an object")
-            name = str(raw_instance.get("name", "")).strip()
-            if not name:
-                raise ValueError("each MIDI adapter instance requires a name")
+            uid, display_name = self._adapter_instance_identity(raw_instance)
 
-            previous_name = str(raw_instance.get("previous_name", "")).strip()
-            if previous_name and previous_name != name:
-                kind = self._rename_adapter_config_instance(
-                    previous_name,
-                    name,
-                    allowed_kinds={"midi", "rtp_midi"},
-                )
-                renamed_from.append(previous_name)
-                runtime_renames.append((previous_name, name, kind))
-
-            if name not in self.config.adapters:
+            if uid not in self.config.adapters:
                 if kind_filter is None:
-                    raise ValueError(f"unknown MIDI adapter instance: {name}")
-                _validate_adapter_instance_name(name)
-                if name in DEFAULT_ADAPTERS:
+                    raise ValueError(f"unknown MIDI adapter instance: {uid}")
+                _validate_adapter_instance_name(uid)
+                if uid in DEFAULT_ADAPTERS:
                     raise ValueError(
-                        f"cannot create reserved adapter instance name: {name}"
+                        f"cannot create reserved adapter instance name: {uid}"
                     )
 
                 kind = str(raw_instance.get("type", kind_filter)).strip()
                 if kind != kind_filter:
                     raise ValueError(
-                        f"adapter {name} must use type {kind_filter!r}, not {kind!r}"
+                        f"adapter {uid} must use type {kind_filter!r}, not {kind!r}"
                     )
                 current_options: dict[str, Any] = {}
                 enabled = bool(raw_instance.get("enabled", False))
             else:
-                current = self.config.adapters[name]
-                kind = current.kind or name
+                current = self.config.adapters[uid]
+                kind = current.kind or uid
                 if kind not in {"midi", "rtp_midi"}:
-                    raise ValueError(f"adapter {name} is not a MIDI adapter")
+                    raise ValueError(f"adapter {uid} is not a MIDI adapter")
                 if kind_filter is not None and kind != kind_filter:
                     raise ValueError(
-                        f"adapter {name} is not a {kind_filter} adapter instance"
+                        f"adapter {uid} is not a {kind_filter} adapter instance"
                     )
                 current_options = current.options
                 enabled = bool(raw_instance.get("enabled", current.enabled))
@@ -2737,7 +2724,7 @@ class WebInterface:
                 options = self._normalized_midi_options(
                     raw_instance,
                     current_options,
-                    adapter_name=name,
+                    adapter_name=uid,
                 )
             else:
                 options = self._normalized_rtp_midi_options(
@@ -2746,14 +2733,16 @@ class WebInterface:
                     enabled=enabled,
                 )
 
-            updated = AdapterConfig(enabled=enabled, options=options, kind=kind)
-            updates[name] = updated
-            self.config.adapters[name] = updated
+            updated = AdapterConfig(
+                enabled=enabled,
+                options=options,
+                kind=kind,
+                name=display_name,
+            )
+            updates[uid] = updated
+            self.config.adapters[uid] = updated
 
         removed_names = [*deleted_names]
-        for old_name in renamed_from:
-            if old_name not in removed_names:
-                removed_names.append(old_name)
 
         persisted = False
         persist_error = ""
@@ -2773,9 +2762,6 @@ class WebInterface:
                 )
         elif self.config_path is None and (updates or removed_names):
             persist_error = "no config path available"
-
-        for old_name, new_name, kind in runtime_renames:
-            await self._rename_runtime_adapter(old_name, new_name, kind)
 
         if self.rtp_midi_manager is not None:
             await self.rtp_midi_manager.start()
@@ -2842,51 +2828,39 @@ class WebInterface:
             await self._clear_osc_datapoints(name)
 
         updates: dict[str, AdapterConfig] = {}
-        renamed_from: list[str] = []
-        runtime_renames: list[tuple[str, str, str]] = []
         for raw_instance in raw_instances:
             if not isinstance(raw_instance, dict):
                 raise ValueError("each OSC adapter instance must be an object")
-            name = str(raw_instance.get("name", "")).strip()
-            if not name:
-                raise ValueError("each OSC adapter instance requires a name")
+            uid, display_name = self._adapter_instance_identity(raw_instance)
 
-            previous_name = str(raw_instance.get("previous_name", "")).strip()
-            if previous_name and previous_name != name:
-                kind = self._rename_adapter_config_instance(
-                    previous_name,
-                    name,
-                    allowed_kinds={"osc"},
-                )
-                renamed_from.append(previous_name)
-                runtime_renames.append((previous_name, name, kind))
-
-            if name not in self.config.adapters:
-                _validate_adapter_instance_name(name)
+            if uid not in self.config.adapters:
+                _validate_adapter_instance_name(uid)
                 kind = str(raw_instance.get("type", "osc")).strip()
                 if kind != "osc":
-                    raise ValueError(f"adapter {name} must use type 'osc', not {kind!r}")
+                    raise ValueError(f"adapter {uid} must use type 'osc', not {kind!r}")
                 current_options: dict[str, Any] = {}
                 enabled = bool(raw_instance.get("enabled", False))
             else:
-                current = self.config.adapters[name]
-                kind = current.kind or name
+                current = self.config.adapters[uid]
+                kind = current.kind or uid
                 if kind != "osc":
-                    raise ValueError(f"adapter {name} is not an OSC adapter")
+                    raise ValueError(f"adapter {uid} is not an OSC adapter")
                 current_options = current.options
                 enabled = bool(raw_instance.get("enabled", current.enabled))
 
             options = self._normalized_osc_options(raw_instance, current_options)
-            updated = AdapterConfig(enabled=enabled, options=options, kind="osc")
-            updates[name] = updated
-            self.config.adapters[name] = updated
+            updated = AdapterConfig(
+                enabled=enabled,
+                options=options,
+                kind="osc",
+                name=display_name,
+            )
+            updates[uid] = updated
+            self.config.adapters[uid] = updated
 
         self._validate_osc_listen_ports()
 
         removed_names = [*deleted_names]
-        for old_name in renamed_from:
-            if old_name not in removed_names:
-                removed_names.append(old_name)
 
         persisted = False
         persist_error = ""
@@ -2906,11 +2880,6 @@ class WebInterface:
                 )
         elif self.config_path is None and (updates or removed_names):
             persist_error = "no config path available"
-
-        for old_name, new_name, kind in runtime_renames:
-            await self._rename_runtime_adapter(old_name, new_name, kind)
-            if kind == "osc":
-                await self._clear_osc_datapoints(old_name)
 
         for name, updated in updates.items():
             await self._apply_osc_runtime_adapter(name, updated)
@@ -2972,55 +2941,43 @@ class WebInterface:
             await self._clear_wing_native_datapoints(name)
 
         updates: dict[str, AdapterConfig] = {}
-        renamed_from: list[str] = []
-        runtime_renames: list[tuple[str, str, str]] = []
         for raw_instance in raw_instances:
             if not isinstance(raw_instance, dict):
                 raise ValueError("each Wing native adapter instance must be an object")
-            name = str(raw_instance.get("name", "")).strip()
-            if not name:
-                raise ValueError("each Wing native adapter instance requires a name")
+            uid, display_name = self._adapter_instance_identity(raw_instance)
 
-            previous_name = str(raw_instance.get("previous_name", "")).strip()
-            if previous_name and previous_name != name:
-                kind = self._rename_adapter_config_instance(
-                    previous_name,
-                    name,
-                    allowed_kinds={"wing_native"},
-                )
-                renamed_from.append(previous_name)
-                runtime_renames.append((previous_name, name, kind))
-
-            if name not in self.config.adapters:
-                _validate_adapter_instance_name(name)
+            if uid not in self.config.adapters:
+                _validate_adapter_instance_name(uid)
                 kind = str(raw_instance.get("type", "wing_native")).strip()
                 if kind != "wing_native":
                     raise ValueError(
-                        f"adapter {name} must use type 'wing_native', not {kind!r}"
+                        f"adapter {uid} must use type 'wing_native', not {kind!r}"
                     )
                 current_options: dict[str, Any] = {}
                 enabled = bool(raw_instance.get("enabled", False))
             else:
-                current = self.config.adapters[name]
-                kind = current.kind or name
+                current = self.config.adapters[uid]
+                kind = current.kind or uid
                 if kind != "wing_native":
-                    raise ValueError(f"adapter {name} is not a Wing native adapter")
+                    raise ValueError(f"adapter {uid} is not a Wing native adapter")
                 current_options = current.options
                 enabled = bool(raw_instance.get("enabled", current.enabled))
 
             options = self._normalized_wing_native_options(
                 raw_instance,
                 current_options,
-                adapter_name=name,
+                adapter_name=uid,
             )
-            updated = AdapterConfig(enabled=enabled, options=options, kind="wing_native")
-            updates[name] = updated
-            self.config.adapters[name] = updated
+            updated = AdapterConfig(
+                enabled=enabled,
+                options=options,
+                kind="wing_native",
+                name=display_name,
+            )
+            updates[uid] = updated
+            self.config.adapters[uid] = updated
 
         removed_names = [*deleted_names]
-        for old_name in renamed_from:
-            if old_name not in removed_names:
-                removed_names.append(old_name)
 
         persisted = False
         persist_error = ""
@@ -3040,11 +2997,6 @@ class WebInterface:
                 )
         elif self.config_path is None and (updates or removed_names):
             persist_error = "no config path available"
-
-        for old_name, new_name, kind in runtime_renames:
-            await self._rename_runtime_adapter(old_name, new_name, kind)
-            if kind == "wing_native":
-                await self._clear_wing_native_datapoints(old_name)
 
         for name, updated in updates.items():
             await self._apply_wing_native_runtime_adapter(name, updated)
@@ -3199,7 +3151,8 @@ class WebInterface:
             else self.rtp_midi_adapters.get(name)
         )
         payload: dict[str, Any] = {
-            "name": name,
+            "uid": name,
+            "name": adapter.display_name(name),
             "type": kind,
             "enabled": adapter.enabled,
             "runtime_active": runtime_adapter is not None and runtime_adapter.running,
