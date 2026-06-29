@@ -142,6 +142,7 @@ class MIDIJugglerService:
             len(self.osc_desk_tracker.discovered_desks),
         )
         await self.module_registry.start_all()
+        await self.web.refresh_all_device_datapoints()
         if self.web.modifier_graph is not None:
             await self.web.modifier_graph.replay_subscribed_sources_from_store()
         self.event_bridge.attach()

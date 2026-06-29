@@ -1806,6 +1806,7 @@ function syncLearnRangeFieldsVisibility() {
 
 async function loadLearnDatapoints() {
   try {
+    await refreshDeviceConfigCache().catch(() => null);
     const response = await fetch("/api/datapoints");
     if (!response.ok) {
       throw new Error(await response.text());

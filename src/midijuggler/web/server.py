@@ -2286,6 +2286,22 @@ class WebInterface:
         for adapter_name in sorted(self.config.adapters):
             await self._refresh_device_datapoints_for_adapter(adapter_name)
 
+    async def refresh_all_device_datapoints(self) -> None:
+        """Register data points for all configured devices, including disabled adapters."""
+
+        object.__setattr__(
+            self.config,
+            "devices",
+            normalize_device_libraries(
+                supplement_devices(dict(self.config.devices), self.config.adapters),
+                self.config.adapters,
+            ),
+        )
+        self.device_registry.reload_from_config(self.config)
+        await self._refresh_device_datapoints_after_config_change(
+            set(self.config.devices.keys()),
+        )
+
     async def _refresh_device_datapoints_for_adapter(self, adapter_name: str) -> None:
         adapter_config = self.config.adapters.get(adapter_name)
         if adapter_config is None:

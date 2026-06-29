@@ -71,3 +71,39 @@ def test_build_module_registry_includes_gpio_datapoints() -> None:
     asyncio.run(scenario())
     specs = service.datapoint_store.registry_snapshot()
     assert any(entry["id"] == "gpio.pin17" for entry in specs)
+
+
+def test_service_registers_device_datapoints_for_disabled_midi_adapter() -> None:
+    config = parse_config(
+        {
+            "adapters": {
+                "xtouch_mini": {
+                    "type": "midi",
+                    "enabled": False,
+                    "midi_library": "behringer_xtouch_mini",
+                },
+            },
+            "devices": [
+                {
+                    "uid": "device_xtouch",
+                    "name": "X-Touch Mini",
+                    "adapter": "xtouch_mini",
+                    "library": "behringer_xtouch_mini",
+                    "library_kind": "midi",
+                }
+            ],
+        }
+    )
+    service = MIDIJugglerService(config)
+
+    async def scenario() -> None:
+        await service.module_registry.start_all()
+        await service.web.refresh_all_device_datapoints()
+
+    asyncio.run(scenario())
+    specs = service.datapoint_store.registry_snapshot()
+    assert any(entry["id"].startswith("device_xtouch.") for entry in specs)
+    assert any(
+        entry["id"] == "device_xtouch.layer_a_encoder_1_turn"
+        for entry in specs
+    )
