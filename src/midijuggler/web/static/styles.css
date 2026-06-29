@@ -67,7 +67,8 @@ header {
   margin-top: 0.35rem;
 }
 
-.connection-impact-dialog {
+.connection-impact-dialog,
+.connection-transfer-dialog {
   background: #182032;
   border: 1px solid #b44;
   border-radius: 16px;
@@ -77,17 +78,20 @@ header {
   width: min(92vw, 42rem);
 }
 
-.connection-impact-dialog::backdrop {
+.connection-impact-dialog::backdrop,
+.connection-transfer-dialog::backdrop {
   background: rgb(0 0 0 / 55%);
 }
 
-.connection-impact-form {
+.connection-impact-form,
+.connection-transfer-form {
   display: grid;
   gap: 1rem;
   padding: 1.25rem 1.5rem 1.5rem;
 }
 
-.connection-impact-form h2 {
+.connection-impact-form h2,
+.connection-transfer-form h2 {
   margin: 0;
 }
 
@@ -98,7 +102,8 @@ header {
   padding-left: 1.25rem;
 }
 
-.connection-impact-actions {
+.connection-impact-actions,
+.connection-transfer-actions {
   display: flex;
   flex-wrap: wrap;
   gap: 0.75rem;
@@ -577,6 +582,13 @@ legend {
 
 .mappings-card-header h2 {
   margin: 0;
+}
+
+.mappings-card-actions {
+  align-items: center;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
 }
 
 .mappings-card .learn-toggle {

@@ -55,6 +55,57 @@
         </form>
       </dialog>
 
+      <dialog id="connection-export-dialog" class="connection-transfer-dialog">
+        <form method="dialog" class="connection-transfer-form">
+          <h2>Connections exportieren</h2>
+          <p class="hint">
+            Alle Verbindungen zwischen zwei Geräte-Instanzen als Bundle exportieren.
+          </p>
+          <label class="stacked-field">
+            Gerät A
+            <select id="connection-export-device-a"></select>
+          </label>
+          <label class="stacked-field">
+            Gerät B
+            <select id="connection-export-device-b"></select>
+          </label>
+          <p id="connection-export-message" class="message"></p>
+          <div class="connection-transfer-actions">
+            <button type="submit" value="cancel">Abbrechen</button>
+            <button type="button" id="connection-export-submit">Exportieren</button>
+          </div>
+        </form>
+      </dialog>
+
+      <dialog id="connection-import-dialog" class="connection-transfer-dialog">
+        <form method="dialog" class="connection-transfer-form">
+          <h2>Connections importieren</h2>
+          <p class="hint">
+            Bundle-Datei laden und kompatible lokale Geräte den exportierten Rollen zuweisen.
+          </p>
+          <label class="stacked-field">
+            Bundle-Datei
+            <input id="connection-import-file" type="file" accept=".json,application/json" />
+          </label>
+          <div id="connection-import-mapping" hidden>
+            <p id="connection-import-summary" class="hint"></p>
+            <label id="connection-import-device-a-row" class="stacked-field">
+              Gerät A
+              <select id="connection-import-device-a"></select>
+            </label>
+            <label id="connection-import-device-b-row" class="stacked-field">
+              Gerät B
+              <select id="connection-import-device-b"></select>
+            </label>
+          </div>
+          <p id="connection-import-message" class="message"></p>
+          <div class="connection-transfer-actions">
+            <button type="submit" value="cancel">Abbrechen</button>
+            <button type="button" id="connection-import-submit" disabled>Importieren</button>
+          </div>
+        </form>
+      </dialog>
+
       <section class="toolbar">
         <button id="configuration-toggle" type="button">Configuration</button>
         <button id="configuration-exit" type="button" hidden>Exit configuration</button>
@@ -69,7 +120,11 @@
         <article id="mappings-card" class="mappings-card">
           <div class="mappings-card-header">
             <h2>Connections</h2>
-            <button id="learn-toggle" type="button" class="learn-toggle">Create connection</button>
+            <div class="mappings-card-actions">
+              <button id="connection-export-toggle" type="button">Export</button>
+              <button id="connection-import-toggle" type="button">Import</button>
+              <button id="learn-toggle" type="button" class="learn-toggle">Create connection</button>
+            </div>
           </div>
           <div id="learn-panel" class="learn-panel" hidden>
             <h3 class="learn-panel-title">Create connection</h3>

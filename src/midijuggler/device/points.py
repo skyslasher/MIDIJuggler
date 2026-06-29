@@ -237,6 +237,32 @@ def _midi_out_spec(device_id: str) -> DataPointSpec:
     )
 
 
+def library_point_ids(device: DeviceConfig, adapter: AdapterConfig) -> set[str]:
+    """Return logical point ids provided by a device library catalog."""
+
+    kind = _resolved_kind(device, adapter)
+    point_ids: set[str] = set()
+    if kind == "midi":
+        if not device.library:
+            return point_ids
+        library = get_midi_library(device.library)
+        point_ids.update(parameter.id for parameter in library.parameters)
+        return point_ids
+    if kind in {"osc", "wing"}:
+        if not device.library:
+            return point_ids
+        library = get_osc_library(device.library)
+        for parameter in library.parameters:
+            point = parameter.address if parameter.address.startswith("/") else parameter.id
+            point_ids.add(point)
+        return point_ids
+    if kind == "gpio" and adapter.kind == "gpio":
+        return set()
+    if kind == "hid" and adapter.kind == "hid":
+        return set()
+    return point_ids
+
+
 def library_address_for_point(
     registry: DeviceRegistry,
     device_id: str,

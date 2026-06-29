@@ -109,6 +109,11 @@ from midijuggler.osc.discovery import (
     discovery_scan_networks,
 )
 from midijuggler.osc_library import get_osc_library, list_osc_libraries
+from midijuggler.connection.bundle import (
+    apply_connection_bundle_import,
+    export_connection_bundle,
+    preview_connection_bundle_import,
+)
 from midijuggler.datapoint.bridge import adapter_control_to_datapoint
 from midijuggler.datapoint.migrate import effective_connections, stored_connections
 from midijuggler.datapoint.store import DataPointStore
@@ -255,6 +260,9 @@ class WebInterface:
         app.router.add_get("/api/connections", self.connections_config)
         app.router.add_post("/api/connections", self.set_connections_config)
         app.router.add_post("/api/connections/reverse", self.reverse_connection_config)
+        app.router.add_post("/api/connections/export", self.export_connections_bundle)
+        app.router.add_post("/api/connections/import/preview", self.preview_connections_import)
+        app.router.add_post("/api/connections/import", self.import_connections_bundle)
         app.router.add_get("/ws/monitor", self.monitor_ws)
         return app
 
@@ -484,6 +492,87 @@ class WebInterface:
         response = self.connections_payload()
         response["persisted"] = persisted_connections and persisted_runtime
         response["persist_error"] = persist_error or runtime_persist_error
+        return web.json_response(response)
+
+    async def export_connections_bundle(self, request: web.Request) -> web.Response:
+        payload = await request.json()
+        device_a_uid = str(payload.get("device_a", "")).strip()
+        device_b_uid = str(payload.get("device_b", "")).strip()
+        if not device_a_uid or not device_b_uid:
+            return web.Response(text="device_a and device_b are required", status=400)
+        try:
+            bundle = export_connection_bundle(
+                self._stored_connections(),
+                device_a_uid,
+                device_b_uid,
+                self.config.devices,
+                self.config.adapters,
+                datapoint_store=self.datapoint_store,
+            )
+        except ValueError as exc:
+            return web.Response(text=str(exc), status=400)
+        return web.json_response(bundle)
+
+    async def preview_connections_import(self, request: web.Request) -> web.Response:
+        payload = await request.json()
+        bundle = payload.get("bundle", payload)
+        try:
+            preview = preview_connection_bundle_import(bundle, self.config)
+        except ValueError as exc:
+            return web.Response(text=str(exc), status=400)
+        return web.json_response(preview)
+
+    async def import_connections_bundle(self, request: web.Request) -> web.Response:
+        payload = await request.json()
+        bundle = payload.get("bundle")
+        if bundle is None:
+            bundle = payload
+        device_mapping = payload.get("device_mapping", {})
+        try:
+            imported, updated_devices, merged_connections = apply_connection_bundle_import(
+                bundle,
+                device_mapping,
+                self.config,
+                self._stored_connections(),
+                datapoint_store=self.datapoint_store,
+            )
+        except ValueError as exc:
+            return web.Response(text=str(exc), status=400)
+
+        if not imported:
+            return web.Response(text="bundle contains no importable connections", status=400)
+
+        previous_device_uids = set(self.config.devices)
+        devices = dict(self.config.devices)
+        devices.update(updated_devices)
+        object.__setattr__(self.config, "devices", devices)
+        self.device_registry.reload_from_config(self.config)
+        await self._refresh_device_datapoints_after_config_change(previous_device_uids)
+
+        self._apply_stored_connections(merged_connections)
+        persisted_connections, persist_error = self._persist_stored_connections(merged_connections)
+        persisted_devices = True
+        devices_persist_error = ""
+        if updated_devices and self.config_path is not None:
+            try:
+                save_devices(self.config_path, devices)
+            except OSError as exc:
+                persisted_devices = False
+                devices_persist_error = str(exc)
+        elif updated_devices:
+            persisted_devices = False
+            devices_persist_error = "no config path available"
+
+        response = self.connections_payload()
+        response.update(
+            {
+                "imported_count": len(imported),
+                "imported_connections": [connection.as_dict() for connection in imported],
+                "updated_devices": [device.as_dict() for device in updated_devices.values()],
+                "persisted": persisted_connections and persisted_devices,
+                "persist_error": persist_error or devices_persist_error,
+            }
+        )
         return web.json_response(response)
 
     async def reverse_connection_config(self, request: web.Request) -> web.Response:

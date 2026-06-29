@@ -88,6 +88,21 @@ const connectionImpactList = document.querySelector("#connection-impact-list");
 const connectionImpactRemapRow = document.querySelector("#connection-impact-remap-row");
 const connectionImpactRemapSelect = document.querySelector("#connection-impact-remap-select");
 const connectionImpactRemapButton = document.querySelector("#connection-impact-remap");
+const connectionExportToggle = document.querySelector("#connection-export-toggle");
+const connectionImportToggle = document.querySelector("#connection-import-toggle");
+const connectionExportDialog = document.querySelector("#connection-export-dialog");
+const connectionExportDeviceA = document.querySelector("#connection-export-device-a");
+const connectionExportDeviceB = document.querySelector("#connection-export-device-b");
+const connectionExportMessage = document.querySelector("#connection-export-message");
+const connectionExportSubmit = document.querySelector("#connection-export-submit");
+const connectionImportDialog = document.querySelector("#connection-import-dialog");
+const connectionImportFile = document.querySelector("#connection-import-file");
+const connectionImportMapping = document.querySelector("#connection-import-mapping");
+const connectionImportSummary = document.querySelector("#connection-import-summary");
+const connectionImportDeviceA = document.querySelector("#connection-import-device-a");
+const connectionImportDeviceB = document.querySelector("#connection-import-device-b");
+const connectionImportMessage = document.querySelector("#connection-import-message");
+const connectionImportSubmit = document.querySelector("#connection-import-submit");
 const learnFields = document.querySelector("#learn-fields");
 const learnSourceInstance = document.querySelector("#learn-source-instance");
 const learnSourceDatapoint = document.querySelector("#learn-source-datapoint");
@@ -157,6 +172,8 @@ let discoveredOscDesks = [];
 let monitorDisplayMode = monitorDisplayModeSelect?.value || "library";
 let adapterLibraryConfig = {};
 let storedConnections = [];
+let pendingConnectionImportBundle = null;
+let pendingConnectionImportPreview = null;
 let editingConnectionId = "";
 let connectionSort = { column: "source", direction: "asc" };
 const DISCONNECTED_MODULE = "nicht_verbunden";
@@ -1717,6 +1734,293 @@ async function saveStoredConnections(connections) {
     }
   }
   return payload;
+}
+
+function configuredDevicesForTransfer() {
+  return (devicesConfig?.devices || []).slice().sort((left, right) => {
+    const leftLabel = (left.name || left.label || left.uid || "").toLocaleLowerCase();
+    const rightLabel = (right.name || right.label || right.uid || "").toLocaleLowerCase();
+    return leftLabel.localeCompare(rightLabel);
+  });
+}
+
+function deviceTransferLabel(device) {
+  const name = device.name || device.label || device.uid || "";
+  const library = (device.library || "").trim();
+  if (library) {
+    return `${name} (${library})`;
+  }
+  const kind = (device.library_kind || "").trim();
+  if (kind) {
+    return `${name} (${kind})`;
+  }
+  return name;
+}
+
+function fillConnectionTransferDeviceSelect(select, devices, { excludeUid = "", placeholder = "Gerät wählen" } = {}) {
+  select.replaceChildren();
+  const empty = document.createElement("option");
+  empty.value = "";
+  empty.textContent = placeholder;
+  select.appendChild(empty);
+  for (const device of devices) {
+    const uid = device.uid || device.id || "";
+    if (!uid || uid === excludeUid) {
+      continue;
+    }
+    const option = document.createElement("option");
+    option.value = uid;
+    option.textContent = deviceTransferLabel(device);
+    select.appendChild(option);
+  }
+}
+
+function syncConnectionExportDeviceSelects() {
+  const deviceA = connectionExportDeviceA.value;
+  const deviceB = connectionExportDeviceB.value;
+  const devices = configuredDevicesForTransfer();
+  fillConnectionTransferDeviceSelect(connectionExportDeviceA, devices, { excludeUid: deviceB });
+  fillConnectionTransferDeviceSelect(connectionExportDeviceB, devices, { excludeUid: deviceA });
+  if (deviceA) {
+    connectionExportDeviceA.value = deviceA;
+  }
+  if (deviceB) {
+    connectionExportDeviceB.value = deviceB;
+  }
+}
+
+async function openConnectionExportDialog() {
+  if (!connectionExportDialog) {
+    return;
+  }
+  connectionExportMessage.textContent = "";
+  try {
+    await refreshDeviceConfigCache();
+  } catch (error) {
+    connectionExportMessage.textContent = `Fehler: ${error.message}`;
+  }
+  syncConnectionExportDeviceSelects();
+  connectionExportDialog.showModal();
+}
+
+function downloadConnectionBundle(bundle, deviceA, deviceB) {
+  const blob = new Blob([JSON.stringify(bundle, null, 2)], { type: "application/json" });
+  const url = URL.createObjectURL(blob);
+  const link = document.createElement("a");
+  const safeName = `${deviceA}__${deviceB}`.replace(/[^a-zA-Z0-9._-]+/g, "_");
+  link.href = url;
+  link.download = `connections-${safeName}.json`;
+  link.click();
+  URL.revokeObjectURL(url);
+}
+
+async function submitConnectionExport() {
+  const deviceA = connectionExportDeviceA.value.trim();
+  const deviceB = connectionExportDeviceB.value.trim();
+  if (!deviceA || !deviceB) {
+    connectionExportMessage.textContent = "Bitte zwei verschiedene Geräte wählen.";
+    return;
+  }
+  if (deviceA === deviceB) {
+    connectionExportMessage.textContent = "Gerät A und Gerät B müssen unterschiedlich sein.";
+    return;
+  }
+  connectionExportMessage.textContent = "exportiere...";
+  try {
+    const response = await fetch("/api/connections/export", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ device_a: deviceA, device_b: deviceB }),
+    });
+    if (!response.ok) {
+      throw new Error(await response.text());
+    }
+    const bundle = await response.json();
+    downloadConnectionBundle(bundle, deviceA, deviceB);
+    connectionExportMessage.textContent = bundle.connections?.length
+      ? `${bundle.connections.length} Verbindung(en) exportiert.`
+      : "Keine Verbindungen zwischen diesen Geräten gefunden.";
+    if (bundle.connections?.length) {
+      connectionExportDialog.close();
+    }
+  } catch (error) {
+    connectionExportMessage.textContent = `Fehler: ${error.message}`;
+  }
+}
+
+function exportedDeviceTypeLabel(typeInfo) {
+  const library = (typeInfo?.library || "").trim();
+  if (library) {
+    return library;
+  }
+  return (typeInfo?.library_kind || typeInfo?.label || "unbekannt").trim() || "unbekannt";
+}
+
+function fillConnectionImportMappingSelect(select, candidates) {
+  select.replaceChildren();
+  const empty = document.createElement("option");
+  empty.value = "";
+  empty.textContent = candidates.length ? "Gerät wählen" : "Kein kompatibles Gerät";
+  select.appendChild(empty);
+  for (const device of candidates) {
+    const option = document.createElement("option");
+    option.value = device.uid;
+    option.textContent = deviceTransferLabel(device);
+    select.appendChild(option);
+  }
+  if (candidates.length === 1) {
+    select.value = candidates[0].uid;
+  }
+}
+
+function connectionImportMappingReady(preview) {
+  if (!preview?.devices) {
+    return false;
+  }
+  for (const role of ["device_a", "device_b"]) {
+    const candidates = preview.devices[role]?.candidates || [];
+    if (!candidates.length) {
+      return false;
+    }
+    const select = role === "device_a" ? connectionImportDeviceA : connectionImportDeviceB;
+    if (!select.value.trim()) {
+      return false;
+    }
+  }
+  return true;
+}
+
+function updateConnectionImportState() {
+  if (!connectionImportSubmit) {
+    return;
+  }
+  connectionImportSubmit.disabled = !connectionImportMappingReady(pendingConnectionImportPreview);
+}
+
+function resetConnectionImportDialog() {
+  pendingConnectionImportBundle = null;
+  pendingConnectionImportPreview = null;
+  connectionImportFile.value = "";
+  connectionImportMapping.hidden = true;
+  connectionImportSummary.textContent = "";
+  connectionImportMessage.textContent = "";
+  connectionImportDeviceA.replaceChildren();
+  connectionImportDeviceB.replaceChildren();
+  connectionImportSubmit.disabled = true;
+}
+
+function openConnectionImportDialog() {
+  if (!connectionImportDialog) {
+    return;
+  }
+  resetConnectionImportDialog();
+  connectionImportDialog.showModal();
+}
+
+async function handleConnectionImportFile() {
+  const file = connectionImportFile.files[0];
+  if (!file) {
+    resetConnectionImportDialog();
+    return;
+  }
+  connectionImportMessage.textContent = "Bundle wird gelesen...";
+  connectionImportMapping.hidden = true;
+  connectionImportSubmit.disabled = true;
+  pendingConnectionImportBundle = null;
+  pendingConnectionImportPreview = null;
+  try {
+    const bundle = JSON.parse(await file.text());
+    pendingConnectionImportBundle = bundle;
+    const response = await fetch("/api/connections/import/preview", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ bundle }),
+    });
+    if (!response.ok) {
+      throw new Error(await response.text());
+    }
+    const preview = await response.json();
+    pendingConnectionImportPreview = preview;
+    const typeA = exportedDeviceTypeLabel(preview.devices?.device_a?.type);
+    const typeB = exportedDeviceTypeLabel(preview.devices?.device_b?.type);
+    connectionImportSummary.textContent =
+      `${preview.connection_count || 0} Verbindung(en) · Gerät A: ${typeA} · Gerät B: ${typeB}`;
+    fillConnectionImportMappingSelect(
+      connectionImportDeviceA,
+      preview.devices?.device_a?.candidates || [],
+    );
+    fillConnectionImportMappingSelect(
+      connectionImportDeviceB,
+      preview.devices?.device_b?.candidates || [],
+    );
+    connectionImportMapping.hidden = false;
+    const missingRoles = [];
+    if (!(preview.devices?.device_a?.candidates || []).length) {
+      missingRoles.push("Gerät A");
+    }
+    if (!(preview.devices?.device_b?.candidates || []).length) {
+      missingRoles.push("Gerät B");
+    }
+    if (missingRoles.length) {
+      connectionImportMessage.textContent =
+        `Import nicht möglich: Keine kompatiblen Geräte für ${missingRoles.join(" und ")}.`;
+    } else {
+      connectionImportMessage.textContent = "Kompatible Geräte zuweisen und importieren.";
+    }
+    updateConnectionImportState();
+  } catch (error) {
+    connectionImportMessage.textContent = `Fehler: ${error.message}`;
+  }
+}
+
+async function submitConnectionImport() {
+  if (!pendingConnectionImportBundle || !connectionImportMappingReady(pendingConnectionImportPreview)) {
+    connectionImportMessage.textContent =
+      "Import nicht möglich: Bitte kompatible Geräte für beide Rollen wählen.";
+    return;
+  }
+  connectionImportMessage.textContent = "importiere...";
+  connectionImportSubmit.disabled = true;
+  try {
+    const response = await fetch("/api/connections/import", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({
+        bundle: pendingConnectionImportBundle,
+        device_mapping: {
+          device_a: connectionImportDeviceA.value.trim(),
+          device_b: connectionImportDeviceB.value.trim(),
+        },
+      }),
+    });
+    if (!response.ok) {
+      throw new Error(await response.text());
+    }
+    const payload = await response.json();
+    storedConnections = payload.stored_connections || storedConnections;
+    renderMappingsList(storedConnections);
+    if ((payload.updated_devices || []).length > 0) {
+      await refreshDeviceConfigCache();
+    }
+    try {
+      const statusResponse = await fetch("/api/status");
+      if (statusResponse.ok) {
+        renderStatus(await statusResponse.json());
+      }
+    } catch {
+      // keep imported connections even if status refresh fails
+    }
+    const importedCount = payload.imported_count || 0;
+    connectionImportMessage.textContent = payload.persisted === false
+      ? `${importedCount} Verbindung(en) importiert (nur Laufzeit): ${payload.persist_error}`
+      : `${importedCount} Verbindung(en) importiert.`;
+    if (importedCount > 0) {
+      connectionImportDialog.close();
+    }
+  } catch (error) {
+    connectionImportMessage.textContent = `Fehler: ${error.message}`;
+    updateConnectionImportState();
+  }
 }
 
 function routingSettingsPayload() {
@@ -6984,6 +7288,34 @@ connectionsTableHeader?.addEventListener("click", (event) => {
     connectionSort = { column, direction: "asc" };
   }
   renderMappingsList(storedConnections);
+});
+
+connectionExportToggle?.addEventListener("click", () => {
+  openConnectionExportDialog();
+});
+
+connectionExportDeviceA?.addEventListener("change", syncConnectionExportDeviceSelects);
+connectionExportDeviceB?.addEventListener("change", syncConnectionExportDeviceSelects);
+connectionExportSubmit?.addEventListener("click", () => {
+  submitConnectionExport();
+});
+
+connectionImportToggle?.addEventListener("click", () => {
+  openConnectionImportDialog();
+});
+
+connectionImportFile?.addEventListener("change", () => {
+  handleConnectionImportFile();
+});
+
+connectionImportDeviceA?.addEventListener("change", updateConnectionImportState);
+connectionImportDeviceB?.addEventListener("change", updateConnectionImportState);
+connectionImportSubmit?.addEventListener("click", () => {
+  submitConnectionImport();
+});
+
+connectionImportDialog?.addEventListener("close", () => {
+  resetConnectionImportDialog();
 });
 
 learnToggle.addEventListener("click", () => {
