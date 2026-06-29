@@ -107,6 +107,7 @@ def _append_midi_library_points(
                 relative_encoding=(
                     parameter.relative_encoding if parameter.direction == "source" else ""
                 ),
+                category=parameter.category,
             )
         )
         if direction == DataPointDirection.OUTPUT:
@@ -144,6 +145,7 @@ def _append_osc_library_points(
                 value_min=float(parameter.value_min),
                 value_max=float(parameter.value_max),
                 protocol=protocol,
+                category=parameter.category,
             )
         )
         if direction in {
@@ -170,6 +172,7 @@ def _append_gpio_points(
                 value_min=0.0,
                 value_max=1.0,
                 protocol="gpio",
+                category="gpio",
             )
         )
 
@@ -191,6 +194,7 @@ def _append_hid_points(
                 value_min=hid_input.value_min,
                 value_max=hid_input.value_max,
                 protocol="hid",
+                category="hid",
             )
         )
 
@@ -210,6 +214,7 @@ def _custom_point_spec(device_id: str, point: CustomPointSpec) -> DataPointSpec:
         value_min=float(point.value_min),
         value_max=float(point.value_max),
         protocol=point.protocol,
+        category="custom",
         input_mode=point.input_mode,
         relative_encoding=point.relative_encoding,
     )
@@ -222,6 +227,7 @@ def _midi_out_spec(device_id: str) -> DataPointSpec:
         direction=DataPointDirection.INPUT,
         label="MIDI output",
         protocol="midi",
+        category="midi",
     )
 
 

@@ -75,11 +75,20 @@ The Wing library contains common targets for:
 - 8 matrix faders and mutes
 - 16 DCA faders and mutes
 - main 1/main 2 faders and mutes
+- 16 FX rack mix levels: `/fx/1/fxmix` ... `/fx/16/fxmix`
+- common reverb parameters per FX slot (pre-delay, decay, size, filters)
+- common delay parameters per FX slot (time, feedback, BBD delay)
+- channel/bus/matrix/main insert on/off switches for pre/post FX inserts
 
 Wing mute values use integer `0` or `1`, where `1` means muted and `0` means
 unmuted. Wing fader parameters can expose both normalized and engineering values
 depending on the response format; these presets use the normalized control range
 for MIDIJuggler mappings.
+
+FX slot parameters depend on the effect model loaded in that slot. For example,
+`/fx/1/time` applies when a delay (ST-DL, TAP-DL, …) is loaded; `/fx/2/dcy`
+applies when a reverb is loaded. Use `/fx/n/?` on the desk to list parameters
+for the active model. `fxmix` is always valid for every slot.
 
 ## Extending libraries
 

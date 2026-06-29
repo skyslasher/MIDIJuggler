@@ -35,7 +35,16 @@ def test_wing_library_expands_common_templates() -> None:
     assert parameters["ch_48_bus_16_send"].category == "send"
     assert parameters["dca_16_fdr"].address == "/dca/16/fdr"
     assert parameters["main_1_mute"].value_type == "int"
-    assert len(library.parameters) == 996
+    assert parameters["fx_1_fxmix"].address == "/fx/1/fxmix"
+    assert parameters["fx_16_fxmix"].value_max == 100.0
+    assert parameters["fx_3_time"].address == "/fx/3/time"
+    assert parameters["fx_3_time"].category == "fx_delay"
+    assert parameters["fx_2_dcy"].address == "/fx/2/dcy"
+    assert parameters["fx_2_dcy"].category == "fx_reverb"
+    assert parameters["ch_12_preins_on"].address == "/ch/12/preins/on"
+    assert parameters["ch_12_preins_on"].category == "fx_insert"
+    assert parameters["main_2_postins_on"].address == "/main/2/postins/on"
+    assert len(library.parameters) == 1304
 
 
 def test_unknown_library_raises_key_error() -> None:

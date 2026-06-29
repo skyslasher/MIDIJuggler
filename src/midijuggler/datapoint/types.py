@@ -58,6 +58,7 @@ class DataPointSpec:
     value_min: float | None = None
     value_max: float | None = None
     protocol: str = ""
+    category: str = ""
     input_mode: str = ""
     relative_encoding: str = ""
 
@@ -71,6 +72,8 @@ class DataPointSpec:
             "label": self.label,
             "protocol": self.protocol,
         }
+        if self.category:
+            payload["category"] = self.category
         if self.value_min is not None:
             payload["value_min"] = self.value_min
         if self.value_max is not None:

@@ -700,6 +700,11 @@ legend {
   gap: 0.35rem;
 }
 
+.datapoint-filter-input {
+  width: 100%;
+  box-sizing: border-box;
+}
+
 .learn-actions {
   display: flex;
   flex-wrap: wrap;

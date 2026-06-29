@@ -432,11 +432,243 @@ function learnPointsForInstance(instance, direction) {
       });
     }
   }
-  return points.sort((left, right) => {
-    const leftLabel = datapointSelectLabel(left);
-    const rightLabel = datapointSelectLabel(right);
-    return leftLabel.localeCompare(rightLabel);
-  });
+  return points;
+}
+
+const DATAPOINT_FILTER_THRESHOLD = 24;
+
+const DATAPOINT_CATEGORY_ORDER = [
+  "transport",
+  "bpm",
+  "timing",
+  "midi",
+  "encoder",
+  "encoder_push",
+  "button",
+  "fader",
+  "value",
+  "feedback",
+  "layer",
+  "mode",
+  "display",
+  "channel",
+  "send",
+  "bus",
+  "matrix",
+  "dca",
+  "main",
+  "fx",
+  "fx_reverb",
+  "fx_delay",
+  "fx_insert",
+  "gpio",
+  "hid",
+  "custom",
+  "other",
+];
+
+const DATAPOINT_CATEGORY_LABELS = {
+  transport: "Transport",
+  bpm: "BPM",
+  timing: "Timing",
+  midi: "MIDI",
+  encoder: "Encoders",
+  encoder_push: "Encoder push",
+  button: "Buttons",
+  fader: "Faders",
+  value: "Values",
+  feedback: "Feedback",
+  layer: "Layers",
+  mode: "Mode",
+  display: "Display",
+  channel: "Channels",
+  send: "Sends",
+  bus: "Buses",
+  matrix: "Matrix",
+  dca: "DCA",
+  main: "Main",
+  fx: "FX rack",
+  fx_reverb: "FX reverb",
+  fx_delay: "FX delay",
+  fx_insert: "FX inserts",
+  gpio: "GPIO",
+  hid: "HID",
+  custom: "Custom",
+  other: "Other",
+};
+
+function datapointCategoryKey(entry) {
+  const category = String(entry?.category || "").trim();
+  if (category) {
+    return category;
+  }
+  const protocol = String(entry?.protocol || "").trim();
+  if (protocol === "gpio") {
+    return "gpio";
+  }
+  if (protocol === "hid") {
+    return "hid";
+  }
+  return "other";
+}
+
+function datapointCategoryLabel(category) {
+  if (DATAPOINT_CATEGORY_LABELS[category]) {
+    return DATAPOINT_CATEGORY_LABELS[category];
+  }
+  return category.replace(/_/g, " ").replace(/\b\w/g, (char) => char.toUpperCase());
+}
+
+function datapointCategoryRank(category) {
+  const index = DATAPOINT_CATEGORY_ORDER.indexOf(category);
+  return index === -1 ? DATAPOINT_CATEGORY_ORDER.length : index;
+}
+
+function compareDatapointEntries(left, right) {
+  return datapointSelectLabel(left).localeCompare(
+    datapointSelectLabel(right),
+    undefined,
+    { numeric: true, sensitivity: "base" },
+  );
+}
+
+function datapointSearchText(entry) {
+  return [
+    entry.id,
+    entry.label,
+    entry.point,
+    entry.category,
+    datapointSelectLabel(entry),
+    datapointTechnicalLabel(entry),
+  ]
+    .filter(Boolean)
+    .join(" ")
+    .toLowerCase();
+}
+
+function datapointMatchesFilter(entry, filterTerm) {
+  if (!filterTerm) {
+    return true;
+  }
+  return datapointSearchText(entry).includes(filterTerm);
+}
+
+function groupDatapointEntries(entries, filterTerm) {
+  const filtered = entries.filter((entry) => datapointMatchesFilter(entry, filterTerm));
+  const groups = new Map();
+  for (const entry of filtered) {
+    const category = datapointCategoryKey(entry);
+    if (!groups.has(category)) {
+      groups.set(category, []);
+    }
+    groups.get(category).push(entry);
+  }
+  return [...groups.entries()]
+    .sort(([leftCategory], [rightCategory]) => {
+      const rankDiff =
+        datapointCategoryRank(leftCategory) - datapointCategoryRank(rightCategory);
+      if (rankDiff !== 0) {
+        return rankDiff;
+      }
+      return leftCategory.localeCompare(rightCategory);
+    })
+    .map(([category, items]) => ({
+      category,
+      label: datapointCategoryLabel(category),
+      items: items.sort(compareDatapointEntries),
+    }));
+}
+
+function appendLearnPointOption(container, entry) {
+  const option = document.createElement("option");
+  option.value = entry.id;
+  option.textContent = datapointSelectLabel(entry);
+  option.dataset.valueMin = entry.value_min ?? "";
+  option.dataset.valueMax = entry.value_max ?? "";
+  container.appendChild(option);
+}
+
+function ensureDatapointFilterInput(select) {
+  const field = select.closest(".stacked-field");
+  if (!field) {
+    return null;
+  }
+  let filter = field.querySelector("[data-datapoint-filter]");
+  if (!filter) {
+    filter = document.createElement("input");
+    filter.type = "search";
+    filter.className = "datapoint-filter-input";
+    filter.dataset.datapointFilter = "1";
+    filter.placeholder = "Filter data points";
+    filter.autocomplete = "off";
+    filter.hidden = true;
+    field.insertBefore(filter, select);
+    filter.addEventListener("input", () => {
+      fillLearnPointSelect(
+        select,
+        select.dataset.learnInstance || "",
+        select.dataset.learnDirection || "",
+        select.value,
+      );
+    });
+  }
+  return filter;
+}
+
+function resetDatapointFilterInput(select) {
+  const filter = select.closest(".stacked-field")?.querySelector("[data-datapoint-filter]");
+  if (filter) {
+    filter.value = "";
+    filter.hidden = true;
+  }
+}
+
+function fillLearnPointSelect(select, instance, direction, previousPointId) {
+  const previous = previousPointId || select.value;
+  select.dataset.learnDirection = direction;
+  select.dataset.learnInstance = instance;
+  select.replaceChildren();
+  const placeholder = document.createElement("option");
+  placeholder.value = "";
+  placeholder.textContent = direction === "input" ? "Select source data point" : "Select target data point";
+  select.appendChild(placeholder);
+  select.disabled = !instance;
+  if (!instance) {
+    resetDatapointFilterInput(select);
+    return;
+  }
+  const points = learnPointsForInstance(instance, direction);
+  const filter = ensureDatapointFilterInput(select);
+  const filterTerm = filter?.value.trim().toLowerCase() || "";
+  if (filter) {
+    filter.hidden = points.length <= DATAPOINT_FILTER_THRESHOLD;
+  }
+  const groups = groupDatapointEntries(points, filterTerm);
+  const useGroups = groups.length > 1 || points.length > DATAPOINT_FILTER_THRESHOLD;
+  if (!useGroups) {
+    const flatItems = groups.flatMap((group) => group.items).sort(compareDatapointEntries);
+    for (const entry of flatItems) {
+      appendLearnPointOption(select, entry);
+    }
+  } else {
+    for (const group of groups) {
+      if (!group.items.length) {
+        continue;
+      }
+      const optgroup = document.createElement("optgroup");
+      optgroup.label = group.label;
+      for (const entry of group.items) {
+        appendLearnPointOption(optgroup, entry);
+      }
+      select.appendChild(optgroup);
+    }
+  }
+  const availableIds = points
+    .filter((entry) => datapointMatchesFilter(entry, filterTerm))
+    .map((entry) => entry.id);
+  if (previous && availableIds.includes(previous)) {
+    select.value = previous;
+  }
 }
 
 function fillLearnInstanceSelect(select, direction, previousInstance) {
@@ -454,31 +686,6 @@ function fillLearnInstanceSelect(select, direction, previousInstance) {
   }
   if (previousInstance && instances.includes(previousInstance)) {
     select.value = previousInstance;
-  }
-}
-
-function fillLearnPointSelect(select, instance, direction, previousPointId) {
-  const previous = previousPointId || select.value;
-  select.replaceChildren();
-  const placeholder = document.createElement("option");
-  placeholder.value = "";
-  placeholder.textContent = direction === "input" ? "Select source data point" : "Select target data point";
-  select.appendChild(placeholder);
-  select.disabled = !instance;
-  if (!instance) {
-    return;
-  }
-  const points = learnPointsForInstance(instance, direction);
-  for (const entry of points) {
-    const option = document.createElement("option");
-    option.value = entry.id;
-    option.textContent = datapointSelectLabel(entry);
-    option.dataset.valueMin = entry.value_min ?? "";
-    option.dataset.valueMax = entry.value_max ?? "";
-    select.appendChild(option);
-  }
-  if (previous && points.some((entry) => entry.id === previous)) {
-    select.value = previous;
   }
 }
 
@@ -782,10 +989,12 @@ function createConnectionEditForm(connection) {
   syncConnectionEditRangeFieldsVisibility(form);
 
   sourceInstance.addEventListener("change", () => {
+    resetDatapointFilterInput(sourceDatapoint);
     fillLearnPointSelect(sourceDatapoint, sourceInstance.value, "input", "");
     sourceDatapoint.disabled = !sourceInstance.value;
   });
   targetInstance.addEventListener("change", () => {
+    resetDatapointFilterInput(targetDatapoint);
     fillLearnPointSelect(targetDatapoint, targetInstance.value, "output", "");
     targetDatapoint.disabled = !targetInstance.value;
   });
@@ -6342,11 +6551,13 @@ learnToggle.addEventListener("click", () => {
 
 learnSourceInstance.addEventListener("change", () => {
   learnMessage.textContent = "";
+  resetDatapointFilterInput(learnSourceDatapoint);
   fillLearnPointSelect(learnSourceDatapoint, learnSourceInstance.value, "input", "");
 });
 
 learnTargetInstance.addEventListener("change", () => {
   learnMessage.textContent = "";
+  resetDatapointFilterInput(learnTargetDatapoint);
   fillLearnPointSelect(learnTargetDatapoint, learnTargetInstance.value, "output", "");
 });
 

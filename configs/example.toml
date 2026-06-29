@@ -217,9 +217,9 @@ output_max = 1.0
 invert = false
 
 [[connections]]
-id = "clock-eighth-ms-to-delay-time"
+id = "clock-eighth-ms-to-fx-delay"
 source = "clock.eighth_ms"
-target = "osc_main./fx/delay/time_ms"
+target = "wing_foh./fx/1/time"
 input_min = 50.0
 input_max = 1000.0
 output_min = 50.0

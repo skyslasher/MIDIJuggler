@@ -202,15 +202,19 @@ source `clock`. These can be used by normal mappings:
 Example:
 
 ```toml
-[[mappings]]
-id = "clock-eighth-ms-to-delay-time"
-source = "clock:eighth_ms"
-target = "osc:/fx/delay/time_ms"
+[[connections]]
+id = "clock-eighth-ms-to-fx-delay"
+source = "clock.eighth_ms"
+target = "wing_foh./fx/1/time"
 input_min = 50.0
 input_max = 1000.0
 output_min = 50.0
 output_max = 1000.0
 ```
+
+Load a delay model (for example ST-DL) in FX slot 1 on the Wing first. Wing uses
+`/fx/n/time` for delay time in milliseconds, not a generic `/fx/delay/time_ms`
+path.
 
 This keeps tempo-derived values available for effect parameters without special
 case code in the mapping engine.

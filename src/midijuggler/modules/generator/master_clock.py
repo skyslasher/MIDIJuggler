@@ -57,6 +57,7 @@ class MasterClockGenerator(GeneratorModule):
                 value_min=self.clock.config.bpm_min,
                 value_max=self.clock.config.bpm_max,
                 protocol="clock",
+                category="bpm",
             ),
             DataPointSpec(
                 id=DataPointId(CLOCK_MODULE, "bpm"),
@@ -66,6 +67,7 @@ class MasterClockGenerator(GeneratorModule):
                 value_min=self.clock.config.bpm_min,
                 value_max=self.clock.config.bpm_max,
                 protocol="clock",
+                category="bpm",
             ),
             DataPointSpec(
                 id=DataPointId(CLOCK_MODULE, "bpm_up"),
@@ -73,6 +75,7 @@ class MasterClockGenerator(GeneratorModule):
                 direction=DataPointDirection.OUTPUT,
                 label="Increase BPM",
                 protocol="clock",
+                category="bpm",
             ),
             DataPointSpec(
                 id=DataPointId(CLOCK_MODULE, "bpm_down"),
@@ -80,6 +83,7 @@ class MasterClockGenerator(GeneratorModule):
                 direction=DataPointDirection.OUTPUT,
                 label="Decrease BPM",
                 protocol="clock",
+                category="bpm",
             ),
             DataPointSpec(
                 id=DataPointId(CLOCK_MODULE, "start"),
@@ -87,6 +91,7 @@ class MasterClockGenerator(GeneratorModule):
                 direction=DataPointDirection.OUTPUT,
                 label="Start transport",
                 protocol="clock",
+                category="transport",
             ),
             DataPointSpec(
                 id=DataPointId(CLOCK_MODULE, "stop"),
@@ -94,6 +99,7 @@ class MasterClockGenerator(GeneratorModule):
                 direction=DataPointDirection.OUTPUT,
                 label="Stop transport",
                 protocol="clock",
+                category="transport",
             ),
             DataPointSpec(
                 id=DataPointId(CLOCK_MODULE, "start_stop"),
@@ -101,6 +107,7 @@ class MasterClockGenerator(GeneratorModule):
                 direction=DataPointDirection.OUTPUT,
                 label="Toggle transport start/stop",
                 protocol="clock",
+                category="transport",
             ),
             DataPointSpec(
                 id=DataPointId(CLOCK_MODULE, "tap_tempo"),
@@ -108,6 +115,7 @@ class MasterClockGenerator(GeneratorModule):
                 direction=DataPointDirection.OUTPUT,
                 label="Tap tempo on rising edge",
                 protocol="clock",
+                category="transport",
             ),
             DataPointSpec(
                 id=DataPointId(CLOCK_MODULE, "running"),
@@ -115,6 +123,7 @@ class MasterClockGenerator(GeneratorModule):
                 direction=DataPointDirection.INPUT,
                 label="Transport running",
                 protocol="clock",
+                category="transport",
             ),
             DataPointSpec(
                 id=DataPointId(CLOCK_MODULE, "midi_tick"),
@@ -122,6 +131,7 @@ class MasterClockGenerator(GeneratorModule):
                 direction=DataPointDirection.INPUT,
                 label="MIDI timing clock tick",
                 protocol="clock",
+                category="midi",
             ),
             DataPointSpec(
                 id=DataPointId(CLOCK_MODULE, "midi_start"),
@@ -129,6 +139,7 @@ class MasterClockGenerator(GeneratorModule):
                 direction=DataPointDirection.INPUT,
                 label="MIDI transport start",
                 protocol="clock",
+                category="midi",
             ),
             DataPointSpec(
                 id=DataPointId(CLOCK_MODULE, "midi_continue"),
@@ -136,6 +147,7 @@ class MasterClockGenerator(GeneratorModule):
                 direction=DataPointDirection.INPUT,
                 label="MIDI transport continue",
                 protocol="clock",
+                category="midi",
             ),
             DataPointSpec(
                 id=DataPointId(CLOCK_MODULE, "midi_stop"),
@@ -143,6 +155,7 @@ class MasterClockGenerator(GeneratorModule):
                 direction=DataPointDirection.INPUT,
                 label="MIDI transport stop",
                 protocol="clock",
+                category="midi",
             ),
             DataPointSpec(
                 id=DataPointId(CLOCK_MODULE, "quarter_ms"),
@@ -150,6 +163,7 @@ class MasterClockGenerator(GeneratorModule):
                 direction=DataPointDirection.INPUT,
                 label="Quarter-note duration in ms",
                 protocol="clock",
+                category="timing",
             ),
             DataPointSpec(
                 id=DataPointId(CLOCK_MODULE, "eighth_ms"),
@@ -157,6 +171,7 @@ class MasterClockGenerator(GeneratorModule):
                 direction=DataPointDirection.INPUT,
                 label="Eighth-note duration in ms",
                 protocol="clock",
+                category="timing",
             ),
         ]
 

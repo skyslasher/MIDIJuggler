@@ -189,3 +189,274 @@ value_max = 1
 category = "main"
 direction = "target"
 description = "Main 2 mute. 1 is muted, 0 is unmuted."
+
+# FX rack slots 1-16. Effect-specific parameters below apply only when the loaded
+# model exposes that OSC node; query /fx/n/? on the desk to list active params.
+
+[[templates]]
+id = "fx_{slot}_fxmix"
+label = "FX {slot} Mix"
+address = "/fx/{slot}/fxmix"
+range_name = "slot"
+range_start = 1
+range_end = 16
+value_type = "float"
+value_min = 0.0
+value_max = 100.0
+category = "fx"
+direction = "target"
+description = "FX slot {slot} wet/mix percentage (0-100). Always valid regardless of loaded model."
+
+[[templates]]
+id = "fx_{slot}_pdel"
+label = "FX {slot} Pre-Delay"
+address = "/fx/{slot}/pdel"
+range_name = "slot"
+range_start = 1
+range_end = 16
+value_type = "float"
+value_min = 0.0
+value_max = 250.0
+category = "fx_reverb"
+direction = "target"
+description = "FX slot {slot} pre-delay in ms. Valid for most reverb models (ROOM, HALL, V-PLATE, etc.)."
+
+[[templates]]
+id = "fx_{slot}_dcy"
+label = "FX {slot} Decay"
+address = "/fx/{slot}/dcy"
+range_name = "slot"
+range_start = 1
+range_end = 16
+value_type = "float"
+value_min = 0.2
+value_max = 30.0
+category = "fx_reverb"
+direction = "target"
+description = "FX slot {slot} decay time in seconds. Valid for most reverb models; range depends on model."
+
+[[templates]]
+id = "fx_{slot}_size"
+label = "FX {slot} Size"
+address = "/fx/{slot}/size"
+range_name = "slot"
+range_start = 1
+range_end = 16
+value_type = "float"
+value_min = 0.0
+value_max = 100.0
+category = "fx_reverb"
+direction = "target"
+description = "FX slot {slot} room/size parameter. Valid for most reverb models."
+
+[[templates]]
+id = "fx_{slot}_lc"
+label = "FX {slot} Low Cut"
+address = "/fx/{slot}/lc"
+range_name = "slot"
+range_start = 1
+range_end = 16
+value_type = "float"
+value_min = 20.0
+value_max = 400.0
+category = "fx_reverb"
+direction = "target"
+description = "FX slot {slot} low-cut frequency in Hz. Shared by many reverbs and delays."
+
+[[templates]]
+id = "fx_{slot}_hc"
+label = "FX {slot} High Cut"
+address = "/fx/{slot}/hc"
+range_name = "slot"
+range_start = 1
+range_end = 16
+value_type = "float"
+value_min = 200.0
+value_max = 20000.0
+category = "fx_reverb"
+direction = "target"
+description = "FX slot {slot} high-cut frequency in Hz. Shared by many reverbs and delays."
+
+[[templates]]
+id = "fx_{slot}_damp"
+label = "FX {slot} Damping"
+address = "/fx/{slot}/damp"
+range_name = "slot"
+range_start = 1
+range_end = 16
+value_type = "float"
+value_min = 1000.0
+value_max = 20000.0
+category = "fx_reverb"
+direction = "target"
+description = "FX slot {slot} damping frequency in Hz. Valid for most reverb models."
+
+[[templates]]
+id = "fx_{slot}_time"
+label = "FX {slot} Delay Time"
+address = "/fx/{slot}/time"
+range_name = "slot"
+range_start = 1
+range_end = 16
+value_type = "float"
+value_min = 0.0
+value_max = 3000.0
+category = "fx_delay"
+direction = "target"
+description = "FX slot {slot} delay time in ms. Valid for ST-DL, TAP-DL, TAPE-DL and similar delay models."
+
+[[templates]]
+id = "fx_{slot}_feed"
+label = "FX {slot} Feedback"
+address = "/fx/{slot}/feed"
+range_name = "slot"
+range_start = 1
+range_end = 16
+value_type = "float"
+value_min = 0.0
+value_max = 100.0
+category = "fx_delay"
+direction = "target"
+description = "FX slot {slot} delay feedback in percent. Valid for ST-DL, BBD-DL and similar delay models."
+
+[[templates]]
+id = "fx_{slot}_dly"
+label = "FX {slot} BBD Delay Time"
+address = "/fx/{slot}/dly"
+range_name = "slot"
+range_start = 1
+range_end = 16
+value_type = "float"
+value_min = 0.0
+value_max = 100.0
+category = "fx_delay"
+direction = "target"
+description = "FX slot {slot} BBD delay time parameter. Valid when BBD-DL is loaded in the slot."
+
+[[templates]]
+id = "ch_{channel}_preins_on"
+label = "Channel {channel} Pre-Insert On"
+address = "/ch/{channel}/preins/on"
+range_name = "channel"
+range_start = 1
+range_end = 48
+value_type = "int"
+value_min = 0
+value_max = 1
+category = "fx_insert"
+direction = "target"
+description = "Channel {channel} pre-insert FX bypass. 1 enables the assigned FX slot on the pre-insert."
+
+[[templates]]
+id = "ch_{channel}_postins_on"
+label = "Channel {channel} Post-Insert On"
+address = "/ch/{channel}/postins/on"
+range_name = "channel"
+range_start = 1
+range_end = 48
+value_type = "int"
+value_min = 0
+value_max = 1
+category = "fx_insert"
+direction = "target"
+description = "Channel {channel} post-insert FX bypass. 1 enables the assigned FX slot on the post-insert."
+
+[[templates]]
+id = "bus_{bus}_preins_on"
+label = "Bus {bus} Pre-Insert On"
+address = "/bus/{bus}/preins/on"
+range_name = "bus"
+range_start = 1
+range_end = 16
+value_type = "int"
+value_min = 0
+value_max = 1
+category = "fx_insert"
+direction = "target"
+description = "Bus {bus} pre-insert FX bypass. 1 enables the assigned FX slot."
+
+[[templates]]
+id = "bus_{bus}_postins_on"
+label = "Bus {bus} Post-Insert On"
+address = "/bus/{bus}/postins/on"
+range_name = "bus"
+range_start = 1
+range_end = 16
+value_type = "int"
+value_min = 0
+value_max = 1
+category = "fx_insert"
+direction = "target"
+description = "Bus {bus} post-insert FX bypass. 1 enables the assigned FX slot."
+
+[[templates]]
+id = "mtx_{matrix}_preins_on"
+label = "Matrix {matrix} Pre-Insert On"
+address = "/mtx/{matrix}/preins/on"
+range_name = "matrix"
+range_start = 1
+range_end = 8
+value_type = "int"
+value_min = 0
+value_max = 1
+category = "fx_insert"
+direction = "target"
+description = "Matrix {matrix} pre-insert FX bypass. 1 enables the assigned FX slot."
+
+[[templates]]
+id = "mtx_{matrix}_postins_on"
+label = "Matrix {matrix} Post-Insert On"
+address = "/mtx/{matrix}/postins/on"
+range_name = "matrix"
+range_start = 1
+range_end = 8
+value_type = "int"
+value_min = 0
+value_max = 1
+category = "fx_insert"
+direction = "target"
+description = "Matrix {matrix} post-insert FX bypass. 1 enables the assigned FX slot."
+
+[[parameters]]
+id = "main_1_preins_on"
+label = "Main 1 Pre-Insert On"
+address = "/main/1/preins/on"
+value_type = "int"
+value_min = 0
+value_max = 1
+category = "fx_insert"
+direction = "target"
+description = "Main 1 pre-insert FX bypass. 1 enables the assigned FX slot."
+
+[[parameters]]
+id = "main_1_postins_on"
+label = "Main 1 Post-Insert On"
+address = "/main/1/postins/on"
+value_type = "int"
+value_min = 0
+value_max = 1
+category = "fx_insert"
+direction = "target"
+description = "Main 1 post-insert FX bypass. 1 enables the assigned FX slot."
+
+[[parameters]]
+id = "main_2_preins_on"
+label = "Main 2 Pre-Insert On"
+address = "/main/2/preins/on"
+value_type = "int"
+value_min = 0
+value_max = 1
+category = "fx_insert"
+direction = "target"
+description = "Main 2 pre-insert FX bypass. 1 enables the assigned FX slot."
+
+[[parameters]]
+id = "main_2_postins_on"
+label = "Main 2 Post-Insert On"
+address = "/main/2/postins/on"
+value_type = "int"
+value_min = 0
+value_max = 1
+category = "fx_insert"
+direction = "target"
+description = "Main 2 post-insert FX bypass. 1 enables the assigned FX slot."
