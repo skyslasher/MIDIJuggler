@@ -302,7 +302,9 @@ function renderStatus(status) {
     refreshDeviceDisplayNames(status.devices);
   }
   storedConnections = status.stored_connections || [];
-  renderMappingsList(storedConnections);
+  if (!editingConnectionId) {
+    renderMappingsList(storedConnections);
+  }
   if (feedbackSuppressMs && status.feedback_suppress_ms != null) {
     feedbackSuppressMs.value = String(status.feedback_suppress_ms);
   }
@@ -510,9 +512,30 @@ function learnInstanceLabel(module) {
   return module;
 }
 
+function deviceSupportsConnectionSource(device) {
+  const kind = (device.library_kind || "").trim();
+  return kind === "midi" || kind === "gpio" || kind === "hid";
+}
+
+function deviceSupportsConnectionTarget(device) {
+  return Boolean((device.library || "").trim());
+}
+
 function learnInstancesForDirection(direction) {
   const entries = filterLearnRegistryDatapoints(learnRegistryDatapoints, direction);
   const modules = new Set(entries.map(datapointModule));
+  for (const device of configuredDevices()) {
+    const uid = device.uid || device.id || "";
+    if (!uid) {
+      continue;
+    }
+    if (direction === "input" && deviceSupportsConnectionSource(device)) {
+      modules.add(uid);
+    }
+    if (direction === "output" && deviceSupportsConnectionTarget(device)) {
+      modules.add(uid);
+    }
+  }
   if (direction === "input") {
     for (const pointId of learnMonitorDatapoints.keys()) {
       if (isLearnSelectableMonitorPointId(pointId)) {
@@ -1350,6 +1373,15 @@ function syncConnectionEditRangeFieldsVisibility(form) {
   }
 }
 
+function makeMappingId(source, target) {
+  const slug = (value) =>
+    String(value || "")
+      .toLowerCase()
+      .replace(/[^a-z0-9]+/g, "-")
+      .replace(/^-+|-+$/g, "");
+  return `learn-${slug(source)}-to-${slug(target)}`.slice(0, 120);
+}
+
 function refreshInlineConnectionEditorSelects() {
   if (!editingConnectionId) {
     return;
@@ -1392,13 +1424,13 @@ function refreshInlineConnectionEditorSelects() {
     sourceDatapoint,
     sourceInstance.value,
     "input",
-    previousSourcePoint || connection?.source || "",
+    previousSourcePoint,
   );
   fillLearnPointSelect(
     targetDatapoint,
     targetInstance.value,
     "output",
-    previousTargetPoint || connection?.target || "",
+    previousTargetPoint,
   );
 }
 
@@ -1408,8 +1440,13 @@ function collectConnectionFromEditForm(form, connectionId) {
   if (!source || !target) {
     throw new Error("select source and target data points");
   }
+  const existing = storedConnections.find((entry) => entry.id === connectionId);
+  const id =
+    existing && existing.source === source && existing.target === target
+      ? connectionId
+      : makeMappingId(source, target);
   return {
-    id: connectionId,
+    id,
     source,
     target,
     modifier: form.querySelector('[data-field="modifier"]')?.value || "range_map",
@@ -2059,12 +2096,20 @@ async function saveMappingEditor() {
     return;
   }
 
-  const nextConnections = storedConnections.map((connection) => (
-    connection.id === editingConnectionId ? updatedConnection : connection
-  ));
+  const nextConnections = storedConnections
+    .filter((connection) => connection.id !== editingConnectionId)
+    .filter(
+      (connection) =>
+        isDisconnectedEndpoint(updatedConnection.source)
+        || connection.source !== updatedConnection.source,
+    )
+    .filter((connection) => connection.id !== updatedConnection.id);
+  nextConnections.push(updatedConnection);
+
   try {
     await saveStoredConnections(nextConnections);
-    closeMappingEditor();
+    editingConnectionId = "";
+    renderMappingsList(storedConnections);
   } catch (error) {
     if (message) {
       message.textContent = `error: ${error.message}`;
@@ -2116,7 +2161,9 @@ async function saveStoredConnections(connections) {
   }
   const payload = await response.json();
   storedConnections = payload.stored_connections || connections;
-  renderMappingsList(storedConnections);
+  if (!editingConnectionId) {
+    renderMappingsList(storedConnections);
+  }
   try {
     const statusResponse = await fetch("/api/status");
     if (statusResponse.ok) {
