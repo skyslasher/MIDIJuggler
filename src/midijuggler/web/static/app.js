@@ -165,6 +165,7 @@ const LEARN_STREAM_POINT_SUFFIXES = new Set([
 let socket;
 let gpioConfig = null;
 let devicesConfig = null;
+let statusDevices = [];
 let deviceDisplayByUid = {};
 let deviceAdapterOptions = [];
 let cachedOscLibraryList = [];
@@ -294,6 +295,7 @@ function renderStatus(status) {
   }
 
   if (Array.isArray(status.devices)) {
+    statusDevices = status.devices;
     refreshDeviceDisplayNames(status.devices);
   }
   storedConnections = status.stored_connections || [];
@@ -392,6 +394,13 @@ function filterLearnRegistryDatapoints(entries, direction) {
   return entries.filter(
     (entry) => isLearnSelectableDatapoint(entry) && matchesLearnDirection(entry, direction),
   );
+}
+
+function configuredDevices() {
+  if (devicesConfig?.devices?.length) {
+    return devicesConfig.devices;
+  }
+  return statusDevices;
 }
 
 function refreshDeviceDisplayNames(devices) {
@@ -829,7 +838,7 @@ function connectionEndpointPoint(endpoint) {
 }
 
 function deviceByUid(uid) {
-  return (devicesConfig?.devices || []).find(
+  return configuredDevices().find(
     (device) => (device.uid || device.id) === uid,
   ) || null;
 }
@@ -2928,12 +2937,12 @@ async function preloadMonitorLibraries(status) {
   const midiLibraryIds = new Set();
   const oscLibraryIds = new Set();
 
-  for (const device of devicesConfig?.devices || []) {
+  for (const device of configuredDevices()) {
     const library = String(device.library || "").trim();
     if (!library || !device.adapter) {
       continue;
     }
-    if (device.library_kind === "midi") {
+    if (device.library_kind === "midi" || device.library_kind === "wing") {
       adapterLibraryConfig[device.adapter] = {
         ...(adapterLibraryConfig[device.adapter] || {}),
         midi_library: library,
@@ -3268,7 +3277,7 @@ function adapterOptionByName(name) {
 }
 
 function boundDeviceForAdapter(adapterName) {
-  return (devicesConfig?.devices || []).find((device) => device.adapter === adapterName) || null;
+  return configuredDevices().find((device) => device.adapter === adapterName) || null;
 }
 
 function deviceLibraryForAdapter(adapterName) {
