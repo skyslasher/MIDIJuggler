@@ -1,4 +1,4 @@
-"""Configurable MIDI channels for the Behringer X-Touch Mini."""
+"""Configurable MIDI channels for Behringer X-Touch controllers."""
 
 from __future__ import annotations
 
@@ -9,8 +9,33 @@ from midijuggler.device.types import DeviceConfig
 from midijuggler.midi_library import MidiParameter
 
 XTOUCH_MINI_LIBRARY_ID = "behringer_xtouch_mini"
-DEFAULT_XTOUCH_VALUE_CHANNEL = 11
-DEFAULT_XTOUCH_DISPLAY_CHANNEL = 12
+XTOUCH_COMPACT_LIBRARY_ID = "behringer_xtouch_compact"
+XTOUCH_LIBRARY_IDS = frozenset({XTOUCH_MINI_LIBRARY_ID, XTOUCH_COMPACT_LIBRARY_ID})
+
+DEFAULT_XTOUCH_MINI_VALUE_CHANNEL = 11
+DEFAULT_XTOUCH_MINI_DISPLAY_CHANNEL = 12
+DEFAULT_XTOUCH_COMPACT_VALUE_CHANNEL = 1
+DEFAULT_XTOUCH_COMPACT_DISPLAY_CHANNEL = 1
+
+# Backwards-compatible aliases for the Mini defaults.
+DEFAULT_XTOUCH_VALUE_CHANNEL = DEFAULT_XTOUCH_MINI_VALUE_CHANNEL
+DEFAULT_XTOUCH_DISPLAY_CHANNEL = DEFAULT_XTOUCH_MINI_DISPLAY_CHANNEL
+
+
+def is_xtouch_library(library_id: str) -> bool:
+    return library_id in XTOUCH_LIBRARY_IDS
+
+
+def default_xtouch_value_channel(library_id: str) -> int:
+    if library_id == XTOUCH_COMPACT_LIBRARY_ID:
+        return DEFAULT_XTOUCH_COMPACT_VALUE_CHANNEL
+    return DEFAULT_XTOUCH_MINI_VALUE_CHANNEL
+
+
+def default_xtouch_display_channel(library_id: str) -> int:
+    if library_id == XTOUCH_COMPACT_LIBRARY_ID:
+        return DEFAULT_XTOUCH_COMPACT_DISPLAY_CHANNEL
+    return DEFAULT_XTOUCH_MINI_DISPLAY_CHANNEL
 
 
 @dataclass(frozen=True)
@@ -42,19 +67,21 @@ def xtouch_device_options(
         except (TypeError, ValueError):
             interval = 0.0
 
-    if device is not None and resolved_library == XTOUCH_MINI_LIBRARY_ID:
+    default_value = default_xtouch_value_channel(resolved_library)
+    default_display = default_xtouch_display_channel(resolved_library)
+    if device is not None and is_xtouch_library(resolved_library):
         value_channel = device.midi_value_channel
         display_channel = device.midi_display_channel
     else:
         value_channel = parse_midi_channel_option(
             adapter.options.get("midi_value_channel"),
             field_name="midi_value_channel",
-            default=DEFAULT_XTOUCH_VALUE_CHANNEL,
+            default=default_value,
         )
         display_channel = parse_midi_channel_option(
             adapter.options.get("midi_display_channel"),
             field_name="midi_display_channel",
-            default=DEFAULT_XTOUCH_DISPLAY_CHANNEL,
+            default=default_display,
         )
 
     return XTouchDeviceOptions(
@@ -71,9 +98,8 @@ def uses_xtouch_library(
     *,
     library_id: str | None = None,
 ) -> bool:
-    return (
+    return is_xtouch_library(
         xtouch_device_options(adapter, device, library_id=library_id).library_id
-        == XTOUCH_MINI_LIBRARY_ID
     )
 
 

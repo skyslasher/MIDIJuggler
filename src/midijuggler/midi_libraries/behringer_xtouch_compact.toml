@@ -1,0 +1,869 @@
+[library]
+id = "behringer_xtouch_compact"
+name = "Behringer X-Touch Compact MIDI"
+vendor = "Behringer"
+model = "X-Touch Compact"
+notes = "Factory Standard Mode mapping for the X-Touch Compact from the official quick start guide. Layer A (mixer control) and Layer B (instrument control) use MIDI channel 1. Encoder turns, fader movement/touch and foot controls send control changes; encoder push and buttons send notes. Host feedback uses CC 1-9 and CC 28-36 for motorized faders, CC 26-41 for encoder LED rings, and note velocity for button LEDs. The controller is user-programmable with the X-Touch Editor; relative encoder turns are recommended for control surfaces."
+
+[[templates]]
+id = "layer_a_encoder_{encoder}_turn"
+label = "Layer A Encoder {encoder} Turn"
+address = "xtouch-compact://layer_a/encoder/{encoder}/turn"
+range_name = "encoder"
+range_start = 1
+range_end = 8
+derived = [ { name = "cc_number", source = "encoder", offset = 9 } ]
+message_type = "control_change"
+value_type = "relative"
+relative_encoding = "absolute_delta"
+value_min = 1
+value_max = 127
+category = "encoder"
+direction = "source"
+midi_channel = 1
+number = "{cc_number}"
+description = "Layer A encoder {encoder} turn on CC {cc_number}."
+
+[[templates]]
+id = "layer_a_encoder_{encoder}_turn"
+label = "Layer A Encoder {encoder} Turn"
+address = "xtouch-compact://layer_a/encoder/{encoder}/turn"
+range_name = "encoder"
+range_start = 9
+range_end = 16
+derived = [ { name = "cc_number", source = "encoder", offset = 9 } ]
+message_type = "control_change"
+value_type = "relative"
+relative_encoding = "absolute_delta"
+value_min = 1
+value_max = 127
+category = "encoder"
+direction = "source"
+midi_channel = 1
+number = "{cc_number}"
+description = "Layer A encoder {encoder} turn on CC {cc_number}."
+
+[[templates]]
+id = "layer_b_encoder_{encoder}_turn"
+label = "Layer B Encoder {encoder} Turn"
+address = "xtouch-compact://layer_b/encoder/{encoder}/turn"
+range_name = "encoder"
+range_start = 1
+range_end = 8
+derived = [ { name = "cc_number", source = "encoder", offset = 36 } ]
+message_type = "control_change"
+value_type = "relative"
+relative_encoding = "absolute_delta"
+value_min = 1
+value_max = 127
+category = "encoder"
+direction = "source"
+midi_channel = 1
+number = "{cc_number}"
+description = "Layer B encoder {encoder} turn on CC {cc_number}."
+
+[[templates]]
+id = "layer_b_encoder_{encoder}_turn"
+label = "Layer B Encoder {encoder} Turn"
+address = "xtouch-compact://layer_b/encoder/{encoder}/turn"
+range_name = "encoder"
+range_start = 9
+range_end = 16
+derived = [ { name = "cc_number", source = "encoder", offset = 36 } ]
+message_type = "control_change"
+value_type = "relative"
+relative_encoding = "absolute_delta"
+value_min = 1
+value_max = 127
+category = "encoder"
+direction = "source"
+midi_channel = 1
+number = "{cc_number}"
+description = "Layer B encoder {encoder} turn on CC {cc_number}."
+
+[[templates]]
+id = "layer_a_encoder_{encoder}_push"
+label = "Layer A Encoder {encoder} Push"
+address = "xtouch-compact://layer_a/encoder/{encoder}/push"
+range_name = "encoder"
+range_start = 1
+range_end = 8
+derived = [ { name = "note_number", source = "encoder", offset = -1 } ]
+message_type = "note"
+value_type = "int"
+value_min = 0
+value_max = 127
+category = "encoder_push"
+direction = "source"
+midi_channel = 1
+number = "{note_number}"
+description = "Layer A encoder {encoder} push switch."
+
+[[templates]]
+id = "layer_a_encoder_{encoder}_push"
+label = "Layer A Encoder {encoder} Push"
+address = "xtouch-compact://layer_a/encoder/{encoder}/push"
+range_name = "encoder"
+range_start = 9
+range_end = 16
+derived = [ { name = "note_number", source = "encoder", offset = -1 } ]
+message_type = "note"
+value_type = "int"
+value_min = 0
+value_max = 127
+category = "encoder_push"
+direction = "source"
+midi_channel = 1
+number = "{note_number}"
+description = "Layer A encoder {encoder} push switch."
+
+[[templates]]
+id = "layer_b_encoder_{encoder}_push"
+label = "Layer B Encoder {encoder} Push"
+address = "xtouch-compact://layer_b/encoder/{encoder}/push"
+range_name = "encoder"
+range_start = 1
+range_end = 8
+derived = [ { name = "note_number", source = "encoder", offset = 54 } ]
+message_type = "note"
+value_type = "int"
+value_min = 0
+value_max = 127
+category = "encoder_push"
+direction = "source"
+midi_channel = 1
+number = "{note_number}"
+description = "Layer B encoder {encoder} push switch."
+
+[[templates]]
+id = "layer_b_encoder_{encoder}_push"
+label = "Layer B Encoder {encoder} Push"
+address = "xtouch-compact://layer_b/encoder/{encoder}/push"
+range_name = "encoder"
+range_start = 9
+range_end = 16
+derived = [ { name = "note_number", source = "encoder", offset = 54 } ]
+message_type = "note"
+value_type = "int"
+value_min = 0
+value_max = 127
+category = "encoder_push"
+direction = "source"
+midi_channel = 1
+number = "{note_number}"
+description = "Layer B encoder {encoder} push switch."
+
+[[templates]]
+id = "layer_a_fader_{fader}"
+label = "Layer A Fader {fader}"
+address = "xtouch-compact://layer_a/fader/{fader}"
+range_name = "fader"
+range_start = 1
+range_end = 8
+message_type = "control_change"
+value_type = "int"
+value_min = 0
+value_max = 127
+category = "fader"
+direction = "bidirectional"
+midi_channel = 1
+number = "{fader}"
+description = "Layer A channel fader {fader} on CC {fader}."
+
+[[parameters]]
+id = "layer_a_master_fader"
+label = "Layer A Master Fader"
+address = "xtouch-compact://layer_a/fader/master"
+message_type = "control_change"
+value_type = "int"
+value_min = 0
+value_max = 127
+category = "fader"
+direction = "bidirectional"
+midi_channel = 1
+number = 9
+description = "Layer A master fader on CC 9."
+
+[[templates]]
+id = "layer_b_fader_{fader}"
+label = "Layer B Fader {fader}"
+address = "xtouch-compact://layer_b/fader/{fader}"
+range_name = "fader"
+range_start = 1
+range_end = 8
+derived = [ { name = "cc_number", source = "fader", offset = 27 } ]
+message_type = "control_change"
+value_type = "int"
+value_min = 0
+value_max = 127
+category = "fader"
+direction = "bidirectional"
+midi_channel = 1
+number = "{cc_number}"
+description = "Layer B channel fader {fader} on CC {cc_number}."
+
+[[parameters]]
+id = "layer_b_master_fader"
+label = "Layer B Master Fader"
+address = "xtouch-compact://layer_b/fader/master"
+message_type = "control_change"
+value_type = "int"
+value_min = 0
+value_max = 127
+category = "fader"
+direction = "bidirectional"
+midi_channel = 1
+number = 36
+description = "Layer B master fader on CC 36."
+
+[[templates]]
+id = "layer_a_fader_{fader}_touch"
+label = "Layer A Fader {fader} Touch"
+address = "xtouch-compact://layer_a/fader/{fader}/touch"
+range_name = "fader"
+range_start = 1
+range_end = 8
+derived = [ { name = "cc_number", source = "fader", offset = 100 } ]
+message_type = "control_change"
+value_type = "int"
+value_min = 0
+value_max = 127
+category = "fader_touch"
+direction = "source"
+midi_channel = 1
+number = "{cc_number}"
+description = "Layer A fader {fader} touch on CC {cc_number}."
+
+[[parameters]]
+id = "layer_a_master_fader_touch"
+label = "Layer A Master Fader Touch"
+address = "xtouch-compact://layer_a/fader/master/touch"
+message_type = "control_change"
+value_type = "int"
+value_min = 0
+value_max = 127
+category = "fader_touch"
+direction = "source"
+midi_channel = 1
+number = 109
+description = "Layer A master fader touch on CC 109."
+
+[[templates]]
+id = "layer_b_fader_{fader}_touch"
+label = "Layer B Fader {fader} Touch"
+address = "xtouch-compact://layer_b/fader/{fader}/touch"
+range_name = "fader"
+range_start = 1
+range_end = 8
+derived = [ { name = "cc_number", source = "fader", offset = 110 } ]
+message_type = "control_change"
+value_type = "int"
+value_min = 0
+value_max = 127
+category = "fader_touch"
+direction = "source"
+midi_channel = 1
+number = "{cc_number}"
+description = "Layer B fader {fader} touch on CC {cc_number}."
+
+[[parameters]]
+id = "layer_b_master_fader_touch"
+label = "Layer B Master Fader Touch"
+address = "xtouch-compact://layer_b/fader/master/touch"
+message_type = "control_change"
+value_type = "int"
+value_min = 0
+value_max = 127
+category = "fader_touch"
+direction = "source"
+midi_channel = 1
+number = 119
+description = "Layer B master fader touch on CC 119."
+
+[[templates]]
+id = "layer_a_top_button_{button}"
+label = "Layer A Top Button {button}"
+address = "xtouch-compact://layer_a/top_button/{button}"
+range_name = "button"
+range_start = 1
+range_end = 8
+derived = [ { name = "note_number", source = "button", offset = 15 } ]
+message_type = "note"
+value_type = "int"
+value_min = 0
+value_max = 127
+category = "button"
+direction = "source"
+midi_channel = 1
+number = "{note_number}"
+description = "Layer A top button {button}."
+
+[[templates]]
+id = "layer_a_top_button_{button}_led"
+label = "Layer A Top Button {button} LED"
+address = "xtouch-compact://layer_a/feedback/top_button/{button}/led"
+range_name = "button"
+range_start = 1
+range_end = 8
+derived = [ { name = "note_number", source = "button", offset = 15 } ]
+message_type = "note"
+value_type = "int"
+value_min = 0
+value_max = 1
+note_on_velocity = 127
+note_off_velocity = 0
+category = "feedback"
+direction = "target"
+midi_channel = 1
+number = "{note_number}"
+description = "Layer A top button {button} LED."
+
+[[templates]]
+id = "layer_a_mid_button_{button}"
+label = "Layer A Mid Button {button}"
+address = "xtouch-compact://layer_a/mid_button/{button}"
+range_name = "button"
+range_start = 1
+range_end = 8
+derived = [ { name = "note_number", source = "button", offset = 23 } ]
+message_type = "note"
+value_type = "int"
+value_min = 0
+value_max = 127
+category = "button"
+direction = "source"
+midi_channel = 1
+number = "{note_number}"
+description = "Layer A mid button {button}."
+
+[[templates]]
+id = "layer_a_mid_button_{button}_led"
+label = "Layer A Mid Button {button} LED"
+address = "xtouch-compact://layer_a/feedback/mid_button/{button}/led"
+range_name = "button"
+range_start = 1
+range_end = 8
+derived = [ { name = "note_number", source = "button", offset = 23 } ]
+message_type = "note"
+value_type = "int"
+value_min = 0
+value_max = 1
+note_on_velocity = 127
+note_off_velocity = 0
+category = "feedback"
+direction = "target"
+midi_channel = 1
+number = "{note_number}"
+description = "Layer A mid button {button} LED."
+
+[[templates]]
+id = "layer_a_bottom_button_{button}"
+label = "Layer A Bottom Button {button}"
+address = "xtouch-compact://layer_a/bottom_button/{button}"
+range_name = "button"
+range_start = 1
+range_end = 8
+derived = [ { name = "note_number", source = "button", offset = 31 } ]
+message_type = "note"
+value_type = "int"
+value_min = 0
+value_max = 127
+category = "button"
+direction = "source"
+midi_channel = 1
+number = "{note_number}"
+description = "Layer A bottom button {button}."
+
+[[templates]]
+id = "layer_a_bottom_button_{button}_led"
+label = "Layer A Bottom Button {button} LED"
+address = "xtouch-compact://layer_a/feedback/bottom_button/{button}/led"
+range_name = "button"
+range_start = 1
+range_end = 8
+derived = [ { name = "note_number", source = "button", offset = 31 } ]
+message_type = "note"
+value_type = "int"
+value_min = 0
+value_max = 1
+note_on_velocity = 127
+note_off_velocity = 0
+category = "feedback"
+direction = "target"
+midi_channel = 1
+number = "{note_number}"
+description = "Layer A bottom button {button} LED."
+
+[[templates]]
+id = "layer_a_lower_button_{button}"
+label = "Layer A Lower Button {button}"
+address = "xtouch-compact://layer_a/lower_button/{button}"
+range_name = "button"
+range_start = 1
+range_end = 9
+derived = [ { name = "note_number", source = "button", offset = 39 } ]
+message_type = "note"
+value_type = "int"
+value_min = 0
+value_max = 127
+category = "button"
+direction = "source"
+midi_channel = 1
+number = "{note_number}"
+description = "Layer A lower button {button}."
+
+[[templates]]
+id = "layer_a_lower_button_{button}_led"
+label = "Layer A Lower Button {button} LED"
+address = "xtouch-compact://layer_a/feedback/lower_button/{button}/led"
+range_name = "button"
+range_start = 1
+range_end = 9
+derived = [ { name = "note_number", source = "button", offset = 39 } ]
+message_type = "note"
+value_type = "int"
+value_min = 0
+value_max = 1
+note_on_velocity = 127
+note_off_velocity = 0
+category = "feedback"
+direction = "target"
+midi_channel = 1
+number = "{note_number}"
+description = "Layer A lower button {button} LED."
+
+[[templates]]
+id = "layer_b_top_button_{button}"
+label = "Layer B Top Button {button}"
+address = "xtouch-compact://layer_b/top_button/{button}"
+range_name = "button"
+range_start = 1
+range_end = 8
+derived = [ { name = "note_number", source = "button", offset = 70 } ]
+message_type = "note"
+value_type = "int"
+value_min = 0
+value_max = 127
+category = "button"
+direction = "source"
+midi_channel = 1
+number = "{note_number}"
+description = "Layer B top button {button}."
+
+[[templates]]
+id = "layer_b_top_button_{button}_led"
+label = "Layer B Top Button {button} LED"
+address = "xtouch-compact://layer_b/feedback/top_button/{button}/led"
+range_name = "button"
+range_start = 1
+range_end = 8
+derived = [ { name = "note_number", source = "button", offset = 70 } ]
+message_type = "note"
+value_type = "int"
+value_min = 0
+value_max = 1
+note_on_velocity = 127
+note_off_velocity = 0
+category = "feedback"
+direction = "target"
+midi_channel = 1
+number = "{note_number}"
+description = "Layer B top button {button} LED."
+
+[[templates]]
+id = "layer_b_mid_button_{button}"
+label = "Layer B Mid Button {button}"
+address = "xtouch-compact://layer_b/mid_button/{button}"
+range_name = "button"
+range_start = 1
+range_end = 8
+derived = [ { name = "note_number", source = "button", offset = 78 } ]
+message_type = "note"
+value_type = "int"
+value_min = 0
+value_max = 127
+category = "button"
+direction = "source"
+midi_channel = 1
+number = "{note_number}"
+description = "Layer B mid button {button}."
+
+[[templates]]
+id = "layer_b_mid_button_{button}_led"
+label = "Layer B Mid Button {button} LED"
+address = "xtouch-compact://layer_b/feedback/mid_button/{button}/led"
+range_name = "button"
+range_start = 1
+range_end = 8
+derived = [ { name = "note_number", source = "button", offset = 78 } ]
+message_type = "note"
+value_type = "int"
+value_min = 0
+value_max = 1
+note_on_velocity = 127
+note_off_velocity = 0
+category = "feedback"
+direction = "target"
+midi_channel = 1
+number = "{note_number}"
+description = "Layer B mid button {button} LED."
+
+[[templates]]
+id = "layer_b_bottom_button_{button}"
+label = "Layer B Bottom Button {button}"
+address = "xtouch-compact://layer_b/bottom_button/{button}"
+range_name = "button"
+range_start = 1
+range_end = 8
+derived = [ { name = "note_number", source = "button", offset = 86 } ]
+message_type = "note"
+value_type = "int"
+value_min = 0
+value_max = 127
+category = "button"
+direction = "source"
+midi_channel = 1
+number = "{note_number}"
+description = "Layer B bottom button {button}."
+
+[[templates]]
+id = "layer_b_bottom_button_{button}_led"
+label = "Layer B Bottom Button {button} LED"
+address = "xtouch-compact://layer_b/feedback/bottom_button/{button}/led"
+range_name = "button"
+range_start = 1
+range_end = 8
+derived = [ { name = "note_number", source = "button", offset = 86 } ]
+message_type = "note"
+value_type = "int"
+value_min = 0
+value_max = 1
+note_on_velocity = 127
+note_off_velocity = 0
+category = "feedback"
+direction = "target"
+midi_channel = 1
+number = "{note_number}"
+description = "Layer B bottom button {button} LED."
+
+[[templates]]
+id = "layer_b_lower_button_{button}"
+label = "Layer B Lower Button {button}"
+address = "xtouch-compact://layer_b/lower_button/{button}"
+range_name = "button"
+range_start = 1
+range_end = 9
+derived = [ { name = "note_number", source = "button", offset = 94 } ]
+message_type = "note"
+value_type = "int"
+value_min = 0
+value_max = 127
+category = "button"
+direction = "source"
+midi_channel = 1
+number = "{note_number}"
+description = "Layer B lower button {button}."
+
+[[templates]]
+id = "layer_b_lower_button_{button}_led"
+label = "Layer B Lower Button {button} LED"
+address = "xtouch-compact://layer_b/feedback/lower_button/{button}/led"
+range_name = "button"
+range_start = 1
+range_end = 9
+derived = [ { name = "note_number", source = "button", offset = 94 } ]
+message_type = "note"
+value_type = "int"
+value_min = 0
+value_max = 1
+note_on_velocity = 127
+note_off_velocity = 0
+category = "feedback"
+direction = "target"
+midi_channel = 1
+number = "{note_number}"
+description = "Layer B lower button {button} LED."
+
+[[parameters]]
+id = "layer_a_foot_switch"
+label = "Layer A Foot Switch"
+address = "xtouch-compact://layer_a/foot_switch"
+message_type = "control_change"
+value_type = "int"
+value_min = 0
+value_max = 127
+category = "foot"
+direction = "source"
+midi_channel = 1
+number = 27
+description = "Layer A foot switch on CC 27."
+
+[[parameters]]
+id = "layer_a_expression_pedal"
+label = "Layer A Expression Pedal"
+address = "xtouch-compact://layer_a/expression_pedal"
+message_type = "control_change"
+value_type = "int"
+value_min = 0
+value_max = 127
+category = "expression"
+direction = "source"
+midi_channel = 1
+number = 26
+description = "Layer A expression pedal on CC 26."
+
+[[parameters]]
+id = "layer_b_foot_switch"
+label = "Layer B Foot Switch"
+address = "xtouch-compact://layer_b/foot_switch"
+message_type = "control_change"
+value_type = "int"
+value_min = 0
+value_max = 127
+category = "foot"
+direction = "source"
+midi_channel = 1
+number = 64
+description = "Layer B foot switch on CC 64."
+
+[[parameters]]
+id = "layer_b_expression_pedal"
+label = "Layer B Expression Pedal"
+address = "xtouch-compact://layer_b/expression_pedal"
+message_type = "control_change"
+value_type = "int"
+value_min = 0
+value_max = 127
+category = "expression"
+direction = "source"
+midi_channel = 1
+number = 63
+description = "Layer B expression pedal on CC 63."
+
+[[templates]]
+id = "layer_a_encoder_{encoder}_value"
+label = "Layer A Encoder {encoder} Value"
+address = "xtouch-compact://layer_a/value/encoder/{encoder}"
+range_name = "encoder"
+range_start = 1
+range_end = 8
+derived = [ { name = "cc_number", source = "encoder", offset = 9 } ]
+message_type = "control_change"
+value_type = "int"
+value_min = 0
+value_max = 127
+category = "value"
+direction = "target"
+midi_channel = 1
+number = "{cc_number}"
+description = "Layer A encoder {encoder} internal value on CC {cc_number}."
+
+[[templates]]
+id = "layer_a_encoder_{encoder}_led_ring"
+label = "Layer A Encoder {encoder} LED Ring"
+address = "xtouch-compact://layer_a/feedback/encoder/{encoder}/led_ring"
+range_name = "encoder"
+range_start = 1
+range_end = 8
+derived = [ { name = "cc_number", source = "encoder", offset = 25 } ]
+message_type = "control_change"
+value_type = "int"
+value_min = 0
+value_max = 28
+category = "feedback"
+direction = "target"
+midi_channel = 1
+number = "{cc_number}"
+description = "Layer A encoder {encoder} LED ring on CC {cc_number}."
+
+[[templates]]
+id = "layer_a_encoder_{encoder}_value"
+label = "Layer A Encoder {encoder} Value"
+address = "xtouch-compact://layer_a/value/encoder/{encoder}"
+range_name = "encoder"
+range_start = 9
+range_end = 16
+derived = [ { name = "cc_number", source = "encoder", offset = 9 } ]
+message_type = "control_change"
+value_type = "int"
+value_min = 0
+value_max = 127
+category = "value"
+direction = "target"
+midi_channel = 1
+number = "{cc_number}"
+description = "Layer A encoder {encoder} internal value on CC {cc_number}."
+
+[[templates]]
+id = "layer_a_encoder_{encoder}_led_ring"
+label = "Layer A Encoder {encoder} LED Ring"
+address = "xtouch-compact://layer_a/feedback/encoder/{encoder}/led_ring"
+range_name = "encoder"
+range_start = 9
+range_end = 16
+derived = [ { name = "cc_number", source = "encoder", offset = 25 } ]
+message_type = "control_change"
+value_type = "int"
+value_min = 0
+value_max = 28
+category = "feedback"
+direction = "target"
+midi_channel = 1
+number = "{cc_number}"
+description = "Layer A encoder {encoder} LED ring on CC {cc_number}."
+
+[[templates]]
+id = "layer_b_encoder_{encoder}_value"
+label = "Layer B Encoder {encoder} Value"
+address = "xtouch-compact://layer_b/value/encoder/{encoder}"
+range_name = "encoder"
+range_start = 1
+range_end = 8
+derived = [ { name = "cc_number", source = "encoder", offset = 36 } ]
+message_type = "control_change"
+value_type = "int"
+value_min = 0
+value_max = 127
+category = "value"
+direction = "target"
+midi_channel = 1
+number = "{cc_number}"
+description = "Layer B encoder {encoder} internal value on CC {cc_number}."
+
+[[templates]]
+id = "layer_b_encoder_{encoder}_led_ring"
+label = "Layer B Encoder {encoder} LED Ring"
+address = "xtouch-compact://layer_b/feedback/encoder/{encoder}/led_ring"
+range_name = "encoder"
+range_start = 1
+range_end = 8
+derived = [ { name = "cc_number", source = "encoder", offset = 25 } ]
+message_type = "control_change"
+value_type = "int"
+value_min = 0
+value_max = 28
+category = "feedback"
+direction = "target"
+midi_channel = 1
+number = "{cc_number}"
+description = "Layer B encoder {encoder} LED ring on CC {cc_number}."
+
+[[templates]]
+id = "layer_b_encoder_{encoder}_value"
+label = "Layer B Encoder {encoder} Value"
+address = "xtouch-compact://layer_b/value/encoder/{encoder}"
+range_name = "encoder"
+range_start = 9
+range_end = 16
+derived = [ { name = "cc_number", source = "encoder", offset = 36 } ]
+message_type = "control_change"
+value_type = "int"
+value_min = 0
+value_max = 127
+category = "value"
+direction = "target"
+midi_channel = 1
+number = "{cc_number}"
+description = "Layer B encoder {encoder} internal value on CC {cc_number}."
+
+[[templates]]
+id = "layer_b_encoder_{encoder}_led_ring"
+label = "Layer B Encoder {encoder} LED Ring"
+address = "xtouch-compact://layer_b/feedback/encoder/{encoder}/led_ring"
+range_name = "encoder"
+range_start = 9
+range_end = 16
+derived = [ { name = "cc_number", source = "encoder", offset = 25 } ]
+message_type = "control_change"
+value_type = "int"
+value_min = 0
+value_max = 28
+category = "feedback"
+direction = "target"
+midi_channel = 1
+number = "{cc_number}"
+description = "Layer B encoder {encoder} LED ring on CC {cc_number}."
+
+[[parameters]]
+id = "select_layer_a"
+label = "Select Layer A"
+address = "xtouch-compact://mode/layer_a"
+message_type = "program_change"
+value_type = "int"
+value_min = 0
+value_max = 0
+category = "layer"
+direction = "target"
+midi_channel = 1
+number = 0
+description = "Select Standard Mode Layer A by program change 0."
+
+[[parameters]]
+id = "select_layer_b"
+label = "Select Layer B"
+address = "xtouch-compact://mode/layer_b"
+message_type = "program_change"
+value_type = "int"
+value_min = 1
+value_max = 1
+category = "layer"
+direction = "target"
+midi_channel = 1
+number = 1
+description = "Select Standard Mode Layer B by program change 1."
+
+[[parameters]]
+id = "set_standard_mode"
+label = "Set Standard Mode"
+address = "xtouch-compact://mode/standard"
+message_type = "control_change"
+value_type = "int"
+value_min = 0
+value_max = 0
+category = "mode"
+direction = "target"
+midi_channel = 1
+number = 127
+description = "Set Standard Mode with CC 127 value 0."
+
+[[parameters]]
+id = "set_mc_mode"
+label = "Set MC Mode"
+address = "xtouch-compact://mode/mc"
+message_type = "control_change"
+value_type = "int"
+value_min = 1
+value_max = 1
+category = "mode"
+direction = "target"
+midi_channel = 1
+number = 127
+description = "Set Mackie Control Mode with CC 127 value 1."
+
+[[parameters]]
+id = "foot_switch_led"
+label = "Foot Switch LED"
+address = "xtouch-compact://status/foot_switch_led"
+message_type = "control_change"
+value_type = "int"
+value_min = 0
+value_max = 127
+category = "status"
+direction = "target"
+midi_channel = 1
+number = 42
+description = "Foot switch status LED on CC 42."
+
+[[parameters]]
+id = "expression_pedal_led"
+label = "Expression Pedal LED"
+address = "xtouch-compact://status/expression_pedal_led"
+message_type = "control_change"
+value_type = "int"
+value_min = 0
+value_max = 127
+category = "status"
+direction = "target"
+midi_channel = 1
+number = 43
+description = "Expression pedal status LED on CC 43."

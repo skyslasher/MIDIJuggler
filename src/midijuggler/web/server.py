@@ -1960,7 +1960,9 @@ class WebInterface:
             "device_name": device.display_name(),
             "device_library": str(device.library or "").strip(),
         }
-        if payload["device_library"] == "behringer_xtouch_mini":
+        from midijuggler.midi.xtouch_channels import is_xtouch_library
+
+        if is_xtouch_library(payload["device_library"]):
             payload["feedback_refresh_interval"] = float(device.feedback_refresh_interval)
             payload["midi_value_channel"] = int(device.midi_value_channel)
             payload["midi_display_channel"] = int(device.midi_display_channel)

@@ -13,6 +13,37 @@ XT_NOTE_ON = 0x90 | XT_CHANNEL
 XT_NOTE_OFF = 0x80 | XT_CHANNEL
 
 
+def test_xtouch_compact_matches_control_change_and_note() -> None:
+    index = build_source_index(get_midi_library("behringer_xtouch_compact"))
+
+    encoder_turn = index.match(0xB0, (10, 64))
+    assert len(encoder_turn) == 1
+    assert encoder_turn[0].control_id == "layer_a_encoder_1_turn"
+    assert encoder_turn[0].value == 64.0
+
+    fader = index.match(0xB0, (1, 100))
+    assert len(fader) == 1
+    assert fader[0].control_id == "layer_a_fader_1"
+    assert fader[0].value == 100.0
+
+    master_fader = index.match(0xB0, (9, 55))
+    assert len(master_fader) == 1
+    assert master_fader[0].control_id == "layer_a_master_fader"
+
+    layer_b_fader = index.match(0xB0, (35, 55))
+    assert len(layer_b_fader) == 1
+    assert layer_b_fader[0].control_id == "layer_b_fader_8"
+
+    layer_b_encoder = index.match(0xB0, (37, 42))
+    assert len(layer_b_encoder) == 1
+    assert layer_b_encoder[0].control_id == "layer_b_encoder_1_turn"
+
+    button_press = index.match(0x90, (16, 127))
+    assert len(button_press) == 1
+    assert button_press[0].control_id == "layer_a_top_button_1"
+    assert button_press[0].value == 127.0
+
+
 def test_xtouch_mini_matches_control_change_and_note() -> None:
     index = build_source_index(get_midi_library("behringer_xtouch_mini"))
 

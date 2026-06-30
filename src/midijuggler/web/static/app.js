@@ -3582,8 +3582,11 @@ function adapterDeviceLibraryHint(adapterName) {
   return "Configure the control library on the Device bound to this adapter.";
 }
 
-function isXtouchMiniLibrary(libraryId) {
-  return String(libraryId || "").trim() === "behringer_xtouch_mini";
+function isXtouchLibrary(libraryId) {
+  const library = String(libraryId || "").trim();
+  return (
+    library === "behringer_xtouch_mini" || library === "behringer_xtouch_compact"
+  );
 }
 
 function collectBoundDeviceXtouchFieldsFromCard(card, selector = "[data-device-field]") {
@@ -3738,7 +3741,7 @@ function collectDeviceFromCard(card) {
     library_kind: card.querySelector('[data-field="library_kind"]')?.value.trim() || "",
   };
   card.dataset.deviceUid = device.uid;
-  if (isXtouchMiniLibrary(device.library)) {
+  if (isXtouchLibrary(device.library)) {
     const feedbackRefresh = card.querySelector('[data-field="feedback_refresh_interval"]');
     const valueChannel = card.querySelector('[data-field="midi_value_channel"]');
     const displayChannel = card.querySelector('[data-field="midi_display_channel"]');
@@ -4094,7 +4097,7 @@ function createDeviceCard(device = {}, options = {}) {
       librarySelect?.value.trim() ||
       card.dataset.deviceLibrary ||
       "";
-    xtouchFields.hidden = !isXtouchMiniLibrary(library);
+    xtouchFields.hidden = !isXtouchLibrary(library);
   };
   updateXtouchFieldsVisibility();
 
@@ -5975,7 +5978,7 @@ function createMidiAdapterCard(instance, config, options = {}) {
         deviceLibraryForAdapter(name) ||
         instance.device_library ||
         xtouchLibrary;
-      xtouchWrap.hidden = !isXtouchMiniLibrary(library);
+      xtouchWrap.hidden = !isXtouchLibrary(library);
     };
     updateXtouchAdapterFieldsVisibility();
     body.appendChild(xtouchWrap);

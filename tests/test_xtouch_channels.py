@@ -6,8 +6,12 @@ from midijuggler.device.types import DeviceConfig
 from midijuggler.midi.library_match import build_source_index
 from midijuggler.midi.target_encode import encode_mapped_midi_target
 from midijuggler.midi.xtouch_channels import (
+    DEFAULT_XTOUCH_COMPACT_DISPLAY_CHANNEL,
+    DEFAULT_XTOUCH_COMPACT_VALUE_CHANNEL,
     DEFAULT_XTOUCH_DISPLAY_CHANNEL,
     DEFAULT_XTOUCH_VALUE_CHANNEL,
+    default_xtouch_display_channel,
+    default_xtouch_value_channel,
     parse_midi_channel_option,
     resolve_parameter_midi_channel,
     xtouch_display_channel,
@@ -136,3 +140,26 @@ def test_encode_mapped_midi_target_uses_configured_xtouch_channels() -> None:
 def test_xtouch_channel_defaults_match_library() -> None:
     assert DEFAULT_XTOUCH_VALUE_CHANNEL == 11
     assert DEFAULT_XTOUCH_DISPLAY_CHANNEL == 12
+    assert DEFAULT_XTOUCH_COMPACT_VALUE_CHANNEL == 1
+    assert DEFAULT_XTOUCH_COMPACT_DISPLAY_CHANNEL == 1
+    assert default_xtouch_value_channel("behringer_xtouch_compact") == 1
+    assert default_xtouch_display_channel("behringer_xtouch_compact") == 1
+
+
+def test_resolve_parameter_midi_channel_uses_compact_defaults() -> None:
+    library = get_midi_library("behringer_xtouch_compact")
+    parameters = {parameter.id: parameter for parameter in library.parameters}
+    adapter = AdapterConfig(
+        enabled=True,
+        options={"midi_library": "behringer_xtouch_compact"},
+        kind="midi",
+    )
+
+    assert (
+        resolve_parameter_midi_channel(adapter, parameters["layer_a_encoder_1_turn"])
+        == 1
+    )
+    assert (
+        resolve_parameter_midi_channel(adapter, parameters["layer_a_encoder_1_led_ring"])
+        == 1
+    )

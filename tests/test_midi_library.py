@@ -6,6 +6,7 @@ def test_lists_packaged_midi_libraries() -> None:
 
     assert [library.id for library in libraries] == [
         "behringer_wing",
+        "behringer_xtouch_compact",
         "behringer_xtouch_mini",
         "presonus_faderport",
     ]
@@ -43,6 +44,42 @@ def test_xtouch_mini_library_contains_layers_controls_and_feedback() -> None:
     assert parameters["select_layer_b"].message_type == "program_change"
     assert parameters["set_mc_mode"].number == 127
     assert len(library.parameters) == 134
+
+
+def test_xtouch_compact_library_contains_layers_controls_and_feedback() -> None:
+    library = get_midi_library("behringer_xtouch_compact")
+    parameters = {parameter.id: parameter for parameter in library.parameters}
+
+    assert parameters["layer_a_encoder_1_turn"].message_type == "control_change"
+    assert parameters["layer_a_encoder_1_turn"].midi_channel == 1
+    assert parameters["layer_a_encoder_1_turn"].number == 10
+    assert parameters["layer_a_encoder_9_turn"].number == 18
+    assert parameters["layer_b_encoder_1_turn"].number == 37
+    assert parameters["layer_b_encoder_8_turn"].number == 44
+    assert parameters["layer_a_encoder_1_push"].number == 0
+    assert parameters["layer_a_encoder_9_push"].number == 8
+    assert parameters["layer_b_encoder_8_push"].number == 62
+    assert parameters["layer_a_top_button_1"].number == 16
+    assert parameters["layer_a_lower_button_9"].number == 48
+    assert parameters["layer_b_lower_button_9"].number == 103
+    assert parameters["layer_a_fader_1"].number == 1
+    assert parameters["layer_a_fader_1"].direction == "bidirectional"
+    assert parameters["layer_a_master_fader"].number == 9
+    assert parameters["layer_b_fader_8"].number == 35
+    assert parameters["layer_b_master_fader"].number == 36
+    assert parameters["layer_a_fader_1_touch"].number == 101
+    assert parameters["layer_b_master_fader_touch"].number == 119
+
+    assert parameters["layer_a_encoder_8_led_ring"].direction == "target"
+    assert parameters["layer_a_encoder_8_led_ring"].number == 33
+    assert parameters["layer_a_encoder_8_led_ring"].midi_channel == 1
+    assert parameters["layer_a_encoder_8_led_ring"].value_max == 28
+    assert parameters["layer_a_encoder_1_value"].number == 10
+    assert parameters["layer_a_top_button_1_led"].number == 16
+    assert parameters["layer_a_top_button_1_led"].value_max == 1
+    assert parameters["select_layer_b"].message_type == "program_change"
+    assert parameters["set_mc_mode"].number == 127
+    assert len(library.parameters) == 306
 
 
 def test_faderport_library_contains_channel_controls_and_lcd_track_names() -> None:

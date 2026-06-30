@@ -19,9 +19,9 @@ def export_devices(devices: list[DeviceConfig]) -> list[dict[str, Any]]:
 
 def import_device(raw: Any) -> DeviceConfig:
     from midijuggler.midi.xtouch_channels import (
-        DEFAULT_XTOUCH_DISPLAY_CHANNEL,
-        DEFAULT_XTOUCH_VALUE_CHANNEL,
-        XTOUCH_MINI_LIBRARY_ID,
+        default_xtouch_display_channel,
+        default_xtouch_value_channel,
+        is_xtouch_library,
         parse_midi_channel_option,
     )
     from midijuggler.midi.xtouch_feedback import parse_feedback_refresh_interval
@@ -41,8 +41,8 @@ def import_device(raw: Any) -> DeviceConfig:
     )
     library = str(raw.get("library", "")).strip()
     feedback_refresh_interval = 0.0
-    midi_value_channel = DEFAULT_XTOUCH_VALUE_CHANNEL
-    midi_display_channel = DEFAULT_XTOUCH_DISPLAY_CHANNEL
+    midi_value_channel = default_xtouch_value_channel(library)
+    midi_display_channel = default_xtouch_display_channel(library)
     if "feedback_refresh_interval" in raw:
         feedback_refresh_interval = parse_feedback_refresh_interval(
             raw["feedback_refresh_interval"]
@@ -51,24 +51,24 @@ def import_device(raw: Any) -> DeviceConfig:
         midi_value_channel = parse_midi_channel_option(
             raw["midi_value_channel"],
             field_name="device.midi_value_channel",
-            default=DEFAULT_XTOUCH_VALUE_CHANNEL,
+            default=default_xtouch_value_channel(library),
         )
     if "midi_display_channel" in raw:
         midi_display_channel = parse_midi_channel_option(
             raw["midi_display_channel"],
             field_name="device.midi_display_channel",
-            default=DEFAULT_XTOUCH_DISPLAY_CHANNEL,
+            default=default_xtouch_display_channel(library),
         )
-    if feedback_refresh_interval > 0 and library != XTOUCH_MINI_LIBRARY_ID:
+    if feedback_refresh_interval > 0 and not is_xtouch_library(library):
         raise ValueError(
-            "feedback_refresh_interval is only supported for behringer_xtouch_mini"
+            "feedback_refresh_interval is only supported for Behringer X-Touch libraries"
         )
-    if library != XTOUCH_MINI_LIBRARY_ID and (
+    if not is_xtouch_library(library) and (
         "midi_value_channel" in raw or "midi_display_channel" in raw
     ):
         raise ValueError(
             "midi_value_channel and midi_display_channel are only supported for "
-            "behringer_xtouch_mini"
+            "Behringer X-Touch libraries"
         )
     return DeviceConfig(
         uid=uid,

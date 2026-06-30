@@ -1,4 +1,4 @@
-"""Periodic feedback refresh for the Behringer X-Touch Mini."""
+"""Periodic feedback refresh for Behringer X-Touch controllers."""
 
 from __future__ import annotations
 
@@ -12,7 +12,7 @@ from midijuggler.datapoint.store import DataPointStore
 from midijuggler.datapoint.types import DataPointId
 from midijuggler.device.types import DeviceConfig
 from midijuggler.midi.xtouch_channels import (
-    XTOUCH_MINI_LIBRARY_ID,
+    is_xtouch_library,
     xtouch_device_options,
     xtouch_value_channel,
 )
@@ -32,9 +32,8 @@ def uses_xtouch_feedback_refresh(
     library_id: str | None = None,
     device: DeviceConfig | None = None,
 ) -> bool:
-    return (
+    return is_xtouch_library(
         xtouch_device_options(config, device, library_id=library_id).library_id
-        == XTOUCH_MINI_LIBRARY_ID
     )
 
 
@@ -61,12 +60,19 @@ def parse_feedback_refresh_interval(value: object) -> float:
     return interval
 
 
-def is_refreshable_target(parameter_id: str, *, category: str) -> bool:
+def is_refreshable_target(
+    parameter_id: str,
+    *,
+    category: str,
+    direction: str,
+) -> bool:
     if category == "feedback":
         return True
-    return category == "value" and "_encoder_" in parameter_id and parameter_id.endswith(
+    if category == "value" and "_encoder_" in parameter_id and parameter_id.endswith(
         "_value"
-    )
+    ):
+        return True
+    return category == "fader" and direction == "bidirectional"
 
 
 def feedback_point_ids(
@@ -75,17 +81,26 @@ def feedback_point_ids(
     library_id: str | None = None,
     device: DeviceConfig | None = None,
 ) -> frozenset[str]:
-    if not uses_xtouch_feedback_refresh(config, library_id=library_id, device=device):
+    resolved_library = xtouch_device_options(
+        config,
+        device,
+        library_id=library_id,
+    ).library_id
+    if not is_xtouch_library(resolved_library):
         return frozenset()
     try:
-        library = get_midi_library(XTOUCH_MINI_LIBRARY_ID)
+        library = get_midi_library(resolved_library)
     except KeyError:
         return frozenset()
     return frozenset(
         parameter.id
         for parameter in library.parameters
-        if parameter.direction == "target"
-        and is_refreshable_target(parameter.id, category=parameter.category)
+        if parameter.direction in {"target", "bidirectional"}
+        and is_refreshable_target(
+            parameter.id,
+            category=parameter.category,
+            direction=parameter.direction,
+        )
     )
 
 

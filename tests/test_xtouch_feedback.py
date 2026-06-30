@@ -35,9 +35,15 @@ def test_uses_xtouch_feedback_refresh_only_for_xtouch_library() -> None:
         options={"midi_library": "behringer_xtouch_mini"},
         kind="midi",
     )
+    compact = AdapterConfig(
+        enabled=True,
+        options={"midi_library": "behringer_xtouch_compact"},
+        kind="midi",
+    )
     generic = AdapterConfig(enabled=True, options={}, kind="midi")
 
     assert uses_xtouch_feedback_refresh(xtouch) is True
+    assert uses_xtouch_feedback_refresh(compact) is True
     assert uses_xtouch_feedback_refresh(generic) is False
 
 
@@ -72,6 +78,21 @@ def test_feedback_point_ids_lists_xtouch_feedback_targets() -> None:
         or point.endswith("_value")
         for point in points
     )
+
+
+def test_feedback_point_ids_includes_compact_motorized_faders() -> None:
+    config = AdapterConfig(
+        enabled=True,
+        options={"midi_library": "behringer_xtouch_compact"},
+        kind="midi",
+    )
+
+    points = feedback_point_ids(config)
+
+    assert "layer_a_fader_1" in points
+    assert "layer_a_master_fader" in points
+    assert "layer_b_fader_8" in points
+    assert "layer_a_encoder_1_led_ring" in points
 
 
 def test_remember_encoder_value_does_not_mirror_led_ring() -> None:
