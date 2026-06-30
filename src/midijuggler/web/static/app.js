@@ -152,6 +152,7 @@ let learnMode = false;
 let learnSourceDatapointId = "";
 let lastServerLearnSourceDatapoint = "";
 let learnRegistryDatapoints = [];
+let learnDatapointsLoadPromise = null;
 let learnMonitorDatapoints = new Map();
 let connectionSourceLearnState = null;
 const LEARN_HIDDEN_MODULES = new Set(["mapping", "modifier_graph"]);
@@ -1161,11 +1162,14 @@ function deviceUidFromCard(card) {
   return card?.dataset.deviceUid || card?.dataset.deviceId || "";
 }
 
-function fillDeviceTestPointSelect(card) {
+async function fillDeviceTestPointSelect(card) {
   const select = card?.querySelector('[data-test-field="device_datapoint"]');
   const uid = deviceUidFromCard(card);
   if (!select) {
     return;
+  }
+  if (!learnRegistryDatapoints.length) {
+    await loadLearnDatapoints().catch(() => null);
   }
   fillLearnPointSelect(select, uid, "output", select.value);
   updateDeviceTestValueBounds(card);
@@ -1175,7 +1179,7 @@ function refreshDeviceTestPointSelects() {
   for (const card of deviceInstances?.querySelectorAll(".device-card") || []) {
     const fieldset = card.querySelector(".device-test-send");
     if (fieldset && !fieldset.hidden) {
-      fillDeviceTestPointSelect(card);
+      void fillDeviceTestPointSelect(card);
     }
   }
 }
@@ -2518,23 +2522,34 @@ function syncLearnRangeFieldsVisibility() {
 }
 
 async function loadLearnDatapoints() {
-  try {
-    await refreshDeviceConfigCache().catch(() => null);
-    const response = await fetch("/api/datapoints");
-    if (!response.ok) {
-      throw new Error(await response.text());
-    }
-    const payload = await response.json();
-    learnRegistryDatapoints = (payload.datapoints || []).filter(isLearnSelectableDatapoint);
-    renderLearnDatapointSelects();
-    refreshMappingEditorSelects();
-    await preloadLearnMidiLibraries(learnRegistryDatapoints);
-    renderLearnDatapointSelects();
-    refreshMappingEditorSelects();
-    syncLearnSourceFromServer({ source_datapoint: learnSourceDatapointId });
-  } catch (error) {
-    learnMessage.textContent = `error: could not load data points (${error.message})`;
+  if (learnDatapointsLoadPromise) {
+    return learnDatapointsLoadPromise;
   }
+  learnDatapointsLoadPromise = (async () => {
+    try {
+      await refreshDeviceConfigCache().catch(() => null);
+      const response = await fetch("/api/datapoints");
+      if (!response.ok) {
+        throw new Error(await response.text());
+      }
+      const payload = await response.json();
+      learnRegistryDatapoints = (payload.datapoints || []).filter(isLearnSelectableDatapoint);
+      renderLearnDatapointSelects();
+      refreshMappingEditorSelects();
+      await preloadLearnMidiLibraries(learnRegistryDatapoints);
+      renderLearnDatapointSelects();
+      refreshMappingEditorSelects();
+      syncLearnSourceFromServer({ source_datapoint: learnSourceDatapointId });
+    } catch (error) {
+      if (learnMessage) {
+        learnMessage.textContent = `error: could not load data points (${error.message})`;
+      }
+      throw error;
+    } finally {
+      learnDatapointsLoadPromise = null;
+    }
+  })();
+  return learnDatapointsLoadPromise;
 }
 
 async function refreshDeviceConfigCache({ rerenderCards = false } = {}) {
@@ -3978,8 +3993,9 @@ function loadDevicesConfig() {
       }
       return response.json();
     })
-    .then((config) => {
+    .then(async (config) => {
       renderDevicesConfig(config);
+      await loadLearnDatapoints().catch(() => null);
       return config;
     });
 }
@@ -5249,7 +5265,7 @@ function syncDeviceTestSendSection(card) {
     deviceTestUsesMidiLibrary(card) || deviceTestUsesOscLibrary(card);
   fieldset.hidden = !libraryAvailable;
   if (libraryAvailable) {
-    fillDeviceTestPointSelect(card);
+    void fillDeviceTestPointSelect(card);
   }
 }
 
