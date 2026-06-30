@@ -102,6 +102,71 @@ def test_send_device_test_message_resolves_osc_library_parameter() -> None:
     assert output_event.arguments == (pytest.approx(0.75),)
 
 
+def test_send_device_test_message_accepts_datapoint_id() -> None:
+    async def scenario() -> dict[str, object]:
+        listen_port = _free_udp_port()
+        bus = EventBus()
+        adapter_config = AdapterConfig(
+            enabled=True,
+            kind="osc",
+            options={
+                "osc_port": listen_port,
+                "listen_host": "127.0.0.1",
+                "remote_host": "127.0.0.1",
+                "osc_library": "behringer_wing",
+            },
+        )
+        adapter = OscAdapter(
+            name="wing_foh",
+            config=adapter_config,
+            bus=bus,
+        )
+        await adapter.start()
+
+        config = parse_config(
+            {
+                "adapters": {
+                    "wing_foh": {
+                        "enabled": True,
+                        "type": "osc",
+                        **adapter_config.options,
+                    }
+                },
+                "devices": [
+                    osc_device(
+                        "wing_desk",
+                        "behringer_wing",
+                        adapter="wing_foh",
+                        library_kind="wing",
+                    )
+                ],
+            }
+        )
+        interface = WebInterface(
+            config,
+            bus,
+            ClockBpmTracker(),
+            MasterClock(config.master_clock, bus),
+            osc_adapters={"wing_foh": adapter},
+        )
+
+        result = await interface.send_device_test_message(
+            {
+                "uid": "wing_desk",
+                "datapoint_id": "wing_desk./ch/1/fdr",
+                "value": 0.75,
+            }
+        )
+        await adapter.stop()
+        return result
+
+    result = asyncio.run(scenario())
+
+    assert result["ok"] is True
+    assert result["parameter_id"] == "ch_1_fdr"
+    assert result["address"] == "/ch/1/fdr"
+
+
 def test_send_device_test_message_resolves_midi_library_parameter(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:

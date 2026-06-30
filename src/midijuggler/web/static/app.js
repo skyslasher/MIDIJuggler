@@ -1154,6 +1154,30 @@ function renderLearnDatapointSelects() {
 
 function refreshMappingEditorSelects() {
   refreshInlineConnectionEditorSelects();
+  refreshDeviceTestPointSelects();
+}
+
+function deviceUidFromCard(card) {
+  return card?.dataset.deviceUid || card?.dataset.deviceId || "";
+}
+
+function fillDeviceTestPointSelect(card) {
+  const select = card?.querySelector('[data-test-field="device_datapoint"]');
+  const uid = deviceUidFromCard(card);
+  if (!select) {
+    return;
+  }
+  fillLearnPointSelect(select, uid, "output", select.value);
+  updateDeviceTestValueBounds(card);
+}
+
+function refreshDeviceTestPointSelects() {
+  for (const card of deviceInstances?.querySelectorAll(".device-card") || []) {
+    const fieldset = card.querySelector(".device-test-send");
+    if (fieldset && !fieldset.hidden) {
+      fillDeviceTestPointSelect(card);
+    }
+  }
 }
 
 function applyLearnSourceSelection(pointId) {
@@ -3387,7 +3411,6 @@ function applyAdapterDefaultsToDeviceCard(card) {
     nameField.dispatchEvent(new Event("input", { bubbles: true }));
   }
   card.dataset.deviceLibrary = libraryField.value.trim();
-  card._deviceTestLibraryCache = null;
   syncDeviceTestSendSection(card);
 }
 
@@ -3826,7 +3849,6 @@ function createDeviceCard(device = {}, options = {}) {
   };
   librarySelect?.addEventListener("change", () => {
     card.dataset.deviceLibrary = librarySelect.value.trim();
-    card._deviceTestLibraryCache = null;
     updateXtouchFieldsVisibility();
     syncDeviceTestSendSection(card);
     markDirty();
@@ -3847,7 +3869,6 @@ function createDeviceCard(device = {}, options = {}) {
       fields.querySelector('[data-field="library"]').value,
     );
     card.dataset.deviceLibrary = fields.querySelector('[data-field="library"]')?.value.trim() || "";
-    card._deviceTestLibraryCache = null;
     updateXtouchFieldsVisibility();
     syncDeviceTestSendSection(card);
     markDirty();
@@ -5194,32 +5215,28 @@ function deviceTestUsesOscLibrary(card) {
   return kind === "osc" || kind === "wing";
 }
 
-function findDeviceTestLibraryParameter(card, parameterId) {
-  const parameters = card._deviceTestLibraryCache?.parameters || [];
-  return parameters.find((parameter) => parameter.id === parameterId) || null;
-}
-
-function updateDeviceLibraryTestValueBounds(card) {
-  const parameterSelect = card.querySelector('[data-test-field="device_parameter"]');
+function updateDeviceTestValueBounds(card) {
+  const select = card.querySelector('[data-test-field="device_datapoint"]');
   const valueInput = card.querySelector('[data-test-field="device_value"]');
-  if (!parameterSelect || !valueInput) {
+  if (!select || !valueInput) {
     return;
   }
 
-  const parameter = findDeviceTestLibraryParameter(card, parameterSelect.value);
-  if (!parameter) {
+  const selected = select.selectedOptions[0];
+  if (!selected?.value) {
     return;
   }
 
-  const min = Number(parameter.value_min ?? (deviceTestUsesMidiLibrary(card) ? 0 : 0));
-  const max = Number(parameter.value_max ?? (deviceTestUsesMidiLibrary(card) ? 127 : 1));
-  const step = parameter.value_type === "int" ? 1 : 0.01;
+  const defaultMin = 0;
+  const defaultMax = deviceTestUsesMidiLibrary(card) ? 127 : 1;
+  const min = selected.dataset.valueMin !== "" ? Number(selected.dataset.valueMin) : defaultMin;
+  const max = selected.dataset.valueMax !== "" ? Number(selected.dataset.valueMax) : defaultMax;
+  const step =
+    deviceTestUsesMidiLibrary(card) && Number.isInteger(min) && Number.isInteger(max) ? 1 : 0.01;
   valueInput.min = String(min);
   valueInput.max = String(max);
   valueInput.step = String(step);
-  valueInput.value = String(
-    parameter.value_type === "int" ? Math.round((min + max) / 2) : (min + max) / 2,
-  );
+  valueInput.value = String(step === 1 ? Math.round((min + max) / 2) : (min + max) / 2);
 }
 
 function syncDeviceTestSendSection(card) {
@@ -5232,63 +5249,7 @@ function syncDeviceTestSendSection(card) {
     deviceTestUsesMidiLibrary(card) || deviceTestUsesOscLibrary(card);
   fieldset.hidden = !libraryAvailable;
   if (libraryAvailable) {
-    loadDeviceTestLibraryParameters(card);
-  }
-}
-
-async function loadDeviceTestLibraryParameters(card) {
-  const libraryId = deviceLibraryIdFromCard(card);
-  const parameterSelect = card.querySelector('[data-test-field="device_parameter"]');
-  if (!libraryId || !parameterSelect) {
-    return;
-  }
-
-  if (card._deviceTestLibraryCache?.id === libraryId) {
-    updateDeviceLibraryTestValueBounds(card);
-    return;
-  }
-
-  parameterSelect.replaceChildren();
-  const loadingOption = document.createElement("option");
-  loadingOption.value = "";
-  loadingOption.textContent = "Loading parameters...";
-  parameterSelect.appendChild(loadingOption);
-
-  const apiPrefix = deviceTestUsesMidiLibrary(card) ? "midi-libraries" : "osc-libraries";
-
-  try {
-    const response = await fetch(`/api/${apiPrefix}/${encodeURIComponent(libraryId)}`);
-    if (!response.ok) {
-      throw new Error(`could not load library ${libraryId}`);
-    }
-    const library = await response.json();
-    card._deviceTestLibraryCache = library;
-
-    parameterSelect.replaceChildren();
-    const placeholder = document.createElement("option");
-    placeholder.value = "";
-    placeholder.textContent = "Select parameter";
-    parameterSelect.appendChild(placeholder);
-
-    for (const parameter of library.parameters || []) {
-      if (parameter.direction !== "target") {
-        continue;
-      }
-      if (deviceTestUsesMidiLibrary(card) && parameter.message_type === "sysex") {
-        continue;
-      }
-      const option = document.createElement("option");
-      option.value = parameter.id;
-      option.textContent = `${parameter.label} (${parameter.address})`;
-      parameterSelect.appendChild(option);
-    }
-    updateDeviceLibraryTestValueBounds(card);
-  } catch (error) {
-    parameterSelect.replaceChildren();
-    const errorOption = document.createElement("option");
-    errorOption.value = "";
-    errorOption.textContent = error.message;
-    parameterSelect.appendChild(errorOption);
+    fillDeviceTestPointSelect(card);
   }
 }
 
@@ -5298,16 +5259,20 @@ function sendDeviceTestMessage(card) {
     return;
   }
 
-  const uid = card.dataset.deviceUid || card.dataset.deviceId || "";
+  const uid = deviceUidFromCard(card);
   if (!uid) {
     showDeviceCardMessage(card, "device uid is required");
     return;
   }
 
-  const parameterId =
-    card.querySelector('[data-test-field="device_parameter"]')?.value.trim() || "";
-  if (!parameterId) {
-    showDeviceCardMessage(card, "select a library parameter");
+  const datapointId =
+    card.querySelector('[data-test-field="device_datapoint"]')?.value.trim() || "";
+  if (!datapointId) {
+    showDeviceCardMessage(card, "select a data point");
+    return;
+  }
+  if (connectionEndpointModule(datapointId) !== uid) {
+    showDeviceCardMessage(card, "selected data point does not belong to this device");
     return;
   }
 
@@ -5317,7 +5282,7 @@ function sendDeviceTestMessage(card) {
   fetch("/api/devices/test-send", {
     method: "POST",
     headers: { "content-type": "application/json" },
-    body: JSON.stringify({ uid, parameter_id: parameterId, value }),
+    body: JSON.stringify({ uid, datapoint_id: datapointId, value }),
   })
     .then(async (response) => {
       if (!response.ok) {
@@ -5348,18 +5313,15 @@ function createDeviceTestSendSection() {
   const hint = document.createElement("p");
   hint.className = "hint";
   hint.textContent =
-    "Sends one library parameter through the bound adapter. Output appears in the monitor.";
+    "Sends one device data point through the bound adapter. Output appears in the monitor.";
   fieldset.appendChild(hint);
 
-  const parameterLabel = document.createElement("label");
-  parameterLabel.textContent = "Parameter ";
-  const parameterSelect = document.createElement("select");
-  parameterSelect.dataset.testField = "device_parameter";
-  parameterSelect.addEventListener("change", () => {
-    updateDeviceLibraryTestValueBounds(parameterSelect.closest(".device-card"));
+  const datapointSelect = document.createElement("select");
+  datapointSelect.dataset.testField = "device_datapoint";
+  datapointSelect.addEventListener("change", () => {
+    updateDeviceTestValueBounds(datapointSelect.closest(".device-card"));
   });
-  parameterLabel.appendChild(parameterSelect);
-  fieldset.appendChild(parameterLabel);
+  fieldset.appendChild(createStackedField("Data point", datapointSelect));
 
   fieldset.appendChild(
     createTestNumberField("Value", "device_value", 0.5, 0, 1, 0.01),

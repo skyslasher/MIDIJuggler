@@ -1608,9 +1608,20 @@ class WebInterface:
         if not uid:
             raise ValueError("uid is required")
 
+        datapoint_id = str(payload.get("datapoint_id", "")).strip()
         parameter_id = str(payload.get("parameter_id", "")).strip()
-        if not parameter_id:
-            raise ValueError("parameter_id is required")
+        if datapoint_id:
+            module, _, point = datapoint_id.partition(".")
+            if not module or not point:
+                raise ValueError("datapoint_id must be module.point")
+            if module != uid:
+                raise ValueError(f"datapoint_id {datapoint_id!r} does not belong to device {uid}")
+            parameter_id = self._resolve_device_test_parameter_id(
+                self.device_registry.require(uid),
+                point,
+            )
+        elif not parameter_id:
+            raise ValueError("parameter_id or datapoint_id is required")
         if "value" not in payload:
             raise ValueError("value is required")
 
@@ -1638,6 +1649,42 @@ class WebInterface:
         raise ValueError(
             f"device {uid} library kind {library_kind or adapter_kind!r} "
             "does not support library test send"
+        )
+
+    def _resolve_device_test_parameter_id(self, device: DeviceConfig, point: str) -> str:
+        adapter_config = self.device_registry.adapter_for_device(device.uid)
+        library_kind = (device.library_kind or "").strip().lower()
+        adapter_kind = (adapter_config.kind or device.adapter).strip().lower()
+        kind = library_kind or adapter_kind
+        if kind == "wing_native":
+            kind = "wing"
+
+        if kind == "midi" or (not library_kind and adapter_kind in {"midi", "rtp_midi"}):
+            return point
+
+        if kind in {"osc", "wing"} or adapter_kind in {"osc", "wing_native"}:
+            if not point.startswith("/"):
+                return point
+            library_id = device.library.strip()
+            if not library_id:
+                raise ValueError(f"device {device.uid} has no library configured")
+            library = get_osc_library(library_id)
+            for parameter in library.parameters:
+                if parameter.direction != "target":
+                    continue
+                address = (
+                    parameter.address
+                    if parameter.address.startswith("/")
+                    else parameter.id
+                )
+                if address == point:
+                    return parameter.id
+            raise ValueError(
+                f"unknown OSC data point {point!r} for device {device.uid}"
+            )
+
+        raise ValueError(
+            f"device {device.uid} library kind {kind!r} does not support test send"
         )
 
     async def _send_device_midi_library_test(
