@@ -95,6 +95,10 @@ class MidiIOModule(IOModule):
     async def _on_output_value(self, value: DataPointValue) -> None:
         if value.float_value is None:
             return
+        await self.adapter.persist_feedback_value(
+            value.point_id.point,
+            value.float_value,
+        )
         self.adapter.remember_feedback_value(value.point_id.point, value.float_value)
         if not value.emit_outputs:
             return

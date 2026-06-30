@@ -40,9 +40,11 @@ from midijuggler.midi.library_match import (
 )
 from midijuggler.device.lookup import device_id_for_adapter
 from midijuggler.device.registry import DeviceRegistry
+from midijuggler.datapoint.types import DataPointId, float_value
 from midijuggler.midi.target_encode import encode_mapped_midi_target
 from midijuggler.midi.xtouch_feedback import (
     XTouchFeedbackRefresh,
+    feedback_point_ids,
     is_layer_program_change,
     uses_xtouch_feedback_refresh,
 )
@@ -484,6 +486,27 @@ class MidiAdapter(Adapter):
         if self._feedback_refresh is not None:
             self._feedback_refresh.remember(point, value)
 
+    async def persist_feedback_value(self, point: str, value: float) -> None:
+        """Keep refreshable X-Touch feedback values in the datapoint store."""
+
+        if self._datapoint_store is None or self._app_config is None:
+            return
+        device = self._resolve_device()
+        if point not in feedback_point_ids(
+            self.config,
+            library_id=self._resolve_midi_library_id(),
+            device=device,
+        ):
+            return
+        device_id = device_id_for_adapter(self._app_config, self.name)
+        await self._datapoint_store.write(
+            float_value(
+                DataPointId(device_id, point),
+                value,
+                emit_outputs=False,
+            )
+        )
+
     async def send_feedback_target(self, point: str, value: float) -> None:
         if self._app_config is None:
             raise ValueError(
@@ -538,6 +561,7 @@ class MidiAdapter(Adapter):
                 event.target,
             )
             return
+        await self.persist_feedback_value(point, event.value)
         self.remember_feedback_value(point, event.value)
         await self.send_midi_message(
             MidiMessageEvent(
@@ -588,6 +612,7 @@ class MidiAdapter(Adapter):
                 f"input_port={input_port!r})"
             ) from exc
         if feedback_point is not None and feedback_value is not None:
+            await self.persist_feedback_value(feedback_point, feedback_value)
             self.remember_feedback_value(feedback_point, feedback_value)
 
     async def _emit_midi_output(

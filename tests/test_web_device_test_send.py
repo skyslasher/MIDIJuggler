@@ -238,8 +238,11 @@ def test_send_device_test_message_resolves_midi_library_parameter(
 def test_send_device_test_message_caches_feedback_for_refresh(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    async def scenario() -> dict[str, float]:
+    async def scenario() -> tuple[dict[str, float], float | None]:
+        from midijuggler.datapoint.store import DataPointStore
+
         bus = EventBus()
+        store = DataPointStore()
         config = parse_config(xtouch_devices_config(feedback_refresh_interval=1.0))
         adapter = MidiAdapter(
             name="xtouch_mini",
@@ -247,12 +250,15 @@ def test_send_device_test_message_caches_feedback_for_refresh(
             bus=bus,
             app_config=config,
         )
+        adapter.bind_datapoint_store(store)
         adapter.running = True
         adapter._feedback_refresh = XTouchFeedbackRefresh(adapter, config)
         adapter._feedback_refresh.configure(
             config.adapters["xtouch_mini"],
             config,
             config.devices["xtouch_mini"],
+            store=store,
+            device_id=config.devices["xtouch_mini"].uid,
         )
         adapter._output_address = "out"
         monkeypatch.setattr(adapter, "_emit_midi_output", AsyncMock())
@@ -263,6 +269,7 @@ def test_send_device_test_message_caches_feedback_for_refresh(
             ClockBpmTracker(),
             MasterClock(config.master_clock, bus),
             midi_adapters={"xtouch_mini": adapter},
+            datapoint_store=store,
         )
 
         await interface.send_device_test_message(
@@ -272,11 +279,14 @@ def test_send_device_test_message_caches_feedback_for_refresh(
                 "value": 1,
             }
         )
-        return dict(adapter._feedback_refresh._cache)
+        return dict(adapter._feedback_refresh._cache), store.float_value(
+            "xtouch_mini.layer_a_top_button_1_led"
+        )
 
-    cache = asyncio.run(scenario())
+    cache, stored = asyncio.run(scenario())
 
     assert cache["layer_a_top_button_1_led"] == 1.0
+    assert stored == 1.0
 
 
 def test_send_device_test_message_via_wing_native_adapter(

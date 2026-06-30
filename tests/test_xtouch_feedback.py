@@ -393,3 +393,31 @@ def test_layer_program_change_triggers_feedback_resend(monkeypatch: pytest.Monke
     asyncio.run(scenario())
 
     adapter.send_feedback_target.assert_awaited_once_with("layer_a_encoder_1_value", 127.0)
+
+
+def test_persist_feedback_value_writes_refresh_targets_to_store(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from conftest import xtouch_devices_config
+    from midijuggler.adapters.midi import MidiAdapter
+    from midijuggler.datapoint.store import DataPointStore
+    from midijuggler.eventbus import EventBus
+
+    config = parse_config(xtouch_devices_config())
+    store = DataPointStore()
+    adapter = MidiAdapter(
+        "xtouch_mini",
+        config.adapters["xtouch_mini"],
+        EventBus(),
+        app_config=config,
+    )
+    adapter.bind_datapoint_store(store)
+    monkeypatch.setattr(adapter, "_emit_midi_output", AsyncMock())
+
+    async def scenario() -> float | None:
+        await adapter.persist_feedback_value("layer_a_encoder_1_value", 90.0)
+        return store.float_value("xtouch_mini.layer_a_encoder_1_value")
+
+    stored = asyncio.run(scenario())
+
+    assert stored == 90.0
