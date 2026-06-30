@@ -319,11 +319,11 @@ legend {
   margin-bottom: 0.75rem;
 }
 
-.midi-device-panel button {
+.midi-device-panel button:not(.datapoint-browser-item) {
   margin-top: 0.75rem;
 }
 
-.midi-device-panel button + button {
+.midi-device-panel button:not(.datapoint-browser-item) + button:not(.datapoint-browser-item) {
   margin-left: 0.5rem;
 }
 
@@ -836,6 +836,7 @@ legend {
   color: inherit;
   cursor: pointer;
   font: inherit;
+  margin: 0;
   padding: 0.45rem 0.65rem;
   text-align: left;
   width: 100%;
