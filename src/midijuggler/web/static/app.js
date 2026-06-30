@@ -521,6 +521,123 @@ function deviceSupportsConnectionTarget(device) {
   return Boolean((device.library || "").trim());
 }
 
+function moduleAliases(instance) {
+  if (!instance) {
+    return new Set();
+  }
+  const aliases = new Set([instance]);
+  const device = deviceByUid(instance);
+  if (device?.adapter) {
+    aliases.add(device.adapter.trim());
+  }
+  const boundUid = boundDeviceUidForAdapter(instance);
+  if (boundUid) {
+    aliases.add(boundUid);
+  }
+  return aliases;
+}
+
+function deviceCatalogKind(device) {
+  const kind = (device.library_kind || "").trim();
+  if (kind) {
+    return kind;
+  }
+  const libraryId = (device.library || "").trim();
+  if (!libraryId) {
+    return "";
+  }
+  if (cachedMidiLibraryList.some((entry) => (entry.id || entry.name) === libraryId)) {
+    return "midi";
+  }
+  if (cachedOscLibraryList.some((entry) => (entry.id || entry.name) === libraryId)) {
+    return "osc";
+  }
+  return "";
+}
+
+function mergeLearnPointEntries(primary, secondary) {
+  const seen = new Set(primary.map((entry) => entry.id));
+  const merged = [...primary];
+  for (const entry of secondary) {
+    if (!entry?.id || seen.has(entry.id)) {
+      continue;
+    }
+    merged.push(entry);
+    seen.add(entry.id);
+  }
+  return merged;
+}
+
+function catalogPointsForDevice(device, direction) {
+  const libraryId = (device.library || "").trim();
+  const uid = device.uid || device.id || "";
+  if (!libraryId || !uid) {
+    return [];
+  }
+  const kind = deviceCatalogKind(device);
+  const library =
+    kind === "midi"
+      ? monitorLibraryCache.midi[libraryId]
+      : kind === "osc" || kind === "wing"
+        ? monitorLibraryCache.osc[libraryId]
+        : null;
+  if (!library) {
+    return [];
+  }
+  const wantSource = direction === "input";
+  return (library.parameters || [])
+    .filter((parameter) =>
+      wantSource ? parameter.direction === "source" : parameter.direction === "target",
+    )
+    .map((parameter) => {
+      const point =
+        kind !== "midi" && String(parameter.address || "").startsWith("/")
+          ? parameter.address
+          : parameter.id;
+      return {
+        id: `${uid}.${point}`,
+        module: uid,
+        point,
+        label: parameter.label || parameter.id,
+        direction: wantSource ? "input" : "output",
+        category: parameter.category || "",
+        value_min: parameter.value_min,
+        value_max: parameter.value_max,
+        protocol: kind === "midi" ? "midi" : kind === "wing" ? "wing_native" : "osc",
+      };
+    })
+    .filter((entry) => isLearnSelectableDatapoint(entry));
+}
+
+function configuredDeviceForModule(instance) {
+  if (!instance) {
+    return null;
+  }
+  const direct = deviceByUid(instance);
+  if (direct) {
+    return direct;
+  }
+  const boundUid = boundDeviceUidForAdapter(instance);
+  if (boundUid) {
+    return deviceByUid(boundUid);
+  }
+  return configuredDevices().find((device) => device.adapter === instance) || null;
+}
+
+function catalogPointsForModule(instance, direction) {
+  const device = configuredDeviceForModule(instance);
+  if (!device) {
+    return [];
+  }
+  if (direction === "input" && !deviceSupportsConnectionSource(device)) {
+    return [];
+  }
+  if (direction === "output" && !deviceSupportsConnectionTarget(device)) {
+    return [];
+  }
+  return catalogPointsForDevice(device, direction);
+}
+
 function learnInstancesForDirection(direction) {
   const entries = filterLearnRegistryDatapoints(learnRegistryDatapoints, direction);
   const modules = new Set(entries.map(datapointModule));
@@ -552,15 +669,18 @@ function learnPointsForInstance(instance, direction) {
   if (!instance) {
     return [];
   }
-  const points = filterLearnRegistryDatapoints(learnRegistryDatapoints, direction)
-    .filter((entry) => datapointModule(entry) === instance);
+  const aliases = moduleAliases(instance);
+  let points = filterLearnRegistryDatapoints(learnRegistryDatapoints, direction)
+    .filter((entry) => aliases.has(datapointModule(entry)));
+  points = mergeLearnPointEntries(points, catalogPointsForModule(instance, direction));
   if (direction === "input") {
     const configuredControls = hidConfiguredControls(instance);
     for (const [pointId, label] of learnMonitorDatapoints) {
-      if (pointId.split(".")[0] !== instance || !isLearnSelectableMonitorPointId(pointId)) {
+      const module = pointId.split(".")[0];
+      if (!aliases.has(module) || !isLearnSelectableMonitorPointId(pointId)) {
         continue;
       }
-      const control = pointId.slice(instance.length + 1);
+      const control = pointId.slice(module.length + 1);
       if (configuredControls && !configuredControls.has(control)) {
         continue;
       }
@@ -569,8 +689,8 @@ function learnPointsForInstance(instance, direction) {
       }
       points.push({
         id: pointId,
-        module: instance,
-        point: pointId.slice(instance.length + 1),
+        module,
+        point: pointId.slice(module.length + 1),
         label,
         direction: "input",
       });
@@ -2581,8 +2701,7 @@ async function loadLearnDatapoints() {
       }
       const payload = await response.json();
       learnRegistryDatapoints = (payload.datapoints || []).filter(isLearnSelectableDatapoint);
-      renderLearnDatapointSelects();
-      refreshMappingEditorSelects();
+      await preloadLearnDeviceLibraries();
       await preloadLearnMidiLibraries(learnRegistryDatapoints);
       renderLearnDatapointSelects();
       refreshMappingEditorSelects();
@@ -2654,6 +2773,27 @@ async function refreshMappingDataAfterAdapterChange() {
   } catch {
     // keep datapoint refresh even if status refresh fails
   }
+}
+
+async function preloadLearnDeviceLibraries() {
+  const midiIds = new Set();
+  const oscIds = new Set();
+  for (const device of configuredDevices()) {
+    const libraryId = (device.library || "").trim();
+    if (!libraryId) {
+      continue;
+    }
+    const kind = deviceCatalogKind(device);
+    if (kind === "midi") {
+      midiIds.add(libraryId);
+    } else if (kind === "osc" || kind === "wing") {
+      oscIds.add(libraryId);
+    }
+  }
+  await Promise.all([
+    ...[...midiIds].map((libraryId) => loadMonitorMidiLibrary(libraryId)),
+    ...[...oscIds].map((libraryId) => loadMonitorOscLibrary(libraryId)),
+  ]);
 }
 
 async function preloadLearnMidiLibraries(entries) {
