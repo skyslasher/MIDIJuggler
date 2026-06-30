@@ -12,6 +12,7 @@ const masterBpmMax = document.querySelector("#master-bpm-max");
 const masterClickInterval = document.querySelector("#master-click-interval");
 const masterTapTempoMinTaps = document.querySelector("#master-tap-tempo-min-taps");
 const masterBpmStep = document.querySelector("#master-bpm-step");
+const masterBpmHugeStep = document.querySelector("#master-bpm-huge-step");
 const masterBpmQuantize = document.querySelector("#master-bpm-quantize");
 const masterBeatFlashMs = document.querySelector("#master-beat-flash-ms");
 const masterName = document.querySelector("#master-name");
@@ -162,6 +163,7 @@ const LEARN_STREAM_POINT_SUFFIXES = new Set([
   "midi_continue",
   "midi_stop",
 ]);
+const CLOCK_MONITOR_CONTROLS = new Set(["bpm", "quarter_ms", "eighth_ms"]);
 let socket;
 let gpioConfig = null;
 let devicesConfig = null;
@@ -3172,6 +3174,12 @@ function monitorTransportLabel(source) {
 }
 
 function shouldShowMonitorEvent(event) {
+  if (event.kind === "ControlEvent" && event.source === "clock") {
+    if (!CLOCK_MONITOR_CONTROLS.has(event.control)) {
+      return false;
+    }
+  }
+
   const adapterName = monitorAdapterForSource(event.source);
   const hasMidiLibrary = Boolean(adapterMidiLibraryId(adapterName));
 
@@ -7428,6 +7436,7 @@ function renderMasterClockConfig(config) {
   masterClickInterval.value = config.click_interval;
   masterTapTempoMinTaps.value = config.tap_tempo_min_taps ?? 4;
   masterBpmStep.value = config.bpm_step ?? 0.5;
+  masterBpmHugeStep.value = config.bpm_huge_step ?? 10;
   masterBpmQuantize.value = String(config.bpm_quantize ?? 0.5);
   masterBeatFlashMs.value = config.beat_flash_ms ?? 120;
   masterClickEnabled.checked = Boolean(config.click_enabled);
@@ -7482,6 +7491,7 @@ function masterClockFormPayload() {
     click_interval: masterClickInterval.value,
     tap_tempo_min_taps: Number(masterTapTempoMinTaps.value),
     bpm_step: Number(masterBpmStep.value),
+    bpm_huge_step: Number(masterBpmHugeStep.value),
     bpm_quantize: Number(masterBpmQuantize.value),
     beat_flash_ms: Number(masterBeatFlashMs.value),
     click_audio_device: masterClickDevice.value,

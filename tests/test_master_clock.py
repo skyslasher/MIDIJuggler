@@ -428,6 +428,24 @@ def test_master_clock_bpm_can_be_set_by_osc() -> None:
     assert clock.bpm == pytest.approx(128.5)
     assert any(event.control == "bpm" and event.value == pytest.approx(128.5) for event in controls)
     assert any(event.control == "quarter_ms" for event in controls)
+    assert {event.control for event in controls}.issubset(
+        {"bpm", "quarter_ms", "eighth_ms"}
+    )
+
+
+def test_master_clock_publishes_only_connection_timing_controls() -> None:
+    async def scenario() -> list[ControlEvent]:
+        bus = EventBus()
+        controls: list[ControlEvent] = []
+        bus.subscribe(ControlEvent, lambda event: controls.append(event))
+        clock = MasterClock(MasterClockConfig(enabled=True, bpm=120.0), bus)
+        await clock.set_bpm(140.0)
+        await clock.flush_bpm_notifications()
+        return controls
+
+    controls = asyncio.run(scenario())
+
+    assert {event.control for event in controls} == {"bpm", "quarter_ms", "eighth_ms"}
 
 
 def test_master_clock_bpm_and_click_interval_can_be_set_by_midi_cc() -> None:

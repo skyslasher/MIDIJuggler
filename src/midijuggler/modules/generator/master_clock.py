@@ -54,6 +54,8 @@ class MasterClockGenerator(GeneratorModule):
         self._start_stop_pressed = False
         self._bpm_up_pressed = False
         self._bpm_down_pressed = False
+        self._bpm_huge_up_pressed = False
+        self._bpm_huge_down_pressed = False
         self._beat_off_task: asyncio.Task[None] | None = None
 
     def datapoints(self) -> list[DataPointSpec]:
@@ -91,6 +93,22 @@ class MasterClockGenerator(GeneratorModule):
                 value_type=ValueType.TRIGGER,
                 direction=DataPointDirection.OUTPUT,
                 label="Decrease BPM",
+                protocol="clock",
+                category="bpm",
+            ),
+            DataPointSpec(
+                id=DataPointId(CLOCK_MODULE, "bpm_huge_up"),
+                value_type=ValueType.TRIGGER,
+                direction=DataPointDirection.OUTPUT,
+                label="Huge increase BPM",
+                protocol="clock",
+                category="bpm",
+            ),
+            DataPointSpec(
+                id=DataPointId(CLOCK_MODULE, "bpm_huge_down"),
+                value_type=ValueType.TRIGGER,
+                direction=DataPointDirection.OUTPUT,
+                label="Huge decrease BPM",
                 protocol="clock",
                 category="bpm",
             ),
@@ -200,6 +218,8 @@ class MasterClockGenerator(GeneratorModule):
             "bpm_set",
             "bpm_up",
             "bpm_down",
+            "bpm_huge_up",
+            "bpm_huge_down",
             "start",
             "stop",
             "start_stop",
@@ -242,6 +262,20 @@ class MasterClockGenerator(GeneratorModule):
                 value,
                 pressed_attr="_bpm_down_pressed",
                 on_rising=self._handle_bpm_down,
+            )
+            return
+        if point == "bpm_huge_up":
+            await self._handle_trigger_edge(
+                value,
+                pressed_attr="_bpm_huge_up_pressed",
+                on_rising=self._handle_bpm_huge_up,
+            )
+            return
+        if point == "bpm_huge_down":
+            await self._handle_trigger_edge(
+                value,
+                pressed_attr="_bpm_huge_down_pressed",
+                on_rising=self._handle_bpm_huge_down,
             )
             return
         if point == "start" and value_is_active(value):
@@ -294,6 +328,26 @@ class MasterClockGenerator(GeneratorModule):
                 source=CLOCK_MODULE,
                 command="set_bpm",
                 value=self._step_bpm(-self.clock.config.bpm_step),
+            )
+        )
+        asyncio.create_task(self._publish_outputs(), name="clock-publish-outputs")
+
+    async def _handle_bpm_huge_up(self, _value: DataPointValue) -> None:
+        await self.clock.handle_command(
+            MasterClockCommandEvent(
+                source=CLOCK_MODULE,
+                command="set_bpm",
+                value=self._step_bpm(self.clock.config.bpm_huge_step),
+            )
+        )
+        asyncio.create_task(self._publish_outputs(), name="clock-publish-outputs")
+
+    async def _handle_bpm_huge_down(self, _value: DataPointValue) -> None:
+        await self.clock.handle_command(
+            MasterClockCommandEvent(
+                source=CLOCK_MODULE,
+                command="set_bpm",
+                value=self._step_bpm(-self.clock.config.bpm_huge_step),
             )
         )
         asyncio.create_task(self._publish_outputs(), name="clock-publish-outputs")

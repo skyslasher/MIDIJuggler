@@ -28,6 +28,9 @@ from midijuggler.alsa import alsa_mode_for_device, MASTER_CLOCK_PCM_NAME
 LOGGER = logging.getLogger(__name__)
 
 MIDI_TIMING_CLOCK = 0xF8
+
+# Timing parameters exposed on the event bus and as connection data points.
+CLOCK_BUS_CONTROL_PUBLISH = frozenset({"bpm", "quarter_ms", "eighth_ms"})
 MIDI_START = 0xFA
 MIDI_CONTINUE = 0xFB
 MIDI_STOP = 0xFC
@@ -543,6 +546,8 @@ class MasterClock:
 
     async def _publish_parameters(self) -> None:
         for control, value in self.parameters.as_controls().items():
+            if control not in CLOCK_BUS_CONTROL_PUBLISH:
+                continue
             await self.bus.publish(
                 ControlEvent(source="clock", control=control, value=value)
             )

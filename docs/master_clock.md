@@ -51,7 +51,8 @@ modifier = "passthrough"
 ```
 
 Available clock inputs include `clock.bpm_set`, `clock.bpm_up`,
-`clock.bpm_down`, `clock.start`, and `clock.stop`.
+`clock.bpm_down`, `clock.bpm_huge_up`, `clock.bpm_huge_down`, `clock.start`,
+and `clock.stop`. Use `bpm_huge_step` (default 10) for the huge up/down triggers.
 
 Available clock outputs include `clock.beat`, a short 0/1 flash aligned with
 `click_interval` (quarter, eighth, half, whole). Connect it to a controller
@@ -203,19 +204,18 @@ or through `click_interval_cc`. MIDI CC values are mapped like this:
 
 ## Internal clock parameters
 
-Whenever BPM changes, the master clock publishes internal `ControlEvent`s with
-source `clock`. These can be used by normal mappings:
+Whenever BPM changes, the master clock publishes `ControlEvent`s with source
+`clock` for connection data points that are also visible in the monitor:
 
 | Mapping source | Meaning |
 | --- | --- |
 | `clock:bpm` | Current BPM |
-| `clock:ppqn_tick_ms` | One MIDI clock tick in ms |
-| `clock:sixteenth_ms` | 1/16 note duration in ms |
 | `clock:eighth_ms` | 1/8 note duration in ms |
 | `clock:quarter_ms` | 1/4 note duration in ms |
-| `clock:half_ms` | 1/2 note duration in ms |
-| `clock:whole_ms` | Whole note duration in ms |
-| `clock:bar_4_4_ms` | One 4/4 bar in ms |
+
+Other derived timings (`ppqn_tick_ms`, `sixteenth_ms`, `half_ms`, `whole_ms`,
+`bar_4_4_ms`) remain internal and are not published to the monitor or exposed
+as connection data points.
 
 Example:
 

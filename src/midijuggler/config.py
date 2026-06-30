@@ -70,6 +70,7 @@ class MasterClockConfig:
     click_audio_device: str = ""
     tap_tempo_min_taps: int = 4
     bpm_step: float = 0.5
+    bpm_huge_step: float = 10.0
     bpm_quantize: float = 0.5
     name: str = "Master clock"
     beat_flash_ms: float = 120.0
@@ -684,6 +685,7 @@ def _format_master_clock_section(
         f"click_interval = {_toml_string(config.click_interval)}\n"
         f"tap_tempo_min_taps = {config.tap_tempo_min_taps}\n"
         f"bpm_step = {config.bpm_step}\n"
+        f"bpm_huge_step = {config.bpm_huge_step}\n"
         f"bpm_quantize = {config.bpm_quantize}\n"
         f"click_audio_device = {_toml_string(config.click_audio_device)}\n"
         f"name = {_toml_string(config.name)}\n"
@@ -818,6 +820,10 @@ def _parse_master_clock(raw: Any) -> MasterClockConfig:
         "master_clock.tap_tempo_min_taps",
     )
     bpm_step = _validate_bpm_step(raw.get("bpm_step", 0.5), "master_clock.bpm_step")
+    bpm_huge_step = _validate_bpm_step(
+        raw.get("bpm_huge_step", 10.0),
+        "master_clock.bpm_huge_step",
+    )
     bpm_quantize = _validate_bpm_quantize(
         raw.get("bpm_quantize", 0.5),
         "master_clock.bpm_quantize",
@@ -859,6 +865,7 @@ def _parse_master_clock(raw: Any) -> MasterClockConfig:
         click_audio_device=str(raw.get("click_audio_device", "")),
         tap_tempo_min_taps=tap_tempo_min_taps,
         bpm_step=bpm_step,
+        bpm_huge_step=bpm_huge_step,
         bpm_quantize=bpm_quantize,
         name=display_name,
         beat_flash_ms=beat_flash_ms,

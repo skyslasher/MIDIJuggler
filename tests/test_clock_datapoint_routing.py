@@ -243,7 +243,7 @@ def test_master_clock_datapoint_directions_match_connection_roles() -> None:
     for point in ("bpm", "running", "midi_tick", "quarter_ms", "eighth_ms", "beat"):
         assert specs[f"clock.{point}"].direction.value == "input"
 
-    for point in ("bpm_set", "bpm_up", "bpm_down", "start", "stop", "start_stop", "tap_tempo"):
+    for point in ("bpm_set", "bpm_up", "bpm_down", "bpm_huge_up", "bpm_huge_down", "start", "stop", "start_stop", "tap_tempo"):
         assert specs[f"clock.{point}"].direction.value == "output"
 
 
@@ -437,6 +437,38 @@ def test_bpm_up_down_use_configured_step_and_quantize() -> None:
         await tap_edge("clock.bpm_up")
         assert master_clock.bpm == pytest.approx(121.0)
         await tap_edge("clock.bpm_down")
+        assert master_clock.bpm == pytest.approx(120.0)
+
+    asyncio.run(scenario())
+
+
+def test_bpm_huge_up_down_use_configured_huge_step() -> None:
+    config = parse_config(
+        {
+            "master_clock": {
+                "enabled": True,
+                "bpm": 120.0,
+                "bpm_min": 40.0,
+                "bpm_max": 240.0,
+                "bpm_huge_step": 10.0,
+                "bpm_quantize": 1.0,
+            }
+        }
+    )
+    store = DataPointStore()
+    master_clock = MasterClock(config.master_clock, EventBus())
+    clock_gen = MasterClockGenerator(master_clock, store)
+    store.register_many(clock_gen.datapoints())
+
+    async def tap_edge(point: str) -> None:
+        await store.write(trigger_value(point, active=False))
+        await store.write(trigger_value(point, active=True))
+
+    async def scenario() -> None:
+        await clock_gen.start()
+        await tap_edge("clock.bpm_huge_up")
+        assert master_clock.bpm == pytest.approx(130.0)
+        await tap_edge("clock.bpm_huge_down")
         assert master_clock.bpm == pytest.approx(120.0)
 
     asyncio.run(scenario())

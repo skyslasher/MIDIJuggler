@@ -3408,6 +3408,7 @@ class WebInterface:
             "click_interval": config.click_interval,
             "tap_tempo_min_taps": config.tap_tempo_min_taps,
             "bpm_step": config.bpm_step,
+            "bpm_huge_step": config.bpm_huge_step,
             "bpm_quantize": config.bpm_quantize,
             "click_audio_device": normalize_alsa_output_device(
                 config.click_audio_device,
@@ -3895,6 +3896,10 @@ class WebInterface:
             payload.get("bpm_step", current.bpm_step),
             "bpm_step",
         )
+        bpm_huge_step = _validate_bpm_step(
+            payload.get("bpm_huge_step", current.bpm_huge_step),
+            "bpm_huge_step",
+        )
         bpm_quantize = _validate_bpm_quantize(
             payload.get("bpm_quantize", current.bpm_quantize),
             "bpm_quantize",
@@ -3933,6 +3938,7 @@ class WebInterface:
             ),
             tap_tempo_min_taps=tap_tempo_min_taps,
             bpm_step=bpm_step,
+            bpm_huge_step=bpm_huge_step,
             bpm_quantize=bpm_quantize,
             name=display_name,
             beat_flash_ms=beat_flash_ms,

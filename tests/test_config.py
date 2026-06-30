@@ -349,9 +349,10 @@ def test_parse_config_reads_tap_tempo_min_taps() -> None:
 
 def test_parse_config_reads_bpm_step_and_quantize() -> None:
     config = parse_config(
-        {"master_clock": {"bpm_step": 1.0, "bpm_quantize": 1.0}}
+        {"master_clock": {"bpm_step": 1.0, "bpm_huge_step": 10.0, "bpm_quantize": 1.0}}
     )
     assert config.master_clock.bpm_step == pytest.approx(1.0)
+    assert config.master_clock.bpm_huge_step == pytest.approx(10.0)
     assert config.master_clock.bpm_quantize == pytest.approx(1.0)
 
 
