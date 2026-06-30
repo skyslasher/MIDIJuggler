@@ -113,3 +113,23 @@ def test_resolve_incoming_controls_falls_back_to_raw_midi_id() -> None:
     assert len(matches) == 1
     assert matches[0].control_id == "cc_0_7"
     assert matches[0].value == 100.0
+
+
+def test_wing_midi_matches_bidirectional_control_change() -> None:
+    index = build_source_index(get_midi_library("behringer_wing"))
+
+    matches = index.match(0xB8, (15, 64))
+
+    assert len(matches) == 1
+    assert matches[0].control_id == "fx_1_param_1"
+    assert matches[0].value == 64.0
+
+
+def test_wing_midi_resolve_incoming_controls_uses_library_parameter_id() -> None:
+    index = build_source_index(get_midi_library("behringer_wing"))
+
+    matches = resolve_incoming_controls(index, 0xB8, (15, 64))
+
+    assert len(matches) == 1
+    assert matches[0].control_id == "fx_1_param_1"
+    assert matches[0].value == 64.0

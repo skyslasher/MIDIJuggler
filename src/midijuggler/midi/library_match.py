@@ -15,6 +15,8 @@ CONTROL_CHANGE = 0xB0
 PROGRAM_CHANGE = 0xC0
 PITCH_BEND = 0xE0
 
+MIDI_INPUT_DIRECTIONS = frozenset({"source", "bidirectional"})
+
 
 @dataclass(frozen=True)
 class MatchedControl:
@@ -26,7 +28,7 @@ class MatchedControl:
 
 @dataclass
 class MidiSourceIndex:
-    """Lookup table for source-direction parameters in one MIDI library."""
+    """Lookup table for incoming MIDI parameters in one MIDI library."""
 
     _by_note: dict[tuple[int, int], list[MidiParameter]]
     _by_control_change: dict[tuple[int, int], list[MidiParameter]]
@@ -191,7 +193,7 @@ def build_source_index(
     adapter: AdapterConfig | None = None,
     device: DeviceConfig | None = None,
 ) -> MidiSourceIndex:
-    """Index all source parameters for fast MIDI message matching."""
+    """Index source and bidirectional parameters for fast MIDI message matching."""
 
     by_note: dict[tuple[int, int], list[MidiParameter]] = {}
     by_control_change: dict[tuple[int, int], list[MidiParameter]] = {}
@@ -201,7 +203,7 @@ def build_source_index(
     by_cc_number: dict[int, list[MidiParameter]] = {}
 
     for parameter in library.parameters:
-        if parameter.direction != "source":
+        if parameter.direction not in MIDI_INPUT_DIRECTIONS:
             continue
         if not _parameter_matches_port(parameter, library_port):
             continue
