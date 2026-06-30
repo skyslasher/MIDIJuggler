@@ -240,11 +240,77 @@ def test_master_clock_datapoint_directions_match_connection_roles() -> None:
     clock = MasterClock(parse_config({}).master_clock, EventBus())
     specs = {str(spec.id): spec for spec in MasterClockGenerator(clock, store).datapoints()}
 
-    for point in ("bpm", "running", "midi_tick", "quarter_ms", "eighth_ms", "beat"):
+    for point in ("bpm", "running", "click_enabled", "midi_tick", "quarter_ms", "eighth_ms", "beat"):
         assert specs[f"clock.{point}"].direction.value == "input"
 
-    for point in ("bpm_set", "bpm_up", "bpm_down", "bpm_huge_up", "bpm_huge_down", "start", "stop", "start_stop", "tap_tempo"):
+    for point in (
+        "bpm_set",
+        "bpm_up",
+        "bpm_down",
+        "bpm_huge_up",
+        "bpm_huge_down",
+        "click_set",
+        "click_toggle",
+        "start",
+        "stop",
+        "start_stop",
+        "tap_tempo",
+    ):
         assert specs[f"clock.{point}"].direction.value == "output"
+
+
+def test_click_set_datapoint_toggles_audio_click() -> None:
+    config = parse_config({"master_clock": {"enabled": True, "click_enabled": False}})
+    store = DataPointStore()
+    master_clock = MasterClock(config.master_clock, EventBus())
+    clock_gen = MasterClockGenerator(master_clock, store)
+    store.register_many(clock_gen.datapoints())
+
+    async def scenario() -> None:
+        await clock_gen.start()
+        assert store.snapshot()["clock.click_enabled"]["bool_value"] is False
+        await store.write(
+            DataPointValue(
+                point_id=DataPointId("clock", "click_set"),
+                value_type=ValueType.BOOL,
+                bool_value=True,
+            )
+        )
+        assert master_clock.config.click_enabled is True
+        assert store.snapshot()["clock.click_enabled"]["bool_value"] is True
+        await store.write(
+            DataPointValue(
+                point_id=DataPointId("clock", "click_set"),
+                value_type=ValueType.BOOL,
+                bool_value=False,
+            )
+        )
+        assert master_clock.config.click_enabled is False
+        assert store.snapshot()["clock.click_enabled"]["bool_value"] is False
+
+    asyncio.run(scenario())
+
+
+def test_click_toggle_datapoint_toggles_audio_click() -> None:
+    config = parse_config({"master_clock": {"enabled": True, "click_enabled": False}})
+    store = DataPointStore()
+    master_clock = MasterClock(config.master_clock, EventBus())
+    clock_gen = MasterClockGenerator(master_clock, store)
+    store.register_many(clock_gen.datapoints())
+
+    async def scenario() -> None:
+        await clock_gen.start()
+        assert store.snapshot()["clock.click_enabled"]["bool_value"] is False
+        await store.write(trigger_value("clock.click_toggle", active=False))
+        await store.write(trigger_value("clock.click_toggle", active=True))
+        assert master_clock.config.click_enabled is True
+        assert store.snapshot()["clock.click_enabled"]["bool_value"] is True
+        await store.write(trigger_value("clock.click_toggle", active=False))
+        await store.write(trigger_value("clock.click_toggle", active=True))
+        assert master_clock.config.click_enabled is False
+        assert store.snapshot()["clock.click_enabled"]["bool_value"] is False
+
+    asyncio.run(scenario())
 
 
 def test_start_stop_datapoint_toggles_transport() -> None:

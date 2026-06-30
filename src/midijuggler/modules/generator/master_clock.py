@@ -56,6 +56,7 @@ class MasterClockGenerator(GeneratorModule):
         self._bpm_down_pressed = False
         self._bpm_huge_up_pressed = False
         self._bpm_huge_down_pressed = False
+        self._click_toggle_pressed = False
         self._beat_off_task: asyncio.Task[None] | None = None
 
     def datapoints(self) -> list[DataPointSpec]:
@@ -145,6 +146,30 @@ class MasterClockGenerator(GeneratorModule):
                 category="transport",
             ),
             DataPointSpec(
+                id=DataPointId(CLOCK_MODULE, "click_set"),
+                value_type=ValueType.BOOL,
+                direction=DataPointDirection.OUTPUT,
+                label="Set audio click enabled",
+                protocol="clock",
+                category="transport",
+            ),
+            DataPointSpec(
+                id=DataPointId(CLOCK_MODULE, "click_toggle"),
+                value_type=ValueType.TRIGGER,
+                direction=DataPointDirection.OUTPUT,
+                label="Toggle audio click enabled",
+                protocol="clock",
+                category="transport",
+            ),
+            DataPointSpec(
+                id=DataPointId(CLOCK_MODULE, "click_enabled"),
+                value_type=ValueType.BOOL,
+                direction=DataPointDirection.INPUT,
+                label="Audio click enabled",
+                protocol="clock",
+                category="transport",
+            ),
+            DataPointSpec(
                 id=DataPointId(CLOCK_MODULE, "running"),
                 value_type=ValueType.BOOL,
                 direction=DataPointDirection.INPUT,
@@ -224,6 +249,8 @@ class MasterClockGenerator(GeneratorModule):
             "stop",
             "start_stop",
             "tap_tempo",
+            "click_set",
+            "click_toggle",
         ):
             self.store.subscribe(
                 DataPointId(CLOCK_MODULE, point),
@@ -307,6 +334,24 @@ class MasterClockGenerator(GeneratorModule):
                 pressed_attr="_tap_tempo_pressed",
                 on_rising=self._register_tap_tempo,
             )
+            return
+        if point == "click_set":
+            if value.bool_value is None and value.float_value is None:
+                return
+            enabled = value_is_active(value)
+            await self.clock.set_click_enabled(enabled)
+            await self._publish_outputs()
+            return
+        if point == "click_toggle":
+            await self._handle_trigger_edge(
+                value,
+                pressed_attr="_click_toggle_pressed",
+                on_rising=self._toggle_click,
+            )
+
+    async def _toggle_click(self, _value: DataPointValue) -> None:
+        await self.clock.toggle_click_enabled()
+        await self._publish_outputs()
 
     async def _toggle_transport(self, _value: DataPointValue) -> None:
         await self.clock.toggle_transport()
@@ -435,6 +480,13 @@ class MasterClockGenerator(GeneratorModule):
                 point_id=DataPointId(CLOCK_MODULE, "running"),
                 value_type=ValueType.BOOL,
                 bool_value=self.clock.running,
+            )
+        )
+        await self.store.write(
+            DataPointValue(
+                point_id=DataPointId(CLOCK_MODULE, "click_enabled"),
+                value_type=ValueType.BOOL,
+                bool_value=self.clock.config.click_enabled,
             )
         )
         await self.store.write(float_value(DataPointId(CLOCK_MODULE, "bpm"), self.clock.bpm))

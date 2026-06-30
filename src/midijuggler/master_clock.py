@@ -358,6 +358,14 @@ class MasterClock:
         if task is not None:
             await task
 
+    async def set_click_enabled(self, enabled: bool) -> None:
+        if self.config.click_enabled == enabled:
+            return
+        self.config = replace(self.config, click_enabled=enabled)
+
+    async def toggle_click_enabled(self) -> None:
+        await self.set_click_enabled(not self.config.click_enabled)
+
     async def set_click_interval(self, interval: str) -> None:
         if interval not in CLICK_INTERVAL_TICKS:
             raise ValueError("click interval must be eighth, quarter, half or whole")

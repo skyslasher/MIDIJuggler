@@ -51,10 +51,12 @@ modifier = "passthrough"
 ```
 
 Available clock inputs include `clock.bpm_set`, `clock.bpm_up`,
-`clock.bpm_down`, `clock.bpm_huge_up`, `clock.bpm_huge_down`, `clock.start`,
-and `clock.stop`. Use `bpm_huge_step` (default 10) for the huge up/down triggers.
+`clock.bpm_down`, `clock.bpm_huge_up`, `clock.bpm_huge_down`, `clock.click_set`,
+`clock.click_toggle`, `clock.start`, and `clock.stop`. Use `bpm_huge_step` (default 10) for the huge
+up/down triggers.
 
-Available clock outputs include `clock.beat`, a short 0/1 flash aligned with
+Available clock outputs include `clock.click_enabled` (current audio click on/off
+state), `clock.beat`, a short 0/1 flash aligned with
 `click_interval` (quarter, eighth, half, whole). Connect it to a controller
 feedback target for a visible beat indicator:
 
