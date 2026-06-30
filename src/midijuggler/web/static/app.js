@@ -403,6 +403,39 @@ function refreshDeviceDisplayNames(devices) {
     }
     deviceDisplayByUid[uid] = device.name || device.label || uid;
   }
+  refreshMonitorDisplay();
+}
+
+function monitorAdapterForSource(source) {
+  if (!source) {
+    return source;
+  }
+  const device = deviceByUid(source);
+  if (device?.adapter) {
+    return device.adapter;
+  }
+  if (boundDeviceForAdapter(source)) {
+    return source;
+  }
+  return source;
+}
+
+function monitorSourceLabel(source) {
+  if (!source) {
+    return source;
+  }
+  const device = deviceByUid(source) || boundDeviceForAdapter(source);
+  if (device) {
+    const uid = device.uid || device.id || "";
+    const name = (device.name || deviceDisplayByUid[uid] || "").trim();
+    if (name && name !== uid) {
+      return name;
+    }
+    if (deviceDisplayByUid[uid]) {
+      return deviceDisplayByUid[uid];
+    }
+  }
+  return learnInstanceLabel(source);
 }
 
 function generateDeviceUid(adapter) {
@@ -3036,8 +3069,12 @@ function formatMidiMessageManual(event) {
 }
 
 function formatMonitorEventLine(event, time) {
+  const source = event.source || "";
+  const sourceLabel = monitorSourceLabel(source);
+  const adapterName = monitorAdapterForSource(source);
+
   if (event.kind === "AdapterStatusEvent") {
-    const adapterName = event.adapter || event.source;
+    const adapterName = monitorSourceLabel(event.adapter || event.source);
     const label = adapterConnectionBadgeText({
       connection_phase: event.connection_phase,
       detail: event.detail,
@@ -3065,37 +3102,37 @@ function formatMonitorEventLine(event, time) {
   }
 
   if (event.kind === "ControlEvent") {
-    if (monitorDisplayMode === "manual" || isHidAdapterSource(event.source)) {
-      return `[${time}] Control ${event.source}:${event.control} = ${event.value}`;
+    if (monitorDisplayMode === "manual" || isHidAdapterSource(adapterName)) {
+      return `[${time}] Control ${sourceLabel}:${event.control} = ${event.value}`;
     }
-    if (event.control.startsWith("/") || adapterOscLibraryId(event.source)) {
-      const label = lookupOscParameterLabel(event.source, event.control);
+    if (event.control.startsWith("/") || adapterOscLibraryId(adapterName)) {
+      const label = lookupOscParameterLabel(adapterName, event.control);
       if (label) {
         return `[${time}] OSC input ${label} (${event.control}) = ${event.value}`;
       }
       return `[${time}] OSC input ${event.control} = ${event.value}`;
     }
     const label =
-      lookupMidiSourceLabel(event.source, event.control) ||
-      lookupMidiTargetLabel(event.source, event.control);
+      lookupMidiSourceLabel(adapterName, event.control) ||
+      lookupMidiTargetLabel(adapterName, event.control);
     if (label) {
-      return `[${time}] MIDI ${event.source} ${label} (${event.control}) = ${event.value}`;
+      return `[${time}] MIDI ${sourceLabel} ${label} (${event.control}) = ${event.value}`;
     }
-    return `[${time}] MIDI ${event.source} ${event.control} = ${event.value}`;
+    return `[${time}] MIDI ${sourceLabel} ${event.control} = ${event.value}`;
   }
 
   if (event.kind === "MidiMessageEvent") {
     const direction = event.direction || "input";
-    return `[${time}] MIDI ${direction} ${event.source} ${formatMidiMessageManual(event)}`;
+    return `[${time}] MIDI ${direction} ${sourceLabel} ${formatMidiMessageManual(event)}`;
   }
 
   if (event.kind === "OscMessageEvent") {
     const direction = event.direction || "input";
-    const transport = monitorTransportLabel(event.source);
+    const transport = monitorTransportLabel(adapterName);
     const address = event.canonical_address || event.address;
     const echoSuffix = event.echo_suppressed ? " (echo)" : "";
     if (monitorDisplayMode === "library") {
-      const label = lookupOscParameterLabel(event.source, address);
+      const label = lookupOscParameterLabel(adapterName, address);
       if (label) {
         return `[${time}] ${transport} ${direction} ${label} (${event.address}) ${JSON.stringify(event.arguments || [])}${echoSuffix}`;
       }
@@ -3103,7 +3140,7 @@ function formatMonitorEventLine(event, time) {
     return `[${time}] ${transport} ${direction} ${event.address} ${JSON.stringify(event.arguments || [])}${echoSuffix}`;
   }
 
-  return `[${time}] ${event.kind} from ${event.source}: ${JSON.stringify(event)}`;
+  return `[${time}] ${event.kind} from ${sourceLabel}: ${JSON.stringify(event)}`;
 }
 
 function isHidAdapterSource(source) {
@@ -3126,9 +3163,10 @@ function monitorTransportLabel(source) {
 }
 
 function shouldShowMonitorEvent(event) {
-  const hasMidiLibrary = Boolean(adapterMidiLibraryId(event.source));
+  const adapterName = monitorAdapterForSource(event.source);
+  const hasMidiLibrary = Boolean(adapterMidiLibraryId(adapterName));
 
-  if (event.kind === "ControlEvent" && isHidAdapterSource(event.source)) {
+  if (event.kind === "ControlEvent" && isHidAdapterSource(adapterName)) {
     return false;
   }
 
