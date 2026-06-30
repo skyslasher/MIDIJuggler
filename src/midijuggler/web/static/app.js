@@ -1083,6 +1083,43 @@ function datapointExistsForModule(module, pointId, direction) {
   return learnPointsForInstance(module, direction).some((entry) => entry.id === pointId);
 }
 
+function devicesShareLibrary(instanceA, instanceB) {
+  if (!instanceA || !instanceB || instanceA === instanceB) {
+    return instanceA === instanceB;
+  }
+  const deviceA = configuredDeviceForModule(instanceA);
+  const deviceB = configuredDeviceForModule(instanceB);
+  if (!deviceA || !deviceB) {
+    return false;
+  }
+  return devicesCompatibleWith(deviceCompatibilityProfile(deviceA), deviceB);
+}
+
+function preservedDatapointForInstanceChange(previousPointId, newInstance, direction) {
+  if (!newInstance) {
+    return "";
+  }
+  if (newInstance === DISCONNECTED_MODULE) {
+    return DISCONNECTED_ENDPOINT;
+  }
+  if (!previousPointId || isDisconnectedEndpoint(previousPointId)) {
+    return "";
+  }
+  const previousInstance = connectionEndpointModule(previousPointId);
+  if (previousInstance === newInstance) {
+    return previousPointId;
+  }
+  if (!devicesShareLibrary(previousInstance, newInstance)) {
+    return "";
+  }
+  const point = connectionEndpointPoint(previousPointId);
+  if (!point) {
+    return "";
+  }
+  const candidate = `${newInstance}.${point}`;
+  return datapointExistsForModule(newInstance, candidate, direction) ? candidate : "";
+}
+
 function remapConnectionEndpoint(endpoint, removedModule, replacementModule, direction) {
   if (connectionEndpointModule(endpoint) !== removedModule) {
     return endpoint;
@@ -2000,13 +2037,23 @@ function createConnectionEditForm(connection) {
 
   sourceInstance.addEventListener("change", () => {
     resetDatapointFilterInput(sourceDatapoint);
-    fillLearnPointSelect(sourceDatapoint, sourceInstance.value, "input", "");
+    const preservedPoint = preservedDatapointForInstanceChange(
+      sourceDatapoint.value,
+      sourceInstance.value,
+      "input",
+    );
+    fillLearnPointSelect(sourceDatapoint, sourceInstance.value, "input", preservedPoint);
     sourceDatapoint.disabled = !sourceInstance.value;
     syncConnectionSourceLearnButton(sourceLearnButton, sourceInstance);
   });
   targetInstance.addEventListener("change", () => {
     resetDatapointFilterInput(targetDatapoint);
-    fillLearnPointSelect(targetDatapoint, targetInstance.value, "output", "");
+    const preservedPoint = preservedDatapointForInstanceChange(
+      targetDatapoint.value,
+      targetInstance.value,
+      "output",
+    );
+    fillLearnPointSelect(targetDatapoint, targetInstance.value, "output", preservedPoint);
     targetDatapoint.disabled = !targetInstance.value;
   });
   modifierSelect.addEventListener("change", () => syncConnectionEditRangeFieldsVisibility(form));
@@ -7830,8 +7877,17 @@ learnToggle.addEventListener("click", () => {
 learnSourceInstance.addEventListener("change", () => {
   learnMessage.textContent = "";
   resetDatapointFilterInput(learnSourceDatapoint);
-  fillLearnPointSelect(learnSourceDatapoint, learnSourceInstance.value, "input", "");
-  clearLearnSourceOnServer();
+  const preservedPoint = preservedDatapointForInstanceChange(
+    learnSourceDatapoint.value,
+    learnSourceInstance.value,
+    "input",
+  );
+  fillLearnPointSelect(learnSourceDatapoint, learnSourceInstance.value, "input", preservedPoint);
+  if (preservedPoint && learnMode) {
+    selectLearnSourceDatapoint(preservedPoint);
+  } else {
+    clearLearnSourceOnServer();
+  }
   syncConnectionSourceLearnButton(learnSourceLearnButton, learnSourceInstance);
 });
 
@@ -7884,7 +7940,12 @@ connectionSourceLearnDialog?.addEventListener("cancel", (event) => {
 learnTargetInstance.addEventListener("change", () => {
   learnMessage.textContent = "";
   resetDatapointFilterInput(learnTargetDatapoint);
-  fillLearnPointSelect(learnTargetDatapoint, learnTargetInstance.value, "output", "");
+  const preservedPoint = preservedDatapointForInstanceChange(
+    learnTargetDatapoint.value,
+    learnTargetInstance.value,
+    "output",
+  );
+  fillLearnPointSelect(learnTargetDatapoint, learnTargetInstance.value, "output", preservedPoint);
 });
 
 learnSourceDatapoint.addEventListener("change", () => {
