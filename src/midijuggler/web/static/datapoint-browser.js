@@ -109,6 +109,7 @@
     button: "Button",
     button_led: "Button LED",
     fader: "Fader",
+    fader_touch: "Fader Touch",
     layer_select: "Layer Select",
     mode: "Mode",
   };
@@ -242,16 +243,46 @@
   }
 
   function xtouchButtonLabel(buttonRow, buttonNum, controlKind) {
-    const rowLabel = buttonRow === "top" ? "Top" : "Bottom";
+    const rowLabels = {
+      top: "Top",
+      mid: "Mid",
+      bottom: "Bottom",
+      lower: "Lower",
+    };
+    const rowLabel = rowLabels[buttonRow] || buttonRow.replace(/_/g, " ");
     const base = `${rowLabel} ${buttonNum}`;
     return controlKind === "button_led" ? `${base} LED` : base;
   }
 
+  function xtouchFaderLabel(faderNum) {
+    if (faderNum === "master") {
+      return "Master Fader";
+    }
+    if (faderNum != null) {
+      return `Fader ${faderNum}`;
+    }
+    return "Fader";
+  }
+
   function compareXtouchButtonItems(left, right) {
+    const rowOrder = { top: 0, mid: 1, bottom: 2, lower: 3 };
     if (left.buttonRow !== right.buttonRow) {
-      return left.buttonRow === "top" ? -1 : 1;
+      return (rowOrder[left.buttonRow] ?? 99) - (rowOrder[right.buttonRow] ?? 99);
     }
     return compareNumbers(left.buttonNum, right.buttonNum);
+  }
+
+  function compareXtouchFaderItems(left, right) {
+    if (left.layer !== right.layer) {
+      return compareLabels(left.layer, right.layer);
+    }
+    if (left.faderNum === "master") {
+      return 1;
+    }
+    if (right.faderNum === "master") {
+      return -1;
+    }
+    return compareNumbers(left.faderNum, right.faderNum);
   }
 
   function parseXtouchMiniPath(point, label) {
@@ -280,7 +311,7 @@
         }
       }
 
-      match = point.match(/^layer_(a|b)_(top|bottom)_button_(\d+)(_led)?$/);
+      match = point.match(/^layer_(a|b)_(top|mid|bottom|lower)_button_(\d+)(_led)?$/);
       if (match) {
         const layer = match[1];
         const buttonNum = Number.parseInt(match[3], 10);
@@ -293,8 +324,42 @@
             encoderNum: null,
             buttonRow: match[2],
             buttonNum,
+            faderNum: null,
           };
         }
+      }
+
+      match = point.match(/^layer_(a|b)_fader_(\d+)(?:_touch)?$/);
+      if (match) {
+        const layer = match[1];
+        const faderNum = Number.parseInt(match[2], 10);
+        if (Number.isFinite(faderNum)) {
+          return {
+            scope: "xtouch",
+            layer,
+            layerLabel: xtouchLayerLabel(layer),
+            controlKind: point.endsWith("_touch") ? "fader_touch" : "fader",
+            encoderNum: null,
+            buttonRow: null,
+            buttonNum: null,
+            faderNum,
+          };
+        }
+      }
+
+      match = point.match(/^layer_(a|b)_master_fader(?:_touch)?$/);
+      if (match) {
+        const layer = match[1];
+        return {
+          scope: "xtouch",
+          layer,
+          layerLabel: xtouchLayerLabel(layer),
+          controlKind: point.endsWith("_touch") ? "fader_touch" : "fader",
+          encoderNum: null,
+          buttonRow: null,
+          buttonNum: null,
+          faderNum: "master",
+        };
       }
 
       match = point.match(/^layer_(a|b)_fader$/);
@@ -308,6 +373,7 @@
           encoderNum: null,
           buttonRow: null,
           buttonNum: null,
+          faderNum: null,
         };
       }
 
@@ -366,7 +432,7 @@
       }
     }
 
-    labelMatch = labelText.match(/^Layer ([AB]) (Top|Bottom) Button (\d+)( LED)?$/i);
+    labelMatch = labelText.match(/^Layer ([AB]) (Top|Mid|Bottom|Lower) Button (\d+)( LED)?$/i);
     if (labelMatch) {
       const layer = labelMatch[1].toLowerCase();
       const buttonNum = Number.parseInt(labelMatch[3], 10);
@@ -379,6 +445,25 @@
           encoderNum: null,
           buttonRow: labelMatch[2].toLowerCase(),
           buttonNum,
+          faderNum: null,
+        };
+      }
+    }
+
+    labelMatch = labelText.match(/^Layer ([AB]) (?:Fader (\d+)|Master Fader)(?: Touch)?$/i);
+    if (labelMatch) {
+      const layer = labelMatch[1].toLowerCase();
+      const faderNum = labelMatch[2] ? Number.parseInt(labelMatch[2], 10) : "master";
+      if (faderNum === "master" || Number.isFinite(faderNum)) {
+        return {
+          scope: "xtouch",
+          layer,
+          layerLabel: xtouchLayerLabel(layer),
+          controlKind: / touch$/i.test(labelText) ? "fader_touch" : "fader",
+          encoderNum: null,
+          buttonRow: null,
+          buttonNum: null,
+          faderNum,
         };
       }
     }
@@ -1139,15 +1224,35 @@
     }
 
     if (byKind.has("fader")) {
-      for (const item of byKind.get("fader")) {
-        children.push(
+      const faderItems = byKind.get("fader");
+      if (faderItems.some((item) => item.faderNum != null)) {
+        const faderChildren = faderItems.sort(compareXtouchFaderItems).map((item) =>
           makeLeaf(
-            `facet:xtouch:layer:${layer}:fader`,
-            xtouchControlKindLabel("fader"),
+            `facet:xtouch:layer:${layer}:fader:${item.faderNum}`,
+            xtouchFaderLabel(item.faderNum),
             item.entry,
-            "fader",
+            item.faderNum,
           ),
         );
+        children.push(
+          makeBranch(
+            `facet:xtouch:layer:${layer}:faders`,
+            "Faders",
+            faderChildren,
+            "faders",
+          ),
+        );
+      } else {
+        for (const item of faderItems) {
+          children.push(
+            makeLeaf(
+              `facet:xtouch:layer:${layer}:fader`,
+              xtouchControlKindLabel("fader"),
+              item.entry,
+              "fader",
+            ),
+          );
+        }
       }
     }
 
@@ -1191,6 +1296,28 @@
     const filtered = items.filter((item) => item.controlKind === "fader");
     if (!filtered.length) {
       return null;
+    }
+    if (filtered.some((item) => item.faderNum != null)) {
+      const byLayer = groupBy(filtered, (item) => item.layer);
+      const layerChildren = [...byLayer.entries()]
+        .sort(([leftLayer], [rightLayer]) => compareLabels(leftLayer, rightLayer))
+        .map(([layer, layerItems]) => {
+          const faderChildren = layerItems.sort(compareXtouchFaderItems).map((item) =>
+            makeLeaf(
+              `facet:xtouch:faders:${layer}:${item.faderNum}`,
+              xtouchFaderLabel(item.faderNum),
+              item.entry,
+              item.faderNum,
+            ),
+          );
+          return makeBranch(
+            `facet:xtouch:faders:${layer}`,
+            xtouchLayerLabel(layer),
+            faderChildren,
+            layer,
+          );
+        });
+      return makeBranch("facet:xtouch:faders", "Faders", layerChildren, "Faders");
     }
     const children = filtered
       .sort((left, right) => compareLabels(left.layer, right.layer))

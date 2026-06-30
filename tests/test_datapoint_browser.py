@@ -239,3 +239,66 @@ expectSomePath("4", ["Layer B", "Encoder Push", "Encoder 1"]);
 expectSomePath("7", ["Layer B", "Buttons", "Top 1"]);
 """
     subprocess.run(["node", "-e", script], check=True, cwd=ROOT)
+
+
+@pytest.mark.skipif(shutil.which("node") is None, reason="node not installed")
+def test_datapoint_browser_builds_xtouch_compact_facets() -> None:
+    script = f"""
+global.window = {{}};
+eval({json.dumps(BROWSER_JS.read_text(encoding="utf-8"))});
+const browser = global.window.MidiJugglerDatapointBrowser;
+const entries = [
+  {{ id: "1", point: "layer_a_encoder_1_turn", label: "Layer A Encoder 1 Turn", category: "encoder" }},
+  {{ id: "2", point: "layer_a_fader_1", label: "Layer A Fader 1", category: "fader" }},
+  {{ id: "3", point: "layer_a_fader_8", label: "Layer A Fader 8", category: "fader" }},
+  {{ id: "4", point: "layer_a_master_fader", label: "Layer A Master Fader", category: "fader" }},
+  {{ id: "5", point: "layer_b_fader_1", label: "Layer B Fader 1", category: "fader" }},
+  {{ id: "6", point: "layer_a_mid_button_1", label: "Layer A Mid Button 1", category: "button" }},
+  {{ id: "7", point: "layer_a_lower_button_9", label: "Layer A Lower Button 9", category: "button" }},
+  {{ id: "8", point: "layer_a_top_button_1", label: "Layer A Top Button 1", category: "button" }},
+  {{ id: "9", point: "layer_a_encoder_1_led_ring", label: "Layer A Encoder 1 LED Ring", category: "feedback" }},
+];
+const roots = browser.buildXtouchMiniFacetRoots(entries);
+const rootLabels = roots.map((root) => root.label);
+if (!rootLabels.includes("Faders")) {{
+  throw new Error(`missing Faders facet, got ${{rootLabels.join(", ")}}`);
+}}
+function findPath(nodes, entryId, path = []) {{
+  for (const node of nodes) {{
+    const nextPath = [...path, node.id];
+    if (node.entry?.id === entryId) return nextPath;
+    if (node.children) {{
+      const found = findPath(node.children, entryId, nextPath);
+      if (found) return found;
+    }}
+  }}
+  return null;
+}}
+function findNode(nodes, nodeId) {{
+  for (const node of nodes) {{
+    if (node.id === nodeId) return node;
+    if (node.children) {{
+      const found = findNode(node.children, nodeId);
+      if (found) return found;
+    }}
+  }}
+  return null;
+}}
+const faderPath = findPath(roots, "2");
+if (!faderPath) {{
+  throw new Error("missing path for layer_a_fader_1");
+}}
+const faderLabels = faderPath.map((nodeId) => findNode(roots, nodeId)?.label).filter(Boolean);
+if (!faderLabels.includes("Fader 1") || !faderLabels.includes("Faders")) {{
+  throw new Error(`expected compact fader path, got ${{JSON.stringify(faderLabels)}}`);
+}}
+const masterPath = findPath(roots, "4");
+if (!masterPath) {{
+  throw new Error("missing path for layer_a_master_fader");
+}}
+const masterLabels = masterPath.map((nodeId) => findNode(roots, nodeId)?.label).filter(Boolean);
+if (!masterLabels.includes("Master Fader") || !masterLabels.includes("Faders")) {{
+  throw new Error(`expected master fader path, got ${{JSON.stringify(masterLabels)}}`);
+}}
+"""
+    subprocess.run(["node", "-e", script], check=True, cwd=ROOT)

@@ -618,6 +618,23 @@ function catalogPointsForDevice(device, direction) {
     .filter((entry) => isLearnSelectableDatapoint(entry));
 }
 
+async function ensureCatalogLibrariesForDevice(device) {
+  const libraryId = (device?.library || "").trim();
+  if (!libraryId || !device) {
+    return;
+  }
+  const kind = deviceCatalogKind(device);
+  if (kind === "midi") {
+    await loadMonitorMidiLibrary(libraryId);
+  } else if (kind === "osc" || kind === "wing") {
+    await loadMonitorOscLibrary(libraryId);
+  }
+}
+
+async function ensureCatalogLibrariesForModule(instance) {
+  await ensureCatalogLibrariesForDevice(configuredDeviceForModule(instance));
+}
+
 function configuredDeviceForModule(instance) {
   if (!instance) {
     return null;
@@ -1357,6 +1374,7 @@ async function fillDeviceTestPointSelect(card) {
   if (!select) {
     return;
   }
+  await ensureCatalogLibrariesForModule(uid);
   if (!learnRegistryDatapoints.length) {
     await loadLearnDatapoints().catch(() => null);
   }
@@ -3589,6 +3607,28 @@ function isXtouchLibrary(libraryId) {
   );
 }
 
+function defaultXtouchValueChannel(libraryId) {
+  return String(libraryId || "").trim() === "behringer_xtouch_compact" ? 1 : 11;
+}
+
+function defaultXtouchDisplayChannel(libraryId) {
+  return String(libraryId || "").trim() === "behringer_xtouch_compact" ? 1 : 12;
+}
+
+function applyXtouchChannelDefaults(card, libraryId) {
+  if (!isXtouchLibrary(libraryId)) {
+    return;
+  }
+  const valueChannel = card.querySelector('[data-field="midi_value_channel"]');
+  const displayChannel = card.querySelector('[data-field="midi_display_channel"]');
+  if (valueChannel) {
+    valueChannel.value = String(defaultXtouchValueChannel(libraryId));
+  }
+  if (displayChannel) {
+    displayChannel.value = String(defaultXtouchDisplayChannel(libraryId));
+  }
+}
+
 function collectBoundDeviceXtouchFieldsFromCard(card, selector = "[data-device-field]") {
   const fields = {};
   for (const element of card.querySelectorAll(selector)) {
@@ -3672,6 +3712,7 @@ function applyAdapterDefaultsToDeviceCard(card) {
     nameField.dispatchEvent(new Event("input", { bubbles: true }));
   }
   card.dataset.deviceLibrary = libraryField.value.trim();
+  applyXtouchChannelDefaults(card, libraryField.value.trim());
   syncDeviceTestSendSection(card);
 }
 
@@ -3920,7 +3961,7 @@ function saveDeviceCard(card) {
   saveButton.disabled = true;
 
   persistDevicesFromCards()
-    .then((config) => {
+    .then(async (config) => {
       const status =
         config.persisted === false
           ? `saved for runtime only: ${config.persist_error}`
@@ -3943,11 +3984,15 @@ function saveDeviceCard(card) {
         updateDeviceCardDirtyState(card);
         showDeviceCardMessage(card, status, { autoHide: true });
       }
-      return loadLearnDatapoints().catch(() => null);
+      await loadLearnDatapoints().catch(() => null);
+      refreshDeviceTestPointSelects();
     })
     .catch((error) => {
       showDeviceCardMessage(card, `error: ${error.message}`);
       updateDeviceCardDirtyState(card);
+    })
+    .finally(() => {
+      saveButton.disabled = false;
     });
 }
 
@@ -4058,11 +4103,12 @@ function createDeviceCard(device = {}, options = {}) {
     device.library || "",
   );
 
+  const initialLibrary = device.library || "";
   const xtouchFields = document.createElement("div");
   xtouchFields.className = "device-xtouch-fields";
   const xtouchHeading = document.createElement("h3");
   xtouchHeading.className = "device-section-heading";
-  xtouchHeading.textContent = "X-Touch Mini";
+  xtouchHeading.textContent = "X-Touch";
   xtouchFields.appendChild(xtouchHeading);
   const feedbackRefreshField = createNumberField(
     "LED feedback refresh (s)",
@@ -4075,7 +4121,7 @@ function createDeviceCard(device = {}, options = {}) {
   const valueChannelField = createNumberField(
     "Value channel",
     "midi_value_channel",
-    device.midi_value_channel ?? 11,
+    device.midi_value_channel ?? defaultXtouchValueChannel(initialLibrary),
     1,
     16,
     1,
@@ -4083,7 +4129,7 @@ function createDeviceCard(device = {}, options = {}) {
   const displayChannelField = createNumberField(
     "Display channel",
     "midi_display_channel",
-    device.midi_display_channel ?? 12,
+    device.midi_display_channel ?? defaultXtouchDisplayChannel(initialLibrary),
     1,
     16,
     1,
@@ -4109,8 +4155,10 @@ function createDeviceCard(device = {}, options = {}) {
     updateDeviceCardDirtyState(card);
   };
   librarySelect?.addEventListener("change", () => {
-    card.dataset.deviceLibrary = librarySelect.value.trim();
+    const library = librarySelect.value.trim();
+    card.dataset.deviceLibrary = library;
     updateXtouchFieldsVisibility();
+    applyXtouchChannelDefaults(card, library);
     syncDeviceTestSendSection(card);
     markDirty();
   });
@@ -4131,6 +4179,10 @@ function createDeviceCard(device = {}, options = {}) {
     );
     card.dataset.deviceLibrary = fields.querySelector('[data-field="library"]')?.value.trim() || "";
     updateXtouchFieldsVisibility();
+    applyXtouchChannelDefaults(
+      card,
+      fields.querySelector('[data-field="library"]')?.value.trim() || "",
+    );
     syncDeviceTestSendSection(card);
     markDirty();
   });
@@ -5941,7 +5993,7 @@ function createMidiAdapterCard(instance, config, options = {}) {
     const xtouchHint = document.createElement("p");
     xtouchHint.className = "hint";
     xtouchHint.textContent =
-      "X-Touch Mini options are stored on the bound Device.";
+      "X-Touch options are stored on the bound Device.";
     const feedbackRefreshField = createDeviceBoundNumberField(
       "LED feedback refresh (s)",
       "feedback_refresh_interval",
@@ -5950,10 +6002,16 @@ function createMidiAdapterCard(instance, config, options = {}) {
       60,
       0.1,
     );
+    const adapterLibrary =
+      deviceLibraryForAdapter(instance.uid || instance.name) ||
+      instance.device_library ||
+      xtouchLibrary;
     const valueChannelField = createDeviceBoundNumberField(
       "Value channel",
       "midi_value_channel",
-      instance.midi_value_channel ?? boundDevice?.midi_value_channel ?? 11,
+      instance.midi_value_channel
+        ?? boundDevice?.midi_value_channel
+        ?? defaultXtouchValueChannel(adapterLibrary),
       1,
       16,
       1,
@@ -5961,7 +6019,9 @@ function createMidiAdapterCard(instance, config, options = {}) {
     const displayChannelField = createDeviceBoundNumberField(
       "Display channel",
       "midi_display_channel",
-      instance.midi_display_channel ?? boundDevice?.midi_display_channel ?? 12,
+      instance.midi_display_channel
+        ?? boundDevice?.midi_display_channel
+        ?? defaultXtouchDisplayChannel(adapterLibrary),
       1,
       16,
       1,
