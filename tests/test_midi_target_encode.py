@@ -2,6 +2,7 @@ import pytest
 
 from midijuggler.config import parse_config
 from midijuggler.midi.target_encode import (
+    encode_mapped_midi_target,
     encode_midi_target_message,
     lookup_midi_target_ranges,
     resolve_midi_target_parameter,
@@ -105,3 +106,75 @@ def test_encode_midi_target_message_rejects_sysex() -> None:
 
     with pytest.raises(ValueError, match="sysex"):
         encode_midi_target_message(parameter, 0)
+
+
+def test_resolve_midi_target_parameter_accepts_bidirectional_library_parameters() -> None:
+    from midijuggler.device.registry import DeviceRegistry
+
+    config = parse_config(
+        {
+            "adapters": {
+                "wing_midi": {
+                    "enabled": True,
+                    "type": "midi",
+                    "midi_library": "behringer_wing",
+                }
+            },
+            "devices": [
+                {
+                    "id": "wing_midi",
+                    "adapter": "wing_midi",
+                    "library": "behringer_wing",
+                    "library_kind": "midi",
+                }
+            ],
+        }
+    )
+    registry = DeviceRegistry.from_config(config)
+
+    parameter = resolve_midi_target_parameter(
+        config,
+        registry,
+        "wing_midi",
+        "fx_1_param_1",
+    )
+
+    assert parameter.direction == "bidirectional"
+    assert parameter.midi_channel == 9
+    assert parameter.number == 15
+
+
+def test_encode_mapped_midi_target_for_wing_bidirectional_parameter() -> None:
+    from midijuggler.device.registry import DeviceRegistry
+
+    config = parse_config(
+        {
+            "adapters": {
+                "wing_midi": {
+                    "enabled": True,
+                    "type": "midi",
+                    "midi_library": "behringer_wing",
+                }
+            },
+            "devices": [
+                {
+                    "id": "wing_midi",
+                    "adapter": "wing_midi",
+                    "library": "behringer_wing",
+                    "library_kind": "midi",
+                }
+            ],
+        }
+    )
+    registry = DeviceRegistry.from_config(config)
+
+    status, data = encode_mapped_midi_target(
+        config,
+        registry,
+        "wing_midi",
+        "fx_1_param_1",
+        64.0,
+    )
+
+    assert status == 0xB8
+    assert data == (15, 64)

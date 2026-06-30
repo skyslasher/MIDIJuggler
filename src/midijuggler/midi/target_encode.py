@@ -14,6 +14,18 @@ CONTROL_CHANGE = 0xB0
 PROGRAM_CHANGE = 0xC0
 PITCH_BEND = 0xE0
 
+MIDI_OUTPUT_DIRECTIONS = frozenset({"target", "bidirectional"})
+
+
+def _is_encodable_midi_output_parameter(parameter: MidiParameter) -> bool:
+    if parameter.direction in MIDI_OUTPUT_DIRECTIONS:
+        return True
+    return (
+        parameter.direction == "source"
+        and parameter.message_type == "control_change"
+        and parameter.category == "fader"
+    )
+
 
 def resolve_midi_target_parameter(
     config: AppConfig,
@@ -33,14 +45,15 @@ def resolve_midi_target_parameter(
         parameter
         for parameter in library.parameters
         if parameter.id == parameter_id
-        and parameter.direction == "target"
+        and parameter.direction in MIDI_OUTPUT_DIRECTIONS
         and _parameter_matches_port(parameter, library_port)
     ]
     if not matches:
         matches = [
             parameter
             for parameter in library.parameters
-            if parameter.id == parameter_id and parameter.direction == "target"
+            if parameter.id == parameter_id
+            and parameter.direction in MIDI_OUTPUT_DIRECTIONS
         ]
     if not matches:
         matches = [
@@ -84,14 +97,9 @@ def encode_midi_target_message(
     adapter: AdapterConfig | None = None,
     device: DeviceConfig | None = None,
 ) -> tuple[int, tuple[int, ...]]:
-    if parameter.direction not in {"target", "source"}:
+    if parameter.direction not in {"target", "source", "bidirectional"}:
         raise ValueError(f"MIDI parameter {parameter.id!r} is not an output target")
-    if (
-        parameter.direction == "source"
-        and not (
-            parameter.message_type == "control_change" and parameter.category == "fader"
-        )
-    ):
+    if not _is_encodable_midi_output_parameter(parameter):
         raise ValueError(f"MIDI parameter {parameter.id!r} is not a target")
     if parameter.message_type == "sysex":
         raise ValueError(
