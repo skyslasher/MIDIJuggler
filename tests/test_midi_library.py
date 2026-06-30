@@ -75,6 +75,7 @@ def test_wing_midi_library_uses_official_port4_cc_mapping() -> None:
 
     assert parameters["ch_1_fdr"].midi_channel == 1
     assert parameters["ch_1_fdr"].number == 12
+    assert parameters["ch_1_fdr"].direction == "bidirectional"
     assert parameters["ch_21_fdr"].number == 44
     assert parameters["ch_1_mute"].midi_channel == 2
     assert parameters["ch_1_pan"].midi_channel == 3

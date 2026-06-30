@@ -58,6 +58,38 @@ def test_midi_library_datapoints_include_category() -> None:
     assert encoder.category == "encoder"
 
 
+def test_midi_library_bidirectional_parameters_register_as_bidirectional() -> None:
+    config = parse_config(
+        {
+            "adapters": {
+                "wing_midi": {
+                    "type": "midi",
+                    "enabled": True,
+                    "output_port": "WING MIDI 1",
+                    "midi_library": "behringer_wing",
+                }
+            },
+            "devices": [
+                {
+                    "uid": "wing_midi",
+                    "name": "Wing MIDI 1",
+                    "adapter": "wing_midi",
+                    "library": "behringer_wing",
+                    "library_kind": "midi",
+                }
+            ],
+        }
+    )
+    device = config.devices["wing_midi"]
+    adapter = config.adapters["wing_midi"]
+
+    specs, output_points = build_device_datapoints(device, adapter)
+    by_id = {str(spec.id): spec for spec in specs}
+
+    assert by_id["wing_midi.ch_1_fdr"].direction.value == "bidirectional"
+    assert "ch_1_fdr" in output_points
+
+
 def test_midi_library_datapoints_allow_missing_value_ranges() -> None:
     config = parse_config(
         {

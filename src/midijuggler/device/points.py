@@ -93,11 +93,12 @@ def _append_midi_library_points(
     library = get_midi_library(device.library)
     library_port = resolve_library_port(adapter)
     for parameter in library.parameters:
-        direction = (
-            DataPointDirection.INPUT
-            if parameter.direction == "source"
-            else DataPointDirection.OUTPUT
-        )
+        if parameter.direction == "source":
+            direction = DataPointDirection.INPUT
+        elif parameter.direction == "bidirectional":
+            direction = DataPointDirection.BIDIRECTIONAL
+        else:
+            direction = DataPointDirection.OUTPUT
         specs.append(
             DataPointSpec(
                 id=DataPointId(device.uid, parameter.id),
@@ -108,7 +109,9 @@ def _append_midi_library_points(
                 value_max=_optional_library_range(parameter.value_max),
                 protocol="midi",
                 input_mode=(
-                    parameter.value_type if parameter.direction == "source" else ""
+                    parameter.value_type
+                    if parameter.direction in {"source", "bidirectional"}
+                    else ""
                 ),
                 relative_encoding=(
                     parameter.relative_encoding if parameter.direction == "source" else ""
@@ -116,7 +119,10 @@ def _append_midi_library_points(
                 category=parameter.category,
             )
         )
-        if direction == DataPointDirection.OUTPUT:
+        if direction in {
+            DataPointDirection.OUTPUT,
+            DataPointDirection.BIDIRECTIONAL,
+        }:
             output_points.add(parameter.id)
         elif (
             parameter.direction == "source"

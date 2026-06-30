@@ -586,20 +586,29 @@ function catalogPointsForDevice(device, direction) {
   }
   const wantSource = direction === "input";
   return (library.parameters || [])
-    .filter((parameter) =>
-      wantSource ? parameter.direction === "source" : parameter.direction === "target",
-    )
+    .filter((parameter) => {
+      if (parameter.direction === "bidirectional") {
+        return true;
+      }
+      return wantSource ? parameter.direction === "source" : parameter.direction === "target";
+    })
     .map((parameter) => {
       const point =
         kind !== "midi" && String(parameter.address || "").startsWith("/")
           ? parameter.address
           : parameter.id;
+      const entryDirection =
+        parameter.direction === "bidirectional"
+          ? "bidirectional"
+          : wantSource
+            ? "input"
+            : "output";
       return {
         id: `${uid}.${point}`,
         module: uid,
         point,
         label: parameter.label || parameter.id,
-        direction: wantSource ? "input" : "output",
+        direction: entryDirection,
         category: parameter.category || "",
         value_min: parameter.value_min,
         value_max: parameter.value_max,
