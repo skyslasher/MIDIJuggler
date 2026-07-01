@@ -145,8 +145,7 @@
       grid-template-columns: 1fr 1fr;
     }
 
-    button,
-    select {
+    button {
       appearance: none;
       background: #6ea8fe;
       border: 0;
@@ -170,16 +169,6 @@
     button.secondary {
       background: #2b3752;
       color: #edf2ff;
-    }
-
-    select {
-      background: #10141f;
-      border: 1px solid #2b3752;
-      border-radius: 10px;
-      color: #edf2ff;
-      grid-column: 1 / -1;
-      padding: 0.65rem 0.75rem;
-      width: 100%;
     }
 
     .message {
@@ -220,24 +209,18 @@
     </div>
 
     <div class="controls">
-      <button type="button" data-trigger="bpm_down">−</button>
+      <button type="button" data-trigger="bpm_down" id="bpm-down-btn">−</button>
       <button type="button" data-trigger="tap_tempo">Tap</button>
-      <button type="button" data-trigger="bpm_up">+</button>
-      <button type="button" data-trigger="bpm_huge_down">−10</button>
+      <button type="button" data-trigger="bpm_up" id="bpm-up-btn">+</button>
+      <button type="button" data-trigger="bpm_huge_down" id="bpm-huge-down-btn">−−</button>
       <button type="button" data-trigger="start_stop" id="transport-btn">Start</button>
-      <button type="button" data-trigger="bpm_huge_up">+10</button>
+      <button type="button" data-trigger="bpm_huge_up" id="bpm-huge-up-btn">++</button>
     </div>
 
     <div class="controls wide">
       <button type="button" class="secondary" data-trigger="click_toggle" id="click-toggle">Toggle click</button>
+      <button type="button" class="secondary" id="click-interval-btn" aria-label="Click interval">Quarter</button>
     </div>
-
-    <select id="click-interval-select" aria-label="Click interval">
-      <option value="eighth">Eighth note</option>
-      <option value="quarter">Quarter note</option>
-      <option value="half">Half note</option>
-      <option value="whole">Whole note</option>
-    </select>
 
     <div class="message" id="message"></div>
   </div>
@@ -247,15 +230,27 @@
     const runningEl = document.querySelector("#running");
     const clickEnabledEl = document.querySelector("#click-enabled");
     const clickIntervalEl = document.querySelector("#click-interval");
-    const clickIntervalSelect = document.querySelector("#click-interval-select");
+    const clickIntervalBtn = document.querySelector("#click-interval-btn");
+    const bpmDownBtn = document.querySelector("#bpm-down-btn");
+    const bpmUpBtn = document.querySelector("#bpm-up-btn");
+    const bpmHugeDownBtn = document.querySelector("#bpm-huge-down-btn");
+    const bpmHugeUpBtn = document.querySelector("#bpm-huge-up-btn");
     const transportBtn = document.querySelector("#transport-btn");
     const clickToggleBtn = document.querySelector("#click-toggle");
     const connectionEl = document.querySelector("#connection");
     const messageEl = document.querySelector("#message");
     const beatRing = document.querySelector("#beat-ring");
 
+    const CLICK_INTERVALS = ["eighth", "quarter", "half", "whole"];
+    const CLICK_INTERVAL_LABELS = {
+      eighth: "Eighth",
+      quarter: "Quarter",
+      half: "Half",
+      whole: "Whole",
+    };
+
     let beatFlashTimer = null;
-    let updatingInterval = false;
+    let currentClickInterval = "quarter";
 
     function apiBase() {
       const params = new URLSearchParams(window.location.search);
@@ -269,6 +264,27 @@
 
     function setMessage(text) {
       messageEl.textContent = text || "";
+    }
+
+    function formatStep(value) {
+      const amount = Number(value);
+      if (!Number.isFinite(amount) || amount <= 0) {
+        return "?";
+      }
+      return Number.isInteger(amount) ? String(amount) : String(amount);
+    }
+
+    function renderStepButtons(clock) {
+      if (clock.bpm_step != null) {
+        const step = formatStep(clock.bpm_step);
+        bpmDownBtn.textContent = `−${step}`;
+        bpmUpBtn.textContent = `+${step}`;
+      }
+      if (clock.bpm_huge_step != null) {
+        const hugeStep = formatStep(clock.bpm_huge_step);
+        bpmHugeDownBtn.textContent = `−${hugeStep}`;
+        bpmHugeUpBtn.textContent = `+${hugeStep}`;
+      }
     }
 
     function pulseBeat(flashMs) {
@@ -299,10 +315,18 @@
       clickToggleBtn.textContent = clickEnabled ? "Click on" : "Click off";
 
       const interval = clock.click_interval || "quarter";
+      currentClickInterval = interval;
       clickIntervalEl.textContent = interval;
-      if (!updatingInterval && clickIntervalSelect.value !== interval) {
-        clickIntervalSelect.value = interval;
+      clickIntervalBtn.textContent = CLICK_INTERVAL_LABELS[interval] || interval;
+      renderStepButtons(clock);
+    }
+
+    function nextClickInterval(interval) {
+      const index = CLICK_INTERVALS.indexOf(interval);
+      if (index < 0) {
+        return CLICK_INTERVALS[0];
       }
+      return CLICK_INTERVALS[(index + 1) % CLICK_INTERVALS.length];
     }
 
     function renderStatus(payload) {
@@ -333,7 +357,6 @@
     }
 
     async function setClickInterval(interval) {
-      updatingInterval = true;
       setMessage("");
       try {
         const payload = await apiFetch("/api/master-clock", {
@@ -343,8 +366,6 @@
         renderClock(payload);
       } catch (error) {
         setMessage(error.message || "Could not update click interval");
-      } finally {
-        updatingInterval = false;
       }
     }
 
@@ -352,8 +373,8 @@
       button.addEventListener("click", () => trigger(button.dataset.trigger));
     });
 
-    clickIntervalSelect.addEventListener("change", () => {
-      setClickInterval(clickIntervalSelect.value);
+    clickIntervalBtn.addEventListener("click", () => {
+      setClickInterval(nextClickInterval(currentClickInterval));
     });
 
     function connectMonitor() {

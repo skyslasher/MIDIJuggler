@@ -1374,6 +1374,8 @@ class WebInterface:
                 "position_ticks": self.master_clock.position_ticks,
                 "click_enabled": self.master_clock.config.click_enabled,
                 "click_interval": self.master_clock.click_interval,
+                "bpm_step": self.master_clock.config.bpm_step,
+                "bpm_huge_step": self.master_clock.config.bpm_huge_step,
                 "parameters": self.master_clock.parameters.as_controls(),
             },
             "learn_mode": self.learn.state.enabled,
