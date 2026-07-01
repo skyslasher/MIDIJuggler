@@ -9,6 +9,8 @@ import pytest
 from midijuggler.click_player import (
     AplayClickPlayer,
     AlsaClickPlayer,
+    _PLAYBACK_PERIOD_FRAMES,
+    _pad_to_playback_period,
     create_click_player,
     load_wav,
 )
@@ -55,11 +57,13 @@ class FakeLongProcess:
 
 
 class FakePcm:
-    def __init__(self) -> None:
+    def __init__(self, *, frame_bytes: int = 2) -> None:
+        self.frame_bytes = frame_bytes
         self.writes: list[bytes] = []
         self.drops = 0
         self.drains = 0
         self.closed = False
+        self._pending = b""
 
     def drop(self) -> None:
         self.drops += 1
@@ -72,6 +76,36 @@ class FakePcm:
 
     def close(self) -> None:
         self.closed = True
+
+
+class PeriodDeferredFakePcm(FakePcm):
+    """Simulate pyalsaaudio deferring playout until one period is buffered."""
+
+    def __init__(self, *, frame_bytes: int = 2, period_frames: int = _PLAYBACK_PERIOD_FRAMES) -> None:
+        super().__init__(frame_bytes=frame_bytes)
+        self.period_frames = period_frames
+
+    def write(self, data: bytes) -> int:
+        self._pending += data
+        pending_frames = len(self._pending) // self.frame_bytes
+        if pending_frames >= self.period_frames:
+            commit_frames = (pending_frames // self.period_frames) * self.period_frames
+            commit_bytes = commit_frames * self.frame_bytes
+            self.writes.append(self._pending[:commit_bytes])
+            self._pending = self._pending[commit_bytes:]
+        return len(data) // self.frame_bytes
+
+
+def test_pad_to_playback_period_extends_short_clicks() -> None:
+    padded = _pad_to_playback_period(b"\x01\x02", frame_bytes=2, period_frames=4)
+
+    assert padded == b"\x01\x02" + bytes(6)
+
+
+def test_pad_to_playback_period_leaves_long_clicks_unmodified() -> None:
+    data = b"\x00" * (8 * 2)
+
+    assert _pad_to_playback_period(data, frame_bytes=2, period_frames=4) is data
 
 
 def _wait_for_click_writes(pcm: FakePcm, count: int, *, timeout: float = 1.0) -> None:
@@ -370,8 +404,30 @@ def test_alsa_click_player_recovers_from_bad_pcm_state(tmp_path, monkeypatch, ca
             time.sleep(0.01)
 
     assert len(created) == 2
-    assert created[1].writes == [wav.frames]
+    assert created[1].writes[0].startswith(wav.frames)
     assert "recreating ALSA PCM after" in caplog.text
+    asyncio.run(player.close())
+
+
+def test_alsa_click_player_pads_short_clicks_for_immediate_playout(
+    tmp_path,
+    monkeypatch,
+) -> None:
+    wav_path = tmp_path / "click.wav"
+    _write_wav(wav_path)
+    pcm = PeriodDeferredFakePcm(frame_bytes=2, period_frames=4)
+    monkeypatch.setitem(
+        __import__("sys").modules,
+        "alsaaudio",
+        _fake_alsa_module(pcm_factory=lambda kwargs: pcm),
+    )
+
+    player = AlsaClickPlayer(str(wav_path), audio_device="wing_stereo1")
+    for _ in range(4):
+        player.trigger()
+    _wait_for_click_writes(pcm, 4)
+
+    assert len(pcm.writes) == 4
     asyncio.run(player.close())
 
 
@@ -422,7 +478,7 @@ def test_alsa_click_player_recovers_from_invalid_argument_on_open(
             time.sleep(0.01)
 
     assert len(created) == 2
-    assert created[1].writes == [wav.frames]
+    assert created[1].writes[0].startswith(wav.frames)
     asyncio.run(player.close())
 
 

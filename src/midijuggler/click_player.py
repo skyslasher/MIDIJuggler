@@ -18,6 +18,7 @@ LOGGER = logging.getLogger(__name__)
 
 _CLICK_THREAD_POLL_S = 0.05
 _CLICK_REALTIME_PRIORITY = 50
+_PLAYBACK_PERIOD_FRAMES = 1024
 
 
 @dataclass(frozen=True)
@@ -298,7 +299,11 @@ class AlsaClickPlayer:
         if frame_bytes <= 0:
             raise ValueError("invalid WAV frame size")
         offset = 0
-        data = wav.frames
+        data = _pad_to_playback_period(
+            wav.frames,
+            frame_bytes,
+            _PLAYBACK_PERIOD_FRAMES,
+        )
         while offset < len(data):
             chunk = data[offset:]
             written = pcm.write(chunk)
@@ -326,7 +331,7 @@ class AlsaClickPlayer:
             channels=wav.channels,
             rate=wav.rate,
             format=_sample_width_to_format(self._alsaaudio, wav.sample_width),
-            periodsize=1024,
+            periodsize=_PLAYBACK_PERIOD_FRAMES,
             periods=4,
         )
 
@@ -472,6 +477,20 @@ def _is_recoverable_alsa_pcm_error(message: str) -> bool:
         "broken pipe",
     )
     return any(marker in lowered for marker in markers)
+
+
+def _pad_to_playback_period(data: bytes, frame_bytes: int, period_frames: int) -> bytes:
+    """Pad short click samples so each write starts ALSA playout immediately.
+
+    pyalsaaudio defers playback until at least one full period is buffered.
+    A persistent PCM handle would otherwise merge consecutive short clicks and
+    only audibly play every second trigger.
+    """
+
+    period_bytes = period_frames * frame_bytes
+    if len(data) >= period_bytes:
+        return data
+    return data + bytes(period_bytes - len(data))
 
 
 def _sample_width_to_format(alsaaudio: Any, sample_width: int) -> int:
