@@ -75,7 +75,14 @@ from midijuggler.modules.io.osc import OscIOModule
 from midijuggler.modules.io.wing_native import WingNativeIOModule
 from midijuggler.modules.modifier.feedback_suppress import parse_feedback_suppress_ms
 from midijuggler.eventbus import EventBus
-from midijuggler.events import AdapterStatusEvent, Event, MasterClockStateEvent, MidiMessageEvent
+from midijuggler.events import (
+    AdapterStatusEvent,
+    Event,
+    MasterClockCommandEvent,
+    MasterClockStateEvent,
+    MidiMessageEvent,
+)
+from midijuggler.master_clock import quantize_bpm
 from midijuggler.learn import (
     LearnController,
     lookup_datapoint_ranges,
@@ -159,6 +166,51 @@ from midijuggler.system_info import (
 
 LOGGER = logging.getLogger(__name__)
 
+CLOCK_TRIGGER_POINTS = frozenset(
+    {
+        "bpm_up",
+        "bpm_down",
+        "bpm_huge_up",
+        "bpm_huge_down",
+        "start",
+        "stop",
+        "start_stop",
+        "tap_tempo",
+        "click_toggle",
+    }
+)
+
+_CLOCK_REMOTE_CORS_HEADERS = {
+    "Access-Control-Allow-Origin": "*",
+    "Access-Control-Allow-Methods": "GET, POST, OPTIONS",
+    "Access-Control-Allow-Headers": "Content-Type",
+}
+
+
+def _clock_remote_cors_path(path: str) -> bool:
+    if path == "/api/status":
+        return True
+    if path.startswith("/api/clock/"):
+        return True
+    if path == "/api/master-clock" or path.startswith("/api/master-clock/"):
+        return True
+    return False
+
+
+@web.middleware
+async def clock_remote_cors_middleware(
+    request: web.Request,
+    handler: Any,
+) -> web.StreamResponse:
+    if not _clock_remote_cors_path(request.path):
+        return await handler(request)
+    if request.method == "OPTIONS":
+        return web.Response(status=204, headers=_CLOCK_REMOTE_CORS_HEADERS)
+    response = await handler(request)
+    for header, value in _CLOCK_REMOTE_CORS_HEADERS.items():
+        response.headers[header] = value
+    return response
+
 
 class WebInterface:
     """HTTP API, static UI and WebSocket event monitor."""
@@ -215,7 +267,7 @@ class WebInterface:
         self._osc_io_modules = io_modules
 
     def create_app(self) -> web.Application:
-        app = web.Application()
+        app = web.Application(middlewares=[clock_remote_cors_middleware])
         app["web_interface"] = self
         app.router.add_get("/", self.index)
         app.router.add_get("/static/{filename}", self.static_asset)
@@ -247,6 +299,7 @@ class WebInterface:
         app.router.add_post("/api/master-clock", self.set_master_clock_config)
         app.router.add_post("/api/master-clock/tap", self.tap_master_clock)
         app.router.add_post("/api/master-clock/transport", self.master_clock_transport)
+        app.router.add_post("/api/clock/trigger", self.clock_trigger)
         app.router.add_get("/api/midi-libraries", self.midi_libraries)
         app.router.add_get("/api/midi-libraries/{library_id}", self.midi_library)
         app.router.add_get("/api/osc-libraries", self.osc_libraries)
@@ -901,6 +954,15 @@ class WebInterface:
             raise web.HTTPBadRequest(text=str(exc)) from exc
         return web.json_response(payload)
 
+    async def clock_trigger(self, request: web.Request) -> web.Response:
+        payload = await request.json()
+        point = str(payload.get("point", ""))
+        try:
+            response = await self.apply_clock_trigger(point)
+        except ValueError as exc:
+            raise web.HTTPBadRequest(text=str(exc)) from exc
+        return web.json_response(response)
+
     async def master_clock_transport(self, request: web.Request) -> web.Response:
         payload = await request.json()
         action = str(payload.get("action", "toggle"))
@@ -1310,6 +1372,7 @@ class WebInterface:
                 "bpm": self.master_clock.bpm,
                 "running": self.master_clock.running,
                 "position_ticks": self.master_clock.position_ticks,
+                "click_enabled": self.master_clock.config.click_enabled,
                 "click_interval": self.master_clock.click_interval,
                 "parameters": self.master_clock.parameters.as_controls(),
             },
@@ -3526,11 +3589,23 @@ class WebInterface:
 
     async def apply_tap_tempo(self, timestamp: float | None = None) -> dict[str, Any]:
         now = time.monotonic() if timestamp is None else timestamp
+        return await self.apply_clock_trigger("tap_tempo", timestamp=now)
+
+    async def apply_clock_trigger(
+        self,
+        point: str,
+        timestamp: float | None = None,
+    ) -> dict[str, Any]:
+        if point not in CLOCK_TRIGGER_POINTS:
+            raise ValueError(f"unknown clock trigger point: {point}")
+        if not self.master_clock.config.enabled:
+            raise ValueError("master clock is disabled")
+        now = time.monotonic() if timestamp is None else timestamp
         if self.datapoint_store is not None:
-            tap = DataPointId("clock", "tap_tempo")
+            trigger = DataPointId("clock", point)
             await self.datapoint_store.write(
                 DataPointValue(
-                    point_id=tap,
+                    point_id=trigger,
                     value_type=ValueType.TRIGGER,
                     bool_value=False,
                     timestamp=now,
@@ -3538,17 +3613,80 @@ class WebInterface:
             )
             await self.datapoint_store.write(
                 DataPointValue(
-                    point_id=tap,
+                    point_id=trigger,
                     value_type=ValueType.TRIGGER,
                     bool_value=True,
                     timestamp=now,
                 )
             )
         else:
-            await self.master_clock.register_tap_tempo(now)
+            await self._apply_clock_trigger_direct(point, timestamp=now)
         payload = self._status_payload()
-        payload["tap_count"] = self.master_clock.tap_count
+        if point == "tap_tempo":
+            payload["tap_count"] = self.master_clock.tap_count
         return payload
+
+    async def _apply_clock_trigger_direct(
+        self,
+        point: str,
+        *,
+        timestamp: float | None = None,
+    ) -> None:
+        clock = self.master_clock
+        config = clock.config
+
+        def stepped_bpm(delta: float) -> float:
+            stepped = quantize_bpm(clock.bpm + delta, step=config.bpm_quantize)
+            return min(max(stepped, config.bpm_min), config.bpm_max)
+
+        if point == "bpm_up":
+            await clock.handle_command(
+                MasterClockCommandEvent(
+                    source="clock",
+                    command="set_bpm",
+                    value=stepped_bpm(config.bpm_step),
+                )
+            )
+        elif point == "bpm_down":
+            await clock.handle_command(
+                MasterClockCommandEvent(
+                    source="clock",
+                    command="set_bpm",
+                    value=stepped_bpm(-config.bpm_step),
+                )
+            )
+        elif point == "bpm_huge_up":
+            await clock.handle_command(
+                MasterClockCommandEvent(
+                    source="clock",
+                    command="set_bpm",
+                    value=stepped_bpm(config.bpm_huge_step),
+                )
+            )
+        elif point == "bpm_huge_down":
+            await clock.handle_command(
+                MasterClockCommandEvent(
+                    source="clock",
+                    command="set_bpm",
+                    value=stepped_bpm(-config.bpm_huge_step),
+                )
+            )
+        elif point == "start":
+            await clock.handle_command(
+                MasterClockCommandEvent(source="clock", command="start")
+            )
+        elif point == "stop":
+            await clock.handle_command(
+                MasterClockCommandEvent(source="clock", command="stop")
+            )
+        elif point == "start_stop":
+            await clock.toggle_transport()
+        elif point == "tap_tempo":
+            await clock.register_tap_tempo(timestamp)
+        elif point == "click_toggle":
+            await clock.toggle_click_enabled()
+        else:
+            raise ValueError(f"unknown clock trigger point: {point}")
 
     async def apply_master_clock_transport(self, action: str) -> dict[str, Any]:
         if not self.master_clock.config.enabled:

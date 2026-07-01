@@ -1,0 +1,403 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>MIDIJuggler Clock Remote</title>
+  <style>
+    :root {
+      color-scheme: dark;
+      font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, sans-serif;
+      background: #10141f;
+      color: #edf2ff;
+    }
+
+    *,
+    *::before,
+    *::after {
+      box-sizing: border-box;
+    }
+
+    body {
+      margin: 0;
+      min-height: 100vh;
+      display: grid;
+      place-items: center;
+      padding: 1rem;
+    }
+
+    .widget {
+      background: #182032;
+      border: 1px solid #2b3752;
+      border-radius: 16px;
+      box-shadow: 0 16px 40px rgb(0 0 0 / 20%);
+      max-width: 22rem;
+      padding: 1.25rem;
+      width: 100%;
+    }
+
+    .header {
+      align-items: center;
+      display: flex;
+      justify-content: space-between;
+      margin-bottom: 1rem;
+    }
+
+    .title {
+      font-size: 0.85rem;
+      font-weight: 700;
+      letter-spacing: 0.04em;
+      margin: 0;
+      opacity: 0.75;
+      text-transform: uppercase;
+    }
+
+    .connection {
+      font-size: 0.75rem;
+      opacity: 0.65;
+    }
+
+    .connection.connected {
+      color: #7dffb0;
+      opacity: 1;
+    }
+
+    .bpm-display {
+      align-items: baseline;
+      display: flex;
+      gap: 0.35rem;
+      justify-content: center;
+      margin: 0.5rem 0 1rem;
+    }
+
+    .bpm-value {
+      font-size: 3.5rem;
+      font-variant-numeric: tabular-nums;
+      font-weight: 800;
+      line-height: 1;
+    }
+
+    .bpm-label {
+      font-size: 1rem;
+      font-weight: 700;
+      opacity: 0.6;
+    }
+
+    .beat-ring {
+      border: 3px solid #2b3752;
+      border-radius: 50%;
+      height: 0.85rem;
+      margin: 0 auto 1rem;
+      transition: border-color 0.05s, box-shadow 0.05s, transform 0.05s;
+      width: 0.85rem;
+    }
+
+    .beat-ring.pulse {
+      border-color: #6ea8fe;
+      box-shadow: 0 0 12px #6ea8fe;
+      transform: scale(1.35);
+    }
+
+    .status-grid {
+      display: grid;
+      gap: 0.45rem;
+      grid-template-columns: 1fr 1fr;
+      margin-bottom: 1rem;
+    }
+
+    .status-item {
+      background: #10141f;
+      border: 1px solid #2b3752;
+      border-radius: 10px;
+      font-size: 0.8rem;
+      padding: 0.55rem 0.65rem;
+    }
+
+    .status-item span {
+      display: block;
+      font-size: 0.68rem;
+      letter-spacing: 0.03em;
+      margin-bottom: 0.15rem;
+      opacity: 0.6;
+      text-transform: uppercase;
+    }
+
+    .status-item strong {
+      font-size: 0.9rem;
+    }
+
+    .status-item strong.on {
+      color: #7dffb0;
+    }
+
+    .status-item strong.off {
+      color: #ff9b9b;
+    }
+
+    .controls {
+      display: grid;
+      gap: 0.55rem;
+      grid-template-columns: repeat(3, 1fr);
+      margin-bottom: 0.75rem;
+    }
+
+    .controls.wide {
+      grid-template-columns: 1fr 1fr;
+    }
+
+    button,
+    select {
+      appearance: none;
+      background: #6ea8fe;
+      border: 0;
+      border-radius: 999px;
+      color: #08111f;
+      cursor: pointer;
+      font: inherit;
+      font-size: 0.85rem;
+      font-weight: 700;
+      padding: 0.65rem 0.5rem;
+    }
+
+    button:active {
+      transform: scale(0.97);
+    }
+
+    button.danger {
+      background: #ff7b7b;
+    }
+
+    button.secondary {
+      background: #2b3752;
+      color: #edf2ff;
+    }
+
+    select {
+      background: #10141f;
+      border: 1px solid #2b3752;
+      border-radius: 10px;
+      color: #edf2ff;
+      grid-column: 1 / -1;
+      padding: 0.65rem 0.75rem;
+      width: 100%;
+    }
+
+    .message {
+      color: #ffb4bd;
+      font-size: 0.75rem;
+      min-height: 1rem;
+      text-align: center;
+    }
+  </style>
+</head>
+<body>
+  <div class="widget">
+    <div class="header">
+      <h1 class="title">Clock Remote</h1>
+      <div class="connection" id="connection">connecting…</div>
+    </div>
+
+    <div class="bpm-display">
+      <div class="bpm-value" id="bpm">--</div>
+      <div class="bpm-label">BPM</div>
+    </div>
+
+    <div class="beat-ring" id="beat-ring" aria-hidden="true"></div>
+
+    <div class="status-grid">
+      <div class="status-item">
+        <span>Transport</span>
+        <strong id="running" class="off">Stopped</strong>
+      </div>
+      <div class="status-item">
+        <span>Click</span>
+        <strong id="click-enabled" class="off">Off</strong>
+      </div>
+      <div class="status-item" style="grid-column: 1 / -1;">
+        <span>Click interval</span>
+        <strong id="click-interval">--</strong>
+      </div>
+    </div>
+
+    <div class="controls">
+      <button type="button" data-trigger="bpm_down">−</button>
+      <button type="button" data-trigger="tap_tempo">Tap</button>
+      <button type="button" data-trigger="bpm_up">+</button>
+      <button type="button" data-trigger="bpm_huge_down">−10</button>
+      <button type="button" data-trigger="start_stop" id="transport-btn">Start</button>
+      <button type="button" data-trigger="bpm_huge_up">+10</button>
+    </div>
+
+    <div class="controls wide">
+      <button type="button" class="secondary" data-trigger="click_toggle" id="click-toggle">Toggle click</button>
+    </div>
+
+    <select id="click-interval-select" aria-label="Click interval">
+      <option value="eighth">Eighth note</option>
+      <option value="quarter">Quarter note</option>
+      <option value="half">Half note</option>
+      <option value="whole">Whole note</option>
+    </select>
+
+    <div class="message" id="message"></div>
+  </div>
+
+  <script>
+    const bpmEl = document.querySelector("#bpm");
+    const runningEl = document.querySelector("#running");
+    const clickEnabledEl = document.querySelector("#click-enabled");
+    const clickIntervalEl = document.querySelector("#click-interval");
+    const clickIntervalSelect = document.querySelector("#click-interval-select");
+    const transportBtn = document.querySelector("#transport-btn");
+    const clickToggleBtn = document.querySelector("#click-toggle");
+    const connectionEl = document.querySelector("#connection");
+    const messageEl = document.querySelector("#message");
+    const beatRing = document.querySelector("#beat-ring");
+
+    let beatFlashTimer = null;
+    let updatingInterval = false;
+
+    function apiBase() {
+      const params = new URLSearchParams(window.location.search);
+      const host = params.get("host") || window.location.origin;
+      return host.replace(/\/$/, "");
+    }
+
+    function wsUrl() {
+      return apiBase().replace(/^http/i, "ws") + "/ws/monitor";
+    }
+
+    function setMessage(text) {
+      messageEl.textContent = text || "";
+    }
+
+    function pulseBeat(flashMs) {
+      beatRing.classList.add("pulse");
+      if (beatFlashTimer) {
+        clearTimeout(beatFlashTimer);
+      }
+      beatFlashTimer = setTimeout(() => {
+        beatRing.classList.remove("pulse");
+        beatFlashTimer = null;
+      }, flashMs || 120);
+    }
+
+    function renderClock(clock) {
+      if (!clock) {
+        return;
+      }
+      bpmEl.textContent = clock.bpm ? Number(clock.bpm).toFixed(1) : "--";
+      const running = Boolean(clock.running);
+      runningEl.textContent = running ? "Running" : "Stopped";
+      runningEl.className = running ? "on" : "off";
+      transportBtn.textContent = running ? "Stop" : "Start";
+      transportBtn.classList.toggle("danger", running);
+
+      const clickEnabled = Boolean(clock.click_enabled);
+      clickEnabledEl.textContent = clickEnabled ? "On" : "Off";
+      clickEnabledEl.className = clickEnabled ? "on" : "off";
+      clickToggleBtn.textContent = clickEnabled ? "Click on" : "Click off";
+
+      const interval = clock.click_interval || "quarter";
+      clickIntervalEl.textContent = interval;
+      if (!updatingInterval && clickIntervalSelect.value !== interval) {
+        clickIntervalSelect.value = interval;
+      }
+    }
+
+    function renderStatus(payload) {
+      renderClock(payload.master_clock);
+    }
+
+    async function apiFetch(path, options = {}) {
+      const headers = { "Content-Type": "application/json", ...(options.headers || {}) };
+      const response = await fetch(apiBase() + path, { ...options, headers });
+      if (!response.ok) {
+        const text = await response.text();
+        throw new Error(text || response.statusText);
+      }
+      return response.json();
+    }
+
+    async function trigger(point) {
+      setMessage("");
+      try {
+        const payload = await apiFetch("/api/clock/trigger", {
+          method: "POST",
+          body: JSON.stringify({ point }),
+        });
+        renderStatus(payload);
+      } catch (error) {
+        setMessage(error.message || "Trigger failed");
+      }
+    }
+
+    async function setClickInterval(interval) {
+      updatingInterval = true;
+      setMessage("");
+      try {
+        const payload = await apiFetch("/api/master-clock", {
+          method: "POST",
+          body: JSON.stringify({ click_interval: interval }),
+        });
+        renderClock(payload);
+      } catch (error) {
+        setMessage(error.message || "Could not update click interval");
+      } finally {
+        updatingInterval = false;
+      }
+    }
+
+    document.querySelectorAll("[data-trigger]").forEach((button) => {
+      button.addEventListener("click", () => trigger(button.dataset.trigger));
+    });
+
+    clickIntervalSelect.addEventListener("change", () => {
+      setClickInterval(clickIntervalSelect.value);
+    });
+
+    function connectMonitor() {
+      const socket = new WebSocket(wsUrl());
+
+      socket.addEventListener("open", () => {
+        connectionEl.textContent = "live";
+        connectionEl.classList.add("connected");
+        setMessage("");
+      });
+
+      socket.addEventListener("close", () => {
+        connectionEl.textContent = "reconnecting…";
+        connectionEl.classList.remove("connected");
+        setTimeout(connectMonitor, 1500);
+      });
+
+      socket.addEventListener("error", () => {
+        connectionEl.textContent = "offline";
+        connectionEl.classList.remove("connected");
+      });
+
+      socket.addEventListener("message", (event) => {
+        let payload;
+        try {
+          payload = JSON.parse(event.data);
+        } catch {
+          return;
+        }
+        if (payload.type === "status") {
+          renderStatus(payload.payload);
+          return;
+        }
+        if (payload.type === "event" && payload.payload?.kind === "ClickEvent") {
+          pulseBeat(120);
+        }
+      });
+    }
+
+    apiFetch("/api/status")
+      .then(renderStatus)
+      .catch((error) => setMessage(error.message || "Could not load status"));
+
+    connectMonitor();
+  </script>
+</body>
+</html>
