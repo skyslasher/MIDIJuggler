@@ -391,17 +391,12 @@ class AplayClickPlayer:
 
 
 def _try_set_realtime_priority() -> None:
-    if not hasattr(os, "sched_setscheduler"):
+    scheduler = getattr(os, "SCHED_FIFO", None)
+    if scheduler is None or not hasattr(os, "sched_setscheduler"):
         return
     try:
-        import sched
-
-        os.sched_setscheduler(
-            0,
-            sched.SCHED_FIFO,
-            os.sched_param(_CLICK_REALTIME_PRIORITY),
-        )
-    except (ImportError, OSError, PermissionError):
+        os.sched_setscheduler(0, scheduler, os.sched_param(_CLICK_REALTIME_PRIORITY))
+    except OSError:
         return
 
 
