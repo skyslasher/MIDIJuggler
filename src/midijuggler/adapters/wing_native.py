@@ -32,6 +32,7 @@ _FADER_PATH_MARKER = "/fdr"
 _FEEDBACK_PUBLISH_INTERVAL_S = 1.0 / 15.0
 _FADER_SEND_INTERVAL_S = 1.0 / 60.0
 _FADER_FEEDBACK_DEADBAND = 0.01
+CONNECT_RETRY_DELAY_SECONDS = 5.0
 
 
 @dataclass(frozen=True)
@@ -50,6 +51,7 @@ class WingNativeAdapter(Adapter):
         super().__init__(name, config, bus)
         self._apply_options(config.options)
         self._client: WingNativeClient | None = None
+        self._connection_task: asyncio.Task[None] | None = None
         self._read_task: asyncio.Task[None] | None = None
         self._keepalive_task: asyncio.Task[None] | None = None
         self._warmup_task: asyncio.Task[None] | None = None
@@ -97,31 +99,24 @@ class WingNativeAdapter(Adapter):
         if not self._remote_host:
             raise OSError(f"Wing native adapter {self.name} requires remote_host")
 
+        self.running = True
         self._connectivity.note_connecting(self._remote_host, self._native_port)
         await self._publish_connectivity_status(force=True)
 
-        self._client = WingNativeClient(self._remote_host, port=self._native_port)
-        try:
-            await self._client.connect()
-        except OSError as exc:
-            self._connectivity.note_error(str(exc))
-            await self._publish_connectivity_status(force=True)
-            raise
-
-        self.running = True
-        self._read_task = asyncio.create_task(self._read_loop(), name=f"wing-native-read-{self.name}")
-        self._keepalive_task = asyncio.create_task(
-            self._keepalive_loop(),
-            name=f"wing-native-keepalive-{self.name}",
-        )
-        self._connectivity.note_connected(self._remote_host, self._native_port)
-        self._connectivity.paths_cached = self._client.path_cache_size
-        await self._publish_connectivity_status(force=True)
-        if self._fader_output_ranges:
-            self._warmup_task = asyncio.create_task(
-                self._warm_connected_paths_task(),
-                name=f"wing-native-warmup-{self.name}",
+        if not await self._establish_session():
+            LOGGER.warning(
+                "Wing native adapter %s could not connect to %s:%s; retrying in background",
+                self.name,
+                self._remote_host,
+                self._native_port,
             )
+            self._connectivity.note_waiting(self._remote_host, self._native_port)
+            await self._publish_connectivity_status(force=True)
+
+        self._connection_task = asyncio.create_task(
+            self._connection_loop(),
+            name=f"wing-native-connection-{self.name}",
+        )
 
     async def reload(self, config: AdapterConfig) -> None:
         previous_host = self._remote_host
@@ -138,6 +133,54 @@ class WingNativeAdapter(Adapter):
 
     async def stop(self) -> None:
         self.running = False
+        if self._connection_task is not None:
+            self._connection_task.cancel()
+            with contextlib.suppress(asyncio.CancelledError):
+                await self._connection_task
+            self._connection_task = None
+        await self._teardown_session()
+
+        self._connectivity.note_stopped()
+        await self._publish_connectivity_status(force=True)
+
+    async def _establish_session(self) -> bool:
+        if self._client is not None:
+            return True
+
+        client = WingNativeClient(self._remote_host, port=self._native_port)
+        try:
+            await client.connect()
+        except OSError as exc:
+            LOGGER.warning(
+                "Wing native adapter %s could not connect to %s:%s: %s",
+                self.name,
+                self._remote_host,
+                self._native_port,
+                exc,
+            )
+            self._connectivity.note_error(str(exc))
+            return False
+
+        self._client = client
+        self._read_task = asyncio.create_task(
+            self._read_loop(),
+            name=f"wing-native-read-{self.name}",
+        )
+        self._keepalive_task = asyncio.create_task(
+            self._keepalive_loop(),
+            name=f"wing-native-keepalive-{self.name}",
+        )
+        self._connectivity.note_connected(self._remote_host, self._native_port)
+        self._connectivity.paths_cached = self._client.path_cache_size
+        await self._publish_connectivity_status(force=True)
+        if self._fader_output_ranges:
+            self._warmup_task = asyncio.create_task(
+                self._warm_connected_paths_task(),
+                name=f"wing-native-warmup-{self.name}",
+            )
+        return True
+
+    async def _teardown_session(self) -> None:
         for task in (
             *self._fader_send_tasks.values(),
             *self._fader_flush_tasks.values(),
@@ -160,8 +203,36 @@ class WingNativeAdapter(Adapter):
             await self._client.close()
             self._client = None
 
-        self._connectivity.note_stopped()
-        await self._publish_connectivity_status(force=True)
+    async def _connection_loop(self) -> None:
+        try:
+            while self.running:
+                if self._client is None:
+                    self._connectivity.note_waiting(self._remote_host, self._native_port)
+                    await self._publish_connectivity_status(force=True)
+                    await asyncio.sleep(CONNECT_RETRY_DELAY_SECONDS)
+                    if not self.running:
+                        break
+                    await self._establish_session()
+                    continue
+
+                read_task = self._read_task
+                if read_task is None:
+                    break
+                try:
+                    await read_task
+                except asyncio.CancelledError:
+                    raise
+
+                if not self.running:
+                    break
+
+                LOGGER.warning(
+                    "Wing native connection lost for %s; reconnecting",
+                    self.name,
+                )
+                await self._teardown_session()
+        except asyncio.CancelledError:
+            raise
 
     async def send(self, event: MappedEvent) -> None:
         address = _target_address(self.name, event.target)
@@ -564,6 +635,11 @@ class WingNativeAdapter(Adapter):
             return "Wing native adapter stopped"
         if phase == "connecting":
             return f"Wing native connecting to {host}:{port}"
+        if phase == "waiting":
+            error = snapshot["last_error"]
+            if error:
+                return f"Wing native waiting to connect to {host}:{port}: {error}"
+            return f"Wing native waiting to connect to {host}:{port}"
         if phase == "error":
             error = snapshot["last_error"] or "unknown error"
             return f"Wing native error on {host}:{port}: {error}"

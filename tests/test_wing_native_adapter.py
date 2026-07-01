@@ -14,6 +14,56 @@ from midijuggler.modules.modifier.range_map import db_to_fader_float
 from midijuggler.wing.native.client import WingNativeClient, WingPathBinding
 
 
+def test_wing_native_start_survives_connect_failure(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    class FailingClient(WingNativeClient):
+        async def connect(self) -> None:
+            raise OSError("connection refused")
+
+        async def close(self) -> None:
+            return
+
+    monkeypatch.setattr(
+        "midijuggler.adapters.wing_native.WingNativeClient",
+        FailingClient,
+    )
+
+    async def scenario() -> tuple[WingNativeAdapter, list[AdapterStatusEvent]]:
+        bus = EventBus()
+        status_events: list[AdapterStatusEvent] = []
+        bus.subscribe(AdapterStatusEvent, lambda event: status_events.append(event))
+
+        adapter = WingNativeAdapter(
+            name="wing_native_foh",
+            config=AdapterConfig(
+                enabled=True,
+                kind="wing_native",
+                options={
+                    "remote_host": "192.168.1.48",
+                    "wing_library": "behringer_wing",
+                },
+            ),
+            bus=bus,
+        )
+        await adapter.start()
+        return adapter, status_events
+
+    adapter, status_events = asyncio.run(scenario())
+
+    try:
+        assert adapter.running is True
+        phase = adapter.connectivity_snapshot()["connection_phase"]
+        assert phase in ("waiting", "error")
+        assert adapter._client is None  # noqa: SLF001
+        assert any(
+            event.connection_phase in ("waiting", "error")
+            for event in status_events
+        )
+    finally:
+        asyncio.run(adapter.stop())
+
+
 def test_wing_native_start_marks_connected_without_warmup(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:

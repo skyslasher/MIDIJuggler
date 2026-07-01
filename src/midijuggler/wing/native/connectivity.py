@@ -56,6 +56,12 @@ class WingNativeConnectivity:
         self.remote_host = host
         self.native_port = port
 
+    def note_waiting(self, host: str, port: int) -> None:
+        self.connection_phase = "waiting"
+        self.connected = False
+        self.remote_host = host
+        self.native_port = port
+
     def note_feedback(self, path: str, value: float) -> None:
         self.last_feedback_at = monotonic()
         self.last_feedback_path = path
