@@ -292,6 +292,48 @@ def test_alsa_click_player_recovers_from_bad_pcm_state(tmp_path, monkeypatch, ca
     assert "recreating ALSA PCM after" in caplog.text
 
 
+def test_alsa_click_player_recovers_from_invalid_argument_on_open(
+    tmp_path, monkeypatch, caplog
+) -> None:
+    wav_path = tmp_path / "click.wav"
+    _write_wav(wav_path)
+    wav = load_wav(wav_path)
+    created: list[FakePcm] = []
+
+    class FakeAlsaModule:
+        PCM_PLAYBACK = "playback"
+        PCM_NORMAL = "normal"
+        PCM_FORMAT_U8 = "u8"
+        PCM_FORMAT_S16_LE = "s16le"
+        PCM_FORMAT_S24_3LE = "s24_3le"
+        PCM_FORMAT_S32_LE = "s32le"
+
+        class ALSAAudioError(OSError):
+            pass
+
+        def PCM(self, **kwargs):
+            pcm = FakePcm()
+            created.append(pcm)
+            if len(created) == 1:
+
+                def flaky_write(data: bytes) -> None:
+                    raise FakeAlsaModule.ALSAAudioError(
+                        "Invalid argument [wing_stereo1]"
+                    )
+
+                pcm.write = flaky_write  # type: ignore[method-assign]
+            return pcm
+
+    monkeypatch.setitem(__import__("sys").modules, "alsaaudio", FakeAlsaModule())
+
+    player = AlsaClickPlayer(str(wav_path), audio_device="wing_stereo1", allow_overlap=True)
+    with caplog.at_level(logging.DEBUG, logger="midijuggler.click_player"):
+        player._play_unlocked()
+
+    assert len(created) == 2
+    assert created[1].writes == [wav.frames]
+
+
 def test_alsa_click_player_overlapping_play_returns_before_write_finishes(
     tmp_path,
     monkeypatch,

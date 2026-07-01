@@ -7,6 +7,7 @@ import contextlib
 import logging
 import os
 import threading
+import time
 import wave
 from dataclasses import dataclass
 from pathlib import Path
@@ -145,6 +146,7 @@ class AlsaClickPlayer:
             if _is_recoverable_alsa_pcm_error(message):
                 LOGGER.debug("recreating ALSA PCM after %s", message)
                 self._close_pcm()
+                time.sleep(0.05)
                 try:
                     self._write_click()
                     return
@@ -155,6 +157,13 @@ class AlsaClickPlayer:
                             "click playback skipped because audio device is busy: %s",
                             message,
                         )
+                        return
+                    if _is_recoverable_alsa_pcm_error(message):
+                        LOGGER.debug(
+                            "click playback skipped after ALSA recovery failed: %s",
+                            message,
+                        )
+                        self._close_pcm()
                         return
                 except OSError:
                     LOGGER.exception("failed to replay click through ALSA after PCM reset")
@@ -320,7 +329,17 @@ def _alsaaudio_available() -> bool:
 
 def _is_recoverable_alsa_pcm_error(message: str) -> bool:
     lowered = message.casefold()
-    return "bad state" in lowered or "bad file descriptor" in lowered
+    markers = (
+        "bad state",
+        "bad file descriptor",
+        "invalid argument",
+        "already used",
+        "no such device",
+        "no such file",
+        "host is down",
+        "broken pipe",
+    )
+    return any(marker in lowered for marker in markers)
 
 
 def _sample_width_to_format(alsaaudio: Any, sample_width: int) -> int:

@@ -77,7 +77,7 @@ class MIDIJugglerService:
         self.master_clock = MasterClock(
             self._master_clock_config(),
             self.bus,
-            click_audio_device=MASTER_CLOCK_PCM_NAME,
+            click_audio_device=None,
             alsa_config_path=self.alsa_config_path,
         )
         self.web = WebInterface(

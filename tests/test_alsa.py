@@ -3,6 +3,7 @@ from pathlib import Path
 from midijuggler.alsa import (
     alsa_mode_for_device,
     alsa_config_path_for_config,
+    master_clock_playback_target,
     normalize_alsa_output_device,
     render_master_clock_pcm,
     render_master_clock_dmix,
@@ -68,6 +69,47 @@ def test_alsa_mode_for_device_detects_hardware() -> None:
     assert alsa_mode_for_device("hw:1,0") == "dmix"
     assert alsa_mode_for_device("default") == "alias"
     assert alsa_mode_for_device("dmix") == "alias"
+    assert alsa_mode_for_device("wing_stereo1") == "alias"
+
+
+def test_normalize_alsa_output_device_prefers_wing_stereo_for_wing_hardware() -> None:
+    devices = [
+        {"id": "", "label": "default", "mode": "alias"},
+        {
+            "id": "plughw:CARD=WING,DEV=0",
+            "resolved_device": "plughw:2,0",
+            "card_name": "WING",
+            "device_name": "USB Audio",
+            "mode": "dmix",
+        },
+        {
+            "id": "wing_stereo1",
+            "resolved_device": "wing_stereo1",
+            "label": "Wing stereo 1",
+            "mode": "alias",
+        },
+    ]
+
+    assert (
+        normalize_alsa_output_device("plughw:CARD=WING,DEV=0", devices=devices)
+        == "wing_stereo1"
+    )
+
+
+def test_master_clock_playback_target_uses_wing_stereo_directly() -> None:
+    devices = [
+        {"id": "wing_stereo1", "resolved_device": "wing_stereo1", "mode": "alias"},
+    ]
+
+    playback, slave = master_clock_playback_target("wing_stereo1")
+    assert playback == "wing_stereo1"
+    assert slave == "wing_stereo1"
+
+
+def test_master_clock_playback_target_uses_generated_pcm_for_hardware() -> None:
+    playback, slave = master_clock_playback_target("plughw:1,0")
+    assert playback == "master_clock"
+    assert slave == "plughw:1,0"
 
 
 def test_normalize_alsa_output_device_keeps_dmix_pcm_id() -> None:
@@ -108,6 +150,18 @@ def test_lookup_alsa_output_device_matches_case_insensitive_pcm_id() -> None:
 def test_write_master_clock_dmix_config(tmp_path: Path) -> None:
     config_path = tmp_path / "asoundrc"
 
-    write_master_clock_pcm_config(config_path, "default")
+    write_master_clock_pcm_config(config_path, "plughw:1,0")
 
-    assert 'slave.pcm "default"' in config_path.read_text(encoding="utf-8")
+    text = config_path.read_text(encoding="utf-8")
+    assert "pcm.master_clock_dmix" in text
+    assert 'pcm "hw:1,0"' in text
+
+
+def test_write_master_clock_pcm_config_for_wing_stereo_is_minimal(tmp_path: Path) -> None:
+    config_path = tmp_path / "asoundrc"
+
+    write_master_clock_pcm_config(config_path, "wing_stereo1")
+
+    text = config_path.read_text(encoding="utf-8")
+    assert "pcm.master_clock" not in text
+    assert "type dmix" not in text

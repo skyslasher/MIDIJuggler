@@ -10,6 +10,7 @@ from dataclasses import dataclass, replace
 from pathlib import Path
 from typing import Protocol
 
+from midijuggler.alsa import MASTER_CLOCK_PCM_NAME, alsa_mode_for_device, master_clock_playback_target
 from midijuggler.click_player import ClickPlayer, create_click_player
 from midijuggler.clock import CLICK_INTERVALS, MIDI_CLOCK_TICKS_PER_QUARTER
 from midijuggler.config import MasterClockConfig
@@ -23,7 +24,6 @@ from midijuggler.events import (
     MidiMessageEvent,
     OscMessageEvent,
 )
-from midijuggler.alsa import alsa_mode_for_device, MASTER_CLOCK_PCM_NAME
 
 LOGGER = logging.getLogger(__name__)
 
@@ -493,7 +493,10 @@ class MasterClock:
             await previous.close()
 
     def _build_click_player(self, config: MasterClockConfig) -> ClickPlayer:
-        playback_device = self.click_audio_device or config.click_audio_device
+        if self.click_audio_device is not None:
+            playback_device = self.click_audio_device
+        else:
+            playback_device, _ = master_clock_playback_target(config.click_audio_device)
         environment = (
             {"ALSA_CONFIG_PATH": str(self.alsa_config_path)}
             if self.alsa_config_path is not None
@@ -512,10 +515,9 @@ class MasterClock:
         config: MasterClockConfig,
         playback_device: str,
     ) -> bool:
-        configured_device = config.click_audio_device or playback_device
-        if not configured_device or configured_device == MASTER_CLOCK_PCM_NAME:
-            return False
-        return alsa_mode_for_device(configured_device) == "dmix"
+        if playback_device == MASTER_CLOCK_PCM_NAME:
+            return alsa_mode_for_device(config.click_audio_device) == "dmix"
+        return False
 
     def _trigger_click(self) -> None:
         task = asyncio.create_task(self.click_player.play(), name="click-trigger")
