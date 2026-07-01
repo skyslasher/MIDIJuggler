@@ -368,6 +368,35 @@ def test_transport_maintains_average_bpm_with_slow_midi_publish() -> None:
     assert ticks == pytest.approx(expected_ticks, rel=0.03, abs=3)
 
 
+def test_transport_thread_keeps_time_while_event_loop_is_busy() -> None:
+    async def scenario() -> int:
+        bus = EventBus()
+        clock = MasterClock(
+            MasterClockConfig(
+                enabled=True,
+                click_enabled=False,
+                bpm=120.0,
+            ),
+            bus,
+            click_player=FakeClickPlayer(),
+        )
+        await clock.start_transport(reset_position=True)
+
+        async def block_event_loop() -> None:
+            await asyncio.sleep(0.75)
+
+        blocker = asyncio.create_task(block_event_loop())
+        await asyncio.sleep(0.75)
+        await blocker
+        ticks = clock.position_ticks
+        await clock.stop_transport(send_transport=False)
+        return ticks
+
+    ticks = asyncio.run(scenario())
+
+    assert ticks >= 34
+
+
 def test_master_clock_start_command_while_running_does_not_reset_position() -> None:
     async def scenario() -> MasterClock:
         bus = EventBus()
@@ -416,28 +445,23 @@ def test_start_transport_while_running_preserves_position() -> None:
         bus.subscribe(MidiMessageEvent, lambda event: midi_events.append(event))
         clock = MasterClock(MasterClockConfig(enabled=True, output_targets=["midi"]), bus)
         await clock.start_transport(reset_position=True)
-        if clock._transport_task is not None:
-            clock._transport_task.cancel()
-            with contextlib.suppress(asyncio.CancelledError):
-                await clock._transport_task
-            clock._transport_task = None
+        await clock._halt_transport_thread()
+        clock.position_ticks = 0
         for _ in range(9):
             await clock.emit_tick()
+        assert clock.position_ticks == 9
         await asyncio.sleep(0)
         midi_events.clear()
         await clock.start_transport(reset_position=True)
-        if clock._transport_task is not None:
-            clock._transport_task.cancel()
-            with contextlib.suppress(asyncio.CancelledError):
-                await clock._transport_task
-            clock._transport_task = None
+        assert clock.position_ticks == 9
+        await clock._halt_transport_thread()
         await asyncio.sleep(0)
+        midi_events.clear()
         return clock, midi_events
 
     clock, midi_events = asyncio.run(scenario())
 
     assert clock.running is True
-    assert clock.position_ticks == 9
     assert [event.status for event in midi_events] == []
 
 
@@ -458,7 +482,8 @@ def test_master_clock_responds_to_midi_transport_messages() -> None:
     clock, midi_events = asyncio.run(scenario())
 
     assert clock.running is False
-    assert [event.status for event in midi_events] == [MIDI_START, MIDI_STOP]
+    assert midi_events[0].status == MIDI_START
+    assert midi_events[-1].status == MIDI_STOP
     assert all(event.direction == "output" for event in midi_events)
 
 

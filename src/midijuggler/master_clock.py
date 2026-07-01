@@ -5,13 +5,15 @@ from __future__ import annotations
 import asyncio
 import contextlib
 import logging
+import threading
 import time
+from collections.abc import Coroutine
 from dataclasses import dataclass, replace
 from pathlib import Path
-from typing import Protocol
+from typing import Any, Protocol
 
 from midijuggler.alsa import MASTER_CLOCK_PCM_NAME, alsa_mode_for_device, is_wing_routing_pcm, master_clock_playback_target
-from midijuggler.click_player import ClickPlayer, create_click_player
+from midijuggler.click_player import ClickPlayer, _try_set_realtime_priority, create_click_player
 from midijuggler.clock import CLICK_INTERVALS, MIDI_CLOCK_TICKS_PER_QUARTER
 from midijuggler.config import MasterClockConfig
 from midijuggler.eventbus import EventBus
@@ -250,7 +252,9 @@ class MasterClock:
         self.click_audio_device = click_audio_device
         self.alsa_config_path = Path(alsa_config_path) if alsa_config_path is not None else None
         self.click_player = click_player or self._build_click_player(config)
-        self._transport_task: asyncio.Task[None] | None = None
+        self._asyncio_loop: asyncio.AbstractEventLoop | None = None
+        self._transport_thread: threading.Thread | None = None
+        self._transport_stop_event = threading.Event()
         self._bpm_notify_task: asyncio.Task[None] | None = None
         self._click_tasks: set[asyncio.Task[None]] = set()
         self._datapoint_sink: ClockDatapointSink | None = None
@@ -402,7 +406,8 @@ class MasterClock:
         if self.config.send_transport and not was_running:
             await self._publish_midi_status(MIDI_START)
         await self._prepare_click_audio()
-        self._ensure_transport_task()
+        self._asyncio_loop = asyncio.get_running_loop()
+        self._ensure_transport_thread()
         await self._publish_state()
 
     async def continue_transport(self) -> None:
@@ -410,12 +415,14 @@ class MasterClock:
         if self.config.send_transport:
             await self._publish_midi_status(MIDI_CONTINUE)
         await self._prepare_click_audio()
-        self._ensure_transport_task()
+        self._asyncio_loop = asyncio.get_running_loop()
+        self._ensure_transport_thread()
         await self._publish_state()
 
     async def stop_transport(self, send_transport: bool = True) -> None:
         self.running = False
-        await self._cancel_transport_task()
+        self._transport_stop_event.set()
+        await self._join_transport_thread()
         await self._release_click_audio()
         if send_transport and self.config.send_transport:
             await self._publish_midi_status(MIDI_STOP)
@@ -444,55 +451,78 @@ class MasterClock:
 
         await self._emit_frame()
 
-    def _ensure_transport_task(self) -> None:
-        if self._transport_task is None or self._transport_task.done():
-            self._transport_task = asyncio.create_task(
-                self._run_transport(),
-                name="master-clock",
-            )
-
-    async def _cancel_transport_task(self) -> None:
-        if self._transport_task is None:
+    def _ensure_transport_thread(self) -> None:
+        if self._transport_thread is not None and self._transport_thread.is_alive():
             return
-        self._transport_task.cancel()
-        with contextlib.suppress(asyncio.CancelledError):
-            await self._transport_task
-        self._transport_task = None
+        self._transport_stop_event.clear()
+        self._transport_thread = threading.Thread(
+            target=self._transport_thread_main,
+            name="midijuggler-master-clock",
+            daemon=True,
+        )
+        self._transport_thread.start()
+
+    async def _join_transport_thread(self) -> None:
+        thread = self._transport_thread
+        if thread is None:
+            return
+        await asyncio.to_thread(thread.join, 2.0)
+        self._transport_thread = None
+
+    async def _halt_transport_thread(self) -> None:
+        self._transport_stop_event.set()
+        await self._join_transport_thread()
+
+    def _transport_thread_main(self) -> None:
+        _try_set_realtime_priority()
+        next_tick_at = time.monotonic()
+        while self.running and not self._transport_stop_event.is_set():
+            interval = self._seconds_per_tick()
+            next_tick_at += interval
+            delay = next_tick_at - time.monotonic()
+            if delay > 0:
+                time.sleep(delay)
+            elif delay < -interval * 8:
+                next_tick_at = time.monotonic() + interval
+            self._emit_frame_from_transport_thread()
+
+    def _emit_frame_from_transport_thread(self) -> None:
+        if self._is_click_tick(self.position_ticks):
+            if self.config.click_enabled:
+                self._trigger_click()
+            position_ticks = self.position_ticks
+            self._submit_coroutine(self._publish_beat_and_click_event(position_ticks))
+        self._submit_coroutine(self._publish_midi_status(MIDI_TIMING_CLOCK))
+        self.position_ticks += 1
+
+    async def _publish_beat_and_click_event(self, position_ticks: int) -> None:
+        if self._datapoint_sink is not None:
+            await self._datapoint_sink.publish_beat()
+        await self._publish_click_event(position_ticks)
+
+    def _submit_coroutine(self, coroutine: Coroutine[Any, Any, Any]) -> None:
+        loop = self._asyncio_loop
+        if loop is None or loop.is_closed():
+            coroutine.close()
+            return
+        if not self.running:
+            coroutine.close()
+            return
+        future = asyncio.run_coroutine_threadsafe(coroutine, loop)
+        future.add_done_callback(self._log_submitted_coroutine_result)
+
+    @staticmethod
+    def _log_submitted_coroutine_result(future: asyncio.Future[Any]) -> None:
+        with contextlib.suppress(Exception):
+            future.result()
 
     async def _emit_frame(self) -> None:
         if self._is_click_tick(self.position_ticks):
-            self._emit_click()
-        self._schedule_midi_tick()
-
-    def _schedule_midi_tick(self) -> None:
-        self._schedule_midi_status(MIDI_TIMING_CLOCK)
+            if self.config.click_enabled:
+                self._trigger_click()
+            await self._publish_beat_and_click_event(self.position_ticks)
+        await self._publish_midi_status(MIDI_TIMING_CLOCK)
         self.position_ticks += 1
-
-    def _emit_click(self) -> None:
-        if self.config.click_enabled:
-            self._trigger_click()
-        if self._datapoint_sink is not None:
-            beat_task = asyncio.create_task(
-                self._datapoint_sink.publish_beat(),
-                name="click-beat",
-            )
-            self._click_tasks.add(beat_task)
-            beat_task.add_done_callback(self._click_tasks.discard)
-        position_ticks = self.position_ticks
-        task = asyncio.create_task(
-            self._publish_click_event(position_ticks),
-            name="click-event",
-        )
-        self._click_tasks.add(task)
-        task.add_done_callback(self._click_tasks.discard)
-
-    def _schedule_midi_status(self, status: int) -> None:
-        task = asyncio.create_task(
-            self._publish_midi_status(status),
-            name="midi-clock-out",
-        )
-        self._click_tasks.add(task)
-        task.add_done_callback(self._click_tasks.discard)
 
     async def _publish_click_event(self, position_ticks: int) -> None:
         await self.bus.publish(
@@ -561,18 +591,6 @@ class MasterClock:
         release = getattr(self.click_player, "release", None)
         if callable(release):
             await release()
-
-    async def _run_transport(self) -> None:
-        try:
-            while self.running:
-                interval = self._seconds_per_tick()
-                started = time.monotonic()
-                await self._emit_frame()
-                delay = interval - (time.monotonic() - started)
-                if delay > 0:
-                    await asyncio.sleep(delay)
-        except asyncio.CancelledError:
-            raise
 
     def _seconds_per_tick(self) -> float:
         return 60.0 / (self.bpm * MIDI_CLOCK_TICKS_PER_QUARTER)
