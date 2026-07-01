@@ -134,6 +134,7 @@ class AlsaClickPlayer:
         self._configured_wav_path = ""
         self._playback_pcm: Any | None = None
         self._playback_device = ""
+        self._playback_period_frames = _PLAYBACK_PERIOD_FRAMES
         self._click_queue: queue.SimpleQueue[None] = queue.SimpleQueue()
         self._command_queue: queue.SimpleQueue[Any] = queue.SimpleQueue()
         self._wake_event = threading.Event()
@@ -284,6 +285,7 @@ class AlsaClickPlayer:
         pcm = self._open_playback_pcm(wav, device)
         self._playback_pcm = pcm
         self._playback_device = device
+        self._playback_period_frames = _pcm_period_frames(pcm)
         return pcm
 
     def _close_playback_pcm(self) -> None:
@@ -293,19 +295,17 @@ class AlsaClickPlayer:
             self._playback_pcm.close()
         self._playback_pcm = None
         self._playback_device = ""
+        self._playback_period_frames = _PLAYBACK_PERIOD_FRAMES
 
     def _write_all_frames(self, pcm: Any, wav: WavPlaybackData) -> None:
         frame_bytes = wav.channels * wav.sample_width
         if frame_bytes <= 0:
             raise ValueError("invalid WAV frame size")
+        period_frames = self._playback_period_frames
+        data = _build_exact_period_buffer(wav.frames, frame_bytes, period_frames)
         offset = 0
-        data = _pad_to_playback_period(
-            wav.frames,
-            frame_bytes,
-            _PLAYBACK_PERIOD_FRAMES,
-        )
         while offset < len(data):
-            chunk = data[offset:]
+            chunk = data[offset : offset + period_frames * frame_bytes]
             written = pcm.write(chunk)
             if isinstance(written, int):
                 if written > 0:
@@ -479,18 +479,31 @@ def _is_recoverable_alsa_pcm_error(message: str) -> bool:
     return any(marker in lowered for marker in markers)
 
 
-def _pad_to_playback_period(data: bytes, frame_bytes: int, period_frames: int) -> bytes:
-    """Pad short click samples so each write starts ALSA playout immediately.
+def _pcm_period_frames(pcm: Any) -> int:
+    info = getattr(pcm, "info", None)
+    if callable(info):
+        try:
+            period = int(info().get("periodsize", 0))
+        except (AttributeError, TypeError, ValueError):
+            period = 0
+        if period > 0:
+            return period
+    return _PLAYBACK_PERIOD_FRAMES
 
-    pyalsaaudio defers playback until at least one full period is buffered.
-    A persistent PCM handle would otherwise merge consecutive short clicks and
-    only audibly play every second trigger.
+
+def _build_exact_period_buffer(data: bytes, frame_bytes: int, period_frames: int) -> bytes:
+    """Build one ALSA period of click audio for immediate playout on a persistent PCM.
+
+    pyalsaaudio defers playback until a full period is written and recommends
+    writes of exactly one period. Long click WAVs must be truncated so each beat
+    commits one period instead of buffering partial playout across triggers.
     """
 
     period_bytes = period_frames * frame_bytes
-    if len(data) >= period_bytes:
-        return data
-    return data + bytes(period_bytes - len(data))
+    click = data[:period_bytes]
+    if len(click) >= period_bytes:
+        return click[:period_bytes]
+    return click + bytes(period_bytes - len(click))
 
 
 def _sample_width_to_format(alsaaudio: Any, sample_width: int) -> int:

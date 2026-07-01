@@ -10,7 +10,7 @@ from midijuggler.click_player import (
     AplayClickPlayer,
     AlsaClickPlayer,
     _PLAYBACK_PERIOD_FRAMES,
-    _pad_to_playback_period,
+    _build_exact_period_buffer,
     create_click_player,
     load_wav,
 )
@@ -57,13 +57,17 @@ class FakeLongProcess:
 
 
 class FakePcm:
-    def __init__(self, *, frame_bytes: int = 2) -> None:
+    def __init__(self, *, frame_bytes: int = 2, period_frames: int = _PLAYBACK_PERIOD_FRAMES) -> None:
         self.frame_bytes = frame_bytes
+        self.period_frames = period_frames
         self.writes: list[bytes] = []
         self.drops = 0
         self.drains = 0
         self.closed = False
         self._pending = b""
+
+    def info(self) -> dict[str, int]:
+        return {"periodsize": self.period_frames}
 
     def drop(self) -> None:
         self.drops += 1
@@ -96,16 +100,16 @@ class PeriodDeferredFakePcm(FakePcm):
         return len(data) // self.frame_bytes
 
 
-def test_pad_to_playback_period_extends_short_clicks() -> None:
-    padded = _pad_to_playback_period(b"\x01\x02", frame_bytes=2, period_frames=4)
+def test_build_exact_period_buffer_extends_short_clicks() -> None:
+    padded = _build_exact_period_buffer(b"\x01\x02", frame_bytes=2, period_frames=4)
 
     assert padded == b"\x01\x02" + bytes(6)
 
 
-def test_pad_to_playback_period_leaves_long_clicks_unmodified() -> None:
+def test_build_exact_period_buffer_truncates_long_clicks() -> None:
     data = b"\x00" * (8 * 2)
 
-    assert _pad_to_playback_period(data, frame_bytes=2, period_frames=4) is data
+    assert _build_exact_period_buffer(data, frame_bytes=2, period_frames=4) == b"\x00" * 8
 
 
 def _wait_for_click_writes(pcm: FakePcm, count: int, *, timeout: float = 1.0) -> None:
@@ -153,8 +157,15 @@ def _fake_alsa_module(**overrides):
     return FakeAlsaModule()
 
 
-def _write_wav(path, *, channels: int = 1, rate: int = 44100, sample_width: int = 2) -> None:
-    frames = struct.pack("<h", 0) * channels
+def _write_wav(
+    path,
+    *,
+    channels: int = 1,
+    rate: int = 44100,
+    sample_width: int = 2,
+    frame_count: int = 1,
+) -> None:
+    frames = struct.pack("<h", 0) * channels * frame_count
     with wave.open(str(path), "wb") as wav_file:
         wav_file.setnchannels(channels)
         wav_file.setsampwidth(sample_width)
@@ -428,6 +439,30 @@ def test_alsa_click_player_pads_short_clicks_for_immediate_playout(
     _wait_for_click_writes(pcm, 4)
 
     assert len(pcm.writes) == 4
+    assert all(len(write) == 4 * pcm.frame_bytes for write in pcm.writes)
+    asyncio.run(player.close())
+
+
+def test_alsa_click_player_truncates_long_clicks_to_one_period(
+    tmp_path,
+    monkeypatch,
+) -> None:
+    wav_path = tmp_path / "click.wav"
+    _write_wav(wav_path, frame_count=4096)
+    pcm = PeriodDeferredFakePcm(frame_bytes=2, period_frames=4)
+    monkeypatch.setitem(
+        __import__("sys").modules,
+        "alsaaudio",
+        _fake_alsa_module(pcm_factory=lambda kwargs: pcm),
+    )
+
+    player = AlsaClickPlayer(str(wav_path), audio_device="wing_stereo1")
+    for _ in range(4):
+        player.trigger()
+    _wait_for_click_writes(pcm, 4)
+
+    assert len(pcm.writes) == 4
+    assert all(len(write) == 4 * pcm.frame_bytes for write in pcm.writes)
     asyncio.run(player.close())
 
 
