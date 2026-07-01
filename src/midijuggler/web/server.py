@@ -1233,7 +1233,10 @@ class WebInterface:
         return stored_connections(self.config.connections)
 
     def _apply_stored_connections(self, connections: list[ConnectionSpec]) -> None:
-        object.__setattr__(self.config, "connections", list(connections))
+        from midijuggler.config import normalize_connections
+
+        normalized = normalize_connections(connections, self.config.devices)
+        object.__setattr__(self.config, "connections", list(normalized))
         self._apply_runtime_connections()
 
     def _persist_stored_connections(

@@ -98,16 +98,11 @@ class LearnController:
             raise ValueError("learn mode is disabled")
 
         if device_registry is not None:
-            if device_registry.get(source.adapter) is not None:
-                source_datapoint = str(
-                    DataPointId(source.adapter, source.control)
-                )
-            else:
-                source_datapoint = adapter_control_to_datapoint(
-                    source.adapter,
-                    source.control,
-                    device_registry,
-                )
+            source_datapoint = adapter_control_to_datapoint(
+                source.adapter,
+                source.control,
+                device_registry,
+            )
         else:
             source_datapoint = f"{source.adapter}.{source.control}"
         self._state = LearnState(

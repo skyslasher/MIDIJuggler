@@ -11,6 +11,7 @@ import tomllib
 LOGGER = logging.getLogger(__name__)
 
 from midijuggler.datapoint.disconnected import is_reserved_connection_module
+from midijuggler.datapoint.endpoints import align_custom_point_endpoint
 from midijuggler.datapoint.types import ConnectionSpec, ModifierKind, SCALE_CURVES
 from midijuggler.device.identity import (
     device_display_name,
@@ -1394,8 +1395,14 @@ def normalize_connections(
 
     normalized: list[ConnectionSpec] = []
     for connection in connections:
-        source = normalize_connection_endpoint(connection.source, devices)
-        target = normalize_connection_endpoint(connection.target, devices)
+        source = align_custom_point_endpoint(
+            normalize_connection_endpoint(connection.source, devices),
+            devices,
+        )
+        target = align_custom_point_endpoint(
+            normalize_connection_endpoint(connection.target, devices),
+            devices,
+        )
         if source == connection.source and target == connection.target:
             normalized.append(connection)
             continue

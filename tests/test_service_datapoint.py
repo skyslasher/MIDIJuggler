@@ -155,6 +155,76 @@ def test_service_registers_osc_custom_datapoints_for_disabled_adapter() -> None:
     assert any(entry["id"] == "desk_custom./custom/fader" for entry in specs)
 
 
+def test_service_routes_osc_custom_point_to_master_clock(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    config = parse_config(
+        {
+            "runtime": {"datapoint_routing": True},
+            "master_clock": {"enabled": True, "bpm": 120.0},
+            "adapters": {
+                "osc": {"enabled": True, "type": "osc", "host": "127.0.0.1", "port": 9000},
+            },
+            "devices": [
+                {
+                    "uid": "osc_bridge",
+                    "name": "OSC Bridge",
+                    "adapter": "osc",
+                    "library_kind": "osc",
+                    "custom_points": [
+                        {
+                            "id": "/clock/bpm",
+                            "value_type": "int",
+                            "direction": "input",
+                            "value_min": 0,
+                            "value_max": 500,
+                        }
+                    ],
+                }
+            ],
+            "connections": [
+                {
+                    "id": "osc-clock-bpm",
+                    "source": "osc./clock/bpm",
+                    "target": "clock.bpm_set",
+                    "input_min": 0.0,
+                    "input_max": 500.0,
+                    "output_min": 0.0,
+                    "output_max": 500.0,
+                }
+            ],
+        }
+    )
+    service = MIDIJugglerService(config)
+
+    async def fake_start(adapter) -> None:
+        adapter.running = True
+
+    async def fake_stop(adapter) -> None:
+        adapter.running = False
+
+    for adapter in service.adapters:
+        monkeypatch.setattr(adapter, "start", lambda adapter=adapter: fake_start(adapter))
+        monkeypatch.setattr(adapter, "stop", lambda adapter=adapter: fake_stop(adapter))
+
+    async def scenario() -> None:
+        await service.start()
+        from midijuggler.events import OscMessageEvent
+
+        await service.event_bridge._on_osc_message(
+            OscMessageEvent(
+                source="osc",
+                address="/clock/bpm",
+                arguments=(140,),
+                direction="input",
+            )
+        )
+
+    asyncio.run(scenario())
+    assert service.master_clock.bpm == pytest.approx(140.0)
+    assert service.config.connections[0].source == "osc_bridge./clock/bpm"
+
+
 def test_service_registers_hid_datapoints_for_disabled_adapter(fake_evdev_codes: None) -> None:
     config = parse_config(
         {

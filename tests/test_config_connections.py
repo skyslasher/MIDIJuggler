@@ -71,3 +71,33 @@ def test_parse_connection_enabled_false() -> None:
         }
     )
     assert config.connections[0].enabled is False
+
+
+def test_normalize_connection_rewrites_adapter_prefix_and_osc_slash() -> None:
+    config = parse_config(
+        {
+            "adapters": {
+                "osc": {"enabled": True, "type": "osc", "host": "127.0.0.1", "port": 9000},
+            },
+            "devices": [
+                {
+                    "uid": "osc_bridge",
+                    "name": "OSC Bridge",
+                    "adapter": "osc",
+                    "library_kind": "osc",
+                    "custom_points": [
+                        {"id": "/clock/bpm", "direction": "input", "value_min": 0, "value_max": 500},
+                    ],
+                }
+            ],
+            "connections": [
+                {
+                    "id": "osc-clock-bpm",
+                    "source": "osc./clock/bpm",
+                    "target": "clock.bpm_set",
+                }
+            ],
+        }
+    )
+
+    assert config.connections[0].source == "osc_bridge./clock/bpm"

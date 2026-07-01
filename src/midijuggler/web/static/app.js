@@ -3143,7 +3143,9 @@ function eventToDatapointId(event) {
   }
   if (event.kind === "OscMessageEvent" && event.address) {
     const address = event.canonical_address || event.address;
-    return `${event.source}.${address}`;
+    const device = boundDeviceForAdapter(event.source);
+    const module = device?.uid || device?.id || event.source;
+    return `${module}.${address}`;
   }
   if (event.kind === "MidiMessageEvent" && event.control) {
     return `${event.source}.${event.control}`;

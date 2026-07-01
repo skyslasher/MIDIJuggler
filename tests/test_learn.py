@@ -23,6 +23,34 @@ def test_learn_controller_selects_control_source() -> None:
     assert state.source.key == "xtouch_mini:layer_a_fader"
 
 
+def test_select_source_uses_device_uid_not_adapter_name() -> None:
+    config = parse_config(
+        {
+            "adapters": {
+                "osc": {"enabled": True, "type": "osc", "host": "127.0.0.1", "port": 9000},
+            },
+            "devices": [
+                {
+                    "uid": "osc_bridge",
+                    "name": "OSC Bridge",
+                    "adapter": "osc",
+                    "library_kind": "osc",
+                }
+            ],
+        }
+    )
+    controller = LearnController()
+    controller.set_enabled(True)
+    from midijuggler.device.registry import DeviceRegistry
+
+    state = controller.select_source(
+        LearnSource(adapter="osc", control="/clock/bpm"),
+        device_registry=DeviceRegistry.from_config(config),
+    )
+
+    assert state.source_datapoint == "osc_bridge./clock/bpm"
+
+
 def test_resolve_monitor_source_from_hid_event() -> None:
     config = parse_config({"adapters": {}})
     source = resolve_monitor_source(

@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from midijuggler.datapoint.endpoints import osc_address_variants
 from midijuggler.datapoint.types import ConnectionSpec, DataPointId, DataPointValue, ModifierKind, ValueType, float_value, midi_message_value
 from midijuggler.datapoint.store import DataPointStore
 from midijuggler.device.registry import DeviceRegistry
@@ -159,7 +160,7 @@ class EventToDataPointBridge:
 
 
     def _resolve_osc_point_id(self, module: str, address: str) -> DataPointId:
-        for point in _osc_address_variants(address):
+        for point in osc_address_variants(address):
             point_id = DataPointId(module=module, point=point)
             if self.store.spec(point_id) is not None:
                 return point_id
@@ -181,17 +182,6 @@ def adapter_control_to_datapoint(
 ) -> str:
     device = device_registry.require_device_for_adapter(adapter_name)
     return str(DataPointId(device.uid, control))
-
-
-def _osc_address_variants(address: str) -> tuple[str, ...]:
-    stripped = address.lstrip("/")
-    variants: list[str] = []
-    seen: set[str] = set()
-    for candidate in (address, f"/{stripped}", stripped):
-        if candidate and candidate not in seen:
-            seen.add(candidate)
-            variants.append(candidate)
-    return tuple(variants)
 
 
 def _midi_message_point_id(event: MidiMessageEvent) -> str:
