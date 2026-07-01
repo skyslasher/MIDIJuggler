@@ -99,6 +99,7 @@ class DataPointValue:
     osc_address: str | None = None
     osc_arguments: tuple[Any, ...] | None = None
     emit_outputs: bool = True
+    force_notify: bool = False
 
     def as_dict(self) -> dict[str, Any]:
         payload: dict[str, Any] = {
@@ -165,6 +166,7 @@ def float_value(
     value: float,
     *,
     emit_outputs: bool = True,
+    force_notify: bool = False,
 ) -> DataPointValue:
     resolved = point_id if isinstance(point_id, DataPointId) else DataPointId.parse(point_id)
     return DataPointValue(
@@ -172,6 +174,7 @@ def float_value(
         value_type=ValueType.FLOAT,
         float_value=value,
         emit_outputs=emit_outputs,
+        force_notify=force_notify,
     )
 
 

@@ -119,6 +119,8 @@ class DataPointStore:
                 LOGGER.exception("data point handler failed for %s", key)
 
     def _value_changed(self, key: str, value: DataPointValue) -> bool:
+        if value.force_notify:
+            return True
         if value.value_type == ValueType.MIDI_MESSAGE:
             return True
         spec = self._specs.get(key)

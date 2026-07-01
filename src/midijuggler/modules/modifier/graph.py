@@ -210,6 +210,7 @@ class ModifierGraph(ModifierModule):
         current = self.store.float_value(connection.target)
         if (
             not force_desk_forward
+            and not _always_forward_target(connection.target)
             and current is not None
             and abs(current - mapped) <= _compare_epsilon(
                 self.store,
@@ -333,3 +334,10 @@ def _should_force_desk_forward(source_key: str, target_key: str) -> bool:
     if control_group(source_key) is not None:
         return True
     return source_key.rsplit(".", 1)[-1].endswith("_turn")
+
+
+def _always_forward_target(target_key: str) -> bool:
+    """Re-apply clock setpoints even when the store already holds the mapped value."""
+
+    module, _, point = target_key.partition(".")
+    return module == "clock" and point == "bpm_set"

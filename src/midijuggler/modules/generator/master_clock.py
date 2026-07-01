@@ -490,6 +490,13 @@ class MasterClockGenerator(GeneratorModule):
             )
         )
         await self.store.write(float_value(DataPointId(CLOCK_MODULE, "bpm"), self.clock.bpm))
+        await self.store.write(
+            float_value(
+                DataPointId(CLOCK_MODULE, "bpm_set"),
+                self.clock.bpm,
+                emit_outputs=False,
+            )
+        )
         controls = self.clock.parameters.as_controls()
         await self.store.write(
             float_value(DataPointId(CLOCK_MODULE, "quarter_ms"), controls["quarter_ms"])

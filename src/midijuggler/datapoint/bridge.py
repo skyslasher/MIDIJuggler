@@ -153,7 +153,12 @@ class EventToDataPointBridge:
             numeric_value = wing_control_value(event.arguments)
         if numeric_value is not None:
             await self.store.write(
-                float_value(point_id, numeric_value, emit_outputs=False)
+                float_value(
+                    point_id,
+                    numeric_value,
+                    emit_outputs=False,
+                    force_notify=True,
+                )
             )
             return
         await self.store.write(value)
