@@ -1015,6 +1015,15 @@ article {
   display: none;
 }
 
+.monitor-log-event[data-log-level="warning"] {
+  color: #b8860b;
+}
+
+.monitor-log-event[data-log-level="error"],
+.monitor-log-event[data-log-level="critical"] {
+  color: #c0392b;
+}
+
 @media (max-width: 800px) {
   header,
   .toolbar {

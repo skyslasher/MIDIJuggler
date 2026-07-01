@@ -81,6 +81,7 @@ const events = document.querySelector("#events");
 const showClockTicks = document.querySelector("#show-clock-ticks");
 const showFeedbackRefresh = document.querySelector("#show-feedback-refresh");
 const monitorDisplayModeSelect = document.querySelector("#monitor-display-mode");
+const monitorLogLevelSelect = document.querySelector("#monitor-log-level");
 const learnToggle = document.querySelector("#learn-toggle");
 const learnPanel = document.querySelector("#learn-panel");
 const learnStatus = document.querySelector("#learn-status");
@@ -231,6 +232,13 @@ function loadSystemConfig() {
 }
 
 const BEAT_FLASH_INTERVAL_RATIO = 0.9;
+const MONITOR_LOG_LEVEL_RANK = {
+  DEBUG: 10,
+  INFO: 20,
+  WARNING: 30,
+  ERROR: 40,
+  CRITICAL: 50,
+};
 const BEAT_INTERVAL_MS_KEYS = {
   sixteenth: "sixteenth_ms",
   eighth: "eighth_ms",
@@ -3490,6 +3498,11 @@ function formatMonitorEventLine(event, time) {
     return `[${time}] Status ${adapterName} — ${event.detail}`;
   }
 
+  if (event.kind === "LogEvent") {
+    const logger = event.logger ? `${event.logger}: ` : "";
+    return `[${time}] ${event.level || "LOG"} ${logger}${event.message || ""}`;
+  }
+
   if (event.kind === "GpioEvent") {
     const suffix = event.initial ? " (initial)" : "";
     return `[${time}] GPIO pin ${event.pin} ${event.control} = ${event.value}${suffix}`;
@@ -3566,7 +3579,23 @@ function monitorTransportLabel(source) {
   return "OSC";
 }
 
+function monitorMinimumLogLevelRank() {
+  const value = monitorLogLevelSelect?.value || "info";
+  if (value === "all") {
+    return 0;
+  }
+  return MONITOR_LOG_LEVEL_RANK[value.toUpperCase()] ?? 20;
+}
+
+function shouldShowLogEvent(event) {
+  const rank = MONITOR_LOG_LEVEL_RANK[String(event.level || "").toUpperCase()] ?? 0;
+  return rank >= monitorMinimumLogLevelRank();
+}
+
 function shouldShowMonitorEvent(event) {
+  if (event.kind === "LogEvent" && !shouldShowLogEvent(event)) {
+    return false;
+  }
   if (event.kind === "ControlEvent" && event.source === "clock") {
     if (!CLOCK_MONITOR_CONTROLS.has(event.control)) {
       return false;
@@ -3602,6 +3631,12 @@ function applyMonitorEventDisplay(item) {
     return;
   }
   item.classList.toggle("monitor-event-hidden", !shouldShowMonitorEvent(event));
+  item.classList.toggle("monitor-log-event", event.kind === "LogEvent");
+  if (event.kind === "LogEvent") {
+    item.dataset.logLevel = String(event.level || "").toLowerCase();
+  } else {
+    delete item.dataset.logLevel;
+  }
   item.textContent = formatMonitorEventLine(event, item.monitorEventTime);
 }
 
@@ -8430,6 +8465,10 @@ configImportForm.addEventListener("submit", (event) => {
 
 monitorDisplayModeSelect?.addEventListener("change", () => {
   monitorDisplayMode = monitorDisplayModeSelect.value;
+  refreshMonitorDisplay();
+});
+
+monitorLogLevelSelect?.addEventListener("change", () => {
   refreshMonitorDisplay();
 });
 

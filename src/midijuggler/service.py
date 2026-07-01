@@ -44,6 +44,7 @@ from midijuggler.modules.io.osc import OscIOModule
 from midijuggler.modules.io.rtp_midi import RtpMidiIOModule
 from midijuggler.rtp_midi import RtpMidiManager
 from midijuggler.osc.desk_tracker import OscDeskDiscoveryManager
+from midijuggler.web.monitor_log import MonitorLogHandler
 from midijuggler.web.server import WebInterface, run_web_server, stop_web_server
 
 LOGGER = logging.getLogger(__name__)
@@ -126,6 +127,7 @@ class MIDIJugglerService:
                     self.master_clock.bind_datapoint_sink(module)
                     break
         self._runner = None
+        self._monitor_log_handler: MonitorLogHandler | None = None
 
         self.bus.subscribe(MidiClockEvent, self._track_clock)
         self.bus.subscribe(MidiMessageEvent, self._handle_midi_message)
@@ -134,6 +136,11 @@ class MIDIJugglerService:
 
     async def start(self) -> None:
         LOGGER.info("starting MIDIJuggler")
+        loop = asyncio.get_running_loop()
+        self._monitor_log_handler = MonitorLogHandler(self.bus, loop)
+        self._monitor_log_handler.setLevel(logging.DEBUG)
+        logging.getLogger("midijuggler").addHandler(self._monitor_log_handler)
+        self._monitor_log_handler.start()
         await self.rtp_midi_manager.start()
         LOGGER.info("RTP-MIDI status: %s", self.rtp_midi_manager.status_summary())
         await self.osc_desk_tracker.start()
@@ -158,6 +165,10 @@ class MIDIJugglerService:
 
     async def stop(self) -> None:
         LOGGER.info("stopping MIDIJuggler")
+        if self._monitor_log_handler is not None:
+            logging.getLogger("midijuggler").removeHandler(self._monitor_log_handler)
+            await self._monitor_log_handler.stop()
+            self._monitor_log_handler = None
         if self._runner is not None:
             await stop_web_server(self._runner)
             self._runner = None

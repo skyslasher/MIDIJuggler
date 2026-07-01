@@ -267,3 +267,23 @@ class AdapterStatusEvent(Event):
             }
         )
         return payload
+
+
+@dataclass(frozen=True)
+class LogEvent(Event):
+    """Python log record forwarded to the web monitor."""
+
+    level: str = "INFO"
+    message: str = ""
+    logger: str = ""
+
+    def as_dict(self) -> dict[str, Any]:
+        payload = super().as_dict()
+        payload.update(
+            {
+                "level": self.level,
+                "message": self.message,
+                "logger": self.logger,
+            }
+        )
+        return payload
