@@ -23,8 +23,11 @@ class FakeClickPlayer:
     def __init__(self) -> None:
         self.plays = 0
 
-    async def play(self) -> None:
+    def trigger(self) -> None:
         self.plays += 1
+
+    async def play(self) -> None:
+        self.trigger()
 
     async def close(self) -> None:
         return
@@ -34,6 +37,9 @@ class SlowClickPlayer:
     def __init__(self) -> None:
         self.plays = 0
         self.release = asyncio.Event()
+
+    def trigger(self) -> None:
+        self.plays += 1
 
     async def play(self) -> None:
         self.plays += 1

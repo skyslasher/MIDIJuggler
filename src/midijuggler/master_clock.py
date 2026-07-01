@@ -537,6 +537,10 @@ class MasterClock:
         return alsa_mode_for_device(configured) == "dmix"
 
     def _trigger_click(self) -> None:
+        trigger = getattr(self.click_player, "trigger", None)
+        if callable(trigger):
+            trigger()
+            return
         task = asyncio.create_task(self.click_player.play(), name="click-trigger")
         self._click_tasks.add(task)
         task.add_done_callback(self._click_tasks.discard)

@@ -1,4 +1,4 @@
-"""Audio click playback through persistent ALSA or aplay fallback."""
+"""Audio click playback through a dedicated realtime thread or aplay fallback."""
 
 from __future__ import annotations
 
@@ -6,6 +6,7 @@ import asyncio
 import contextlib
 import logging
 import os
+import queue
 import threading
 import time
 import wave
@@ -14,6 +15,9 @@ from pathlib import Path
 from typing import Any, Protocol
 
 LOGGER = logging.getLogger(__name__)
+
+_CLICK_THREAD_POLL_S = 0.01
+_CLICK_REALTIME_PRIORITY = 50
 
 
 @dataclass(frozen=True)
@@ -24,6 +28,24 @@ class WavPlaybackData:
     channels: int
     rate: int
     sample_width: int
+
+
+@dataclass
+class _PrepareCommand:
+    loop: asyncio.AbstractEventLoop
+    future: asyncio.Future[bool]
+
+
+@dataclass
+class _ReleaseCommand:
+    loop: asyncio.AbstractEventLoop
+    future: asyncio.Future[None]
+
+
+@dataclass
+class _CloseCommand:
+    loop: asyncio.AbstractEventLoop
+    future: asyncio.Future[None]
 
 
 class ClickPlayer(Protocol):
@@ -44,13 +66,14 @@ def create_click_player(
 ) -> ClickPlayer:
     """Create the best available click player for the current host."""
 
+    del allow_overlap  # overlap is always handled by the threaded ALSA player
+
     if _alsaaudio_available():
         try:
             return AlsaClickPlayer(
                 wav_path,
                 audio_device=audio_device,
                 environment=environment,
-                allow_overlap=allow_overlap,
             )
         except Exception:
             LOGGER.exception("failed to initialize ALSA click player; falling back to aplay")
@@ -61,7 +84,7 @@ def create_click_player(
         command=command,
         audio_device=audio_device,
         environment=environment,
-        allow_overlap=allow_overlap,
+        allow_overlap=True,
     )
 
 
@@ -87,7 +110,7 @@ def load_wav(path: str | Path) -> WavPlaybackData:
 
 
 class AlsaClickPlayer:
-    """Play clicks through a persistent ALSA PCM handle."""
+    """Play clicks on a dedicated thread with non-blocking ALSA writes."""
 
     def __init__(
         self,
@@ -98,126 +121,144 @@ class AlsaClickPlayer:
     ) -> None:
         import alsaaudio
 
+        del allow_overlap
         self._alsaaudio = alsaaudio
         self.wav_path = wav_path
         self.audio_device = audio_device
         self.environment = environment or {}
-        self.allow_overlap = allow_overlap
-        self._wav: WavPlaybackData | None = None
         self._pcm: Any | None = None
+        self._wav: WavPlaybackData | None = None
         self._configured_wav_path = ""
         self._configured_device = ""
-        self._play_lock = threading.Lock()
-        self._async_lock = asyncio.Lock()
+        self._click_queue: queue.SimpleQueue[None] = queue.SimpleQueue()
+        self._command_queue: queue.SimpleQueue[Any] = queue.SimpleQueue()
+        self._stop_event = threading.Event()
+        self._worker = threading.Thread(
+            target=self._worker_main,
+            name="midijuggler-click-audio",
+            daemon=True,
+        )
+        self._worker.start()
 
-    async def play(self) -> None:
-        if not self.wav_path:
-            return
-        if not Path(self.wav_path).is_file():
-            LOGGER.warning("click WAV does not exist: %s", self.wav_path)
-            return
+    @property
+    def allow_overlap(self) -> bool:
+        return True
 
-        if not self.allow_overlap:
-            async with self._async_lock:
-                await asyncio.to_thread(self._play_locked)
-            return
-
-        asyncio.create_task(self._play_overlapping(), name="click-playback")
-
-    async def _play_overlapping(self) -> None:
-        await asyncio.to_thread(self._play_locked)
-
-    async def close(self) -> None:
-        async with self._async_lock:
-            await asyncio.to_thread(self._close_pcm)
-
-    async def prepare(self) -> bool:
-        """Open the PCM before the first beat to keep click timing tight."""
+    def trigger(self) -> None:
+        """Queue one click from the master clock without touching asyncio."""
 
         if not self.wav_path or not Path(self.wav_path).is_file():
+            return
+        self._click_queue.put_nowait(None)
+
+    async def play(self) -> None:
+        self.trigger()
+
+    async def prepare(self) -> bool:
+        if not self.wav_path or not Path(self.wav_path).is_file():
             return False
+        loop = asyncio.get_running_loop()
+        future: asyncio.Future[bool] = loop.create_future()
+        self._command_queue.put(_PrepareCommand(loop=loop, future=future))
+        return await future
+
+    async def release(self) -> None:
+        await self._run_release_command()
+
+    async def close(self) -> None:
+        loop = asyncio.get_running_loop()
+        future: asyncio.Future[None] = loop.create_future()
+        self._command_queue.put(_CloseCommand(loop=loop, future=future))
+        await future
+        self._worker.join(timeout=2.0)
+
+    async def _run_release_command(self) -> None:
+        loop = asyncio.get_running_loop()
+        future: asyncio.Future[None] = loop.create_future()
+        self._command_queue.put(_ReleaseCommand(loop=loop, future=future))
+        await future
+
+    def _worker_main(self) -> None:
+        _try_set_realtime_priority()
+        while not self._stop_event.is_set():
+            self._process_commands()
+            self._process_click_queue()
+            if self._stop_event.is_set() and self._click_queue.empty():
+                break
+            time.sleep(_CLICK_THREAD_POLL_S)
+        self._close_pcm()
+
+    def _process_commands(self) -> None:
+        while True:
+            try:
+                command = self._command_queue.get_nowait()
+            except queue.Empty:
+                return
+            if isinstance(command, _PrepareCommand):
+                self._handle_prepare(command)
+            elif isinstance(command, _ReleaseCommand):
+                self._handle_release(command)
+            elif isinstance(command, _CloseCommand):
+                self._handle_close(command)
+
+    def _handle_prepare(self, command: _PrepareCommand) -> None:
         try:
-            await asyncio.wait_for(asyncio.to_thread(self._prepare_locked), timeout=2.0)
-            return True
-        except TimeoutError:
-            LOGGER.warning(
-                "timed out opening click PCM on %s",
-                self.audio_device or "default",
-            )
-            await asyncio.to_thread(self._close_pcm)
-            return False
+            self._ensure_pcm()
+            result = self._pcm is not None
         except (OSError, self._alsaaudio.ALSAAudioError) as exc:
             LOGGER.warning(
                 "failed to prepare click PCM on %s: %s",
                 self.audio_device or "default",
                 exc,
             )
-            await asyncio.to_thread(self._close_pcm)
-            return False
+            self._close_pcm()
+            result = False
+        command.loop.call_soon_threadsafe(command.future.set_result, result)
 
-    async def release(self) -> None:
-        """Drop the PCM handle, for example when transport stops."""
+    def _handle_release(self, command: _ReleaseCommand) -> None:
+        self._close_pcm()
+        command.loop.call_soon_threadsafe(command.future.set_result, None)
 
-        await self.close()
+    def _handle_close(self, command: _CloseCommand) -> None:
+        self._stop_event.set()
+        self._close_pcm()
+        command.loop.call_soon_threadsafe(command.future.set_result, None)
 
-    def _prepare_locked(self) -> None:
-        with self._play_lock:
-            self._ensure_pcm()
+    def _process_click_queue(self) -> None:
+        while True:
+            try:
+                self._click_queue.get_nowait()
+            except queue.Empty:
+                return
+            if not self._write_click_once():
+                self._click_queue.put_nowait(None)
 
-    def _play_locked(self) -> None:
-        with self._play_lock:
-            self._play_unlocked()
-
-    def _play_unlocked(self) -> None:
+    def _write_click_once(self) -> bool:
         try:
-            self._write_click()
+            self._ensure_pcm()
+            assert self._pcm is not None
+            assert self._wav is not None
+            self._pcm.write(self._wav.frames)
+            return True
         except self._alsaaudio.ALSAAudioError as exc:
             message = str(exc)
+            if _is_pcm_try_again(message):
+                return False
             if "Device or resource busy" in message or "Resource busy" in message:
                 LOGGER.debug("click playback skipped because audio device is busy: %s", message)
-                return
+                return True
             if _is_recoverable_alsa_pcm_error(message):
                 LOGGER.debug("recreating ALSA PCM after %s", message)
                 self._close_pcm()
-                time.sleep(0.05)
-                try:
-                    self._write_click()
-                    return
-                except self._alsaaudio.ALSAAudioError as retry_exc:
-                    message = str(retry_exc)
-                    if "Device or resource busy" in message or "Resource busy" in message:
-                        LOGGER.debug(
-                            "click playback skipped because audio device is busy: %s",
-                            message,
-                        )
-                        return
-                    if _is_recoverable_alsa_pcm_error(message):
-                        LOGGER.debug(
-                            "click playback skipped after ALSA recovery failed: %s",
-                            message,
-                        )
-                        self._close_pcm()
-                        return
-                except OSError:
-                    LOGGER.exception("failed to replay click through ALSA after PCM reset")
-                    self._close_pcm()
-                    return
+                time.sleep(0.01)
+                return self._write_click_once()
             LOGGER.warning("ALSA click playback failed: %s", message)
             self._close_pcm()
+            return True
         except OSError:
             LOGGER.exception("failed to play click through ALSA")
             self._close_pcm()
-
-    def _write_click(self) -> None:
-        self._ensure_pcm()
-        assert self._pcm is not None
-        assert self._wav is not None
-        if not self.allow_overlap:
-            drain = getattr(self._pcm, "drain", None)
-            if callable(drain):
-                with contextlib.suppress(Exception):
-                    drain()
-        self._pcm.write(self._wav.frames)
+            return True
 
     def _ensure_pcm(self) -> None:
         device = self.audio_device or "default"
@@ -233,12 +274,12 @@ class AlsaClickPlayer:
         with _alsa_environment(self.environment):
             pcm = self._alsaaudio.PCM(
                 type=self._alsaaudio.PCM_PLAYBACK,
-                mode=self._alsaaudio.PCM_NORMAL,
+                mode=self._alsaaudio.PCM_NONBLOCK,
                 device=device,
                 channels=wav.channels,
                 rate=wav.rate,
                 format=_sample_width_to_format(self._alsaaudio, wav.sample_width),
-                periodsize=1024,
+                periodsize=256,
             )
         self._pcm = pcm
         self._wav = wav
@@ -288,9 +329,6 @@ class AplayClickPlayer:
         command.append(self.wav_path)
 
         async with self._lock:
-            if not self.allow_overlap:
-                await self._stop_active_processes()
-
             try:
                 process = await asyncio.create_subprocess_exec(
                     *command,
@@ -352,12 +390,36 @@ class AplayClickPlayer:
             self._process_tasks.pop(process, None)
 
 
+def _try_set_realtime_priority() -> None:
+    if not hasattr(os, "sched_setscheduler"):
+        return
+    try:
+        import sched
+
+        os.sched_setscheduler(
+            0,
+            sched.SCHED_FIFO,
+            os.sched_param(_CLICK_REALTIME_PRIORITY),
+        )
+    except (ImportError, OSError, PermissionError):
+        return
+
+
 def _alsaaudio_available() -> bool:
     try:
         import alsaaudio  # noqa: F401
     except ImportError:
         return False
     return True
+
+
+def _is_pcm_try_again(message: str) -> bool:
+    lowered = message.casefold()
+    return (
+        "resource temporarily unavailable" in lowered
+        or "try again" in lowered
+        or "would block" in lowered
+    )
 
 
 def _is_recoverable_alsa_pcm_error(message: str) -> bool:
