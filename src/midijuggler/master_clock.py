@@ -251,7 +251,6 @@ class MasterClock:
         self.alsa_config_path = Path(alsa_config_path) if alsa_config_path is not None else None
         self.click_player = click_player or self._build_click_player(config)
         self._transport_task: asyncio.Task[None] | None = None
-        self._transport_next_deadline: float | None = None
         self._bpm_notify_task: asyncio.Task[None] | None = None
         self._click_tasks: set[asyncio.Task[None]] = set()
         self._datapoint_sink: ClockDatapointSink | None = None
@@ -400,8 +399,6 @@ class MasterClock:
         if reset_position and not was_running:
             self.position_ticks = 0
         self.running = True
-        if not was_running:
-            self._transport_next_deadline = None
         if self.config.send_transport and not was_running:
             await self._publish_midi_status(MIDI_START)
         await self._prepare_click_audio()
@@ -464,14 +461,14 @@ class MasterClock:
 
     async def _emit_frame(self) -> None:
         if self._is_click_tick(self.position_ticks):
-            await self._emit_click()
-        await self._emit_midi_tick()
+            self._emit_click()
+        self._schedule_midi_tick()
 
-    async def _emit_midi_tick(self) -> None:
-        await self._publish_midi_status(MIDI_TIMING_CLOCK)
+    def _schedule_midi_tick(self) -> None:
+        self._schedule_midi_status(MIDI_TIMING_CLOCK)
         self.position_ticks += 1
 
-    async def _emit_click(self) -> None:
+    def _emit_click(self) -> None:
         if self.config.click_enabled:
             self._trigger_click()
         if self._datapoint_sink is not None:
@@ -485,6 +482,14 @@ class MasterClock:
         task = asyncio.create_task(
             self._publish_click_event(position_ticks),
             name="click-event",
+        )
+        self._click_tasks.add(task)
+        task.add_done_callback(self._click_tasks.discard)
+
+    def _schedule_midi_status(self, status: int) -> None:
+        task = asyncio.create_task(
+            self._publish_midi_status(status),
+            name="midi-clock-out",
         )
         self._click_tasks.add(task)
         task.add_done_callback(self._click_tasks.discard)
@@ -558,20 +563,15 @@ class MasterClock:
             await release()
 
     async def _run_transport(self) -> None:
-        loop = asyncio.get_running_loop()
-        next_deadline = self._transport_next_deadline
-        if next_deadline is None:
-            next_deadline = loop.time()
         try:
             while self.running:
-                next_deadline += self._seconds_per_tick()
-                delay = next_deadline - loop.time()
+                interval = self._seconds_per_tick()
+                started = time.monotonic()
+                await self._emit_frame()
+                delay = interval - (time.monotonic() - started)
                 if delay > 0:
                     await asyncio.sleep(delay)
-                await self._emit_frame()
-            self._transport_next_deadline = next_deadline
         except asyncio.CancelledError:
-            self._transport_next_deadline = next_deadline
             raise
 
     def _seconds_per_tick(self) -> float:

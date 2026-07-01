@@ -338,6 +338,36 @@ def test_transport_maintains_average_bpm_over_one_second() -> None:
     assert ticks == pytest.approx(expected_ticks, rel=0.03, abs=3)
 
 
+def test_transport_maintains_average_bpm_with_slow_midi_publish() -> None:
+    class SlowPublishClock(MasterClock):
+        async def _publish_midi_status(self, status: int) -> None:
+            await asyncio.sleep(0.005)
+            await super()._publish_midi_status(status)
+
+    async def scenario() -> tuple[int, float]:
+        bus = EventBus()
+        clock = SlowPublishClock(
+            MasterClockConfig(
+                enabled=True,
+                click_enabled=False,
+                bpm=120.0,
+            ),
+            bus,
+            click_player=FakeClickPlayer(),
+        )
+        await clock.start_transport(reset_position=True)
+        loop = asyncio.get_running_loop()
+        started = loop.time()
+        await asyncio.sleep(1.0)
+        elapsed = loop.time() - started
+        return clock.position_ticks, elapsed
+
+    ticks, elapsed = asyncio.run(scenario())
+
+    expected_ticks = elapsed * (120.0 / 60.0) * 24
+    assert ticks == pytest.approx(expected_ticks, rel=0.03, abs=3)
+
+
 def test_master_clock_start_command_while_running_does_not_reset_position() -> None:
     async def scenario() -> MasterClock:
         bus = EventBus()
@@ -365,8 +395,10 @@ def test_set_bpm_while_running_preserves_position() -> None:
         clock.running = True
         for _ in range(6):
             await clock.emit_tick()
+        await asyncio.sleep(0)
         midi_events.clear()
         await clock.set_bpm(128.5)
+        await asyncio.sleep(0)
         return clock, midi_events
 
     clock, midi_events = asyncio.run(scenario())
@@ -391,6 +423,7 @@ def test_start_transport_while_running_preserves_position() -> None:
             clock._transport_task = None
         for _ in range(9):
             await clock.emit_tick()
+        await asyncio.sleep(0)
         midi_events.clear()
         await clock.start_transport(reset_position=True)
         if clock._transport_task is not None:
@@ -398,6 +431,7 @@ def test_start_transport_while_running_preserves_position() -> None:
             with contextlib.suppress(asyncio.CancelledError):
                 await clock._transport_task
             clock._transport_task = None
+        await asyncio.sleep(0)
         return clock, midi_events
 
     clock, midi_events = asyncio.run(scenario())

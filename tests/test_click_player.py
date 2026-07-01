@@ -1,6 +1,9 @@
 import asyncio
 import logging
+import queue
 import struct
+import subprocess
+import threading
 import wave
 
 import pytest
@@ -264,7 +267,7 @@ def test_alsa_click_player_prepare_opens_pcm_before_play(tmp_path, monkeypatch) 
     created: list[FakePcm] = []
 
     def pcm_factory(kwargs):
-        assert kwargs["device"] == "wing_stereo1"
+        assert kwargs["device"] == "master_clock"
         pcm = FakePcm()
         created.append(pcm)
         return pcm
@@ -276,7 +279,7 @@ def test_alsa_click_player_prepare_opens_pcm_before_play(tmp_path, monkeypatch) 
     )
 
     async def scenario() -> None:
-        player = AlsaClickPlayer(str(wav_path), audio_device="wing_stereo1", allow_overlap=False)
+        player = AlsaClickPlayer(str(wav_path), audio_device="master_clock", allow_overlap=False)
         assert await player.prepare() is True
         assert len(created) == 1
         assert created[0].closed is True
@@ -404,7 +407,7 @@ def test_alsa_click_player_recovers_from_invalid_argument_on_open(
 
                 def flaky_write(data: bytes) -> None:
                     raise FakeAlsaModule.ALSAAudioError(
-                        "Invalid argument [wing_stereo1]"
+                        "Invalid argument [master_clock]"
                     )
 
                 pcm.write = flaky_write  # type: ignore[method-assign]
@@ -412,7 +415,7 @@ def test_alsa_click_player_recovers_from_invalid_argument_on_open(
 
     monkeypatch.setitem(__import__("sys").modules, "alsaaudio", FakeAlsaModule())
 
-    player = AlsaClickPlayer(str(wav_path), audio_device="wing_stereo1", allow_overlap=True)
+    player = AlsaClickPlayer(str(wav_path), audio_device="master_clock", allow_overlap=True)
     with caplog.at_level(logging.DEBUG, logger="midijuggler.click_player"):
         player.trigger()
         import time
@@ -515,9 +518,36 @@ def test_alsa_click_player_retries_when_device_is_busy(tmp_path, monkeypatch) ->
     pcm.write = busy_once  # type: ignore[method-assign]
     monkeypatch.setitem(__import__("sys").modules, "alsaaudio", FakeAlsaModule())
 
-    player = AlsaClickPlayer(str(wav_path), audio_device="wing_stereo1")
+    player = AlsaClickPlayer(str(wav_path), audio_device="master_clock")
     player.trigger()
     _wait_for_click_writes(pcm, 1)
 
     assert attempts["count"] >= 2
     asyncio.run(player.close())
+
+
+def test_alsa_click_player_uses_aplay_on_wing_routing_pcm(tmp_path, monkeypatch) -> None:
+    wav_path = tmp_path / "click.wav"
+    _write_wav(wav_path)
+    spawned: list[list[str]] = []
+
+    def fake_popen(command, **kwargs):
+        spawned.append(list(command))
+
+        class FakeProcess:
+            returncode = 0
+
+        return FakeProcess()
+
+    monkeypatch.setattr("midijuggler.click_player.subprocess.Popen", fake_popen)
+    monkeypatch.setattr(AlsaClickPlayer, "__init__", lambda self, *args, **kwargs: None)
+
+    player = AlsaClickPlayer.__new__(AlsaClickPlayer)
+    player.wav_path = str(wav_path)
+    player.audio_device = "wing_stereo1"
+    player.environment = {}
+    player.command = "aplay"
+    player._alsaaudio = type("FakeAlsa", (), {"ALSAAudioError": OSError})()
+
+    assert player._write_click_once() is True
+    assert spawned == [["aplay", "-q", "-D", "wing_stereo1", str(wav_path)]]

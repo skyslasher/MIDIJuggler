@@ -7,12 +7,15 @@ import contextlib
 import logging
 import os
 import queue
+import subprocess
 import threading
 import time
 import wave
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Protocol
+
+from midijuggler.alsa import is_wing_routing_pcm
 
 LOGGER = logging.getLogger(__name__)
 
@@ -74,6 +77,7 @@ def create_click_player(
                 wav_path,
                 audio_device=audio_device,
                 environment=environment,
+                command=command,
             )
         except Exception:
             LOGGER.exception("failed to initialize ALSA click player; falling back to aplay")
@@ -118,11 +122,13 @@ class AlsaClickPlayer:
         audio_device: str = "",
         environment: dict[str, str] | None = None,
         allow_overlap: bool = True,
+        command: str = "aplay",
     ) -> None:
         import alsaaudio
 
         del allow_overlap
         self._alsaaudio = alsaaudio
+        self.command = command
         self.wav_path = wav_path
         self.audio_device = audio_device
         self.environment = environment or {}
@@ -203,8 +209,10 @@ class AlsaClickPlayer:
 
     def _handle_prepare(self, command: _PrepareCommand) -> None:
         try:
-            wav = self._ensure_wav()
-            self._verify_device(wav)
+            self._ensure_wav()
+            device = self.audio_device or "default"
+            if not is_wing_routing_pcm(device):
+                self._verify_device(self._wav)
             result = True
         except (OSError, self._alsaaudio.ALSAAudioError) as exc:
             LOGGER.warning(
@@ -236,9 +244,11 @@ class AlsaClickPlayer:
                 self._wake_event.set()
 
     def _write_click_once(self) -> bool:
+        device = self.audio_device or "default"
+        if is_wing_routing_pcm(device):
+            return self._spawn_aplay_click(device)
         try:
             wav = self._ensure_wav()
-            device = self.audio_device or "default"
             with _alsa_environment(self.environment):
                 pcm = self._open_playback_pcm(wav, device)
                 try:
@@ -260,6 +270,19 @@ class AlsaClickPlayer:
         except OSError:
             LOGGER.exception("failed to play click through ALSA")
             return True
+
+    def _spawn_aplay_click(self, device: str) -> bool:
+        command = [self.command, "-q", "-D", device, self.wav_path]
+        try:
+            subprocess.Popen(
+                command,
+                stdout=subprocess.DEVNULL,
+                stderr=subprocess.DEVNULL,
+                env={**os.environ, **self.environment} if self.environment else None,
+            )
+        except OSError:
+            LOGGER.exception("failed to spawn click playback command")
+        return True
 
     def _write_all_frames(self, pcm: Any, wav: WavPlaybackData) -> None:
         frame_bytes = wav.channels * wav.sample_width
