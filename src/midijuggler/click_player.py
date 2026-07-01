@@ -13,6 +13,8 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Protocol
 
+from midijuggler.alsa import WING_ROUTING_PCMS
+
 LOGGER = logging.getLogger(__name__)
 
 
@@ -43,6 +45,19 @@ def create_click_player(
     allow_overlap: bool = True,
 ) -> ClickPlayer:
     """Create the best available click player for the current host."""
+
+    if _is_wing_routing_pcm(audio_device):
+        LOGGER.debug(
+            "using aplay for Wing dshare PCM %s to avoid persistent dshare handles",
+            audio_device,
+        )
+        return AplayClickPlayer(
+            wav_path,
+            command=command,
+            audio_device=audio_device,
+            environment=environment,
+            allow_overlap=allow_overlap,
+        )
 
     if _alsaaudio_available():
         try:
@@ -325,6 +340,13 @@ def _alsaaudio_available() -> bool:
     except ImportError:
         return False
     return True
+
+
+def _is_wing_routing_pcm(audio_device: str) -> bool:
+    normalized = audio_device.strip().casefold()
+    if not normalized:
+        return False
+    return normalized in {name.casefold() for name in WING_ROUTING_PCMS}
 
 
 def _is_recoverable_alsa_pcm_error(message: str) -> bool:

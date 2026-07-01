@@ -520,6 +520,9 @@ class MasterClock:
         return False
 
     def _trigger_click(self) -> None:
+        allow_overlap = getattr(self.click_player, "allow_overlap", True)
+        if not allow_overlap and any(not task.done() for task in self._click_tasks):
+            return
         task = asyncio.create_task(self.click_player.play(), name="click-trigger")
         self._click_tasks.add(task)
         task.add_done_callback(self._click_tasks.discard)

@@ -111,6 +111,14 @@ def test_create_click_player_uses_alsa_when_available(monkeypatch) -> None:
     assert isinstance(player, AlsaClickPlayer)
 
 
+def test_create_click_player_uses_aplay_for_wing_dshare_pcm(monkeypatch) -> None:
+    monkeypatch.setattr("midijuggler.click_player._alsaaudio_available", lambda: True)
+
+    player = create_click_player("/tmp/click.wav", audio_device="wing_stereo1")
+
+    assert isinstance(player, AplayClickPlayer)
+
+
 def test_aplay_click_player_logs_nonzero_exit(caplog) -> None:
     async def scenario() -> None:
         player = AplayClickPlayer("/tmp/click.wav")
