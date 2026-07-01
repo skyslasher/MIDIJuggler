@@ -327,21 +327,33 @@ function renderConfigIssuesBanner(issues) {
 }
 
 function renderStatus(status) {
-  updateAppTitle(status.hostname);
-  datapointRoutingEnabled = Boolean(status.datapoint_routing);
-  renderConfigIssuesBanner(status.config_issues || []);
-  const displayedBpm = status.master_clock?.bpm || status.bpm;
-  bpm.textContent = displayedBpm ? displayedBpm.toFixed(1) : "--";
-  learnMode = Boolean(status.learn_mode);
-  learnToggle.textContent = learnMode ? "Close connection" : "Create connection";
-  learnToggle.classList.toggle("active-button", learnMode);
-  learnSourceDatapointId = status.learn?.source_datapoint || "";
-  renderLearnState(status.learn || {});
-  if (learnMode && !learnRegistryDatapoints.length) {
-    loadLearnDatapoints();
+  if (status.hostname != null) {
+    updateAppTitle(status.hostname);
   }
-  if (learnMode) {
-    void refreshDeviceConfigCache().catch(() => null);
+  if (status.datapoint_routing != null) {
+    datapointRoutingEnabled = Boolean(status.datapoint_routing);
+  }
+  if (Array.isArray(status.config_issues)) {
+    renderConfigIssuesBanner(status.config_issues);
+  }
+  const displayedBpm = status.master_clock?.bpm ?? status.bpm;
+  if (displayedBpm != null) {
+    bpm.textContent = Number(displayedBpm).toFixed(1);
+  }
+  if (status.learn_mode != null) {
+    learnMode = Boolean(status.learn_mode);
+    learnToggle.textContent = learnMode ? "Close connection" : "Create connection";
+    learnToggle.classList.toggle("active-button", learnMode);
+  }
+  if (status.learn != null) {
+    learnSourceDatapointId = status.learn.source_datapoint || "";
+    renderLearnState(status.learn);
+    if (learnMode && !learnRegistryDatapoints.length) {
+      loadLearnDatapoints();
+    }
+    if (learnMode) {
+      void refreshDeviceConfigCache().catch(() => null);
+    }
   }
   if (status.created_connection || status.created_mapping) {
     const created = status.created_connection || status.created_mapping;
@@ -386,8 +398,10 @@ function renderStatus(status) {
     rememberDiscoveredOscDesks(status.osc_discovered_desks);
   }
 
-  preloadMonitorLibraries(status);
-  applyAdapterRuntimeConnectionsFromStatus(status.adapters || {});
+  if (status.adapters) {
+    preloadMonitorLibraries(status);
+    applyAdapterRuntimeConnectionsFromStatus(status.adapters);
+  }
   updateWingNativeConnectivityFromStatus(status);
 }
 
