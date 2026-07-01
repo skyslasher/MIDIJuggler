@@ -156,3 +156,107 @@ def test_stored_connections_returns_explicit_connections() -> None:
     resolved = stored_connections(explicit)
     assert len(resolved) == 1
     assert resolved[0].id == "modern"
+
+
+def _assert_osc_custom_point_routes_to_clock_bpm(
+    *,
+    custom_point_id: str,
+    connection_source: str,
+    osc_address: str,
+    expected_bpm: float,
+) -> None:
+    import asyncio
+
+    from midijuggler.config import parse_config
+    from midijuggler.datapoint.bridge import EventToDataPointBridge
+    from midijuggler.datapoint.store import DataPointStore
+    from midijuggler.datapoint.types import ConnectionSpec, ModifierKind
+    from midijuggler.device.points import build_device_datapoints
+    from midijuggler.device.registry import DeviceRegistry
+    from midijuggler.eventbus import EventBus
+    from midijuggler.events import OscMessageEvent
+    from midijuggler.master_clock import MasterClock
+    from midijuggler.modules.generator.master_clock import MasterClockGenerator
+    from midijuggler.modules.modifier.graph import ModifierGraph
+
+    config = parse_config(
+        {
+            "master_clock": {"enabled": True, "bpm": 120.0},
+            "adapters": {
+                "osc": {"enabled": True, "type": "osc", "host": "127.0.0.1", "port": 9000},
+            },
+            "devices": [
+                {
+                    "uid": "osc",
+                    "name": "osc",
+                    "adapter": "osc",
+                    "library_kind": "osc",
+                    "custom_points": [
+                        {
+                            "id": custom_point_id,
+                            "direction": "input",
+                            "protocol": "osc",
+                            "value_min": 0,
+                            "value_max": 500,
+                        }
+                    ],
+                }
+            ],
+        }
+    )
+    store = DataPointStore()
+    registry = DeviceRegistry.from_config(config)
+    device = registry.require_device_for_adapter("osc")
+    specs, _ = build_device_datapoints(device, config.adapters["osc"])
+    store.register_many(specs)
+    master_clock = MasterClock(config.master_clock, EventBus())
+    clock_gen = MasterClockGenerator(master_clock, store)
+    store.register_many(clock_gen.datapoints())
+    graph = ModifierGraph(
+        store,
+        [
+            ConnectionSpec(
+                id="osc-clock-bpm",
+                source=connection_source,
+                target="clock.bpm_set",
+                input_min=0.0,
+                input_max=500.0,
+                output_min=0.0,
+                output_max=500.0,
+            )
+        ],
+    )
+    bridge = EventToDataPointBridge(store, EventBus(), registry)
+
+    async def scenario() -> None:
+        await clock_gen.start()
+        await graph.start()
+        await bridge._on_osc_message(
+            OscMessageEvent(
+                source="osc",
+                address=osc_address,
+                arguments=(expected_bpm,),
+                direction="input",
+            )
+        )
+
+    asyncio.run(scenario())
+    assert master_clock.bpm == pytest.approx(expected_bpm)
+
+
+def test_osc_custom_point_with_leading_slash_routes_to_clock_bpm_set() -> None:
+    _assert_osc_custom_point_routes_to_clock_bpm(
+        custom_point_id="/clock/bpm",
+        connection_source="osc./clock/bpm",
+        osc_address="/clock/bpm",
+        expected_bpm=140.0,
+    )
+
+
+def test_osc_custom_point_without_leading_slash_routes_to_clock_bpm_set() -> None:
+    _assert_osc_custom_point_routes_to_clock_bpm(
+        custom_point_id="clock/bpm",
+        connection_source="osc.clock/bpm",
+        osc_address="/clock/bpm",
+        expected_bpm=140.0,
+    )
