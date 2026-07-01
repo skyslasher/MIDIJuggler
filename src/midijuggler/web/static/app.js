@@ -176,6 +176,8 @@ let cachedMidiLibraryList = [];
 let hidAdaptersConfig = null;
 let hidLearnInstanceName = "";
 let masterClockConfig = null;
+let masterClockRuntime = null;
+let datapointRoutingEnabled = false;
 let masterBpmDirty = false;
 let tapPulseTimer = null;
 let midiAdaptersConfig = null;
@@ -228,14 +230,82 @@ function loadSystemConfig() {
     });
 }
 
-function pulseTapButton() {
+const BEAT_FLASH_INTERVAL_RATIO = 0.9;
+const BEAT_INTERVAL_MS_KEYS = {
+  eighth: "eighth_ms",
+  quarter: "quarter_ms",
+  half: "half_ms",
+  whole: "whole_ms",
+};
+
+function beatIntervalMsForClock(clock, config) {
+  const interval = clock?.click_interval || config?.click_interval || "quarter";
+  const params = clock?.parameters || {};
+  const key = BEAT_INTERVAL_MS_KEYS[interval] || "quarter_ms";
+  const fromParams = Number(params[key]);
+  if (Number.isFinite(fromParams) && fromParams > 0) {
+    return fromParams;
+  }
+  const bpm = Number(clock?.bpm ?? config?.bpm);
+  if (!Number.isFinite(bpm) || bpm <= 0) {
+    return 500;
+  }
+  const quarterMs = 60000 / bpm;
+  switch (interval) {
+    case "eighth":
+      return quarterMs / 2;
+    case "half":
+      return quarterMs * 2;
+    case "whole":
+      return quarterMs * 4;
+    default:
+      return quarterMs;
+  }
+}
+
+function effectiveBeatFlashMs(clock, config) {
+  const configured = Number(config?.beat_flash_ms ?? clock?.beat_flash_ms ?? 120);
+  const intervalMs = beatIntervalMsForClock(clock, config);
+  return Math.max(1, Math.min(configured, intervalMs * BEAT_FLASH_INTERVAL_RATIO));
+}
+
+function setTapPulse(active) {
+  if (!masterTap) {
+    return;
+  }
+  if (active) {
+    masterTap.classList.remove("tap-pulse");
+    void masterTap.offsetWidth;
+    masterTap.classList.add("tap-pulse");
+    clearTimeout(tapPulseTimer);
+    tapPulseTimer = null;
+    return;
+  }
   masterTap.classList.remove("tap-pulse");
-  void masterTap.offsetWidth;
-  masterTap.classList.add("tap-pulse");
+  clearTimeout(tapPulseTimer);
+  tapPulseTimer = null;
+}
+
+function pulseTapButtonFallback() {
+  setTapPulse(true);
   clearTimeout(tapPulseTimer);
   tapPulseTimer = window.setTimeout(() => {
-    masterTap.classList.remove("tap-pulse");
-  }, 150);
+    setTapPulse(false);
+  }, effectiveBeatFlashMs(masterClockRuntime, masterClockConfig));
+}
+
+function handleClockBeatDatapoint(update) {
+  if (!update || update.id !== "clock.beat") {
+    return;
+  }
+  const active = update.float_value != null
+    ? Number(update.float_value) > 0.5
+    : Boolean(update.bool_value);
+  setTapPulse(active);
+}
+
+function pulseTapButton() {
+  pulseTapButtonFallback();
 }
 
 function renderConfigIssuesBanner(issues) {
@@ -258,6 +328,7 @@ function renderConfigIssuesBanner(issues) {
 
 function renderStatus(status) {
   updateAppTitle(status.hostname);
+  datapointRoutingEnabled = Boolean(status.datapoint_routing);
   renderConfigIssuesBanner(status.config_issues || []);
   const displayedBpm = status.master_clock?.bpm || status.bpm;
   bpm.textContent = displayedBpm ? displayedBpm.toFixed(1) : "--";
@@ -281,6 +352,7 @@ function renderStatus(status) {
 
   if (status.master_clock) {
     const clock = status.master_clock;
+    masterClockRuntime = clock;
     syncMasterClockRuntimeState(clock);
     const params = clock.parameters || {};
     masterClock.replaceChildren();
@@ -7853,6 +7925,9 @@ function connect() {
     if (data.type === "status") {
       renderStatus(data.payload);
     }
+    if (data.type === "datapoint") {
+      handleClockBeatDatapoint(data.payload);
+    }
     if (data.type === "event") {
       if (data.payload?.kind === "AdapterStatusEvent") {
         handleAdapterStatusEvent(data.payload);
@@ -7860,8 +7935,8 @@ function connect() {
       if (data.payload?.kind === "HidLearnEvent") {
         handleHidLearnCapture(data.payload);
       }
-      if (data.payload?.kind === "ClickEvent") {
-        pulseTapButton();
+      if (data.payload?.kind === "ClickEvent" && !datapointRoutingEnabled) {
+        pulseTapButtonFallback();
       }
       appendEvent(data.payload);
       if (data.payload.kind === "BpmChangedEvent") {

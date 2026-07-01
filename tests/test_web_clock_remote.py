@@ -94,6 +94,22 @@ def test_status_payload_includes_bpm_steps() -> None:
     assert payload["master_clock"]["bpm_huge_step"] == pytest.approx(5.0)
 
 
+def test_status_payload_includes_beat_flash_ms() -> None:
+    config = parse_config(
+        {"master_clock": {"enabled": True, "beat_flash_ms": 80.0}}
+    )
+    interface = WebInterface(
+        config,
+        EventBus(),
+        ClockBpmTracker(),
+        MasterClock(config.master_clock, EventBus()),
+    )
+
+    payload = interface._status_payload()
+
+    assert payload["master_clock"]["beat_flash_ms"] == pytest.approx(80.0)
+
+
 def test_clock_trigger_http_endpoint() -> None:
     interface = _clock_interface(bpm=100.0)
 

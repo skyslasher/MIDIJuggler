@@ -88,14 +88,17 @@
       border-radius: 50%;
       height: 0.85rem;
       margin: 0 auto 1rem;
-      transition: border-color 0.05s, box-shadow 0.05s, transform 0.05s;
       width: 0.85rem;
     }
 
     .beat-ring.pulse {
       border-color: #6ea8fe;
-      box-shadow: 0 0 12px #6ea8fe;
-      transform: scale(1.35);
+      box-shadow: 0 0 8px #6ea8fe;
+      transform: scale(1.25);
+    }
+
+    .beat-ring.hidden {
+      visibility: hidden;
     }
 
     .status-grid {
@@ -142,7 +145,7 @@
     }
 
     .controls.wide {
-      grid-template-columns: 1fr 1fr;
+      grid-template-columns: repeat(3, 1fr);
     }
 
     button {
@@ -169,6 +172,10 @@
     button.secondary {
       background: #2b3752;
       color: #edf2ff;
+    }
+
+    button.secondary.off {
+      opacity: 0.65;
     }
 
     .message {
@@ -219,6 +226,7 @@
 
     <div class="controls wide">
       <button type="button" class="secondary" data-trigger="click_toggle" id="click-toggle">Toggle click</button>
+      <button type="button" class="secondary" id="beat-flash-toggle">Flash on</button>
       <button type="button" class="secondary" id="click-interval-btn" aria-label="Click interval">Quarter</button>
     </div>
 
@@ -240,6 +248,7 @@
     const connectionEl = document.querySelector("#connection");
     const messageEl = document.querySelector("#message");
     const beatRing = document.querySelector("#beat-ring");
+    const beatFlashToggleBtn = document.querySelector("#beat-flash-toggle");
 
     const CLICK_INTERVALS = ["eighth", "quarter", "half", "whole"];
     const CLICK_INTERVAL_LABELS = {
@@ -248,9 +257,20 @@
       half: "Half",
       whole: "Whole",
     };
+    const FLASH_PREF_KEY = "midijuggler.clockRemote.beatFlash";
+    const BEAT_FLASH_INTERVAL_RATIO = 0.9;
+    const BEAT_INTERVAL_MS_KEYS = {
+      eighth: "eighth_ms",
+      quarter: "quarter_ms",
+      half: "half_ms",
+      whole: "whole_ms",
+    };
 
     let beatFlashTimer = null;
     let currentClickInterval = "quarter";
+    let currentClock = null;
+    let datapointRouting = false;
+    let beatFlashEnabled = localStorage.getItem(FLASH_PREF_KEY) !== "0";
 
     function apiBase() {
       const params = new URLSearchParams(window.location.search);
@@ -287,21 +307,107 @@
       }
     }
 
-    function pulseBeat(flashMs) {
-      beatRing.classList.add("pulse");
+    function clickIntervalMsFromBpm(bpm, interval) {
+      const quarterMs = 60000 / bpm;
+      switch (interval) {
+        case "eighth":
+          return quarterMs / 2;
+        case "half":
+          return quarterMs * 2;
+        case "whole":
+          return quarterMs * 4;
+        default:
+          return quarterMs;
+      }
+    }
+
+    function beatIntervalMs(clock) {
+      const interval = clock?.click_interval || "quarter";
+      const params = clock?.parameters || {};
+      const key = BEAT_INTERVAL_MS_KEYS[interval] || "quarter_ms";
+      const fromParams = Number(params[key]);
+      if (Number.isFinite(fromParams) && fromParams > 0) {
+        return fromParams;
+      }
+      const bpm = Number(clock?.bpm);
+      if (!Number.isFinite(bpm) || bpm <= 0) {
+        return 500;
+      }
+      return clickIntervalMsFromBpm(bpm, interval);
+    }
+
+    function effectiveFlashMs(clock) {
+      const configured = Number(clock?.beat_flash_ms) || 120;
+      const intervalMs = beatIntervalMs(clock);
+      return Math.max(1, Math.min(configured, intervalMs * BEAT_FLASH_INTERVAL_RATIO));
+    }
+
+    function isBeatActive(value) {
+      if (value?.float_value != null) {
+        return Number(value.float_value) > 0.5;
+      }
+      if (value?.bool_value != null) {
+        return Boolean(value.bool_value);
+      }
+      return false;
+    }
+
+    function setBeatPulse(active) {
+      if (!beatFlashEnabled) {
+        return;
+      }
+      if (active) {
+        beatRing.classList.remove("pulse");
+        void beatRing.offsetWidth;
+        beatRing.classList.add("pulse");
+        if (beatFlashTimer) {
+          clearTimeout(beatFlashTimer);
+          beatFlashTimer = null;
+        }
+        return;
+      }
+      beatRing.classList.remove("pulse");
+      if (beatFlashTimer) {
+        clearTimeout(beatFlashTimer);
+        beatFlashTimer = null;
+      }
+    }
+
+    function handleBeatDatapoint(update) {
+      if (!update || update.id !== "clock.beat") {
+        return;
+      }
+      setBeatPulse(isBeatActive(update));
+    }
+
+    function pulseBeatFallback() {
+      if (!beatFlashEnabled) {
+        return;
+      }
+      setBeatPulse(true);
       if (beatFlashTimer) {
         clearTimeout(beatFlashTimer);
       }
       beatFlashTimer = setTimeout(() => {
-        beatRing.classList.remove("pulse");
+        setBeatPulse(false);
         beatFlashTimer = null;
-      }, flashMs || 120);
+      }, effectiveFlashMs(currentClock));
+    }
+
+    function updateFlashToggleButton() {
+      beatFlashToggleBtn.textContent = beatFlashEnabled ? "Flash on" : "Flash off";
+      beatFlashToggleBtn.classList.toggle("off", !beatFlashEnabled);
+      beatRing.classList.toggle("hidden", !beatFlashEnabled);
+      if (!beatFlashEnabled) {
+        setBeatPulse(false);
+      }
     }
 
     function renderClock(clock) {
       if (!clock) {
         return;
       }
+      currentClock = clock;
       bpmEl.textContent = clock.bpm ? Number(clock.bpm).toFixed(1) : "--";
       const running = Boolean(clock.running);
       runningEl.textContent = running ? "Running" : "Stopped";
@@ -330,6 +436,7 @@
     }
 
     function renderStatus(payload) {
+      datapointRouting = Boolean(payload.datapoint_routing);
       renderClock(payload.master_clock);
     }
 
@@ -377,6 +484,14 @@
       setClickInterval(nextClickInterval(currentClickInterval));
     });
 
+    beatFlashToggleBtn.addEventListener("click", () => {
+      beatFlashEnabled = !beatFlashEnabled;
+      localStorage.setItem(FLASH_PREF_KEY, beatFlashEnabled ? "1" : "0");
+      updateFlashToggleButton();
+    });
+
+    updateFlashToggleButton();
+
     function connectMonitor() {
       const socket = new WebSocket(wsUrl());
 
@@ -408,8 +523,16 @@
           renderStatus(payload.payload);
           return;
         }
-        if (payload.type === "event" && payload.payload?.kind === "ClickEvent") {
-          pulseBeat(120);
+        if (payload.type === "datapoint") {
+          handleBeatDatapoint(payload.payload);
+          return;
+        }
+        if (
+          payload.type === "event"
+          && payload.payload?.kind === "ClickEvent"
+          && !datapointRouting
+        ) {
+          pulseBeatFallback();
         }
       });
     }

@@ -1376,6 +1376,7 @@ class WebInterface:
                 "click_interval": self.master_clock.click_interval,
                 "bpm_step": self.master_clock.config.bpm_step,
                 "bpm_huge_step": self.master_clock.config.bpm_huge_step,
+                "beat_flash_ms": self.master_clock.config.beat_flash_ms,
                 "parameters": self.master_clock.parameters.as_controls(),
             },
             "learn_mode": self.learn.state.enabled,
