@@ -111,12 +111,13 @@ def test_create_click_player_uses_alsa_when_available(monkeypatch) -> None:
     assert isinstance(player, AlsaClickPlayer)
 
 
-def test_create_click_player_uses_aplay_for_wing_dshare_pcm(monkeypatch) -> None:
+def test_create_click_player_uses_alsa_for_wing_dshare_pcm(monkeypatch) -> None:
     monkeypatch.setattr("midijuggler.click_player._alsaaudio_available", lambda: True)
+    monkeypatch.setattr(AlsaClickPlayer, "__init__", lambda self, *args, **kwargs: None)
 
     player = create_click_player("/tmp/click.wav", audio_device="wing_stereo1")
 
-    assert isinstance(player, AplayClickPlayer)
+    assert isinstance(player, AlsaClickPlayer)
 
 
 def test_aplay_click_player_logs_nonzero_exit(caplog) -> None:
@@ -212,6 +213,39 @@ def test_alsa_click_player_reuses_pcm_and_writes_loaded_wav(tmp_path, monkeypatc
 
     player._close_pcm()
     assert pcm.closed is True
+
+
+def test_alsa_click_player_prepare_opens_pcm_before_play(tmp_path, monkeypatch) -> None:
+    wav_path = tmp_path / "click.wav"
+    _write_wav(wav_path)
+    pcm = FakePcm()
+
+    class FakeAlsaModule:
+        PCM_PLAYBACK = "playback"
+        PCM_NORMAL = "normal"
+        PCM_FORMAT_U8 = "u8"
+        PCM_FORMAT_S16_LE = "s16le"
+        PCM_FORMAT_S24_3LE = "s24_3le"
+        PCM_FORMAT_S32_LE = "s32le"
+
+        class ALSAAudioError(OSError):
+            pass
+
+        def PCM(self, **kwargs):
+            assert kwargs["device"] == "wing_stereo1"
+            return pcm
+
+    monkeypatch.setitem(__import__("sys").modules, "alsaaudio", FakeAlsaModule())
+
+    async def scenario() -> None:
+        player = AlsaClickPlayer(str(wav_path), audio_device="wing_stereo1", allow_overlap=False)
+        assert await player.prepare() is True
+        player._play_unlocked()
+        assert len(pcm.writes) == 1
+        await player.release()
+        assert pcm.closed is True
+
+    asyncio.run(scenario())
 
 
 def test_alsa_click_player_serializes_writes_when_overlap_is_disabled(tmp_path, monkeypatch) -> None:

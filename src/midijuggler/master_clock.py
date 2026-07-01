@@ -254,6 +254,7 @@ class MasterClock:
         self._transport_next_deadline: float | None = None
         self._bpm_notify_task: asyncio.Task[None] | None = None
         self._click_tasks: set[asyncio.Task[None]] = set()
+        self._click_play_tasks: set[asyncio.Task[None]] = set()
         self._datapoint_sink: ClockDatapointSink | None = None
         self._tap_tempo = TapTempoTracker(
             min_taps=config.tap_tempo_min_taps,
@@ -378,6 +379,10 @@ class MasterClock:
         if self.config.click_enabled == enabled:
             return
         self.config = replace(self.config, click_enabled=enabled)
+        if enabled:
+            await self._prepare_click_audio()
+        else:
+            await self._release_click_audio()
 
     async def toggle_click_enabled(self) -> None:
         await self.set_click_enabled(not self.config.click_enabled)
@@ -400,6 +405,7 @@ class MasterClock:
             self._transport_next_deadline = None
         if self.config.send_transport and not was_running:
             await self._publish_midi_status(MIDI_START)
+        await self._prepare_click_audio()
         self._ensure_transport_task()
         await self._publish_state()
 
@@ -407,12 +413,14 @@ class MasterClock:
         self.running = True
         if self.config.send_transport:
             await self._publish_midi_status(MIDI_CONTINUE)
+        await self._prepare_click_audio()
         self._ensure_transport_task()
         await self._publish_state()
 
     async def stop_transport(self, send_transport: bool = True) -> None:
         self.running = False
         await self._cancel_transport_task()
+        await self._release_click_audio()
         if send_transport and self.config.send_transport:
             await self._publish_midi_status(MIDI_STOP)
         await self._publish_state()
@@ -521,11 +529,26 @@ class MasterClock:
 
     def _trigger_click(self) -> None:
         allow_overlap = getattr(self.click_player, "allow_overlap", True)
-        if not allow_overlap and any(not task.done() for task in self._click_tasks):
+        if not allow_overlap and any(not task.done() for task in self._click_play_tasks):
             return
-        task = asyncio.create_task(self.click_player.play(), name="click-trigger")
-        self._click_tasks.add(task)
-        task.add_done_callback(self._click_tasks.discard)
+        task = asyncio.create_task(self._play_click(), name="click-trigger")
+        self._click_play_tasks.add(task)
+        task.add_done_callback(self._click_play_tasks.discard)
+
+    async def _play_click(self) -> None:
+        await self.click_player.play()
+
+    async def _prepare_click_audio(self) -> None:
+        if not self.config.click_enabled:
+            return
+        prepare = getattr(self.click_player, "prepare", None)
+        if callable(prepare):
+            await prepare()
+
+    async def _release_click_audio(self) -> None:
+        release = getattr(self.click_player, "release", None)
+        if callable(release):
+            await release()
 
     async def _run_transport(self) -> None:
         loop = asyncio.get_running_loop()

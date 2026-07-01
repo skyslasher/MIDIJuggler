@@ -46,19 +46,6 @@ def create_click_player(
 ) -> ClickPlayer:
     """Create the best available click player for the current host."""
 
-    if _is_wing_routing_pcm(audio_device):
-        LOGGER.debug(
-            "using aplay for Wing dshare PCM %s to avoid persistent dshare handles",
-            audio_device,
-        )
-        return AplayClickPlayer(
-            wav_path,
-            command=command,
-            audio_device=audio_device,
-            environment=environment,
-            allow_overlap=allow_overlap,
-        )
-
     if _alsaaudio_available():
         try:
             return AlsaClickPlayer(
@@ -145,6 +132,39 @@ class AlsaClickPlayer:
     async def close(self) -> None:
         async with self._async_lock:
             await asyncio.to_thread(self._close_pcm)
+
+    async def prepare(self) -> bool:
+        """Open the PCM before the first beat to keep click timing tight."""
+
+        if not self.wav_path or not Path(self.wav_path).is_file():
+            return False
+        try:
+            await asyncio.wait_for(asyncio.to_thread(self._prepare_locked), timeout=2.0)
+            return True
+        except TimeoutError:
+            LOGGER.warning(
+                "timed out opening click PCM on %s",
+                self.audio_device or "default",
+            )
+            await asyncio.to_thread(self._close_pcm)
+            return False
+        except (OSError, self._alsaaudio.ALSAAudioError) as exc:
+            LOGGER.warning(
+                "failed to prepare click PCM on %s: %s",
+                self.audio_device or "default",
+                exc,
+            )
+            await asyncio.to_thread(self._close_pcm)
+            return False
+
+    async def release(self) -> None:
+        """Drop the PCM handle, for example when transport stops."""
+
+        await self.close()
+
+    def _prepare_locked(self) -> None:
+        with self._play_lock:
+            self._ensure_pcm()
 
     def _play_locked(self) -> None:
         with self._play_lock:
