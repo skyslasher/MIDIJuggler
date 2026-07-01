@@ -104,7 +104,7 @@ class WingNativeAdapter(Adapter):
         await self._publish_connectivity_status(force=True)
 
         if not await self._establish_session():
-            LOGGER.warning(
+            LOGGER.debug(
                 "Wing native adapter %s could not connect to %s:%s; retrying in background",
                 self.name,
                 self._remote_host,
@@ -151,7 +151,7 @@ class WingNativeAdapter(Adapter):
         try:
             await client.connect()
         except OSError as exc:
-            LOGGER.warning(
+            LOGGER.debug(
                 "Wing native adapter %s could not connect to %s:%s: %s",
                 self.name,
                 self._remote_host,
@@ -226,7 +226,7 @@ class WingNativeAdapter(Adapter):
                 if not self.running:
                     break
 
-                LOGGER.warning(
+                LOGGER.debug(
                     "Wing native connection lost for %s; reconnecting",
                     self.name,
                 )
@@ -417,7 +417,7 @@ class WingNativeAdapter(Adapter):
         except asyncio.CancelledError:
             raise
         except ConnectionError as exc:
-            LOGGER.warning("Wing native connection closed for %s", self.name)
+            LOGGER.debug("Wing native connection closed for %s", self.name)
             self._connectivity.note_error(str(exc) or "connection closed")
             await self._publish_connectivity_status(force=True)
         except Exception as exc:
