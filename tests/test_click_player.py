@@ -84,6 +84,17 @@ def _wait_for_click_writes(pcm: FakePcm, count: int, *, timeout: float = 1.0) ->
     assert len(pcm.writes) >= count
 
 
+def _wait_for_pcm_instances(instances: list[FakePcm], count: int, *, timeout: float = 2.0) -> None:
+    import time
+
+    deadline = time.time() + timeout
+    while time.time() < deadline:
+        if len(instances) >= count:
+            return
+        time.sleep(0.01)
+    assert len(instances) >= count
+
+
 def _fake_alsa_module(**overrides):
     class FakeAlsaModule:
         PCM_PLAYBACK = "playback"
@@ -212,15 +223,17 @@ def test_aplay_click_player_restarts_previous_process_when_overlap_is_disabled(
     assert processes[1].terminated is True
 
 
-def test_alsa_click_player_reuses_pcm_and_writes_loaded_wav(tmp_path, monkeypatch) -> None:
+def test_alsa_click_player_opens_fresh_pcm_for_each_click(tmp_path, monkeypatch) -> None:
     wav_path = tmp_path / "click.wav"
     _write_wav(wav_path)
-    pcm = FakePcm()
+    created: list[FakePcm] = []
 
     def pcm_factory(kwargs):
         assert kwargs["device"] == "master_clock"
         assert kwargs["channels"] == 1
         assert kwargs["rate"] == 44100
+        pcm = FakePcm()
+        created.append(pcm)
         return pcm
 
     monkeypatch.setitem(
@@ -232,24 +245,28 @@ def test_alsa_click_player_reuses_pcm_and_writes_loaded_wav(tmp_path, monkeypatc
     player = AlsaClickPlayer(str(wav_path), audio_device="master_clock", allow_overlap=True)
     player.trigger()
     player.trigger()
-    _wait_for_click_writes(pcm, 2)
+    _wait_for_pcm_instances(created, 2)
+    _wait_for_click_writes(created[0], 1)
+    _wait_for_click_writes(created[1], 1)
 
-    assert len(pcm.writes) == 2
-    assert pcm.drops == 0
-    assert pcm.drains == 0
-    assert pcm.closed is False
+    assert len(created) == 2
+    assert len(created[0].writes) == 1
+    assert len(created[1].writes) == 1
+    assert created[0].drains == 0
+    assert all(pcm.closed is True for pcm in created)
 
     asyncio.run(player.close())
-    assert pcm.closed is True
 
 
 def test_alsa_click_player_prepare_opens_pcm_before_play(tmp_path, monkeypatch) -> None:
     wav_path = tmp_path / "click.wav"
     _write_wav(wav_path)
-    pcm = FakePcm()
+    created: list[FakePcm] = []
 
     def pcm_factory(kwargs):
         assert kwargs["device"] == "wing_stereo1"
+        pcm = FakePcm()
+        created.append(pcm)
         return pcm
 
     monkeypatch.setitem(
@@ -261,11 +278,13 @@ def test_alsa_click_player_prepare_opens_pcm_before_play(tmp_path, monkeypatch) 
     async def scenario() -> None:
         player = AlsaClickPlayer(str(wav_path), audio_device="wing_stereo1", allow_overlap=False)
         assert await player.prepare() is True
+        assert len(created) == 1
+        assert created[0].closed is True
         player.trigger()
-        _wait_for_click_writes(pcm, 1)
-        assert len(pcm.writes) == 1
+        _wait_for_pcm_instances(created, 2)
+        _wait_for_click_writes(created[1], 1)
+        assert len(created[1].writes) == 1
         await player.release()
-        assert pcm.closed is True
         await player.close()
 
     asyncio.run(scenario())
@@ -406,6 +425,34 @@ def test_alsa_click_player_recovers_from_invalid_argument_on_open(
 
     assert len(created) == 2
     assert created[1].writes == [wav.frames]
+    asyncio.run(player.close())
+
+
+def test_alsa_click_player_write_loop_retries_zero_length_writes(tmp_path, monkeypatch) -> None:
+    wav_path = tmp_path / "click.wav"
+    _write_wav(wav_path)
+    pcm = FakePcm()
+    attempts = {"count": 0}
+
+    def flaky_write(data: bytes) -> int:
+        attempts["count"] += 1
+        if attempts["count"] == 1:
+            return 0
+        pcm.writes.append(data)
+        return len(data) // 2
+
+    pcm.write = flaky_write  # type: ignore[method-assign]
+    monkeypatch.setitem(
+        __import__("sys").modules,
+        "alsaaudio",
+        _fake_alsa_module(pcm_factory=lambda kwargs: pcm),
+    )
+
+    player = AlsaClickPlayer(str(wav_path), audio_device="master_clock")
+    player.trigger()
+    _wait_for_click_writes(pcm, 1)
+
+    assert attempts["count"] >= 2
     asyncio.run(player.close())
 
 

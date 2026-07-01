@@ -110,7 +110,7 @@ def load_wav(path: str | Path) -> WavPlaybackData:
 
 
 class AlsaClickPlayer:
-    """Play clicks on a dedicated thread with non-blocking ALSA writes."""
+    """Play clicks on a dedicated thread with one ephemeral ALSA PCM per click."""
 
     def __init__(
         self,
@@ -126,10 +126,8 @@ class AlsaClickPlayer:
         self.wav_path = wav_path
         self.audio_device = audio_device
         self.environment = environment or {}
-        self._pcm: Any | None = None
         self._wav: WavPlaybackData | None = None
         self._configured_wav_path = ""
-        self._configured_device = ""
         self._click_queue: queue.SimpleQueue[None] = queue.SimpleQueue()
         self._command_queue: queue.SimpleQueue[Any] = queue.SimpleQueue()
         self._wake_event = threading.Event()
@@ -189,7 +187,6 @@ class AlsaClickPlayer:
                 break
             self._wake_event.wait(timeout=_CLICK_THREAD_POLL_S)
             self._wake_event.clear()
-        self._close_pcm()
 
     def _process_commands(self) -> None:
         while True:
@@ -206,25 +203,26 @@ class AlsaClickPlayer:
 
     def _handle_prepare(self, command: _PrepareCommand) -> None:
         try:
-            self._ensure_pcm()
-            result = self._pcm is not None
+            wav = self._ensure_wav()
+            self._verify_device(wav)
+            result = True
         except (OSError, self._alsaaudio.ALSAAudioError) as exc:
             LOGGER.warning(
                 "failed to prepare click PCM on %s: %s",
                 self.audio_device or "default",
                 exc,
             )
-            self._close_pcm()
+            self._clear_wav_cache()
             result = False
         command.loop.call_soon_threadsafe(command.future.set_result, result)
 
     def _handle_release(self, command: _ReleaseCommand) -> None:
-        self._close_pcm()
+        self._clear_wav_cache()
         command.loop.call_soon_threadsafe(command.future.set_result, None)
 
     def _handle_close(self, command: _CloseCommand) -> None:
         self._stop_event.set()
-        self._close_pcm()
+        self._clear_wav_cache()
         command.loop.call_soon_threadsafe(command.future.set_result, None)
 
     def _process_click_queue(self) -> None:
@@ -239,10 +237,15 @@ class AlsaClickPlayer:
 
     def _write_click_once(self) -> bool:
         try:
-            self._ensure_pcm()
-            assert self._pcm is not None
-            assert self._wav is not None
-            self._write_all_frames(self._pcm, self._wav)
+            wav = self._ensure_wav()
+            device = self.audio_device or "default"
+            with _alsa_environment(self.environment):
+                pcm = self._open_playback_pcm(wav, device)
+                try:
+                    self._write_all_frames(pcm, wav)
+                finally:
+                    with contextlib.suppress(Exception):
+                        pcm.close()
             return True
         except self._alsaaudio.ALSAAudioError as exc:
             message = str(exc)
@@ -250,15 +253,12 @@ class AlsaClickPlayer:
                 return False
             if _is_recoverable_alsa_pcm_error(message):
                 LOGGER.debug("recreating ALSA PCM after %s", message)
-                self._close_pcm()
                 time.sleep(0.01)
                 return self._write_click_once()
             LOGGER.warning("ALSA click playback failed: %s", message)
-            self._close_pcm()
             return True
         except OSError:
             LOGGER.exception("failed to play click through ALSA")
-            self._close_pcm()
             return True
 
     def _write_all_frames(self, pcm: Any, wav: WavPlaybackData) -> None:
@@ -270,45 +270,43 @@ class AlsaClickPlayer:
         while offset < len(data):
             chunk = data[offset:]
             written = pcm.write(chunk)
-            if not isinstance(written, int) or written <= 0:
-                written = len(chunk) // frame_bytes
-            offset += written * frame_bytes
+            if isinstance(written, int):
+                if written > 0:
+                    offset += written * frame_bytes
+                    continue
+                time.sleep(0.001)
+                continue
+            offset = len(data)
 
-    def _ensure_pcm(self) -> None:
-        device = self.audio_device or "default"
-        if (
-            self._pcm is not None
-            and self._configured_wav_path == self.wav_path
-            and self._configured_device == device
-        ):
-            return
-
+    def _ensure_wav(self) -> WavPlaybackData:
+        if self._wav is not None and self._configured_wav_path == self.wav_path:
+            return self._wav
         wav = load_wav(self.wav_path)
-        self._close_pcm()
-        with _alsa_environment(self.environment):
-            pcm = self._alsaaudio.PCM(
-                type=self._alsaaudio.PCM_PLAYBACK,
-                mode=self._alsaaudio.PCM_NORMAL,
-                device=device,
-                channels=wav.channels,
-                rate=wav.rate,
-                format=_sample_width_to_format(self._alsaaudio, wav.sample_width),
-                periodsize=1024,
-            )
-        self._pcm = pcm
         self._wav = wav
         self._configured_wav_path = self.wav_path
-        self._configured_device = device
+        return wav
 
-    def _close_pcm(self) -> None:
-        if self._pcm is None:
-            return
-        with contextlib.suppress(Exception):
-            self._pcm.close()
-        self._pcm = None
+    def _verify_device(self, wav: WavPlaybackData) -> None:
+        device = self.audio_device or "default"
+        with _alsa_environment(self.environment):
+            pcm = self._open_playback_pcm(wav, device)
+            with contextlib.suppress(Exception):
+                pcm.close()
+
+    def _open_playback_pcm(self, wav: WavPlaybackData, device: str) -> Any:
+        return self._alsaaudio.PCM(
+            type=self._alsaaudio.PCM_PLAYBACK,
+            mode=self._alsaaudio.PCM_NORMAL,
+            device=device,
+            channels=wav.channels,
+            rate=wav.rate,
+            format=_sample_width_to_format(self._alsaaudio, wav.sample_width),
+            periodsize=1024,
+        )
+
+    def _clear_wav_cache(self) -> None:
         self._wav = None
         self._configured_wav_path = ""
-        self._configured_device = ""
 
 
 class AplayClickPlayer:
