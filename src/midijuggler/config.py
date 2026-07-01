@@ -10,6 +10,7 @@ import tomllib
 
 LOGGER = logging.getLogger(__name__)
 
+from midijuggler.clock import CLICK_INTERVALS
 from midijuggler.datapoint.disconnected import is_reserved_connection_module
 from midijuggler.datapoint.endpoints import align_custom_point_endpoint
 from midijuggler.datapoint.types import ConnectionSpec, ModifierKind, SCALE_CURVES
@@ -813,8 +814,11 @@ def _parse_master_clock(raw: Any) -> MasterClockConfig:
     )
 
     click_interval = str(raw.get("click_interval", "quarter"))
-    if click_interval not in {"eighth", "quarter", "half", "whole"}:
-        raise ValueError("master_clock.click_interval must be eighth, quarter, half or whole")
+    if click_interval not in CLICK_INTERVALS:
+        raise ValueError(
+            "master_clock.click_interval must be "
+            + ", ".join(CLICK_INTERVALS)
+        )
 
     tap_tempo_min_taps = _validate_tap_tempo_min_taps(
         raw.get("tap_tempo_min_taps", 4),

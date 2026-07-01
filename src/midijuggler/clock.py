@@ -8,6 +8,8 @@ from statistics import fmean
 
 MIDI_CLOCK_TICKS_PER_QUARTER = 24
 
+CLICK_INTERVALS = ("sixteenth", "eighth", "quarter", "half", "whole")
+
 
 @dataclass
 class ClockBpmTracker:

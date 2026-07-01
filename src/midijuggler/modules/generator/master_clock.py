@@ -23,6 +23,8 @@ from midijuggler.master_clock import (
     MIDI_STOP,
     MIDI_TIMING_CLOCK,
     MasterClock,
+    click_interval_from_set_value,
+    next_click_interval,
     quantize_bpm,
 )
 from midijuggler.modules.base import GeneratorModule
@@ -31,6 +33,7 @@ CLOCK_MODULE = "clock"
 BPM_EPSILON = 1e-6
 BEAT_FLASH_INTERVAL_RATIO = 0.9
 BEAT_INTERVAL_MS_KEYS = {
+    "sixteenth": "sixteenth_ms",
     "eighth": "eighth_ms",
     "quarter": "quarter_ms",
     "half": "half_ms",
@@ -57,6 +60,7 @@ class MasterClockGenerator(GeneratorModule):
         self._bpm_huge_up_pressed = False
         self._bpm_huge_down_pressed = False
         self._click_toggle_pressed = False
+        self._click_interval_cycle_pressed = False
         self._beat_off_task: asyncio.Task[None] | None = None
 
     def datapoints(self) -> list[DataPointSpec]:
@@ -162,6 +166,24 @@ class MasterClockGenerator(GeneratorModule):
                 category="transport",
             ),
             DataPointSpec(
+                id=DataPointId(CLOCK_MODULE, "click_interval_set"),
+                value_type=ValueType.FLOAT,
+                direction=DataPointDirection.OUTPUT,
+                label="Set click/beat interval (0=whole .. 4=sixteenth)",
+                value_min=0.0,
+                value_max=4.0,
+                protocol="clock",
+                category="transport",
+            ),
+            DataPointSpec(
+                id=DataPointId(CLOCK_MODULE, "click_interval_cycle"),
+                value_type=ValueType.TRIGGER,
+                direction=DataPointDirection.OUTPUT,
+                label="Cycle click/beat interval",
+                protocol="clock",
+                category="transport",
+            ),
+            DataPointSpec(
                 id=DataPointId(CLOCK_MODULE, "click_enabled"),
                 value_type=ValueType.BOOL,
                 direction=DataPointDirection.INPUT,
@@ -251,6 +273,8 @@ class MasterClockGenerator(GeneratorModule):
             "tap_tempo",
             "click_set",
             "click_toggle",
+            "click_interval_set",
+            "click_interval_cycle",
         ):
             self.store.subscribe(
                 DataPointId(CLOCK_MODULE, point),
@@ -348,6 +372,37 @@ class MasterClockGenerator(GeneratorModule):
                 pressed_attr="_click_toggle_pressed",
                 on_rising=self._toggle_click,
             )
+            return
+        if point == "click_interval_set" and value.float_value is not None:
+            interval = click_interval_from_set_value(value.float_value)
+            if interval == self.clock.click_interval:
+                return
+            await self.clock.handle_command(
+                MasterClockCommandEvent(
+                    source=CLOCK_MODULE,
+                    command="set_click_interval",
+                    value=interval,
+                )
+            )
+            await self._publish_outputs()
+            return
+        if point == "click_interval_cycle":
+            await self._handle_trigger_edge(
+                value,
+                pressed_attr="_click_interval_cycle_pressed",
+                on_rising=self._cycle_click_interval,
+            )
+
+    async def _cycle_click_interval(self, _value: DataPointValue) -> None:
+        interval = next_click_interval(self.clock.click_interval)
+        await self.clock.handle_command(
+            MasterClockCommandEvent(
+                source=CLOCK_MODULE,
+                command="set_click_interval",
+                value=interval,
+            )
+        )
+        await self._publish_outputs()
 
     async def _toggle_click(self, _value: DataPointValue) -> None:
         await self.clock.toggle_click_enabled()

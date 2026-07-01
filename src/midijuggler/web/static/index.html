@@ -425,6 +425,7 @@
               <label>
                 Click interval
                 <select id="master-click-interval">
+                  <option value="sixteenth">Sixteenth</option>
                   <option value="eighth">Eighth</option>
                   <option value="quarter">Quarter</option>
                   <option value="half">Half</option>
@@ -464,6 +465,8 @@
               <code>clock.*</code> data points (for example
               <code>clock.bpm_set</code>, <code>clock.bpm_huge_up</code>,
               <code>clock.click_set</code>, <code>clock.click_toggle</code>,
+              <code>clock.click_interval_set</code>,
+              <code>clock.click_interval_cycle</code>,
               <code>clock.start</code>,
               <code>clock.stop</code>). Read <code>clock.click_enabled</code> for
               the current audio click state. Use

@@ -15,6 +15,7 @@ from midijuggler.master_clock import (
     MIDI_TIMING_CLOCK,
     MasterClock,
     bpm_to_parameters,
+    click_interval_from_set_value,
 )
 
 
@@ -40,6 +41,12 @@ class SlowClickPlayer:
 
     async def close(self) -> None:
         return
+
+
+def test_click_interval_from_set_value_maps_whole_to_zero() -> None:
+    assert click_interval_from_set_value(0.0) == "whole"
+    assert click_interval_from_set_value(2.0) == "quarter"
+    assert click_interval_from_set_value(4.0) == "sixteenth"
 
 
 def test_bpm_to_parameters_exposes_millisecond_values() -> None:
@@ -470,7 +477,7 @@ def test_master_clock_bpm_and_click_interval_can_be_set_by_midi_cc() -> None:
             MidiMessageEvent(source="usb", status=0xB0, data=(21, 127))
         )
         await clock.handle_midi_message(
-            MidiMessageEvent(source="usb", status=0xB0, data=(22, 70))
+            MidiMessageEvent(source="usb", status=0xB0, data=(22, 90))
         )
         return clock
 

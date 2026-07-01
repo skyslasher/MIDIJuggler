@@ -251,6 +251,8 @@ def test_master_clock_datapoint_directions_match_connection_roles() -> None:
         "bpm_huge_down",
         "click_set",
         "click_toggle",
+        "click_interval_set",
+        "click_interval_cycle",
         "start",
         "stop",
         "start_stop",
@@ -309,6 +311,40 @@ def test_click_toggle_datapoint_toggles_audio_click() -> None:
         await store.write(trigger_value("clock.click_toggle", active=True))
         assert master_clock.config.click_enabled is False
         assert store.snapshot()["clock.click_enabled"]["bool_value"] is False
+
+    asyncio.run(scenario())
+
+
+def test_click_interval_set_datapoint_updates_interval() -> None:
+    config = parse_config({"master_clock": {"enabled": True, "click_interval": "quarter"}})
+    store = DataPointStore()
+    master_clock = MasterClock(config.master_clock, EventBus())
+    clock_gen = MasterClockGenerator(master_clock, store)
+    store.register_many(clock_gen.datapoints())
+
+    async def scenario() -> None:
+        await clock_gen.start()
+        assert master_clock.click_interval == "quarter"
+        await store.write(float_value("clock.click_interval_set", 0.0))
+        assert master_clock.click_interval == "whole"
+        await store.write(float_value("clock.click_interval_set", 4.0))
+        assert master_clock.click_interval == "sixteenth"
+
+    asyncio.run(scenario())
+
+
+def test_click_interval_cycle_datapoint_advances_interval() -> None:
+    config = parse_config({"master_clock": {"enabled": True, "click_interval": "quarter"}})
+    store = DataPointStore()
+    master_clock = MasterClock(config.master_clock, EventBus())
+    clock_gen = MasterClockGenerator(master_clock, store)
+    store.register_many(clock_gen.datapoints())
+
+    async def scenario() -> None:
+        await clock_gen.start()
+        await store.write(trigger_value("clock.click_interval_cycle", active=False))
+        await store.write(trigger_value("clock.click_interval_cycle", active=True))
+        assert master_clock.click_interval == "half"
 
     asyncio.run(scenario())
 

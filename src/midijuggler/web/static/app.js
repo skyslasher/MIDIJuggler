@@ -232,6 +232,7 @@ function loadSystemConfig() {
 
 const BEAT_FLASH_INTERVAL_RATIO = 0.9;
 const BEAT_INTERVAL_MS_KEYS = {
+  sixteenth: "sixteenth_ms",
   eighth: "eighth_ms",
   quarter: "quarter_ms",
   half: "half_ms",
@@ -252,6 +253,8 @@ function beatIntervalMsForClock(clock, config) {
   }
   const quarterMs = 60000 / bpm;
   switch (interval) {
+    case "sixteenth":
+      return quarterMs / 4;
     case "eighth":
       return quarterMs / 2;
     case "half":

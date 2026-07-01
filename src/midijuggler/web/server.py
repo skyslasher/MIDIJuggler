@@ -29,7 +29,7 @@ from midijuggler.alsa import (
     resolve_alsa_output_device,
     write_master_clock_pcm_config,
 )
-from midijuggler.clock import ClockBpmTracker
+from midijuggler.clock import CLICK_INTERVALS, ClockBpmTracker
 from midijuggler.config import (
     adapter_device_options,
     DEFAULT_ADAPTERS,
@@ -4070,8 +4070,10 @@ class WebInterface:
                 raise ValueError("midi_channel must be between 1 and 16")
 
         click_interval = str(payload.get("click_interval", current.click_interval))
-        if click_interval not in {"eighth", "quarter", "half", "whole"}:
-            raise ValueError("click_interval must be eighth, quarter, half or whole")
+        if click_interval not in CLICK_INTERVALS:
+            raise ValueError(
+                "click_interval must be " + ", ".join(CLICK_INTERVALS)
+            )
 
         bpm_min = float(payload.get("bpm_min", current.bpm_min))
         bpm_max = float(payload.get("bpm_max", current.bpm_max))

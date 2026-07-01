@@ -11,7 +11,7 @@ from pathlib import Path
 from typing import Protocol
 
 from midijuggler.click_player import ClickPlayer, create_click_player
-from midijuggler.clock import MIDI_CLOCK_TICKS_PER_QUARTER
+from midijuggler.clock import CLICK_INTERVALS, MIDI_CLOCK_TICKS_PER_QUARTER
 from midijuggler.config import MasterClockConfig
 from midijuggler.eventbus import EventBus
 from midijuggler.events import (
@@ -43,11 +43,27 @@ class ClockDatapointSink(Protocol):
 
 
 CLICK_INTERVAL_TICKS = {
+    "sixteenth": MIDI_CLOCK_TICKS_PER_QUARTER // 4,
     "eighth": MIDI_CLOCK_TICKS_PER_QUARTER // 2,
     "quarter": MIDI_CLOCK_TICKS_PER_QUARTER,
     "half": MIDI_CLOCK_TICKS_PER_QUARTER * 2,
     "whole": MIDI_CLOCK_TICKS_PER_QUARTER * 4,
 }
+
+
+def click_interval_from_set_value(value: float) -> str:
+    """Map a connection float (0..4) to a named click interval (0=whole .. 4=sixteenth)."""
+
+    index = int(round(value))
+    index = max(0, min(index, len(CLICK_INTERVALS) - 1))
+    return CLICK_INTERVALS[len(CLICK_INTERVALS) - 1 - index]
+
+
+def next_click_interval(current: str) -> str:
+    if current not in CLICK_INTERVALS:
+        return CLICK_INTERVALS[2]
+    index = CLICK_INTERVALS.index(current)
+    return CLICK_INTERVALS[(index + 1) % len(CLICK_INTERVALS)]
 
 TAP_TEMPO_RESET_TIMEOUT_SECONDS = 2.5
 TAP_TEMPO_MAX_TAPS = 5
@@ -368,7 +384,10 @@ class MasterClock:
 
     async def set_click_interval(self, interval: str) -> None:
         if interval not in CLICK_INTERVAL_TICKS:
-            raise ValueError("click interval must be eighth, quarter, half or whole")
+            raise ValueError(
+                "click interval must be one of: "
+                + ", ".join(CLICK_INTERVALS)
+            )
         self.click_interval = interval
         await self._publish_state()
 
@@ -573,10 +592,8 @@ def _scale_14bit(raw: int, minimum: float, maximum: float) -> float:
 
 
 def _click_interval_from_midi_value(value: int) -> str:
-    if value < 32:
-        return "eighth"
-    if value < 64:
-        return "quarter"
-    if value < 96:
-        return "half"
-    return "whole"
+    clamped = max(0, min(int(value), 127))
+    index = (clamped * len(CLICK_INTERVALS)) // 128
+    if index >= len(CLICK_INTERVALS):
+        index = len(CLICK_INTERVALS) - 1
+    return CLICK_INTERVALS[index]
