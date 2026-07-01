@@ -269,14 +269,13 @@ def test_aplay_click_player_restarts_previous_process_when_overlap_is_disabled(
     assert processes[1].terminated is True
 
 
-def test_alsa_click_player_reuses_playback_pcm_for_rapid_clicks(tmp_path, monkeypatch) -> None:
+def test_alsa_click_player_uses_ephemeral_pcm_on_wing_for_rapid_clicks(tmp_path, monkeypatch) -> None:
     wav_path = tmp_path / "click.wav"
     _write_wav(wav_path)
     created: list[FakePcm] = []
 
     def pcm_factory(kwargs):
         assert kwargs["device"] == "wing_stereo1"
-        assert kwargs.get("periods") == 4
         pcm = FakePcm()
         created.append(pcm)
         return pcm
@@ -290,15 +289,14 @@ def test_alsa_click_player_reuses_playback_pcm_for_rapid_clicks(tmp_path, monkey
     player = AlsaClickPlayer(str(wav_path), audio_device="wing_stereo1", allow_overlap=True)
     for _ in range(8):
         player.trigger()
-    _wait_for_pcm_instances(created, 1)
-    _wait_for_click_writes(created[0], 8)
+    _wait_for_pcm_instances(created, 8)
+    _wait_for_click_writes(created[-1], 1)
 
-    assert len(created) == 1
-    assert len(created[0].writes) == 8
-    assert created[0].closed is False
+    assert len(created) == 8
+    assert sum(len(pcm.writes) for pcm in created) == 8
+    assert all(pcm.closed is True for pcm in created)
 
     asyncio.run(player.close())
-    assert created[0].closed is True
 
 
 def test_alsa_click_player_prepare_opens_pcm_before_play(tmp_path, monkeypatch) -> None:
@@ -327,6 +325,33 @@ def test_alsa_click_player_prepare_opens_pcm_before_play(tmp_path, monkeypatch) 
         _wait_for_click_writes(created[0], 1)
         assert len(created[0].writes) == 1
         await player.release()
+        assert created[0].closed is True
+        await player.close()
+
+    asyncio.run(scenario())
+
+
+def test_alsa_click_player_prepare_on_wing_does_not_keep_pcm_open(tmp_path, monkeypatch) -> None:
+    wav_path = tmp_path / "click.wav"
+    _write_wav(wav_path)
+    created: list[FakePcm] = []
+
+    def pcm_factory(kwargs):
+        assert kwargs["device"] == "wing_stereo1"
+        pcm = FakePcm()
+        created.append(pcm)
+        return pcm
+
+    monkeypatch.setitem(
+        __import__("sys").modules,
+        "alsaaudio",
+        _fake_alsa_module(pcm_factory=pcm_factory),
+    )
+
+    async def scenario() -> None:
+        player = AlsaClickPlayer(str(wav_path), audio_device="wing_stereo1")
+        assert await player.prepare() is True
+        assert len(created) == 1
         assert created[0].closed is True
         await player.close()
 
@@ -368,6 +393,16 @@ def test_alsa_click_player_rapid_triggers_queue_all_writes(tmp_path, monkeypatch
     assert len(pcm.writes) == 2
     assert pcm.drains == 0
     asyncio.run(player.close())
+
+
+def test_pcm_period_frames_reads_period_size_from_info() -> None:
+    from midijuggler.click_player import _pcm_period_frames
+
+    class InfoPcm:
+        def info(self) -> dict[str, int]:
+            return {"period_size": 512}
+
+    assert _pcm_period_frames(InfoPcm()) == 512
 
 
 def test_alsa_click_player_recovers_from_bad_pcm_state(tmp_path, monkeypatch, caplog) -> None:

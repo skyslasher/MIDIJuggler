@@ -14,6 +14,8 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Protocol
 
+from midijuggler.alsa import is_wing_routing_pcm
+
 LOGGER = logging.getLogger(__name__)
 
 _CLICK_THREAD_POLL_S = 0.05
@@ -216,7 +218,10 @@ class AlsaClickPlayer:
             wav = self._ensure_wav()
             device = self.audio_device or "default"
             with _alsa_environment(self.environment):
-                self._ensure_playback_pcm(wav, device)
+                if self._uses_ephemeral_playback(device):
+                    self._verify_device(wav, device)
+                else:
+                    self._ensure_playback_pcm(wav, device)
             result = True
         except (OSError, self._alsaaudio.ALSAAudioError) as exc:
             LOGGER.warning(
@@ -256,8 +261,11 @@ class AlsaClickPlayer:
             wav = self._ensure_wav()
             device = self.audio_device or "default"
             with _alsa_environment(self.environment):
-                pcm = self._ensure_playback_pcm(wav, device)
-                self._write_all_frames(pcm, wav)
+                if self._uses_ephemeral_playback(device):
+                    self._write_ephemeral_click(wav, device)
+                else:
+                    pcm = self._ensure_playback_pcm(wav, device)
+                    self._write_period(pcm, wav, self._playback_period_frames)
             return True
         except self._alsaaudio.ALSAAudioError as exc:
             message = str(exc)
@@ -273,6 +281,23 @@ class AlsaClickPlayer:
         except OSError:
             LOGGER.exception("failed to play click through ALSA")
             return True
+
+    def _uses_ephemeral_playback(self, device: str) -> bool:
+        return is_wing_routing_pcm(device)
+
+    def _verify_device(self, wav: WavPlaybackData, device: str) -> None:
+        pcm = self._open_playback_pcm(wav, device)
+        with contextlib.suppress(Exception):
+            pcm.close()
+
+    def _write_ephemeral_click(self, wav: WavPlaybackData, device: str) -> None:
+        pcm = self._open_playback_pcm(wav, device)
+        try:
+            period_frames = _pcm_period_frames(pcm)
+            self._write_period(pcm, wav, period_frames)
+        finally:
+            with contextlib.suppress(Exception):
+                pcm.close()
 
     def _ensure_playback_pcm(self, wav: WavPlaybackData, device: str) -> Any:
         if (
@@ -297,17 +322,19 @@ class AlsaClickPlayer:
         self._playback_device = ""
         self._playback_period_frames = _PLAYBACK_PERIOD_FRAMES
 
-    def _write_all_frames(self, pcm: Any, wav: WavPlaybackData) -> None:
+    def _write_period(self, pcm: Any, wav: WavPlaybackData, period_frames: int) -> None:
         frame_bytes = wav.channels * wav.sample_width
         if frame_bytes <= 0:
             raise ValueError("invalid WAV frame size")
-        period_frames = self._playback_period_frames
         data = _build_exact_period_buffer(wav.frames, frame_bytes, period_frames)
         offset = 0
+        period_bytes = period_frames * frame_bytes
         while offset < len(data):
-            chunk = data[offset : offset + period_frames * frame_bytes]
+            chunk = data[offset : offset + period_bytes]
             written = pcm.write(chunk)
             if isinstance(written, int):
+                if written < 0:
+                    raise self._alsaaudio.ALSAAudioError(f"PCM write failed with {written}")
                 if written > 0:
                     offset += written * frame_bytes
                     continue
@@ -483,11 +510,13 @@ def _pcm_period_frames(pcm: Any) -> int:
     info = getattr(pcm, "info", None)
     if callable(info):
         try:
-            period = int(info().get("periodsize", 0))
+            data = info()
+            for key in ("period_size", "periodsize"):
+                period = int(data.get(key, 0))
+                if period > 0:
+                    return period
         except (AttributeError, TypeError, ValueError):
-            period = 0
-        if period > 0:
-            return period
+            pass
     return _PLAYBACK_PERIOD_FRAMES
 
 
