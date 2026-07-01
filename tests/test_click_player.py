@@ -98,7 +98,7 @@ def _fake_alsa_module(**overrides):
             pass
 
         def PCM(self, **kwargs):
-            assert kwargs.get("mode") == self.PCM_NONBLOCK
+            assert kwargs.get("mode") == self.PCM_NORMAL
             handler = overrides.get("pcm_factory")
             if handler is not None:
                 return handler(kwargs)
@@ -436,4 +436,41 @@ def test_alsa_click_player_trigger_returns_before_write_finishes(
     assert len(pcm.writes) == 0
     _wait_for_click_writes(pcm, 2, timeout=2.0)
     assert len(pcm.writes) == 2
+    asyncio.run(player.close())
+
+
+def test_alsa_click_player_retries_when_device_is_busy(tmp_path, monkeypatch) -> None:
+    wav_path = tmp_path / "click.wav"
+    _write_wav(wav_path)
+    pcm = FakePcm()
+    attempts = {"count": 0}
+
+    class FakeAlsaModule:
+        PCM_PLAYBACK = "playback"
+        PCM_NORMAL = "normal"
+        PCM_FORMAT_U8 = "u8"
+        PCM_FORMAT_S16_LE = "s16le"
+        PCM_FORMAT_S24_3LE = "s24_3le"
+        PCM_FORMAT_S32_LE = "s32le"
+
+        class ALSAAudioError(OSError):
+            pass
+
+        def PCM(self, **kwargs):
+            return pcm
+
+    def busy_once(data: bytes) -> None:
+        attempts["count"] += 1
+        if attempts["count"] == 1:
+            raise FakeAlsaModule.ALSAAudioError("Device or resource busy")
+        pcm.writes.append(data)
+
+    pcm.write = busy_once  # type: ignore[method-assign]
+    monkeypatch.setitem(__import__("sys").modules, "alsaaudio", FakeAlsaModule())
+
+    player = AlsaClickPlayer(str(wav_path), audio_device="wing_stereo1")
+    player.trigger()
+    _wait_for_click_writes(pcm, 1)
+
+    assert attempts["count"] >= 2
     asyncio.run(player.close())

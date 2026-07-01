@@ -16,7 +16,7 @@ from typing import Any, Protocol
 
 LOGGER = logging.getLogger(__name__)
 
-_CLICK_THREAD_POLL_S = 0.01
+_CLICK_THREAD_POLL_S = 0.05
 _CLICK_REALTIME_PRIORITY = 50
 
 
@@ -132,6 +132,7 @@ class AlsaClickPlayer:
         self._configured_device = ""
         self._click_queue: queue.SimpleQueue[None] = queue.SimpleQueue()
         self._command_queue: queue.SimpleQueue[Any] = queue.SimpleQueue()
+        self._wake_event = threading.Event()
         self._stop_event = threading.Event()
         self._worker = threading.Thread(
             target=self._worker_main,
@@ -150,6 +151,7 @@ class AlsaClickPlayer:
         if not self.wav_path or not Path(self.wav_path).is_file():
             return
         self._click_queue.put_nowait(None)
+        self._wake_event.set()
 
     async def play(self) -> None:
         self.trigger()
@@ -185,7 +187,8 @@ class AlsaClickPlayer:
             self._process_click_queue()
             if self._stop_event.is_set() and self._click_queue.empty():
                 break
-            time.sleep(_CLICK_THREAD_POLL_S)
+            self._wake_event.wait(timeout=_CLICK_THREAD_POLL_S)
+            self._wake_event.clear()
         self._close_pcm()
 
     def _process_commands(self) -> None:
@@ -232,21 +235,19 @@ class AlsaClickPlayer:
                 return
             if not self._write_click_once():
                 self._click_queue.put_nowait(None)
+                self._wake_event.set()
 
     def _write_click_once(self) -> bool:
         try:
             self._ensure_pcm()
             assert self._pcm is not None
             assert self._wav is not None
-            self._pcm.write(self._wav.frames)
+            self._write_all_frames(self._pcm, self._wav)
             return True
         except self._alsaaudio.ALSAAudioError as exc:
             message = str(exc)
-            if _is_pcm_try_again(message):
+            if _is_pcm_try_again(message) or _is_device_busy(message):
                 return False
-            if "Device or resource busy" in message or "Resource busy" in message:
-                LOGGER.debug("click playback skipped because audio device is busy: %s", message)
-                return True
             if _is_recoverable_alsa_pcm_error(message):
                 LOGGER.debug("recreating ALSA PCM after %s", message)
                 self._close_pcm()
@@ -259,6 +260,19 @@ class AlsaClickPlayer:
             LOGGER.exception("failed to play click through ALSA")
             self._close_pcm()
             return True
+
+    def _write_all_frames(self, pcm: Any, wav: WavPlaybackData) -> None:
+        frame_bytes = wav.channels * wav.sample_width
+        if frame_bytes <= 0:
+            raise ValueError("invalid WAV frame size")
+        offset = 0
+        data = wav.frames
+        while offset < len(data):
+            chunk = data[offset:]
+            written = pcm.write(chunk)
+            if not isinstance(written, int) or written <= 0:
+                written = len(chunk) // frame_bytes
+            offset += written * frame_bytes
 
     def _ensure_pcm(self) -> None:
         device = self.audio_device or "default"
@@ -274,12 +288,12 @@ class AlsaClickPlayer:
         with _alsa_environment(self.environment):
             pcm = self._alsaaudio.PCM(
                 type=self._alsaaudio.PCM_PLAYBACK,
-                mode=self._alsaaudio.PCM_NONBLOCK,
+                mode=self._alsaaudio.PCM_NORMAL,
                 device=device,
                 channels=wav.channels,
                 rate=wav.rate,
                 format=_sample_width_to_format(self._alsaaudio, wav.sample_width),
-                periodsize=256,
+                periodsize=1024,
             )
         self._pcm = pcm
         self._wav = wav
@@ -415,6 +429,10 @@ def _is_pcm_try_again(message: str) -> bool:
         or "try again" in lowered
         or "would block" in lowered
     )
+
+
+def _is_device_busy(message: str) -> bool:
+    return "Device or resource busy" in message or "Resource busy" in message
 
 
 def _is_recoverable_alsa_pcm_error(message: str) -> bool:
