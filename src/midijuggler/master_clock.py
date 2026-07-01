@@ -10,7 +10,7 @@ from dataclasses import dataclass, replace
 from pathlib import Path
 from typing import Protocol
 
-from midijuggler.alsa import MASTER_CLOCK_PCM_NAME, alsa_mode_for_device, master_clock_playback_target
+from midijuggler.alsa import MASTER_CLOCK_PCM_NAME, alsa_mode_for_device, is_wing_routing_pcm, master_clock_playback_target
 from midijuggler.click_player import ClickPlayer, create_click_player
 from midijuggler.clock import CLICK_INTERVALS, MIDI_CLOCK_TICKS_PER_QUARTER
 from midijuggler.config import MasterClockConfig
@@ -254,7 +254,6 @@ class MasterClock:
         self._transport_next_deadline: float | None = None
         self._bpm_notify_task: asyncio.Task[None] | None = None
         self._click_tasks: set[asyncio.Task[None]] = set()
-        self._click_play_tasks: set[asyncio.Task[None]] = set()
         self._datapoint_sink: ClockDatapointSink | None = None
         self._tap_tempo = TapTempoTracker(
             min_taps=config.tap_tempo_min_taps,
@@ -473,10 +472,15 @@ class MasterClock:
         self.position_ticks += 1
 
     async def _emit_click(self) -> None:
-        if self._datapoint_sink is not None:
-            await self._datapoint_sink.publish_beat()
         if self.config.click_enabled:
             self._trigger_click()
+        if self._datapoint_sink is not None:
+            beat_task = asyncio.create_task(
+                self._datapoint_sink.publish_beat(),
+                name="click-beat",
+            )
+            self._click_tasks.add(beat_task)
+            beat_task.add_done_callback(self._click_tasks.discard)
         position_ticks = self.position_ticks
         task = asyncio.create_task(
             self._publish_click_event(position_ticks),
@@ -523,20 +527,19 @@ class MasterClock:
         config: MasterClockConfig,
         playback_device: str,
     ) -> bool:
+        configured = config.click_audio_device or playback_device
         if playback_device == MASTER_CLOCK_PCM_NAME:
-            return alsa_mode_for_device(config.click_audio_device) == "dmix"
-        return False
+            return True
+        if is_wing_routing_pcm(playback_device) or is_wing_routing_pcm(configured):
+            return True
+        if not configured:
+            return False
+        return alsa_mode_for_device(configured) == "dmix"
 
     def _trigger_click(self) -> None:
-        allow_overlap = getattr(self.click_player, "allow_overlap", True)
-        if not allow_overlap and any(not task.done() for task in self._click_play_tasks):
-            return
-        task = asyncio.create_task(self._play_click(), name="click-trigger")
-        self._click_play_tasks.add(task)
-        task.add_done_callback(self._click_play_tasks.discard)
-
-    async def _play_click(self) -> None:
-        await self.click_player.play()
+        task = asyncio.create_task(self.click_player.play(), name="click-trigger")
+        self._click_tasks.add(task)
+        task.add_done_callback(self._click_tasks.discard)
 
     async def _prepare_click_audio(self) -> None:
         if not self.config.click_enabled:

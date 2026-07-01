@@ -119,6 +119,15 @@ def test_master_clock_publishes_click_events_without_audio_click() -> None:
     assert len(click_events) == 1
 
 
+def test_master_clock_uses_overlapping_click_playback_for_wing_routing_pcm() -> None:
+    clock = MasterClock(
+        MasterClockConfig(click_audio_device="wing_stereo1"),
+        EventBus(),
+    )
+
+    assert clock.click_player.allow_overlap is True
+
+
 def test_master_clock_uses_overlapping_click_playback_for_generated_pcm() -> None:
     clock = MasterClock(
         MasterClockConfig(click_audio_device="plughw:CARD=Device,DEV=0"),
@@ -130,14 +139,14 @@ def test_master_clock_uses_overlapping_click_playback_for_generated_pcm() -> Non
     assert clock.click_player.allow_overlap is True
 
 
-def test_master_clock_serializes_click_playback_for_alias_pcm() -> None:
+def test_master_clock_uses_overlapping_click_playback_for_master_clock_pcm_alias() -> None:
     clock = MasterClock(
         MasterClockConfig(click_audio_device="wing_hw"),
         EventBus(),
         click_audio_device=MASTER_CLOCK_PCM_NAME,
     )
 
-    assert clock.click_player.allow_overlap is False
+    assert clock.click_player.allow_overlap is True
 
 
 def test_master_clock_triggers_clicks_without_waiting_for_previous_playback() -> None:

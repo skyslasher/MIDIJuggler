@@ -10,6 +10,13 @@ MASTER_CLOCK_PCM_NAME = "master_clock"
 SYSTEM_ALSA_CONFIG = "/usr/share/alsa/alsa.conf"
 WING_ROUTING_PCMS = ("wing_stereo1", "wing_stereo2", "wing_stereo3")
 
+
+def is_wing_routing_pcm(device: str) -> bool:
+    normalized = device.strip().casefold()
+    if not normalized:
+        return False
+    return normalized in {name.casefold() for name in WING_ROUTING_PCMS}
+
 CARD_DEVICE_PATTERN = re.compile(
     r"^(?P<prefix>plug)?hw:CARD=(?P<card>[^,]+),DEV=(?P<device>\d+)$",
     re.IGNORECASE,

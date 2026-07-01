@@ -13,8 +13,6 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Protocol
 
-from midijuggler.alsa import WING_ROUTING_PCMS
-
 LOGGER = logging.getLogger(__name__)
 
 
@@ -360,13 +358,6 @@ def _alsaaudio_available() -> bool:
     except ImportError:
         return False
     return True
-
-
-def _is_wing_routing_pcm(audio_device: str) -> bool:
-    normalized = audio_device.strip().casefold()
-    if not normalized:
-        return False
-    return normalized in {name.casefold() for name in WING_ROUTING_PCMS}
 
 
 def _is_recoverable_alsa_pcm_error(message: str) -> bool:
