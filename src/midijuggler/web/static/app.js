@@ -373,9 +373,11 @@ function renderStatus(status) {
     statusDevices = status.devices;
     refreshDeviceDisplayNames(status.devices);
   }
-  storedConnections = status.stored_connections || [];
-  if (!editingConnectionId) {
-    renderMappingsList(storedConnections);
+  if (Array.isArray(status.stored_connections)) {
+    storedConnections = status.stored_connections;
+    if (!editingConnectionId) {
+      renderMappingsList(storedConnections);
+    }
   }
   if (feedbackSuppressMs && status.feedback_suppress_ms != null) {
     feedbackSuppressMs.value = String(status.feedback_suppress_ms);
