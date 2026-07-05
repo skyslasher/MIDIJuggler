@@ -46,14 +46,14 @@
     }
 
     .hero {
+      align-items: center;
       background: var(--panel);
       border: 1px solid var(--line);
       border-radius: 12px;
-      display: grid;
-      gap: 4px;
-      grid-template-rows: auto 1fr auto;
+      display: flex;
+      justify-content: center;
       min-height: 0;
-      padding: 8px 10px 10px;
+      padding: 8px;
       position: relative;
     }
 
@@ -77,65 +77,45 @@
       box-shadow: 0 0 6px var(--on);
     }
 
-    .beat-bar {
-      background: var(--line);
-      border-radius: 999px;
-      height: 5px;
-      overflow: hidden;
-    }
-
-    .beat-bar > span {
-      background: var(--accent);
-      display: block;
-      height: 100%;
-      transform: scaleX(0);
-      transform-origin: left center;
-      transition: transform 60ms linear;
+    .bpm-card {
+      background: #263757;
+      border: 1px solid transparent;
+      border-radius: 14px;
+      padding: 10px 14px;
+      text-align: center;
       width: 100%;
     }
 
-    .beat-bar.pulse > span {
-      transform: scaleX(1);
+    .bpm-card.running {
+      background: #6b2222;
+      border-color: color-mix(in srgb, var(--off) 45%, #6b2222);
     }
 
-    .beat-bar.hidden {
-      opacity: 0.25;
+    .bpm-card.pulse-disabled {
+      animation: none !important;
     }
 
-    .bpm-row {
-      align-items: center;
-      display: flex;
-      gap: 6px;
-      justify-content: center;
-      min-height: 0;
+    .bpm-card.beat-pulse {
+      animation: tap-pulse 140ms ease-out;
+    }
+
+    @keyframes tap-pulse {
+      from {
+        box-shadow: 0 0 0 0 rgb(110 168 254 / 95%);
+        filter: brightness(1.4);
+      }
+
+      to {
+        box-shadow: 0 0 0 12px rgb(110 168 254 / 0%);
+        filter: brightness(1);
+      }
     }
 
     .bpm-value {
-      font-size: 3.1rem;
+      font-size: 4.35rem;
       font-variant-numeric: tabular-nums;
       font-weight: 800;
-      line-height: 0.95;
-    }
-
-    .status-pill {
-      border: 1px solid var(--line);
-      border-radius: 999px;
-      font-size: 0.62rem;
-      font-weight: 700;
-      letter-spacing: 0.04em;
-      padding: 0.2rem 0.45rem;
-      text-transform: uppercase;
-      white-space: nowrap;
-    }
-
-    .status-pill.on {
-      border-color: color-mix(in srgb, var(--on) 50%, var(--line));
-      color: var(--on);
-    }
-
-    .status-pill.off {
-      border-color: color-mix(in srgb, var(--off) 40%, var(--line));
-      color: var(--off);
+      line-height: 0.92;
     }
 
     .row {
@@ -268,10 +248,8 @@
   <div class="screen">
     <section class="hero focused" id="hero" tabindex="-1" aria-label="BPM">
       <span class="live-dot" id="live-dot" title="Verbindung"></span>
-      <div class="beat-bar" id="beat-bar" aria-hidden="true"><span></span></div>
-      <div class="bpm-row">
+      <div class="bpm-card" id="bpm-card">
         <div class="bpm-value" id="bpm">--</div>
-        <div class="status-pill off" id="running">Stopp</div>
       </div>
     </section>
 
@@ -304,9 +282,8 @@
 
   <script>
     const bpmEl = document.querySelector("#bpm");
-    const runningEl = document.querySelector("#running");
+    const bpmCard = document.querySelector("#bpm-card");
     const liveDot = document.querySelector("#live-dot");
-    const beatBar = document.querySelector("#beat-bar");
     const messageEl = document.querySelector("#message");
     const heroEl = document.querySelector("#hero");
     const btnClick = document.querySelector("#btn-click");
@@ -432,15 +409,21 @@
     }
 
     function setBeatPulse(active) {
-      if (!beatFlashEnabled) {
+      if (!beatFlashEnabled || !bpmCard) {
         return;
       }
-      beatBar.classList.toggle("pulse", active);
-      if (active && beatFlashTimer) {
-        clearTimeout(beatFlashTimer);
-        beatFlashTimer = null;
+      if (active) {
+        bpmCard.classList.remove("beat-pulse");
+        void bpmCard.offsetWidth;
+        bpmCard.classList.add("beat-pulse");
+        if (beatFlashTimer) {
+          clearTimeout(beatFlashTimer);
+          beatFlashTimer = null;
+        }
+        return;
       }
-      if (!active && beatFlashTimer) {
+      bpmCard.classList.remove("beat-pulse");
+      if (beatFlashTimer) {
         clearTimeout(beatFlashTimer);
         beatFlashTimer = null;
       }
@@ -464,7 +447,7 @@
       btnFlash.textContent = beatFlashEnabled ? "Puls" : "Puls aus";
       btnFlash.classList.toggle("active", beatFlashEnabled);
       btnFlash.classList.toggle("inactive", !beatFlashEnabled);
-      beatBar.classList.toggle("hidden", !beatFlashEnabled);
+      bpmCard.classList.toggle("pulse-disabled", !beatFlashEnabled);
       if (!beatFlashEnabled) {
         setBeatPulse(false);
       }
@@ -487,9 +470,7 @@
       }
       currentClock = clock;
       bpmEl.textContent = clock.bpm ? Number(clock.bpm).toFixed(1) : "--";
-      const running = Boolean(clock.running);
-      runningEl.textContent = running ? "Läuft" : "Stopp";
-      runningEl.className = `status-pill ${running ? "on" : "off"}`;
+      bpmCard.classList.toggle("running", Boolean(clock.running));
 
       const clickEnabled = Boolean(clock.click_enabled);
       btnClick.textContent = clickEnabled ? "Klick an" : "Klick aus";
