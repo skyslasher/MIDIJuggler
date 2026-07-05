@@ -496,6 +496,46 @@
 
     updateFlashToggleButton();
 
+    const KEY_BINDINGS = {
+      ArrowUp: "bpm_up",
+      ArrowDown: "bpm_down",
+      ArrowLeft: "bpm_huge_down",
+      ArrowRight: "bpm_huge_up",
+      Enter: "start_stop",
+      s: "start_stop",
+      S: "start_stop",
+      Escape: "click_toggle",
+      x: "tap_tempo",
+      X: "tap_tempo",
+      y: () => setClickInterval(nextClickInterval(currentClickInterval)),
+      Y: () => setClickInterval(nextClickInterval(currentClickInterval)),
+      q: () => {
+        beatFlashEnabled = !beatFlashEnabled;
+        localStorage.setItem(FLASH_PREF_KEY, beatFlashEnabled ? "1" : "0");
+        updateFlashToggleButton();
+      },
+      Q: () => {
+        beatFlashEnabled = !beatFlashEnabled;
+        localStorage.setItem(FLASH_PREF_KEY, beatFlashEnabled ? "1" : "0");
+        updateFlashToggleButton();
+      },
+    };
+
+    function handleGamePiKey(event) {
+      const binding = KEY_BINDINGS[event.key];
+      if (!binding) {
+        return;
+      }
+      event.preventDefault();
+      if (typeof binding === "function") {
+        binding();
+        return;
+      }
+      trigger(binding);
+    }
+
+    document.addEventListener("keydown", handleGamePiKey);
+
     function connectMonitor() {
       const socket = new WebSocket(wsUrl());
 

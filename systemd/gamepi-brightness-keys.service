@@ -1,0 +1,14 @@
+[Unit]
+Description=GamePi13 brightness keys (L/R shoulder buttons)
+After=systemd-udev-settle.service
+Wants=systemd-udev-settle.service
+
+[Service]
+Type=simple
+Environment=GAMEPI_BRIGHTNESS_STEP=10
+ExecStart=/opt/midijuggler/venv/bin/python /opt/midijuggler/app/scripts/gamepi-brightness-keys.py
+Restart=on-failure
+RestartSec=2
+
+[Install]
+WantedBy=multi-user.target
