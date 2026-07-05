@@ -38,13 +38,15 @@ Install X for the kiosk (once):
 ```bash
 sudo apt install -y \
   xserver-xorg xserver-xorg-legacy xinit xserver-xorg-video-fbdev \
-  x11-xserver-utils chromium unclutter fbi fbset
+  x11-xserver-utils chromium unclutter fbi fbset kbd
 sudo usermod -aG video,tty,input dietpi
 sudo /opt/midijuggler/app/scripts/install-gamepi13-xorg.sh
 ```
 
 `xserver-xorg-legacy` + `/etc/X11/Xwrapper.config` (`allowed_users=anybody`) are required
-so `startx` on `/dev/tty1` can open `/dev/tty0`.
+so X can open `/dev/tty0`. After the splash releases vt1, `gamepi-start-kiosk.sh` uses
+`openvt` (package `kbd`) to attach `startx` to `/dev/tty1` without `TTYPath=` on the
+unit (that would deadlock while `fbi -T 1` still holds the console).
 
 ```bash
 sudo cp /opt/midijuggler/app/systemd/gamepi-splash.service /etc/systemd/system/
