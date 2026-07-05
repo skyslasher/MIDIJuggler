@@ -5,7 +5,7 @@ echo "handing off framebuffer from splash to X" >&2
 
 rm -f /run/gamepi-splash-hold
 
-systemctl stop gamepi-splash.service 2>/dev/null || true
+systemctl stop --no-block gamepi-splash.service 2>/dev/null || true
 killall fbi 2>/dev/null || true
 
 wait_loops=0

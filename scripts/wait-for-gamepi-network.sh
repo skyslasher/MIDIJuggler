@@ -2,25 +2,10 @@
 set -eu
 
 iface="${GAMEPI_NETWORK_IF:-eth0}"
-timeout="${GAMEPI_NETWORK_WAIT_TIMEOUT:-120}"
+timeout="${GAMEPI_NETWORK_WAIT_TIMEOUT:-45}"
 interval="${GAMEPI_NETWORK_WAIT_INTERVAL:-0.5}"
-ifup_unit="ifup@${iface}.service"
 
-echo "waiting for ${iface} (timeout ${timeout}s)" >&2
-
-if systemctl list-unit-files "$ifup_unit" 2>/dev/null | grep -qF "$ifup_unit"; then
-  deadline=$(($(date +%s) + timeout))
-  while [ "$(date +%s)" -lt "$deadline" ]; do
-    state="$(systemctl is-active "$ifup_unit" 2>/dev/null || true)"
-    case "$state" in
-      active|failed|inactive)
-        echo "${ifup_unit} is ${state}" >&2
-        break
-        ;;
-    esac
-    sleep "$interval"
-  done
-fi
+echo "waiting for ${iface} IPv4 (timeout ${timeout}s)" >&2
 
 deadline=$(($(date +%s) + timeout))
 while [ "$(date +%s)" -lt "$deadline" ]; do

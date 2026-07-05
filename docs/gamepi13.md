@@ -160,7 +160,10 @@ The kiosk waits for boot jobs, **Ethernet/DHCP**, and the MIDIJuggler web UI (wh
 keeps showing). Then `gamepi-splash-stop.sh` (root) releases `/dev/fb0` and
 `gamepi-start-kiosk.sh` (user `dietpi`) runs `startx` on `/dev/tty1`.
 
-`ExecStartPre` order: boot settle → network → web → splash stop → `startx`.
+`ExecStartPre` order: boot settle → network → web → splash stop → `startx`. All pre
+scripts together must finish within `TimeoutStartSec` (300s). Do not add long waits
+without raising that limit — otherwise systemd kills the unit with `start-pre operation
+timed out`.
 
 Do **not** add `After=ifup@eth0.service` on the unit — that blocks the kiosk until
 DHCP finishes while the splash script keeps running, so X never appears to start.
@@ -197,6 +200,11 @@ grep -E 'hold_flag|fbi ' /opt/midijuggler/app/scripts/gamepi-boot-splash.sh
 systemctl is-active gamepi-splash.service
 sudo journalctl -u gamepi-splash.service -b --no-pager | tail -20
 ```
+
+If `systemctl restart gamepi-kiosk.service` appears to hang, check whether the unit is
+still in `start-pre` (`systemctl status gamepi-kiosk.service`). Each `curl` in the web
+wait has a 3s timeout; stopping Chromium/X uses `TimeoutStopSec=15`. From another SSH
+session: `sudo systemctl kill -s SIGKILL gamepi-kiosk.service`.
 
 Optional: remove `console=tty1` from `/boot/firmware/cmdline.txt` so boot logs stay on
 serial only (`console=ttyAMA0`).

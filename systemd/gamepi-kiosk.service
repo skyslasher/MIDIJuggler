@@ -5,8 +5,14 @@ Wants=network-online.target midijuggler.service
 Conflicts=getty@tty1.service
 
 [Service]
+Type=simple
 User=dietpi
 SupplementaryGroups=video tty input
+TimeoutStartSec=300
+TimeoutStopSec=15
+KillMode=control-group
+KillSignal=SIGTERM
+FinalKillSignal=SIGKILL
 Environment=HOME=/home/dietpi
 Environment=FRAMEBUFFER=/dev/fb0
 Environment=GAMEPI_NETWORK_IF=eth0
