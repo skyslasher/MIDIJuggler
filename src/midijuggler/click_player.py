@@ -143,6 +143,7 @@ class AlsaClickPlayer:
         self._wake_event = threading.Event()
         self._stop_event = threading.Event()
         self._missing_device_warning_logged = False
+        self._audio_device_unavailable = False
         self._worker = threading.Thread(
             target=self._worker_main,
             name="midijuggler-click-audio",
@@ -224,14 +225,19 @@ class AlsaClickPlayer:
                     self._verify_device(wav, device)
                 else:
                     self._ensure_playback_pcm(wav, device)
-            result = True
+            self._audio_device_unavailable = False
             self._missing_device_warning_logged = False
+            result = True
         except (OSError, self._alsaaudio.ALSAAudioError) as exc:
-            LOGGER.warning(
-                "failed to prepare click PCM on %s: %s",
-                self.audio_device or "default",
-                exc,
-            )
+            message = str(exc)
+            if _is_missing_audio_device_error(message):
+                self._mark_device_unavailable(message)
+            else:
+                LOGGER.warning(
+                    "failed to prepare click PCM on %s: %s",
+                    self.audio_device or "default",
+                    exc,
+                )
             self._clear_wav_cache()
             result = False
         command.loop.call_soon_threadsafe(command.future.set_result, result)
@@ -239,6 +245,8 @@ class AlsaClickPlayer:
     def _handle_release(self, command: _ReleaseCommand) -> None:
         self._close_playback_pcm()
         self._clear_wav_cache()
+        self._audio_device_unavailable = False
+        self._missing_device_warning_logged = False
         command.loop.call_soon_threadsafe(command.future.set_result, None)
 
     def _handle_close(self, command: _CloseCommand) -> None:
@@ -260,6 +268,8 @@ class AlsaClickPlayer:
                 self._wake_event.set()
 
     def _write_click_once(self) -> bool:
+        if self._audio_device_unavailable:
+            return True
         for attempt in range(_MAX_WRITE_RECOVERY_ATTEMPTS):
             try:
                 wav = self._ensure_wav()
@@ -270,6 +280,7 @@ class AlsaClickPlayer:
                     else:
                         pcm = self._ensure_playback_pcm(wav, device)
                         self._write_period(pcm, wav, self._playback_period_frames)
+                self._audio_device_unavailable = False
                 self._missing_device_warning_logged = False
                 return True
             except self._alsaaudio.ALSAAudioError as exc:
@@ -277,7 +288,7 @@ class AlsaClickPlayer:
                 if _is_pcm_try_again(message) or _is_device_busy(message):
                     return False
                 if _is_missing_audio_device_error(message):
-                    self._log_missing_device_once(message)
+                    self._mark_device_unavailable(message)
                     return True
                 if (
                     _is_recoverable_alsa_pcm_error(message)
@@ -293,6 +304,10 @@ class AlsaClickPlayer:
                 LOGGER.exception("failed to play click through ALSA")
                 return True
         return True
+
+    def _mark_device_unavailable(self, message: str) -> None:
+        self._audio_device_unavailable = True
+        self._log_missing_device_once(message)
 
     def _log_missing_device_once(self, message: str) -> None:
         if self._missing_device_warning_logged:
@@ -372,16 +387,17 @@ class AlsaClickPlayer:
         return wav
 
     def _open_playback_pcm(self, wav: WavPlaybackData, device: str) -> Any:
-        return self._alsaaudio.PCM(
-            type=self._alsaaudio.PCM_PLAYBACK,
-            mode=self._alsaaudio.PCM_NORMAL,
-            device=device,
-            channels=wav.channels,
-            rate=wav.rate,
-            format=_sample_width_to_format(self._alsaaudio, wav.sample_width),
-            periodsize=_PLAYBACK_PERIOD_FRAMES,
-            periods=4,
-        )
+        with _suppress_alsa_stderr():
+            return self._alsaaudio.PCM(
+                type=self._alsaaudio.PCM_PLAYBACK,
+                mode=self._alsaaudio.PCM_NORMAL,
+                device=device,
+                channels=wav.channels,
+                rate=wav.rate,
+                format=_sample_width_to_format(self._alsaaudio, wav.sample_width),
+                periodsize=_PLAYBACK_PERIOD_FRAMES,
+                periods=4,
+            )
 
     def _clear_wav_cache(self) -> None:
         self._wav = None
@@ -573,6 +589,21 @@ def _sample_width_to_format(alsaaudio: Any, sample_width: int) -> int:
         return formats[sample_width]
     except KeyError as exc:
         raise ValueError(f"unsupported WAV sample width: {sample_width}") from exc
+
+
+@contextlib.contextmanager
+def _suppress_alsa_stderr():
+    import sys
+
+    stderr_fd = sys.stderr.fileno()
+    saved = os.dup(stderr_fd)
+    try:
+        with open(os.devnull, "w") as devnull:
+            os.dup2(devnull.fileno(), stderr_fd)
+        yield
+    finally:
+        os.dup2(saved, stderr_fd)
+        os.close(saved)
 
 
 @contextlib.contextmanager
