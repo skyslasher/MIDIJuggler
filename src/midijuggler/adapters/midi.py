@@ -168,6 +168,12 @@ class MidiAdapter(Adapter):
             device=device,
         ):
             return
+        if self._cached_output_address() is None:
+            LOGGER.debug(
+                "MIDI adapter %s skipping X-Touch feedback refresh without output port",
+                self.name,
+            )
+            return
         self._feedback_refresh = XTouchFeedbackRefresh(self, self._app_config)
         self._feedback_refresh.configure(
             self.config,
@@ -471,7 +477,7 @@ class MidiAdapter(Adapter):
     async def send_midi_message(self, event: MidiMessageEvent) -> None:
         output_address = self._cached_output_address()
         if output_address is None:
-            if event.status == MIDI_TIMING_CLOCK:
+            if event.status == MIDI_TIMING_CLOCK or event.feedback_refresh:
                 return
             LOGGER.warning(
                 "MIDI adapter %s has no output_port configured; dropped %s",

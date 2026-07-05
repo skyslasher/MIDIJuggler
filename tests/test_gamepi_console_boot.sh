@@ -91,5 +91,20 @@ assert "non-executable pressed script prevents console flag" [ ! -f "$console_fl
 
 rm -f /tmp/gamepi-test-start-state
 
+# splash-stop skips fb handoff when splash never ran.
+noop_handoff="$tmp/noop-handoff.sh"
+printf '#!/bin/sh\necho handoff-called >&2\n' >"$noop_handoff"
+chmod +x "$noop_handoff"
+out="$(GAMEPI_FB_HANDOFF_SCRIPT="$noop_handoff" \
+  sh "$repo_root/scripts/gamepi-splash-stop.sh" 2>&1)" || true
+assert_contains "splash-stop skips handoff without active splash" "$out" "skipping framebuffer handoff"
+if echo "$out" | grep -q handoff-called; then
+  fail=$((fail + 1))
+  printf 'FAIL: handoff script invoked without splash\n' >&2
+else
+  pass=$((pass + 1))
+  printf 'ok: handoff script not invoked without splash\n'
+fi
+
 printf '\n%d passed, %d failed\n' "$pass" "$fail"
 [ "$fail" -eq 0 ]

@@ -1,7 +1,16 @@
 #!/bin/sh
 set -eu
 
-echo "handing off framebuffer from splash to X" >&2
+had_splash=false
+if [ -f /run/gamepi-splash-hold ] || pgrep -x fbi >/dev/null 2>&1; then
+  had_splash=true
+fi
+
+if [ "$had_splash" = true ]; then
+  echo "handing off framebuffer from splash to X" >&2
+else
+  echo "no active splash; skipping framebuffer handoff" >&2
+fi
 
 rm -f /run/gamepi-splash-hold
 
@@ -20,9 +29,11 @@ if pgrep -x fbi >/dev/null 2>&1; then
   sleep 0.2
 fi
 
-handoff_script="${GAMEPI_FB_HANDOFF_SCRIPT:-/opt/midijuggler/app/scripts/gamepi-fb-handoff.sh}"
-if [ -x "$handoff_script" ]; then
-  GAMEPI_FB_DEVICE="${GAMEPI_FB_DEVICE:-/dev/fb0}" "$handoff_script"
+if [ "$had_splash" = true ]; then
+  handoff_script="${GAMEPI_FB_HANDOFF_SCRIPT:-/opt/midijuggler/app/scripts/gamepi-fb-handoff.sh}"
+  if [ -x "$handoff_script" ]; then
+    GAMEPI_FB_DEVICE="${GAMEPI_FB_DEVICE:-/dev/fb0}" "$handoff_script"
+  fi
 fi
 
 rm -f /run/gamepi-splash.pid

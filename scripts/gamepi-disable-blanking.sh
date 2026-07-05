@@ -18,7 +18,11 @@ if [ -r /sys/module/kernel/parameters/consoleblank ]; then
   fi
 fi
 
-if command -v setterm >/dev/null 2>&1; then
+if [ -S /tmp/.X11-unix/X0 ] && command -v xset >/dev/null 2>&1; then
+  DISPLAY=:0 xset s off 2>/dev/null || true
+  DISPLAY=:0 xset -dpms 2>/dev/null || true
+  DISPLAY=:0 xset s noblank 2>/dev/null || true
+elif command -v setterm >/dev/null 2>&1; then
   if [ -w /dev/tty1 ]; then
     setterm -blank 0 -powerdown 0 -powersave off </dev/tty1 >/dev/tty1 2>&1 || true
   fi
