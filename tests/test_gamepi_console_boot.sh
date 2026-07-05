@@ -137,5 +137,43 @@ GAMEPI_CHROMIUM_USER_DATA_DIR="$chromium_profile" \
 assert "clear-chromium-cache recreates profile directory" [ -d "$chromium_profile" ]
 assert "clear-chromium-cache removes stale files" [ ! -f "$chromium_profile/stale" ]
 
+mock_bin="$tmp/bin"
+mkdir -p "$mock_bin"
+cat >"$mock_bin/systemctl" <<'EOF'
+#!/bin/sh
+case "$1" in
+  restart)
+    echo "systemctl restart $2" >&2
+    ;;
+  is-active)
+    service="$2"
+    if [ "$service" = "--quiet" ]; then
+      service="$3"
+    fi
+    [ "$service" = "gamepi-kiosk.service" ]
+    ;;
+  is-enabled)
+    exit 1
+    ;;
+  *)
+    echo "unexpected: systemctl $*" >&2
+    exit 1
+    ;;
+esac
+EOF
+chmod +x "$mock_bin/systemctl"
+
+wait_log="$tmp/wait-log"
+cat >"$tmp/mock-wait.sh" <<'EOF'
+#!/bin/sh
+echo waited >>"$WAIT_LOG"
+EOF
+chmod +x "$tmp/mock-wait.sh"
+WAIT_LOG="$wait_log" PATH="$mock_bin:$PATH" \
+  MIDIJUGGLER_WAIT_SCRIPT="$tmp/mock-wait.sh" \
+  sh "$repo_root/scripts/gamepi-reload-after-pull.sh" >/dev/null 2>&1
+assert "reload-after-pull waits for web before kiosk" [ -f "$wait_log" ]
+assert_contains "reload-after-pull restarts kiosk after wait" "$(cat "$wait_log")" "waited"
+
 printf '\n%d passed, %d failed\n' "$pass" "$fail"
 [ "$fail" -eq 0 ]
