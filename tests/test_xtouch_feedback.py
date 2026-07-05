@@ -1,4 +1,5 @@
 import asyncio
+import logging
 from unittest.mock import AsyncMock
 
 import pytest
@@ -442,3 +443,79 @@ def test_persist_feedback_value_writes_refresh_targets_to_store(
     stored = asyncio.run(scenario())
 
     assert stored == 90.0
+
+
+def test_midi_adapter_skips_feedback_refresh_without_output_port(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    from conftest import midi_device
+    from midijuggler.adapters.midi import MidiAdapter
+    from midijuggler.eventbus import EventBus
+
+    config = parse_config(
+        {
+            "adapters": {
+                "xtouch_mini": {
+                    "enabled": True,
+                    "type": "midi",
+                    "midi_library": "behringer_xtouch_mini",
+                    "feedback_refresh_interval": 0.1,
+                }
+            },
+            "devices": [
+                midi_device("xtouch_mini", library="behringer_xtouch_mini"),
+            ],
+        }
+    )
+    adapter = MidiAdapter(
+        "xtouch_mini",
+        config.adapters["xtouch_mini"],
+        EventBus(),
+        app_config=config,
+    )
+
+    async def scenario() -> None:
+        with caplog.at_level(logging.DEBUG, logger="midijuggler.adapters.midi"):
+            await adapter._start_feedback_refresh()
+
+    asyncio.run(scenario())
+
+    assert adapter._feedback_refresh is None
+    assert any(
+        "skipping X-Touch feedback refresh without output port" in record.message
+        for record in caplog.records
+    )
+
+
+def test_send_midi_message_silently_drops_feedback_refresh_without_output(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    from midijuggler.adapters.midi import MidiAdapter
+    from midijuggler.config import AdapterConfig
+    from midijuggler.eventbus import EventBus
+    from midijuggler.events import MidiMessageEvent
+
+    adapter = MidiAdapter(
+        "xtouch_mini",
+        AdapterConfig(enabled=True, options={}, kind="midi"),
+        EventBus(),
+    )
+
+    async def scenario() -> None:
+        with caplog.at_level(logging.WARNING, logger="midijuggler.adapters.midi"):
+            await adapter.send_midi_message(
+                MidiMessageEvent(
+                    source="xtouch_mini",
+                    status=0x90,
+                    data=(60, 127),
+                    target="xtouch_mini:layer_a_bottom_button_8_led",
+                    direction="output",
+                    feedback_refresh=True,
+                )
+            )
+
+    asyncio.run(scenario())
+
+    assert not any(
+        "has no output_port configured" in record.message for record in caplog.records
+    )
