@@ -75,8 +75,9 @@ sudo cp /opt/midijuggler/app/systemd/gamepi-splash.service /etc/systemd/system/
 sudo cp /opt/midijuggler/app/systemd/gamepi-kiosk-ready.service /etc/systemd/system/
 sudo cp /opt/midijuggler/app/systemd/gamepi-kiosk.service /etc/systemd/system/
 sudo cp /opt/midijuggler/app/systemd/gamepi-brightness-keys.service /etc/systemd/system/
+sudo cp /opt/midijuggler/app/systemd/gamepi-blanking-watch.service /etc/systemd/system/
 sudo systemctl daemon-reload
-sudo systemctl enable --now gamepi-splash.service gamepi-kiosk-ready.service gamepi-kiosk.service gamepi-brightness-keys.service
+sudo systemctl enable --now gamepi-splash.service gamepi-kiosk-ready.service gamepi-kiosk.service gamepi-brightness-keys.service gamepi-blanking-watch.service
 ```
 
 Requires `evdev` in the MIDIJuggler venv (`pip install -e ".[hid]"`).
@@ -166,21 +167,48 @@ clock UI. The black screen you see is almost always **Linux console or X11 blank
 not hardware protection.
 
 MIDIJuggler disables blanking via `gamepi-disable-blanking.sh` (framebuffer, console,
-and X11 `xset`). The kiosk uses the repo session file
-[`configs/gamepi/kiosk.xsession`](../configs/gamepi/kiosk.xsession).
+and X11 `xset`) at splash/kiosk start. The kernel can still re-enable blanking after a
+few minutes — use the **blanking watch** service to re-apply every 30 s:
 
-Optional extra safety in `/boot/firmware/cmdline.txt`:
+```bash
+sudo cp /opt/midijuggler/app/systemd/gamepi-blanking-watch.service /etc/systemd/system/
+sudo chmod +x /opt/midijuggler/app/scripts/gamepi-blanking-watch.sh
+sudo systemctl daemon-reload
+sudo systemctl enable --now gamepi-blanking-watch.service
+```
+
+Also set **`consoleblank=0`** in the boot cmdline (persistent kernel console blanking
+off — one-time, then reboot):
+
+```bash
+sudo /opt/midijuggler/app/scripts/install-gamepi13-consoleblank.sh
+sudo reboot
+```
+
+Or manually append to `/boot/firmware/cmdline.txt`:
 
 ```text
 consoleblank=0
 ```
 
+The kiosk uses the repo session file [`configs/gamepi/kiosk.xsession`](../configs/gamepi/kiosk.xsession).
+
+If the screen still goes dark, check from SSH while it is black:
+
+```bash
+systemctl is-active gamepi-blanking-watch.service
+cat /sys/class/graphics/fb0/blank          # should stay 0
+cat /sys/module/kernel/parameters/consoleblank
+sudo journalctl -u gamepi-blanking-watch.service -b --no-pager | tail -20
+```
+
 After `git pull`, redeploy services:
 
 ```bash
-sudo cp systemd/gamepi-splash.service systemd/gamepi-kiosk-ready.service systemd/gamepi-kiosk.service /etc/systemd/system/
+sudo cp systemd/gamepi-splash.service systemd/gamepi-kiosk-ready.service systemd/gamepi-kiosk.service systemd/gamepi-blanking-watch.service /etc/systemd/system/
 sudo /opt/midijuggler/app/scripts/install-gamepi13-xorg.sh
-sudo chmod +x scripts/gamepi-disable-blanking.sh scripts/wait-for-fb0.sh \
+sudo chmod +x scripts/gamepi-disable-blanking.sh scripts/gamepi-blanking-watch.sh \
+  scripts/wait-for-fb0.sh \
   scripts/gamepi-is-start-pressed.sh scripts/gamepi-is-start-pressed.py \
   scripts/gamepi-boot-splash.sh \
   scripts/gamepi-launch-kiosk.sh scripts/gamepi-fb-handoff.sh scripts/gamepi-fbcon.sh \

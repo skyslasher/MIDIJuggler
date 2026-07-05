@@ -1,0 +1,15 @@
+[Unit]
+Description=Keep GamePi13 display from blanking (framebuffer, console, X11)
+After=gamepi-kiosk.service
+Wants=gamepi-kiosk.service
+
+[Service]
+Type=simple
+Environment=GAMEPI_FB_DEVICE=/dev/fb0
+Environment=GAMEPI_BLANKING_INTERVAL=30
+ExecStart=/opt/midijuggler/app/scripts/gamepi-blanking-watch.sh
+Restart=always
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target
