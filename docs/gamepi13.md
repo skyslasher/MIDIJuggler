@@ -33,6 +33,19 @@ Reference mapping: [`configs/gamepi/gamepi13-gpio-keys.conf`](../configs/gamepi/
 
 ## 2. Enable system services
 
+Install X for the kiosk (once):
+
+```bash
+sudo apt install -y \
+  xserver-xorg xserver-xorg-legacy xinit xserver-xorg-video-fbdev \
+  x11-xserver-utils chromium unclutter fbi
+sudo usermod -aG video,tty,input dietpi
+sudo /opt/midijuggler/app/scripts/install-gamepi13-xorg.sh
+```
+
+`xserver-xorg-legacy` + `/etc/X11/Xwrapper.config` (`allowed_users=anybody`) are required
+so `startx` on `/dev/tty1` can open `/dev/tty0`.
+
 ```bash
 sudo cp /opt/midijuggler/app/systemd/gamepi-splash.service /etc/systemd/system/
 sudo cp /opt/midijuggler/app/systemd/gamepi-kiosk.service /etc/systemd/system/
@@ -129,3 +142,19 @@ sudo chmod +x scripts/gamepi-disable-blanking.sh scripts/wait-for-fb0.sh configs
 sudo systemctl daemon-reload
 sudo systemctl restart gamepi-splash.service gamepi-kiosk.service
 ```
+
+## 7. Splash → kiosk handoff
+
+The splash (`fbi`, runs as **root**) is stopped when the kiosk starts. The kiosk unit
+runs `gamepi-splash-stop.sh` as **root** (`ExecStartPre=+…`) so it can stop the splash
+service and kill `fbi` without Polkit (`pkttyagent` / `Failed to execute /usr/bin/pkt…`).
+
+If X dies right after the splash with `trying fbdev: /dev/fb0` and `Return to log in`:
+
+```bash
+sudo journalctl -u gamepi-kiosk.service -b --no-pager
+cat /home/dietpi/.local/share/xorg/Xorg.0.log | tail -40
+```
+
+Check: `xserver-xorg-video-fbdev` installed, `/etc/X11/xorg.conf.d/99-fbdev.conf` present,
+`dietpi` in groups `video tty input`.

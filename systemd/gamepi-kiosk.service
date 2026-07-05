@@ -6,6 +6,7 @@ Conflicts=getty@tty1.service
 
 [Service]
 User=dietpi
+SupplementaryGroups=video tty input
 Environment=HOME=/home/dietpi
 Environment=FRAMEBUFFER=/dev/fb0
 Environment=MIDIJUGGLER_SCRIPTS_DIR=/opt/midijuggler/app/scripts
@@ -16,8 +17,8 @@ TTYVHangup=yes
 StandardInput=tty
 StandardOutput=journal
 StandardError=journal
-ExecStartPre=/opt/midijuggler/app/scripts/gamepi-disable-blanking.sh
-ExecStartPre=/opt/midijuggler/app/scripts/gamepi-splash-stop.sh
+ExecStartPre=+/opt/midijuggler/app/scripts/gamepi-disable-blanking.sh
+ExecStartPre=+/opt/midijuggler/app/scripts/gamepi-splash-stop.sh
 ExecStartPre=/opt/midijuggler/app/scripts/wait-for-midijuggler-web.sh
 ExecStart=/usr/bin/startx /opt/midijuggler/app/configs/gamepi/kiosk.xsession -- :0 vt1 -nolisten tcp -nocursor
 Restart=on-failure
