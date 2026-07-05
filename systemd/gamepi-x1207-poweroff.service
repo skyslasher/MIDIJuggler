@@ -1,0 +1,17 @@
+[Unit]
+Description=GamePi X1207 UPS mains-loss shutdown
+Documentation=file:/opt/midijuggler/app/docs/gamepi13.md
+After=local-fs.target
+Before=shutdown.target
+
+[Service]
+Type=simple
+Environment=GAMEPI_X1207_PLD_GPIO=6
+Environment=GAMEPI_X1207_POWEROFF_DELAY=5
+Environment=GAMEPI_X1207_GPIOCHIP=auto
+ExecStart=/usr/bin/python3 /opt/midijuggler/app/scripts/gamepi-x1207-pld.py
+Restart=on-failure
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target

@@ -13,24 +13,38 @@ sudo /opt/midijuggler/app/scripts/install-gamepi13-keys.sh
 sudo reboot
 ```
 
+With a **Geekworm/SupTronics X1207 UPS** on the same Pi, use the remapped overlay
+profile (Down → GPIO 17, Left → GPIO 22) — see [§8 X1207 UPS](#8-x1207-ups-geekworm--suptronics):
+
+```bash
+sudo GAMEPI_KEYS_PROFILE=x1207 /opt/midijuggler/app/scripts/install-gamepi13-keys.sh
+sudo reboot
+```
+
+Reference mapping (standard): [`configs/gamepi/gamepi13-gpio-keys.conf`](../configs/gamepi/gamepi13-gpio-keys.conf)
+
+X1207 variant: [`configs/gamepi/gamepi13-gpio-keys-x1207.conf`](../configs/gamepi/gamepi13-gpio-keys-x1207.conf)
+
+| Button | BCM | evdev name | Key | X1207 notes |
+|--------|-----|------------|-----|-------------|
+| D-pad Up | 5 | button@5 | Arrow Up | |
+| D-pad Down | 6 (17) | button@6 (button@11) | Arrow Down | **17** with X1207 |
+| D-pad Left | 16 (22) | button@10 (button@16) | Arrow Left | **22** with X1207 |
+| D-pad Right | 13 | button@d | Arrow Right | |
+| A / B | 21 / 20 | button@15 / button@14 | `A` / `B` | |
+| X / Y | 15 / 12 | button@f / button@c | `X` / `Y` | |
+| **Start** | **26** | **button@1a** | **`S`** | |
+| Select | 19 | button@13 | `Q` | |
+| L / R | 23 / 14 | button@17 / button@e | Brightness Down / Up | |
+
 After reboot, verify the input device:
 
 ```bash
 sudo evtest
-# Start = /dev/input/event2 → button@1a (GPIO 26), KEY_S (code 31) when pressed
+# Start = button@1a (GPIO 26), KEY_S (code 31) when pressed
+# Down/Left with X1207: button@11 / button@16 (GPIO 17 / 22)
 # Older images may show one shared device named "gpio-keys" instead
 ```
-
-Reference mapping: [`configs/gamepi/gamepi13-gpio-keys.conf`](../configs/gamepi/gamepi13-gpio-keys.conf)
-
-| Button | BCM | evdev name | Key |
-|--------|-----|------------|-----|
-| D-pad Up/Down/Left/Right | 5/6/16/13 | button@5 … button@d | Arrow keys |
-| A / B | 21 / 20 | button@15 / button@14 | `A` / `B` |
-| X / Y | 15 / 12 | button@f / button@c | `X` / `Y` |
-| **Start** | **26** | **button@1a** | **`S`** |
-| Select | 19 | button@13 | `Q` |
-| L / R | 23 / 14 | button@17 / button@e | Brightness Down / Up |
 
 ## 2. Enable system services
 
@@ -221,3 +235,105 @@ session: `sudo systemctl kill -s SIGKILL gamepi-kiosk.service`.
 
 Optional: remove `console=tty1` from `/boot/firmware/cmdline.txt` so boot logs stay on
 serial only (`console=ttyAMA0`).
+
+## 8. X1207 UPS (Geekworm / SupTronics)
+
+The [X1207 UPS HAT](https://suptronics.com/Raspberrypi/Power_mgmt/x1207-v1.2_hardware.html)
+reserves Pi GPIOs that overlap the stock GamePi13 button wiring:
+
+| BCM | Physical pin | X1207 function |
+|-----|--------------|----------------|
+| 2 | 3 | I2C SDA (battery gauge) |
+| 3 | 5 | I2C SCL |
+| **6** | **31** | **PLD — mains OK when HIGH** |
+| **16** | **36** | Battery charging control (output) |
+
+Do **not** route GamePi **Down** or **Left** to Pi pins 31 / 36 when the X1207 is
+stacked on the Pi header.
+
+### Extension cable remapping
+
+With a GamePi13 on an extension cable, move only these two button wires on the **Pi /
+HAT side** of the cable (GamePi board pads stay unchanged):
+
+| GamePi button | Stock Pi pin (BCM) | **X1207 Pi pin (BCM)** |
+|---------------|--------------------|-------------------------|
+| Down | 31 (GPIO **6**) | **11 (GPIO 17)** |
+| Left | 36 (GPIO **16**) | **15 (GPIO 22)** |
+
+All other GamePi lines can remain 1:1. Leave Pi pins 31 and 36 for the X1207 only.
+
+Verify wiring without knowing BCM numbers in advance:
+
+```bash
+sudo apt install -y gpiod
+sudo gpiomon -c gpiochip0 5 6 12 13 14 15 16 17 19 20 21 22 23 26
+# Pi 5: try gpiochip4 if gpiochip0 shows no events
+# Press one button — the printed line number is the active BCM GPIO
+```
+
+### Keyboard overlays (X1207 profile)
+
+Install the remapped overlay set (GPIO **17** / **22** for Down / Left):
+
+```bash
+cd /opt/midijuggler/app
+sudo GAMEPI_KEYS_PROFILE=x1207 /opt/midijuggler/app/scripts/install-gamepi13-keys.sh
+sudo reboot
+```
+
+If you already installed the standard overlays, edit `/boot/firmware/config.txt` and
+replace the `gpio=6` / `gpio=16` lines with the contents of
+[`configs/gamepi/gamepi13-gpio-keys-x1207.conf`](../configs/gamepi/gamepi13-gpio-keys-x1207.conf)
+(or remove the old block and re-run the install script on a fresh image).
+
+After reboot:
+
+```bash
+sudo evtest
+# Down → button@11 (GPIO 17)
+# Left → button@16 (GPIO 22, hex name — not GPIO 16!)
+# Start → button@1a (GPIO 26)
+```
+
+### Clean shutdown on mains loss
+
+When mains power drops, the X1207 keeps the Pi running on battery. To shut down cleanly
+after **5 seconds** without mains (and cancel if power returns within those 5 s),
+enable the PLD monitor service:
+
+```bash
+sudo apt install -y gpiod python3-libgpiod
+
+sudo cp /opt/midijuggler/app/systemd/gamepi-x1207-poweroff.service /etc/systemd/system/
+sudo chmod +x /opt/midijuggler/app/scripts/gamepi-x1207-pld.py
+sudo systemctl daemon-reload
+sudo systemctl enable --now gamepi-x1207-poweroff.service
+```
+
+The script [`scripts/gamepi-x1207-pld.py`](../scripts/gamepi-x1207-pld.py) reads PLD on
+GPIO **6** (HIGH = mains OK), auto-detects the correct `/dev/gpiochip*` (Pi 4 vs Pi 5),
+then runs `systemctl poweroff`.
+
+Optional environment overrides in the unit file:
+
+| Variable | Default | Meaning |
+|----------|---------|---------|
+| `GAMEPI_X1207_PLD_GPIO` | `6` | BCM GPIO for X1207 PLD |
+| `GAMEPI_X1207_POWEROFF_DELAY` | `5` | Seconds without mains before shutdown |
+| `GAMEPI_X1207_GPIOCHIP` | `auto` | Force e.g. `/dev/gpiochip0` |
+
+Test and monitor:
+
+```bash
+sudo journalctl -u gamepi-x1207-poweroff.service -f
+# Unplug mains — after 5 s the Pi should power off cleanly on battery
+# Briefly unplug mains (<5 s) — journal should show "mains power restored — shutdown cancelled"
+```
+
+Read PLD state directly (HIGH / `active` = mains OK):
+
+```bash
+gpioget -c gpiochip0 6    # try gpiochip4 on Pi 5 if this fails
+sudo gpiomon -c gpiochip0 6
+```
