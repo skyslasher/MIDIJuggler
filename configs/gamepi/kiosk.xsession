@@ -14,5 +14,7 @@ if command -v xset >/dev/null 2>&1; then
 fi
 
 exec chromium --kiosk --noerrdialogs --disable-infobars \
+  --disable-features=Translate \
+  --lang=de \
   --window-size=240,240 \
   http://127.0.0.1:8080/static/clock-gamepi.html

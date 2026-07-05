@@ -1,8 +1,9 @@
 <!DOCTYPE html>
-<html lang="de">
+<html lang="de" translate="no">
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=240, height=240, initial-scale=1, user-scalable=no">
+  <meta name="google" content="notranslate">
   <title>MIDIJuggler GamePi</title>
   <style>
     :root {
@@ -135,12 +136,6 @@
     .status-pill.off {
       border-color: color-mix(in srgb, var(--off) 40%, var(--line));
       color: var(--off);
-    }
-
-    .hint {
-      color: color-mix(in srgb, var(--text) 55%, var(--bg));
-      font-size: 0.58rem;
-      text-align: center;
     }
 
     .row {
@@ -278,7 +273,6 @@
         <div class="bpm-value" id="bpm">--</div>
         <div class="status-pill off" id="running">Stopp</div>
       </div>
-      <div class="hint" id="zone-hint">↑↓←→ BPM · Start Tap · ↓ Auswahl · Select Clock</div>
     </section>
 
     <div class="row" id="control-row">
@@ -315,7 +309,6 @@
     const beatBar = document.querySelector("#beat-bar");
     const messageEl = document.querySelector("#message");
     const heroEl = document.querySelector("#hero");
-    const zoneHintEl = document.querySelector("#zone-hint");
     const btnClick = document.querySelector("#btn-click");
     const btnFlash = document.querySelector("#btn-flash");
     const btnInterval = document.querySelector("#btn-interval");
@@ -389,9 +382,6 @@
       focusables.forEach((el, index) => {
         el.classList.toggle("focused", zone === "controls" && index === focusIndex);
       });
-      zoneHintEl.textContent = zone === "bpm"
-        ? "↑↓←→ BPM · Start Tap · ↓ Auswahl · Select Clock · X/Y Helligkeit"
-        : "←→ Auswahl · Start OK · ↑ BPM · Select Clock";
     }
 
     function moveFocus(delta) {
