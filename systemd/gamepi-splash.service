@@ -11,6 +11,7 @@ Environment=GAMEPI_SPLASH_IMAGE=/etc/midijuggler/splash.png
 Environment=GAMEPI_START_GPIO=26
 Environment=GAMEPI_START_GPIO_CHIP=gpiochip0
 Environment=GAMEPI_FB_DEVICE=/dev/fb0
+ExecStartPre=/opt/midijuggler/app/scripts/gamepi-disable-blanking.sh
 ExecStart=/opt/midijuggler/app/scripts/gamepi-boot-splash.sh
 ExecStop=/opt/midijuggler/app/scripts/gamepi-splash-stop.sh
 StandardOutput=journal

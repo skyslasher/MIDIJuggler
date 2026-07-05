@@ -72,3 +72,46 @@ keeps running; adjust `GAMEPI_BRIGHTNESS_STEP` or add a PWM GPIO later if needed
 ## 5. Splash image
 
 Place a 240×240 PNG at `/etc/midijuggler/splash.png`.
+
+Enable the splash service and install `fbi`:
+
+```bash
+sudo apt install -y fbi
+sudo systemctl enable --now gamepi-splash.service
+```
+
+If the splash does not appear:
+
+```bash
+sudo journalctl -u gamepi-splash.service -b --no-pager
+ls -l /etc/midijuggler/splash.png
+systemctl is-active gamepi-splash.service
+```
+
+Common causes: missing image, `fbi` not installed, service not enabled, or **Start**
+held during boot (console mode instead of splash).
+
+## 6. Screen blanking / burn-in
+
+The GamePi13 panel is **IPS**, not OLED — permanent burn-in is **unlikely** for a
+clock UI. The black screen you see is almost always **Linux console or X11 blanking**,
+not hardware protection.
+
+MIDIJuggler disables blanking via `gamepi-disable-blanking.sh` (framebuffer, console,
+and X11 `xset`). The kiosk uses the repo session file
+[`configs/gamepi/kiosk.xsession`](../configs/gamepi/kiosk.xsession).
+
+Optional extra safety in `/boot/firmware/cmdline.txt`:
+
+```text
+consoleblank=0
+```
+
+After `git pull`, redeploy services:
+
+```bash
+sudo cp systemd/gamepi-splash.service systemd/gamepi-kiosk.service /etc/systemd/system/
+sudo chmod +x scripts/gamepi-disable-blanking.sh configs/gamepi/kiosk.xsession
+sudo systemctl daemon-reload
+sudo systemctl restart gamepi-splash.service gamepi-kiosk.service
+```

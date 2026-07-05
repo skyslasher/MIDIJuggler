@@ -31,33 +31,35 @@ def main() -> int:
         return 1
 
     device.setblocking(False)
-    held_since: float | None = None
-    deadline = time.monotonic() + hold_s
 
-    while time.monotonic() < deadline:
-        while True:
+    if START_CODE not in device.active_keys():
+        deadline = time.monotonic() + 0.15
+        while time.monotonic() < deadline:
+            if START_CODE in device.active_keys():
+                break
             try:
                 for event in device.read():
-                    if event.type != 1 or event.code != START_CODE:
-                        continue
-                    if event.value == 1:
-                        held_since = time.monotonic()
-                    elif event.value == 0:
-                        return 1
+                    if event.type == 1 and event.code == START_CODE and event.value == 1:
+                        break
             except BlockingIOError:
-                break
+                pass
+            time.sleep(0.02)
+        if START_CODE not in device.active_keys():
+            return 1
 
-        if START_CODE in device.active_keys():
-            if held_since is None:
-                held_since = time.monotonic()
-            elif time.monotonic() - held_since >= hold_s:
-                return 0
-        else:
-            held_since = None
-
+    held_since = time.monotonic()
+    while time.monotonic() - held_since < hold_s:
+        if START_CODE not in device.active_keys():
+            return 1
+        try:
+            for event in device.read():
+                if event.type == 1 and event.code == START_CODE and event.value == 0:
+                    return 1
+        except BlockingIOError:
+            pass
         time.sleep(0.02)
 
-    return 1
+    return 0
 
 
 if __name__ == "__main__":
