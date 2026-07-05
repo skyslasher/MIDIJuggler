@@ -7,6 +7,7 @@ Before=getty@tty1.service gamepi-kiosk.service
 [Service]
 Type=simple
 TimeoutStartSec=50
+KillMode=control-group
 Environment=GAMEPI_SPLASH_IMAGE=/etc/midijuggler/splash.png
 Environment=GAMEPI_START_GPIO=26
 Environment=GAMEPI_START_GPIO_CHIP=gpiochip0

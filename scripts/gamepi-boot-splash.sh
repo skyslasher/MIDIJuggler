@@ -69,12 +69,23 @@ fi
 hold_flag=/run/gamepi-splash-hold
 : >"$hold_flag"
 
+killall fbi 2>/dev/null || true
+
+start_fbi() {
+  fbi -d "$fb_device" -T 1 -a -noverbose "$image" &
+  sleep 0.5
+}
+
 echo "Showing splash on ${fb_device}: ${image} (until kiosk handoff)" >&2
+start_fbi
+
+poll_interval="${GAMEPI_SPLASH_POLL_INTERVAL:-2}"
 while [ -f "$hold_flag" ]; do
-  if ! fbi -d "$fb_device" -T 1 -a -noverbose "$image"; then
-    echo "fbi exited (status $?), restarting while hold flag set" >&2
+  if ! pgrep -x fbi >/dev/null 2>&1; then
+    echo "fbi not running, restarting once" >&2
+    start_fbi
   fi
-  if [ -f "$hold_flag" ]; then
-    sleep 0.3
-  fi
+  sleep "$poll_interval"
 done
+
+killall fbi 2>/dev/null || true

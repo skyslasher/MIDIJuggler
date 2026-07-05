@@ -148,9 +148,10 @@ sudo systemctl restart gamepi-splash.service gamepi-kiosk.service
 
 ## 7. Splash → kiosk handoff
 
-The splash (`fbi`, runs as **root**) loops until `/run/gamepi-splash-hold` is cleared by
-the kiosk handoff. Do **not** pass `-once` or `-t 0` to `fbi` — both can make it exit
-immediately while boot continues.
+The splash (`fbi`, runs as **root**) stays on screen until the kiosk clears
+`/run/gamepi-splash-hold`. Start **one** background `fbi` only — with `-T 1` it
+daemonizes, so a tight restart loop spawns hundreds of processes and blocks X on
+`/dev/fb0`.
 
 `gamepi-fbcon.sh off` hides kernel console text on the SPI panel during splash (otherwise
 `console=tty1` boot messages look like an early splash stop).
