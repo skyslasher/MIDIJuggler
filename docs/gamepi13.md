@@ -17,19 +17,20 @@ After reboot, verify the input device:
 
 ```bash
 sudo evtest
-# pick the "gpio-keys" device, press buttons — you should see KEY_* events
+# Start = /dev/input/event2 → button@1a (GPIO 26), KEY_S (code 31) when pressed
+# Older images may show one shared device named "gpio-keys" instead
 ```
 
 Reference mapping: [`configs/gamepi/gamepi13-gpio-keys.conf`](../configs/gamepi/gamepi13-gpio-keys.conf)
 
-| Button | Key |
-|--------|-----|
-| D-pad | Arrow keys |
-| A / B | `A` / `B` |
-| X / Y | `X` / `Y` |
-| Start | `S` |
-| Select | `Q` |
-| L / R | Brightness Down / Up |
+| Button | BCM | evdev name | Key |
+|--------|-----|------------|-----|
+| D-pad Up/Down/Left/Right | 5/6/16/13 | button@5 … button@d | Arrow keys |
+| A / B | 21 / 20 | button@15 / button@14 | `A` / `B` |
+| X / Y | 15 / 12 | button@f / button@c | `X` / `Y` |
+| **Start** | **26** | **button@1a** | **`S`** |
+| Select | 19 | button@13 | `Q` |
+| L / R | 23 / 14 | button@17 / button@e | Brightness Down / Up |
 
 ## 2. Enable system services
 
@@ -85,16 +86,16 @@ Hold **Start (`S`)** during **early boot** (from power-on through the framebuffe
 wait, up to ~45s) to skip splash and kiosk and land on a **text login on tty1**
 instead of the splash image.
 
-Detection uses the **gpio-keys** input device (`KEY_S`) while `wait-for-fb0.sh` polls
-for `/dev/fb0`. GPIO 26 is owned by the kernel `gpio-key` overlay, so `gpioget` does
-**not** reflect button presses — use `evtest` instead. Hold Start for at least
+Detection uses the Start input device (`button@1a`, GPIO 26, `KEY_S`) while
+`wait-for-fb0.sh` polls for `/dev/fb0`. Newer kernels expose one evdev device per
+GPIO button instead of a single `gpio-keys` device. Hold Start for at least
 **500ms**. You do **not** need to keep holding after the console appears — only during
 the early fb wait window, before `fbi` takes over the display.
 
 Verify on the Pi:
 
 ```bash
-sudo evtest    # pick gpio-keys, press Start — expect KEY_S (code 31) value 1
+sudo evtest /dev/input/event2   # button@1a — Start → KEY_S (31) value 1
 /opt/midijuggler/app/scripts/gamepi-is-start-pressed.sh && echo pressed || echo released
 ls -l /run/gamepi-console-boot   # present after a successful console boot
 systemctl show gamepi-kiosk.service -p ConditionResult,ActiveState

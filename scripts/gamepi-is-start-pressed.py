@@ -1,26 +1,19 @@
 #!/usr/bin/env python3
-"""Return 0 when the GamePi Start key (gpio-keys KEY_S) is currently pressed."""
+"""Return 0 when the GamePi Start key is currently pressed."""
 
 from __future__ import annotations
 
 import sys
+from pathlib import Path
 
-START_CODE = 31  # KEY_S
+sys.path.insert(0, str(Path(__file__).resolve().parent))
 
-
-def _find_keyboard():
-    from evdev import InputDevice, list_devices
-
-    for path in list_devices():
-        device = InputDevice(path)
-        if "gpio-keys" in device.name.casefold():
-            return device
-    return None
+from gamepi_gpio_keys import START_CODE, find_start_device
 
 
 def main() -> int:
     try:
-        device = _find_keyboard()
+        device = find_start_device()
     except ImportError:
         return 1
 
