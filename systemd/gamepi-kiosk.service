@@ -1,8 +1,9 @@
 [Unit]
 Description=GamePi13 MIDIJuggler Kiosk on tty1
-Requires=gamepi-kiosk-ready.service
-After=gamepi-kiosk-ready.service network-online.target midijuggler.service
+Wants=gamepi-kiosk-ready.service
+After=gamepi-kiosk-ready.service gamepi-splash.service network-online.target midijuggler.service
 Conflicts=getty@tty1.service
+ConditionPathExists=!/run/gamepi-console-boot
 
 [Service]
 Type=simple

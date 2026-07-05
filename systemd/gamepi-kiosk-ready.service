@@ -3,6 +3,7 @@ Description=Wait for MIDIJuggler web UI and release GamePi splash
 After=network-online.target midijuggler.service gamepi-splash.service
 Wants=network-online.target midijuggler.service
 Before=gamepi-kiosk.service
+ConditionPathExists=!/run/gamepi-console-boot
 
 [Service]
 Type=oneshot

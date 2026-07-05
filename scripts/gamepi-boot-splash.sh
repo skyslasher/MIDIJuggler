@@ -10,23 +10,27 @@ python_bin="${GAMEPI_PYTHON:-/opt/midijuggler/venv/bin/python}"
 start_held_script="${GAMEPI_START_HELD_SCRIPT:-/opt/midijuggler/app/scripts/gamepi-start-held.py}"
 blanking_script="${GAMEPI_BLANKING_SCRIPT:-/opt/midijuggler/app/scripts/gamepi-disable-blanking.sh}"
 
-console_boot_flag=/run/gamepi-console-boot
+console_boot_flag="${GAMEPI_CONSOLE_BOOT_FLAG:-/run/gamepi-console-boot}"
 
-console_boot_requested() {
-  if [ -x "$python_bin" ] && [ -f "$start_held_script" ]; then
-    if "$python_bin" "$start_held_script" "$hold_ms"; then
-      return 0
-    fi
+if [ -f "$console_boot_flag" ]; then
+  echo "Console boot: skipping splash" >&2
+  fbcon_script="${GAMEPI_FBCON_SCRIPT:-/opt/midijuggler/app/scripts/gamepi-fbcon.sh}"
+  if [ -x "$fbcon_script" ]; then
+    GAMEPI_FB_DEVICE="$fb_device" "$fbcon_script" on
+  fi
+  systemctl start getty@tty1.service 2>/dev/null || true
+  exit 0
+fi
+
+pressed_script="${GAMEPI_START_PRESSED_SCRIPT:-/opt/midijuggler/app/scripts/gamepi-is-start-pressed.sh}"
+
+gpio_hold_detected() {
+  if [ ! -x "$pressed_script" ]; then
     return 1
   fi
-
   elapsed=0
   while [ "$elapsed" -lt "$hold_ms" ]; do
-    if ! command -v gpioget >/dev/null 2>&1; then
-      return 1
-    fi
-    value="$(gpioget -c "$chip" "$gpio" 2>/dev/null)" || return 1
-    if [ "$value" != "0" ]; then
+    if ! "$pressed_script"; then
       return 1
     fi
     sleep 0.05
@@ -35,9 +39,27 @@ console_boot_requested() {
   return 0
 }
 
+console_boot_requested() {
+  if gpio_hold_detected; then
+    return 0
+  fi
+
+  if [ -x "$python_bin" ] && [ -f "$start_held_script" ]; then
+    if "$python_bin" "$start_held_script" "$hold_ms"; then
+      return 0
+    fi
+  fi
+
+  return 1
+}
+
 if console_boot_requested; then
   echo "GamePi Start held: keeping boot console on ${fb_device}"
   : >"$console_boot_flag"
+  if [ -x "${GAMEPI_FBCON_SCRIPT:-/opt/midijuggler/app/scripts/gamepi-fbcon.sh}" ]; then
+    GAMEPI_FB_DEVICE="$fb_device" "${GAMEPI_FBCON_SCRIPT:-/opt/midijuggler/app/scripts/gamepi-fbcon.sh}" on
+  fi
+  systemctl start getty@tty1.service 2>/dev/null || true
   exit 0
 fi
 

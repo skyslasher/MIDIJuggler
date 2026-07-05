@@ -38,7 +38,7 @@ Install X for the kiosk (once):
 ```bash
 sudo apt install -y \
   xserver-xorg xserver-xorg-legacy xinit xserver-xorg-video-fbdev \
-  x11-xserver-utils chromium unclutter fbi fbset kbd
+  x11-xserver-utils chromium unclutter fbi fbset kbd gpiod
 sudo usermod -aG video,tty,input dietpi
 sudo /opt/midijuggler/app/scripts/install-gamepi13-xorg.sh
 ```
@@ -81,8 +81,24 @@ The kiosk loads `/static/clock-remote.html`. With keyboard mapping enabled:
 | `Q` | Toggle beat flash |
 | L / R | Hardware brightness (system service) |
 
-Hold **Start (`S`)** during early boot to show the text console instead of the splash
-image.
+Hold **Start (`S`)** during **early boot** (from power-on through the framebuffer
+wait, up to ~45s) to skip splash and kiosk and land on a **text login on tty1**
+instead of the splash image.
+
+Detection uses GPIO 26 directly (`gpioget` via the `gpiod` package) while
+`wait-for-fb0.sh` polls for `/dev/fb0`, with an evdev fallback once the
+`gpio-keys` input device appears. Hold Start for at least **500ms**. You do
+**not** need to keep holding after the console appears — only during the early
+fb wait window, before `fbi` takes over the display.
+
+Verify on the Pi:
+
+```bash
+gpioget -c gpiochip0 26          # 1 = released, 0 = pressed (active low)
+/opt/midijuggler/app/scripts/gamepi-is-start-pressed.sh && echo pressed
+ls -l /run/gamepi-console-boot   # present after a successful console boot
+systemctl show gamepi-kiosk.service -p ConditionResult,ActiveState
+```
 
 ## 4. Brightness
 
@@ -150,6 +166,7 @@ After `git pull`, redeploy services:
 sudo cp systemd/gamepi-splash.service systemd/gamepi-kiosk-ready.service systemd/gamepi-kiosk.service /etc/systemd/system/
 sudo /opt/midijuggler/app/scripts/install-gamepi13-xorg.sh
 sudo chmod +x scripts/gamepi-disable-blanking.sh scripts/wait-for-fb0.sh \
+  scripts/gamepi-is-start-pressed.sh scripts/gamepi-boot-splash.sh \
   scripts/gamepi-launch-kiosk.sh scripts/gamepi-fb-handoff.sh scripts/gamepi-fbcon.sh \
   scripts/gamepi-start-kiosk.sh configs/gamepi/kiosk.xsession
 sudo systemctl daemon-reload
