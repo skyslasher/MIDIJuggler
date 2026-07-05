@@ -139,6 +139,7 @@ After `git pull`, redeploy services:
 ```bash
 sudo cp systemd/gamepi-splash.service systemd/gamepi-kiosk.service /etc/systemd/system/
 sudo chmod +x scripts/gamepi-disable-blanking.sh scripts/wait-for-fb0.sh \
+  scripts/wait-for-gamepi-network.sh scripts/gamepi-launch-kiosk.sh \
   scripts/gamepi-fb-handoff.sh scripts/gamepi-start-kiosk.sh configs/gamepi/kiosk.xsession
 sudo systemctl daemon-reload
 sudo systemctl restart gamepi-splash.service gamepi-kiosk.service
@@ -146,9 +147,19 @@ sudo systemctl restart gamepi-splash.service gamepi-kiosk.service
 
 ## 7. Splash → kiosk handoff
 
-The splash (`fbi`, runs as **root**) stays visible until MIDIJuggler’s web UI responds.
-Only then does the kiosk stop `fbi`, release the framebuffer from the text console, and
-start X (`ExecStartPre` order: web wait → splash stop → `startx`).
+The splash (`fbi`, runs as **root**) stays visible while the kiosk unit waits for
+**Ethernet/DHCP** and the MIDIJuggler web UI. Only then does `gamepi-launch-kiosk.sh`
+stop `fbi` and immediately exec `startx` (minimal gap, no console boot spam).
+
+`ExecStartPre` order: network wait → web wait → splash stop + `startx`.
+
+Override the interface name if not `eth0`:
+
+```bash
+# /etc/systemd/system/gamepi-kiosk.service.d/network.conf
+[Service]
+Environment=GAMEPI_NETWORK_IF=end0
+```
 
 The kiosk runs `gamepi-splash-stop.sh` as **root** (`ExecStartPre=+…`) so it can stop the
 splash service and kill `fbi` without Polkit (`pkttyagent` / `Failed to execute /usr/bin/pkt…`).
