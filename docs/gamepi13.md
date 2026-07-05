@@ -153,8 +153,9 @@ start X (`ExecStartPre` order: web wait → splash stop → `startx`).
 The kiosk runs `gamepi-splash-stop.sh` as **root** (`ExecStartPre=+…`) so it can stop the
 splash service and kill `fbi` without Polkit (`pkttyagent` / `Failed to execute /usr/bin/pkt…`).
 
-`fbi` must **not** use `-T 1` (VT grab conflicts with `startx` on vt1). Handoff unbinds
-framebuffer vtconsoles via `gamepi-fb-handoff.sh`.
+`fbi` needs `-T 1` on the GamePi SPI panel (without it nothing is drawn). Before
+`startx`, `gamepi-fb-handoff.sh` resets vt1 and unbinds framebuffer vtconsoles so X
+can open `/dev/fb0` without conflicting with the splash.
 
 If X dies right after the splash with `trying fbdev: /dev/fb0` and `Return to log in`:
 

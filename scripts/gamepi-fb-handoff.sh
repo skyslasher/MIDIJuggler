@@ -12,6 +12,10 @@ if command -v chvt >/dev/null 2>&1; then
   chvt 1 2>/dev/null || true
 fi
 
+if command -v setterm >/dev/null 2>&1; then
+  setterm -reset -term linux </dev/tty1 >/dev/tty1 2>/dev/null || true
+fi
+
 # Release the SPI framebuffer from the kernel text console before X fbdev opens it.
 for vtcon in /sys/class/vtconsole/vtcon*; do
   [ -f "${vtcon}/bind" ] || continue
