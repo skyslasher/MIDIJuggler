@@ -502,20 +502,34 @@ def test_send_midi_message_silently_drops_feedback_refresh_without_output(
     )
 
     async def scenario() -> None:
-        with caplog.at_level(logging.WARNING, logger="midijuggler.adapters.midi"):
-            await adapter.send_midi_message(
-                MidiMessageEvent(
-                    source="xtouch_mini",
-                    status=0x90,
-                    data=(60, 127),
-                    target="xtouch_mini:layer_a_bottom_button_8_led",
-                    direction="output",
-                    feedback_refresh=True,
-                )
+        await adapter.send_midi_message(
+            MidiMessageEvent(
+                source="xtouch_mini",
+                status=0x90,
+                data=(60, 127),
+                target="xtouch_mini:layer_a_bottom_button_8_led",
+                direction="output",
+                feedback_refresh=True,
             )
+        )
+        await adapter.send_midi_message(
+            MidiMessageEvent(
+                source="xtouch_mini",
+                status=0x9A,
+                data=(23, 127),
+                target="xtouch_mini:layer_a_bottom_button_8_led",
+                direction="output",
+            )
+        )
 
-    asyncio.run(scenario())
+    with caplog.at_level(logging.WARNING, logger="midijuggler.adapters.midi"):
+        asyncio.run(scenario())
 
-    assert not any(
-        "has no output_port configured" in record.message for record in caplog.records
-    )
+    assert not caplog.records
+
+    with caplog.at_level(logging.DEBUG, logger="midijuggler.adapters.midi"):
+        caplog.clear()
+        asyncio.run(scenario())
+        assert any(
+            "has no output_port; dropped" in record.message for record in caplog.records
+        )

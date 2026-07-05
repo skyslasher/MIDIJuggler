@@ -80,6 +80,8 @@ class MidiAdapter(Adapter):
         self._feedback_refresh: XTouchFeedbackRefresh | None = None
         self._echo_guard = MidiEchoGuard()
         self._datapoint_store: DataPointStore | None = None
+        self._output_unavailable_cached = False
+        self._output_send_blocked_logged = False
 
     def bind_datapoint_store(self, store: DataPointStore) -> None:
         self._datapoint_store = store
@@ -268,6 +270,9 @@ class MidiAdapter(Adapter):
         self._output_address = (
             self._resolve_output_address() if output_port or input_port else None
         )
+        if self._output_address is not None:
+            self._output_unavailable_cached = False
+            self._output_send_blocked_logged = False
 
         if previous_input and self._input_address and previous_input != self._input_address:
             LOGGER.info(
@@ -460,8 +465,34 @@ class MidiAdapter(Adapter):
         input_port = str(self.config.options.get("input_port", "")).strip()
         if not output_port and not input_port:
             return None
+        if self._output_unavailable_cached:
+            return None
         self._refresh_port_addresses()
+        if self._output_address is None:
+            self._output_unavailable_cached = True
         return self._output_address
+
+    def _log_dropped_output_event(self, event: MidiMessageEvent) -> None:
+        if event.status == MIDI_TIMING_CLOCK or event.feedback_refresh:
+            return
+        output_port = str(self.config.options.get("output_port", "")).strip()
+        if not output_port:
+            LOGGER.debug(
+                "MIDI adapter %s has no output_port; dropped %s",
+                self.name,
+                event.target or f"status=0x{event.status:02X}",
+            )
+            return
+        if self._output_send_blocked_logged:
+            return
+        self._output_send_blocked_logged = True
+        input_port = str(self.config.options.get("input_port", "")).strip()
+        LOGGER.warning(
+            "MIDI adapter %s cannot send MIDI output (configured port %r unresolved); "
+            "dropping events until port is available",
+            self.name,
+            output_port or input_port,
+        )
 
     def _resolve_output_address(self) -> str | None:
         output_port = str(self.config.options.get("output_port", "")).strip()
@@ -477,13 +508,7 @@ class MidiAdapter(Adapter):
     async def send_midi_message(self, event: MidiMessageEvent) -> None:
         output_address = self._cached_output_address()
         if output_address is None:
-            if event.status == MIDI_TIMING_CLOCK or event.feedback_refresh:
-                return
-            LOGGER.warning(
-                "MIDI adapter %s has no output_port configured; dropped %s",
-                self.name,
-                event.as_dict(),
-            )
+            self._log_dropped_output_event(event)
             return
 
         await self._emit_midi_output(output_address, event)
