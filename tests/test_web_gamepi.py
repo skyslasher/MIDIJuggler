@@ -58,5 +58,6 @@ def test_clock_gamepi_static_asset_exists() -> None:
     path = Path(__file__).resolve().parents[1] / "src/midijuggler/web/static/clock-gamepi.html"
     assert path.is_file()
     text = path.read_text(encoding="utf-8")
-    assert "240px" in text
+    assert 'width=240' in text
+    assert "--inset-right" in text
     assert "Neustart?" in text
