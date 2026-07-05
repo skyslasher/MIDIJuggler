@@ -80,7 +80,7 @@ if ! command -v fbi >/dev/null 2>&1; then
 fi
 
 if [ -x "$blanking_script" ]; then
-  GAMEPI_FB_DEVICE="$fb_device" "$blanking_script"
+  GAMEPI_FB_DEVICE="$fb_device" GAMEPI_ALLOW_SETTERM=1 "$blanking_script"
 fi
 
 systemctl stop getty@tty1.service 2>/dev/null || true

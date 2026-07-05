@@ -1,6 +1,13 @@
 #!/bin/sh
 export FRAMEBUFFER=/dev/fb0
 
+(
+  while [ ! -S /tmp/.X11-unix/X0 ]; do
+    sleep 0.1
+  done
+  /opt/midijuggler/app/scripts/gamepi-disable-blanking.sh
+) &
+
 /opt/midijuggler/app/scripts/gamepi-disable-blanking.sh
 
 if command -v unclutter >/dev/null 2>&1; then

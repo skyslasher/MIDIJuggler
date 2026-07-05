@@ -22,7 +22,8 @@ if [ -S /tmp/.X11-unix/X0 ] && command -v xset >/dev/null 2>&1; then
   DISPLAY=:0 xset s off 2>/dev/null || true
   DISPLAY=:0 xset -dpms 2>/dev/null || true
   DISPLAY=:0 xset s noblank 2>/dev/null || true
-elif command -v setterm >/dev/null 2>&1; then
+elif [ "${GAMEPI_ALLOW_SETTERM:-0}" = "1" ] && command -v setterm >/dev/null 2>&1; then
+  # setterm on tty1 can black out the SPI panel once X/fbdev owns the display.
   if [ -w /dev/tty1 ]; then
     setterm -blank 0 -powerdown 0 -powersave off </dev/tty1 >/dev/tty1 2>&1 || true
   fi

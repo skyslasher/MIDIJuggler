@@ -139,24 +139,30 @@ assert "clear-chromium-cache removes stale files" [ ! -f "$chromium_profile/stal
 
 mock_bin="$tmp/bin"
 mkdir -p "$mock_bin"
-cat >"$mock_bin/systemctl" <<'EOF'
+restart_log="$tmp/systemctl-restarts.log"
+: >"$restart_log"
+cat >"$mock_bin/systemctl" <<EOF
 #!/bin/sh
-case "$1" in
+case "\$1" in
   restart)
-    echo "systemctl restart $2" >&2
+    echo "\$2" >>"$restart_log"
+    echo "systemctl restart \$2" >&2
     ;;
   is-active)
-    service="$2"
-    if [ "$service" = "--quiet" ]; then
-      service="$3"
+    service="\$2"
+    if [ "\$service" = "--quiet" ]; then
+      service="\$3"
     fi
-    [ "$service" = "gamepi-kiosk.service" ]
+    [ "\$service" = "gamepi-kiosk.service" ]
     ;;
   is-enabled)
     exit 1
     ;;
+  start)
+    echo "\$2" >>"$restart_log"
+    ;;
   *)
-    echo "unexpected: systemctl $*" >&2
+    echo "unexpected: systemctl \$*" >&2
     exit 1
     ;;
 esac
@@ -164,16 +170,41 @@ EOF
 chmod +x "$mock_bin/systemctl"
 
 wait_log="$tmp/wait-log"
+recover_log="$tmp/recover-log"
+: >"$wait_log"
+: >"$recover_log"
 cat >"$tmp/mock-wait.sh" <<'EOF'
 #!/bin/sh
 echo waited >>"$WAIT_LOG"
 EOF
-chmod +x "$tmp/mock-wait.sh"
-WAIT_LOG="$wait_log" PATH="$mock_bin:$PATH" \
+cat >"$tmp/mock-recover.sh" <<'EOF'
+#!/bin/sh
+echo recovered >>"$RECOVER_LOG"
+EOF
+chmod +x "$tmp/mock-wait.sh" "$tmp/mock-recover.sh"
+
+WAIT_LOG="$wait_log" RECOVER_LOG="$recover_log" PATH="$mock_bin:$PATH" \
   MIDIJUGGLER_WAIT_SCRIPT="$tmp/mock-wait.sh" \
+  GAMEPI_RECOVER_DISPLAY_SCRIPT="$tmp/mock-recover.sh" \
   sh "$repo_root/scripts/gamepi-reload-after-pull.sh" >/dev/null 2>&1
-assert "reload-after-pull waits for web before kiosk" [ -f "$wait_log" ]
-assert_contains "reload-after-pull restarts kiosk after wait" "$(cat "$wait_log")" "waited"
+assert "reload-after-pull waits for web UI" [ -f "$wait_log" ]
+assert_contains "reload-after-pull waits for web UI" "$(cat "$wait_log")" "waited"
+if grep -qx "gamepi-kiosk.service" "$restart_log" 2>/dev/null; then
+  fail=$((fail + 1))
+  printf 'FAIL: reload-after-pull restarted kiosk by default\n' >&2
+else
+  pass=$((pass + 1))
+  printf 'ok: reload-after-pull does not restart kiosk by default\n'
+fi
+assert "reload-after-pull runs display recovery" [ -f "$recover_log" ]
+
+: >"$restart_log"
+WAIT_LOG="$wait_log" RECOVER_LOG="$recover_log" PATH="$mock_bin:$PATH" \
+  MIDIJUGGLER_WAIT_SCRIPT="$tmp/mock-wait.sh" \
+  GAMEPI_RECOVER_DISPLAY_SCRIPT="$tmp/mock-recover.sh" \
+  GAMEPI_RELOAD_KIOSK=1 \
+  sh "$repo_root/scripts/gamepi-reload-after-pull.sh" >/dev/null 2>&1
+assert "reload-after-pull restarts kiosk when requested" grep -qx "gamepi-kiosk.service" "$restart_log"
 
 printf '\n%d passed, %d failed\n' "$pass" "$fail"
 [ "$fail" -eq 0 ]

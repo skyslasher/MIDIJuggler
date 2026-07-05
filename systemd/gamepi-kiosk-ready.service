@@ -12,7 +12,7 @@ User=dietpi
 Environment=MIDIJUGGLER_SCRIPTS_DIR=/opt/midijuggler/app/scripts
 StandardOutput=journal
 StandardError=journal
-ExecStartPre=+/opt/midijuggler/app/scripts/gamepi-disable-blanking.sh
+ExecStartPre=+/bin/sh -c 'GAMEPI_ALLOW_SETTERM=1 /opt/midijuggler/app/scripts/gamepi-disable-blanking.sh'
 ExecStart=/opt/midijuggler/app/scripts/wait-for-midijuggler-web.sh
 ExecStart=+/opt/midijuggler/app/scripts/gamepi-splash-stop.sh
 

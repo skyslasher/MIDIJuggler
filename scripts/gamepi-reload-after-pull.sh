@@ -1,33 +1,36 @@
 #!/bin/sh
-# Safe post-deploy reload: do not restart boot-only splash/kiosk-ready units on a live session.
+# Safe post-deploy reload: restart midijuggler without tearing down X by default.
 
 set -eu
 
 app_root="${MIDIJUGGLER_APP_ROOT:-/opt/midijuggler/app}"
 wait_script="${MIDIJUGGLER_WAIT_SCRIPT:-${app_root}/scripts/wait-for-midijuggler-web.sh}"
+recover_script="${GAMEPI_RECOVER_DISPLAY_SCRIPT:-${app_root}/scripts/gamepi-recover-display.sh}"
 
 echo "Restarting midijuggler.service..." >&2
 systemctl restart midijuggler.service
 
-if systemctl is-active --quiet gamepi-kiosk.service; then
-  if [ -x "$wait_script" ]; then
-    echo "Waiting for MIDIJuggler web UI before kiosk restart..." >&2
-    "$wait_script"
-  else
-    delay="${GAMEPI_RELOAD_KIOSK_DELAY:-5}"
-    echo "Wait script missing; sleeping ${delay}s before kiosk restart..." >&2
-    sleep "$delay"
-  fi
-  echo "Restarting gamepi-kiosk.service..." >&2
+if [ -x "$wait_script" ]; then
+  echo "Waiting for MIDIJuggler web UI..." >&2
+  "$wait_script"
+fi
+
+if [ "${GAMEPI_RELOAD_KIOSK:-0}" = "1" ] && systemctl is-active --quiet gamepi-kiosk.service; then
+  echo "Restarting gamepi-kiosk.service (GAMEPI_RELOAD_KIOSK=1)..." >&2
   systemctl restart gamepi-kiosk.service
+  if [ -x "$recover_script" ]; then
+    sleep 2
+    "$recover_script"
+  fi
 else
-  echo "gamepi-kiosk.service not active; leaving splash/boot units untouched." >&2
-  echo "Reboot to replay splash and kiosk boot sequence." >&2
+  echo "Leaving gamepi-kiosk.service running (set GAMEPI_RELOAD_KIOSK=1 to restart UI)." >&2
+  if [ -x "$recover_script" ]; then
+    "$recover_script"
+  fi
 fi
 
 if systemctl is-enabled gamepi-blanking-watch.service >/dev/null 2>&1; then
-  echo "Restarting gamepi-blanking-watch.service..." >&2
-  systemctl restart gamepi-blanking-watch.service
+  systemctl restart gamepi-blanking-watch.service 2>/dev/null || true
 fi
 
-echo "Done. For a full display stack reset, reboot instead." >&2
+echo "Done. Reboot for a full splash/boot reset if the panel stays black." >&2

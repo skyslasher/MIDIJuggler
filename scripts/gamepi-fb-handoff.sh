@@ -1,22 +1,17 @@
 #!/bin/sh
-set -eu
+# Release the SPI framebuffer from the kernel text console before X fbdev opens it.
 
 fb_device="${GAMEPI_FB_DEVICE:-/dev/fb0}"
 fb_name="$(basename "$fb_device")"
 
 if [ -w "/sys/class/graphics/${fb_name}/blank" ]; then
-  echo 0 > "/sys/class/graphics/${fb_name}/blank"
+  echo 0 > "/sys/class/graphics/${fb_name}/blank" 2>/dev/null || true
 fi
 
 if command -v chvt >/dev/null 2>&1; then
   chvt 1 2>/dev/null || true
 fi
 
-if command -v setterm >/dev/null 2>&1; then
-  setterm -reset -term linux </dev/tty1 >/dev/tty1 2>/dev/null || true
-fi
-
-# Release the SPI framebuffer from the kernel text console before X fbdev opens it.
 for vtcon in /sys/class/vtconsole/vtcon*; do
   [ -f "${vtcon}/bind" ] || continue
   name="$(cat "${vtcon}/name" 2>/dev/null || true)"
@@ -27,4 +22,8 @@ for vtcon in /sys/class/vtconsole/vtcon*; do
   esac
 done
 
-sleep "${GAMEPI_FB_HANDOFF_DELAY:-1}"
+sleep "${GAMEPI_FB_HANDOFF_DELAY:-0.5}"
+
+if [ -w "/sys/class/graphics/${fb_name}/blank" ]; then
+  echo 0 > "/sys/class/graphics/${fb_name}/blank" 2>/dev/null || true
+fi
