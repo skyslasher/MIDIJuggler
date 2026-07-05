@@ -1,12 +1,12 @@
 [Unit]
 Description=GamePi13 boot splash on framebuffer
 DefaultDependencies=no
-After=systemd-udev-settle.service local-fs.target dev-fb0.device
-Wants=dev-fb0.device
+After=systemd-udev-settle.service local-fs.target
 Before=getty@tty1.service gamepi-kiosk.service
 
 [Service]
 Type=simple
+TimeoutStartSec=50
 Environment=GAMEPI_SPLASH_IMAGE=/etc/midijuggler/splash.png
 Environment=GAMEPI_START_GPIO=26
 Environment=GAMEPI_START_GPIO_CHIP=gpiochip0

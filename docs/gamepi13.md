@@ -93,9 +93,11 @@ held during boot (console mode instead of splash).
 
 If the journal shows `skipped, unmet condition check ConditionPathExists=/dev/fb0`
 (on older units) or `timed out waiting for /dev/fb0`, the ST7789 framebuffer is not
-ready yet when the splash starts. Current units wait up to 30s via
-`scripts/wait-for-fb0.sh` and order after `dev-fb0.device` instead of skipping
-immediately.
+ready when the splash starts. Current units poll for up to 45s via
+`scripts/wait-for-fb0.sh` instead of skipping immediately.
+
+Do **not** use `After=dev-fb0.device` on SPI panels — systemd may wait ~90s for a
+device unit that never activates even though `/dev/fb0` appears later.
 
 ```bash
 systemctl show gamepi-splash.service -p ConditionResult,ActiveState,Result
