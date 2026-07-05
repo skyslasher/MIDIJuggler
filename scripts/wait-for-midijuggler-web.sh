@@ -1,7 +1,7 @@
 #!/bin/sh
 set -eu
 
-url="${MIDIJUGGLER_WAIT_URL:-http://127.0.0.1:8080/static/clock-remote.html}"
+url="${MIDIJUGGLER_WAIT_URL:-http://127.0.0.1:8080/static/clock-gamepi.html}"
 timeout="${MIDIJUGGLER_WAIT_TIMEOUT:-45}"
 interval="${MIDIJUGGLER_WAIT_INTERVAL:-0.5}"
 

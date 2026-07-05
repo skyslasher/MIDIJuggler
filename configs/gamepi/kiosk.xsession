@@ -15,4 +15,4 @@ fi
 
 exec chromium --kiosk --noerrdialogs --disable-infobars \
   --window-size=240,240 \
-  http://127.0.0.1:8080/static/clock-remote.html
+  http://127.0.0.1:8080/static/clock-gamepi.html

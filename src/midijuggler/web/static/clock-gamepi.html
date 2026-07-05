@@ -1,0 +1,849 @@
+<!DOCTYPE html>
+<html lang="de">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=240, height=240, initial-scale=1, user-scalable=no">
+  <title>MIDIJuggler GamePi</title>
+  <style>
+    :root {
+      color-scheme: dark;
+      font-family: Inter, ui-sans-serif, system-ui, sans-serif;
+      --bg: #10141f;
+      --panel: #182032;
+      --line: #2b3752;
+      --text: #edf2ff;
+      --accent: #6ea8fe;
+      --on: #7dffb0;
+      --off: #ff9b9b;
+    }
+
+    *,
+    *::before,
+    *::after {
+      box-sizing: border-box;
+    }
+
+    html,
+    body {
+      background: var(--bg);
+      color: var(--text);
+      height: 240px;
+      margin: 0;
+      overflow: hidden;
+      width: 240px;
+    }
+
+    body {
+      padding: 8px;
+    }
+
+    .screen {
+      display: grid;
+      gap: 8px;
+      grid-template-rows: 1fr auto auto;
+      height: 224px;
+    }
+
+    .hero {
+      background: var(--panel);
+      border: 1px solid var(--line);
+      border-radius: 12px;
+      display: grid;
+      gap: 4px;
+      grid-template-rows: auto 1fr auto;
+      min-height: 0;
+      padding: 8px 10px 10px;
+      position: relative;
+    }
+
+    .hero.focused {
+      outline: 2px solid var(--accent);
+      outline-offset: -2px;
+    }
+
+    .live-dot {
+      background: #556;
+      border-radius: 50%;
+      height: 7px;
+      position: absolute;
+      right: 8px;
+      top: 8px;
+      width: 7px;
+    }
+
+    .live-dot.on {
+      background: var(--on);
+      box-shadow: 0 0 6px var(--on);
+    }
+
+    .beat-bar {
+      background: var(--line);
+      border-radius: 999px;
+      height: 5px;
+      overflow: hidden;
+    }
+
+    .beat-bar > span {
+      background: var(--accent);
+      display: block;
+      height: 100%;
+      transform: scaleX(0);
+      transform-origin: left center;
+      transition: transform 60ms linear;
+      width: 100%;
+    }
+
+    .beat-bar.pulse > span {
+      transform: scaleX(1);
+    }
+
+    .beat-bar.hidden {
+      opacity: 0.25;
+    }
+
+    .bpm-row {
+      align-items: center;
+      display: flex;
+      gap: 6px;
+      justify-content: center;
+      min-height: 0;
+    }
+
+    .bpm-value {
+      font-size: 3.1rem;
+      font-variant-numeric: tabular-nums;
+      font-weight: 800;
+      line-height: 0.95;
+    }
+
+    .status-pill {
+      border: 1px solid var(--line);
+      border-radius: 999px;
+      font-size: 0.62rem;
+      font-weight: 700;
+      letter-spacing: 0.04em;
+      padding: 0.2rem 0.45rem;
+      text-transform: uppercase;
+      white-space: nowrap;
+    }
+
+    .status-pill.on {
+      border-color: color-mix(in srgb, var(--on) 50%, var(--line));
+      color: var(--on);
+    }
+
+    .status-pill.off {
+      border-color: color-mix(in srgb, var(--off) 40%, var(--line));
+      color: var(--off);
+    }
+
+    .hint {
+      color: color-mix(in srgb, var(--text) 55%, var(--bg));
+      font-size: 0.58rem;
+      text-align: center;
+    }
+
+    .row {
+      display: grid;
+      gap: 6px;
+      grid-template-columns: repeat(3, 1fr);
+    }
+
+    .row.brightness {
+      grid-template-columns: 34px 1fr 34px;
+    }
+
+    button {
+      appearance: none;
+      background: var(--accent);
+      border: 0;
+      border-radius: 10px;
+      color: #08111f;
+      cursor: pointer;
+      font: inherit;
+      font-size: 0.68rem;
+      font-weight: 700;
+      min-height: 38px;
+      padding: 0.35rem 0.25rem;
+    }
+
+    button.secondary {
+      background: var(--line);
+      color: var(--text);
+    }
+
+    button.secondary.active {
+      background: color-mix(in srgb, var(--accent) 35%, var(--line));
+      color: var(--text);
+    }
+
+    button.secondary.inactive {
+      opacity: 0.55;
+    }
+
+    button.focused {
+      outline: 2px solid var(--accent);
+      outline-offset: 1px;
+    }
+
+    button:active {
+      transform: scale(0.97);
+    }
+
+    .brightness-track {
+      align-items: center;
+      background: var(--panel);
+      border: 1px solid var(--line);
+      border-radius: 10px;
+      display: flex;
+      justify-content: center;
+      min-height: 38px;
+      padding: 0 6px;
+    }
+
+    .brightness-track.focused {
+      outline: 2px solid var(--accent);
+      outline-offset: 1px;
+    }
+
+    .brightness-meter {
+      background: var(--line);
+      border-radius: 999px;
+      height: 6px;
+      overflow: hidden;
+      width: 100%;
+    }
+
+    .brightness-meter > span {
+      background: var(--accent);
+      display: block;
+      height: 100%;
+      width: 0;
+    }
+
+    .message {
+      color: var(--off);
+      font-size: 0.58rem;
+      min-height: 0.7rem;
+      text-align: center;
+    }
+
+    .modal-backdrop {
+      align-items: center;
+      background: rgb(8 12 20 / 82%);
+      display: none;
+      inset: 0;
+      justify-content: center;
+      padding: 16px;
+      position: fixed;
+      z-index: 20;
+    }
+
+    .modal-backdrop.open {
+      display: flex;
+    }
+
+    .modal {
+      background: var(--panel);
+      border: 1px solid var(--line);
+      border-radius: 12px;
+      padding: 12px;
+      width: 100%;
+    }
+
+    .modal h2 {
+      font-size: 0.82rem;
+      margin: 0 0 10px;
+      text-align: center;
+    }
+
+    .modal-actions {
+      display: grid;
+      gap: 6px;
+      grid-template-columns: 1fr 1fr;
+    }
+
+    .modal-actions button.danger {
+      background: var(--off);
+      color: #1a0505;
+    }
+  </style>
+</head>
+<body>
+  <div class="screen">
+    <section class="hero focused" id="hero" tabindex="-1" aria-label="BPM">
+      <span class="live-dot" id="live-dot" title="Verbindung"></span>
+      <div class="beat-bar" id="beat-bar" aria-hidden="true"><span></span></div>
+      <div class="bpm-row">
+        <div class="bpm-value" id="bpm">--</div>
+        <div class="status-pill off" id="running">Stopp</div>
+      </div>
+      <div class="hint" id="zone-hint">↑↓←→ BPM · Start Tap · ↓ Auswahl · Select Clock</div>
+    </section>
+
+    <div class="row" id="control-row">
+      <button type="button" class="secondary inactive" data-action="click_toggle" id="btn-click">Klick</button>
+      <button type="button" class="secondary active" data-action="flash" id="btn-flash">Puls</button>
+      <button type="button" class="secondary" data-action="interval" id="btn-interval">1/4</button>
+    </div>
+
+    <div class="row brightness" id="brightness-row">
+      <button type="button" class="secondary" data-action="brightness_down" id="btn-dim">−</button>
+      <div class="brightness-track" id="brightness-track" tabindex="-1" aria-label="Helligkeit">
+        <div class="brightness-meter"><span id="brightness-fill"></span></div>
+      </div>
+      <button type="button" class="secondary" data-action="brightness_up" id="btn-bright">+</button>
+    </div>
+
+    <div class="message" id="message"></div>
+  </div>
+
+  <div class="modal-backdrop" id="reboot-modal" aria-hidden="true">
+    <div class="modal" role="dialog" aria-labelledby="reboot-title">
+      <h2 id="reboot-title">Neustart?</h2>
+      <div class="modal-actions">
+        <button type="button" class="danger" id="reboot-ok">OK</button>
+        <button type="button" class="secondary focused" id="reboot-cancel">Abbrechen</button>
+      </div>
+    </div>
+  </div>
+
+  <script>
+    const bpmEl = document.querySelector("#bpm");
+    const runningEl = document.querySelector("#running");
+    const liveDot = document.querySelector("#live-dot");
+    const beatBar = document.querySelector("#beat-bar");
+    const messageEl = document.querySelector("#message");
+    const heroEl = document.querySelector("#hero");
+    const zoneHintEl = document.querySelector("#zone-hint");
+    const btnClick = document.querySelector("#btn-click");
+    const btnFlash = document.querySelector("#btn-flash");
+    const btnInterval = document.querySelector("#btn-interval");
+    const btnDim = document.querySelector("#btn-dim");
+    const btnBright = document.querySelector("#btn-bright");
+    const brightnessTrack = document.querySelector("#brightness-track");
+    const brightnessFill = document.querySelector("#brightness-fill");
+    const rebootModal = document.querySelector("#reboot-modal");
+    const rebootOk = document.querySelector("#reboot-ok");
+    const rebootCancel = document.querySelector("#reboot-cancel");
+
+    const CLICK_INTERVALS = ["sixteenth", "eighth", "quarter", "half", "whole"];
+    const CLICK_SHORT = {
+      sixteenth: "1/16",
+      eighth: "1/8",
+      quarter: "1/4",
+      half: "1/2",
+      whole: "1/1",
+    };
+    const FLASH_PREF_KEY = "midijuggler.gamepi.beatFlash";
+    const BEAT_FLASH_INTERVAL_RATIO = 0.9;
+    const BEAT_INTERVAL_MS_KEYS = {
+      sixteenth: "sixteenth_ms",
+      eighth: "eighth_ms",
+      quarter: "quarter_ms",
+      half: "half_ms",
+      whole: "whole_ms",
+    };
+
+    const focusables = [
+      btnClick,
+      btnFlash,
+      btnInterval,
+      btnDim,
+      brightnessTrack,
+      btnBright,
+    ];
+
+    let zone = "bpm";
+    let focusIndex = 0;
+    let modalOpen = false;
+    let modalFocus = "cancel";
+    let beatFlashTimer = null;
+    let currentClickInterval = "quarter";
+    let currentClock = null;
+    let datapointRouting = false;
+    let beatFlashEnabled = localStorage.getItem(FLASH_PREF_KEY) !== "0";
+    let brightnessAvailable = false;
+    let brightnessLevel = 0;
+    let brightnessMax = 255;
+    const keysHeld = new Set();
+    let rebootComboTriggered = false;
+
+    function apiBase() {
+      const params = new URLSearchParams(window.location.search);
+      const host = params.get("host") || window.location.origin;
+      return host.replace(/\/$/, "");
+    }
+
+    function wsUrl() {
+      return apiBase().replace(/^http/i, "ws") + "/ws/monitor";
+    }
+
+    function setMessage(text) {
+      messageEl.textContent = text || "";
+    }
+
+    function setZone(nextZone) {
+      zone = nextZone;
+      heroEl.classList.toggle("focused", zone === "bpm");
+      focusables.forEach((el, index) => {
+        el.classList.toggle("focused", zone === "controls" && index === focusIndex);
+      });
+      zoneHintEl.textContent = zone === "bpm"
+        ? "↑↓←→ BPM · Start Tap · ↓ Auswahl · Select Clock · X/Y Helligkeit"
+        : "←→ Auswahl · Start OK · ↑ BPM · Select Clock";
+    }
+
+    function moveFocus(delta) {
+      focusIndex = (focusIndex + delta + focusables.length) % focusables.length;
+      setZone("controls");
+    }
+
+    function clickIntervalMsFromBpm(bpm, interval) {
+      const quarterMs = 60000 / bpm;
+      switch (interval) {
+        case "sixteenth": return quarterMs / 4;
+        case "eighth": return quarterMs / 2;
+        case "half": return quarterMs * 2;
+        case "whole": return quarterMs * 4;
+        default: return quarterMs;
+      }
+    }
+
+    function beatIntervalMs(clock) {
+      const interval = clock?.click_interval || "quarter";
+      const params = clock?.parameters || {};
+      const key = BEAT_INTERVAL_MS_KEYS[interval] || "quarter_ms";
+      const fromParams = Number(params[key]);
+      if (Number.isFinite(fromParams) && fromParams > 0) {
+        return fromParams;
+      }
+      const bpm = Number(clock?.bpm);
+      if (!Number.isFinite(bpm) || bpm <= 0) {
+        return 500;
+      }
+      return clickIntervalMsFromBpm(bpm, interval);
+    }
+
+    function effectiveFlashMs(clock) {
+      const configured = Number(clock?.beat_flash_ms) || 120;
+      const intervalMs = beatIntervalMs(clock);
+      return Math.max(1, Math.min(configured, intervalMs * BEAT_FLASH_INTERVAL_RATIO));
+    }
+
+    function isBeatActive(value) {
+      if (value?.float_value != null) {
+        return Number(value.float_value) > 0.5;
+      }
+      if (value?.bool_value != null) {
+        return Boolean(value.bool_value);
+      }
+      return false;
+    }
+
+    function setBeatPulse(active) {
+      if (!beatFlashEnabled) {
+        return;
+      }
+      beatBar.classList.toggle("pulse", active);
+      if (active && beatFlashTimer) {
+        clearTimeout(beatFlashTimer);
+        beatFlashTimer = null;
+      }
+      if (!active && beatFlashTimer) {
+        clearTimeout(beatFlashTimer);
+        beatFlashTimer = null;
+      }
+    }
+
+    function pulseBeatFallback() {
+      if (!beatFlashEnabled) {
+        return;
+      }
+      setBeatPulse(true);
+      if (beatFlashTimer) {
+        clearTimeout(beatFlashTimer);
+      }
+      beatFlashTimer = setTimeout(() => {
+        setBeatPulse(false);
+        beatFlashTimer = null;
+      }, effectiveFlashMs(currentClock));
+    }
+
+    function updateFlashButton() {
+      btnFlash.textContent = beatFlashEnabled ? "Puls" : "Puls aus";
+      btnFlash.classList.toggle("active", beatFlashEnabled);
+      btnFlash.classList.toggle("inactive", !beatFlashEnabled);
+      beatBar.classList.toggle("hidden", !beatFlashEnabled);
+      if (!beatFlashEnabled) {
+        setBeatPulse(false);
+      }
+    }
+
+    function renderBrightness() {
+      if (!brightnessAvailable) {
+        brightnessFill.style.width = "35%";
+        brightnessTrack.title = "Kein Backlight (X/Y)";
+        return;
+      }
+      const pct = brightnessMax > 0 ? (brightnessLevel / brightnessMax) * 100 : 0;
+      brightnessFill.style.width = `${pct}%`;
+      brightnessTrack.title = `Helligkeit ${brightnessLevel}/${brightnessMax}`;
+    }
+
+    function renderClock(clock) {
+      if (!clock) {
+        return;
+      }
+      currentClock = clock;
+      bpmEl.textContent = clock.bpm ? Number(clock.bpm).toFixed(1) : "--";
+      const running = Boolean(clock.running);
+      runningEl.textContent = running ? "Läuft" : "Stopp";
+      runningEl.className = `status-pill ${running ? "on" : "off"}`;
+
+      const clickEnabled = Boolean(clock.click_enabled);
+      btnClick.textContent = clickEnabled ? "Klick an" : "Klick aus";
+      btnClick.classList.toggle("active", clickEnabled);
+      btnClick.classList.toggle("inactive", !clickEnabled);
+
+      const interval = clock.click_interval || "quarter";
+      currentClickInterval = interval;
+      btnInterval.textContent = CLICK_SHORT[interval] || interval;
+    }
+
+    function nextClickInterval(interval) {
+      const index = CLICK_INTERVALS.indexOf(interval);
+      if (index < 0) {
+        return CLICK_INTERVALS[0];
+      }
+      return CLICK_INTERVALS[(index + 1) % CLICK_INTERVALS.length];
+    }
+
+    async function apiFetch(path, options = {}) {
+      const headers = { "Content-Type": "application/json", ...(options.headers || {}) };
+      const response = await fetch(apiBase() + path, { ...options, headers });
+      if (!response.ok) {
+        const text = await response.text();
+        throw new Error(text || response.statusText);
+      }
+      return response.json();
+    }
+
+    async function trigger(point) {
+      setMessage("");
+      try {
+        const payload = await apiFetch("/api/clock/trigger", {
+          method: "POST",
+          body: JSON.stringify({ point }),
+        });
+        renderClock(payload.master_clock);
+      } catch (error) {
+        setMessage(error.message || "Trigger fehlgeschlagen");
+      }
+    }
+
+    async function setClickInterval(interval) {
+      setMessage("");
+      try {
+        const payload = await apiFetch("/api/master-clock", {
+          method: "POST",
+          body: JSON.stringify({ click_interval: interval }),
+        });
+        renderClock(payload);
+      } catch (error) {
+        setMessage(error.message || "Intervall nicht gesetzt");
+      }
+    }
+
+    async function adjustBrightness(delta) {
+      setMessage("");
+      try {
+        const payload = await apiFetch("/api/gamepi/brightness", {
+          method: "POST",
+          body: JSON.stringify({ delta }),
+        });
+        brightnessAvailable = Boolean(payload.available);
+        if (payload.available) {
+          brightnessLevel = Number(payload.level) || brightnessLevel;
+          brightnessMax = Number(payload.max) || brightnessMax;
+          renderBrightness();
+        } else {
+          setMessage("Kein Backlight-Gerät");
+        }
+      } catch (error) {
+        setMessage(error.message || "Helligkeit fehlgeschlagen");
+      }
+    }
+
+    async function loadBrightnessStatus() {
+      try {
+        const payload = await apiFetch("/api/gamepi/brightness");
+        brightnessAvailable = Boolean(payload.available);
+        if (payload.available) {
+          brightnessLevel = Number(payload.level) || 0;
+          brightnessMax = Number(payload.max) || 255;
+        }
+        renderBrightness();
+      } catch {
+        renderBrightness();
+      }
+    }
+
+    async function requestReboot() {
+      setMessage("");
+      try {
+        await apiFetch("/api/gamepi/reboot", { method: "POST", body: "{}" });
+        setMessage("Neustart…");
+      } catch (error) {
+        setMessage(error.message || "Neustart fehlgeschlagen");
+      }
+    }
+
+    function toggleFlash() {
+      beatFlashEnabled = !beatFlashEnabled;
+      localStorage.setItem(FLASH_PREF_KEY, beatFlashEnabled ? "1" : "0");
+      updateFlashButton();
+    }
+
+    function activateFocus() {
+      const target = focusables[focusIndex];
+      if (!target) {
+        return;
+      }
+      if (target === btnClick) {
+        trigger("click_toggle");
+        return;
+      }
+      if (target === btnFlash) {
+        toggleFlash();
+        return;
+      }
+      if (target === btnInterval) {
+        setClickInterval(nextClickInterval(currentClickInterval));
+        return;
+      }
+      if (target === btnDim) {
+        adjustBrightness(-10);
+        return;
+      }
+      if (target === btnBright) {
+        adjustBrightness(10);
+        return;
+      }
+      if (target === brightnessTrack) {
+        return;
+      }
+    }
+
+    function setModalFocus(which) {
+      modalFocus = which;
+      rebootOk.classList.toggle("focused", which === "ok");
+      rebootCancel.classList.toggle("focused", which === "cancel");
+    }
+
+    function openRebootModal() {
+      if (modalOpen || rebootComboTriggered) {
+        return;
+      }
+      rebootComboTriggered = true;
+      modalOpen = true;
+      rebootModal.classList.add("open");
+      rebootModal.setAttribute("aria-hidden", "false");
+      setModalFocus("cancel");
+    }
+
+    function closeRebootModal() {
+      modalOpen = false;
+      rebootModal.classList.remove("open");
+      rebootModal.setAttribute("aria-hidden", "true");
+    }
+
+    function handleBpmKey(key) {
+      switch (key) {
+        case "ArrowUp":
+          trigger("bpm_huge_up");
+          break;
+        case "ArrowDown":
+          trigger("bpm_huge_down");
+          break;
+        case "ArrowLeft":
+          trigger("bpm_down");
+          break;
+        case "ArrowRight":
+          trigger("bpm_up");
+          break;
+        default:
+          break;
+      }
+    }
+
+    function handleKeyDown(event) {
+      keysHeld.add(event.key);
+      const startDown = keysHeld.has("s") || keysHeld.has("S");
+      const selectDown = keysHeld.has("q") || keysHeld.has("Q");
+      if (startDown && selectDown) {
+        event.preventDefault();
+        openRebootModal();
+        return;
+      }
+
+      if (modalOpen) {
+        event.preventDefault();
+        if (event.key === "ArrowLeft" || event.key === "ArrowRight") {
+          setModalFocus(modalFocus === "cancel" ? "ok" : "cancel");
+          return;
+        }
+        if (event.key === "Enter" || event.key === "s" || event.key === "S") {
+          if (modalFocus === "ok") {
+            closeRebootModal();
+            requestReboot();
+          } else {
+            closeRebootModal();
+            rebootComboTriggered = false;
+          }
+          return;
+        }
+        if (event.key === "Escape" || event.key === "q" || event.key === "Q") {
+          closeRebootModal();
+          rebootComboTriggered = false;
+        }
+        return;
+      }
+
+      if (event.key === "q" || event.key === "Q") {
+        event.preventDefault();
+        trigger("start_stop");
+        return;
+      }
+
+      if (event.key === "x" || event.key === "X") {
+        event.preventDefault();
+        adjustBrightness(-10);
+        return;
+      }
+
+      if (event.key === "y" || event.key === "Y") {
+        event.preventDefault();
+        adjustBrightness(10);
+        return;
+      }
+
+      if (event.key === "Enter" || event.key === "s" || event.key === "S") {
+        event.preventDefault();
+        if (zone === "controls") {
+          activateFocus();
+        } else {
+          trigger("tap_tempo");
+        }
+        return;
+      }
+
+      if (event.key === "ArrowUp") {
+        event.preventDefault();
+        if (zone === "controls") {
+          setZone("bpm");
+          return;
+        }
+        handleBpmKey("ArrowUp");
+        return;
+      }
+
+      if (event.key === "ArrowDown") {
+        event.preventDefault();
+        if (zone === "bpm") {
+          setZone("controls");
+          return;
+        }
+        return;
+      }
+
+      if (event.key === "ArrowLeft" || event.key === "ArrowRight") {
+        event.preventDefault();
+        if (zone === "controls") {
+          moveFocus(event.key === "ArrowLeft" ? -1 : 1);
+          return;
+        }
+        handleBpmKey(event.key);
+      }
+    }
+
+    function handleKeyUp(event) {
+      keysHeld.delete(event.key);
+      if (!keysHeld.has("s") && !keysHeld.has("S") && !keysHeld.has("q") && !keysHeld.has("Q")) {
+        rebootComboTriggered = false;
+      }
+    }
+
+    focusables.forEach((button, index) => {
+      button.addEventListener("click", () => {
+        focusIndex = index;
+        setZone("controls");
+        activateFocus();
+      });
+    });
+
+    rebootOk.addEventListener("click", () => {
+      closeRebootModal();
+      requestReboot();
+    });
+    rebootCancel.addEventListener("click", () => {
+      closeRebootModal();
+      rebootComboTriggered = false;
+    });
+
+    document.addEventListener("keydown", handleKeyDown);
+    document.addEventListener("keyup", handleKeyUp);
+
+    updateFlashButton();
+    setZone("bpm");
+
+    function connectMonitor() {
+      const socket = new WebSocket(wsUrl());
+      socket.addEventListener("open", () => {
+        liveDot.classList.add("on");
+        setMessage("");
+      });
+      socket.addEventListener("close", () => {
+        liveDot.classList.remove("on");
+        setTimeout(connectMonitor, 1500);
+      });
+      socket.addEventListener("error", () => {
+        liveDot.classList.remove("on");
+      });
+      socket.addEventListener("message", (event) => {
+        let payload;
+        try {
+          payload = JSON.parse(event.data);
+        } catch {
+          return;
+        }
+        if (payload.type === "status") {
+          renderClock(payload.payload.master_clock);
+          return;
+        }
+        if (payload.type === "datapoint" && payload.payload?.id === "clock.beat") {
+          setBeatPulse(isBeatActive(payload.payload));
+          return;
+        }
+        if (
+          payload.type === "event"
+          && payload.payload?.kind === "ClickEvent"
+          && !datapointRouting
+        ) {
+          pulseBeatFallback();
+        }
+      });
+    }
+
+    apiFetch("/api/status")
+      .then((payload) => {
+        datapointRouting = Boolean(payload.datapoint_routing);
+        renderClock(payload.master_clock);
+      })
+      .catch((error) => setMessage(error.message || "Status nicht geladen"));
+
+    loadBrightnessStatus();
+    connectMonitor();
+  </script>
+</body>
+</html>

@@ -194,6 +194,8 @@ def _clock_remote_cors_path(path: str) -> bool:
         return True
     if path == "/api/master-clock" or path.startswith("/api/master-clock/"):
         return True
+    if path.startswith("/api/gamepi/"):
+        return True
     return False
 
 
@@ -300,6 +302,9 @@ class WebInterface:
         app.router.add_post("/api/master-clock/tap", self.tap_master_clock)
         app.router.add_post("/api/master-clock/transport", self.master_clock_transport)
         app.router.add_post("/api/clock/trigger", self.clock_trigger)
+        app.router.add_get("/api/gamepi/brightness", self.gamepi_brightness_status)
+        app.router.add_post("/api/gamepi/brightness", self.gamepi_brightness_adjust)
+        app.router.add_post("/api/gamepi/reboot", self.gamepi_reboot)
         app.router.add_get("/api/midi-libraries", self.midi_libraries)
         app.router.add_get("/api/midi-libraries/{library_id}", self.midi_library)
         app.router.add_get("/api/osc-libraries", self.osc_libraries)
@@ -962,6 +967,29 @@ class WebInterface:
         except ValueError as exc:
             raise web.HTTPBadRequest(text=str(exc)) from exc
         return web.json_response(response)
+
+    async def gamepi_brightness_status(self, request: web.Request) -> web.Response:
+        from midijuggler.web.gamepi_brightness import brightness_status_payload
+
+        return web.json_response(brightness_status_payload())
+
+    async def gamepi_brightness_adjust(self, request: web.Request) -> web.Response:
+        from midijuggler.web.gamepi_brightness import adjust_brightness_payload
+
+        payload = await request.json()
+        try:
+            delta = int(payload.get("delta", 0))
+        except (TypeError, ValueError) as exc:
+            raise web.HTTPBadRequest(text="delta must be an integer") from exc
+        return web.json_response(adjust_brightness_payload(delta))
+
+    async def gamepi_reboot(self, request: web.Request) -> web.Response:
+        from midijuggler.web.gamepi_system import request_reboot
+
+        try:
+            return web.json_response(request_reboot(request))
+        except PermissionError as exc:
+            raise web.HTTPForbidden(text=str(exc)) from exc
 
     async def master_clock_transport(self, request: web.Request) -> web.Response:
         payload = await request.json()

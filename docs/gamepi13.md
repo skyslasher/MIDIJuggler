@@ -82,20 +82,32 @@ sudo systemctl enable --now gamepi-splash.service gamepi-kiosk-ready.service gam
 
 Requires `evdev` in the MIDIJuggler venv (`pip install -e ".[hid]"`).
 
-## 3. Clock remote keyboard shortcuts
+## 3. GamePi clock UI (`clock-gamepi.html`)
 
-The kiosk loads `/static/clock-remote.html`. With keyboard mapping enabled:
+The kiosk loads [`/static/clock-gamepi.html`](../src/midijuggler/web/static/clock-gamepi.html)
+(240×240, same colour scheme as the main web UI). The full-size remote remains at
+`/static/clock-remote.html`.
 
-| Key | Action |
-|-----|--------|
-| Arrow Up/Down | BPM ± step |
-| Arrow Left/Right | BPM ± huge step |
-| `S` / Enter | Start/Stop transport |
-| `B` / Esc | Toggle click |
-| `X` | Tap tempo |
-| `Y` | Next click interval |
-| `Q` | Toggle beat flash |
-| L / R | Hardware brightness (system service) |
+### Layout
+
+| Area | Content |
+|------|---------|
+| Top | Large BPM, run/stop pill, beat pulse bar |
+| Middle | Klick / Puls / click-interval toggles |
+| Bottom | Brightness − / meter / + (and **X** / **Y** keys) |
+
+### Controls
+
+| Input | Action |
+|-------|--------|
+| **D-pad** (BPM zone, default) | Up/Down = BPM ± huge · Left/Right = BPM ± step |
+| **D-pad ↓** | Enter control selection |
+| **D-pad ←/→** (control zone) | Move focus across Klick / Puls / Intervall / Helligkeit |
+| **D-pad ↑** (control zone) | Back to BPM zone |
+| **Start (`S`)** | Tap tempo (BPM zone) · activate focused control (control zone) |
+| **Select (`Q`)** | MIDI clock start/stop |
+| **Start + Select** | Reboot confirm dialog (**Abbrechen** pre-selected) |
+| **X / Y** | Brightness down / up (when L/R are hidden in the case) |
 
 Hold **Start (`S`)** during **early boot** (from power-on through the framebuffer
 wait, up to ~45s) to skip splash and kiosk and land on a **text login on tty1**
