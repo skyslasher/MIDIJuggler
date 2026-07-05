@@ -59,5 +59,6 @@ def test_clock_gamepi_static_asset_exists() -> None:
     assert path.is_file()
     text = path.read_text(encoding="utf-8")
     assert 'width=240' in text
+    assert "width: 240px" in text
     assert "--inset-right" in text
     assert "Neustart?" in text

@@ -28,27 +28,24 @@
       box-sizing: border-box;
     }
 
-    html {
-      background: var(--bg);
-      height: 100%;
-      margin: 0;
-      overflow: hidden;
-      width: 100%;
-    }
-
+    html,
     body {
       background: var(--bg);
       color: var(--text);
-      height: 100%;
+      height: 240px;
       margin: 0;
-      max-width: 100%;
+      max-height: 240px;
+      max-width: 240px;
       overflow: hidden;
+      width: 240px;
+    }
+
+    body {
       padding:
         var(--inset-top)
         var(--inset-right)
         var(--inset-bottom)
         var(--inset-left);
-      width: 100%;
     }
 
     .screen {
@@ -137,7 +134,7 @@
     }
 
     .bpm-value {
-      font-size: clamp(2.6rem, 16vw, 3.75rem);
+      font-size: 3.5rem;
       font-variant-numeric: tabular-nums;
       font-weight: 800;
       line-height: 0.92;

@@ -23,9 +23,6 @@ exec chromium --kiosk --noerrdialogs --disable-infobars \
   --disable-features=Translate \
   --user-data-dir="$CHROMIUM_USER_DATA_DIR" \
   --disk-cache-size=1 \
-  --force-device-scale-factor=1 \
-  --high-dpi-support=1 \
-  --window-position=0,0 \
   --lang=de \
   --window-size=240,240 \
   http://127.0.0.1:8080/static/clock-gamepi.html
