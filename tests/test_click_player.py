@@ -690,3 +690,40 @@ def test_alsa_click_player_recovery_reopens_playback_pcm(tmp_path, monkeypatch) 
 
     assert len(created) == 2
     asyncio.run(player.close())
+
+
+def test_alsa_click_player_drops_clicks_when_device_missing(
+    tmp_path, monkeypatch, caplog
+) -> None:
+    wav_path = tmp_path / "click.wav"
+    _write_wav(wav_path)
+    open_attempts = {"count": 0}
+
+    class FakeAlsaModule:
+        PCM_PLAYBACK = "playback"
+        PCM_NORMAL = "normal"
+        PCM_FORMAT_U8 = "u8"
+        PCM_FORMAT_S16_LE = "s16le"
+        PCM_FORMAT_S24_3LE = "s24_3le"
+        PCM_FORMAT_S32_LE = "s32le"
+
+        class ALSAAudioError(OSError):
+            pass
+
+        def PCM(self, **kwargs):
+            open_attempts["count"] += 1
+            raise FakeAlsaModule.ALSAAudioError("No such device [wing_stereo1]")
+
+    monkeypatch.setitem(__import__("sys").modules, "alsaaudio", FakeAlsaModule())
+
+    player = AlsaClickPlayer(str(wav_path), audio_device="wing_stereo1")
+    with caplog.at_level(logging.WARNING, logger="midijuggler.click_player"):
+        for _ in range(8):
+            player.trigger()
+        import time
+
+        time.sleep(0.2)
+
+    assert open_attempts["count"] == 8
+    assert caplog.text.count("click audio device unavailable") == 1
+    asyncio.run(player.close())

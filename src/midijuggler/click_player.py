@@ -21,6 +21,7 @@ LOGGER = logging.getLogger(__name__)
 _CLICK_THREAD_POLL_S = 0.05
 _CLICK_REALTIME_PRIORITY = 50
 _PLAYBACK_PERIOD_FRAMES = 1024
+_MAX_WRITE_RECOVERY_ATTEMPTS = 2
 
 
 @dataclass(frozen=True)
@@ -141,6 +142,7 @@ class AlsaClickPlayer:
         self._command_queue: queue.SimpleQueue[Any] = queue.SimpleQueue()
         self._wake_event = threading.Event()
         self._stop_event = threading.Event()
+        self._missing_device_warning_logged = False
         self._worker = threading.Thread(
             target=self._worker_main,
             name="midijuggler-click-audio",
@@ -223,6 +225,7 @@ class AlsaClickPlayer:
                 else:
                     self._ensure_playback_pcm(wav, device)
             result = True
+            self._missing_device_warning_logged = False
         except (OSError, self._alsaaudio.ALSAAudioError) as exc:
             LOGGER.warning(
                 "failed to prepare click PCM on %s: %s",
@@ -257,30 +260,48 @@ class AlsaClickPlayer:
                 self._wake_event.set()
 
     def _write_click_once(self) -> bool:
-        try:
-            wav = self._ensure_wav()
-            device = self.audio_device or "default"
-            with _alsa_environment(self.environment):
-                if self._uses_ephemeral_playback(device):
-                    self._write_ephemeral_click(wav, device)
-                else:
-                    pcm = self._ensure_playback_pcm(wav, device)
-                    self._write_period(pcm, wav, self._playback_period_frames)
-            return True
-        except self._alsaaudio.ALSAAudioError as exc:
-            message = str(exc)
-            if _is_pcm_try_again(message) or _is_device_busy(message):
-                return False
-            if _is_recoverable_alsa_pcm_error(message):
-                LOGGER.debug("recreating ALSA PCM after %s", message)
-                self._close_playback_pcm()
-                time.sleep(0.01)
-                return self._write_click_once()
-            LOGGER.warning("ALSA click playback failed: %s", message)
-            return True
-        except OSError:
-            LOGGER.exception("failed to play click through ALSA")
-            return True
+        for attempt in range(_MAX_WRITE_RECOVERY_ATTEMPTS):
+            try:
+                wav = self._ensure_wav()
+                device = self.audio_device or "default"
+                with _alsa_environment(self.environment):
+                    if self._uses_ephemeral_playback(device):
+                        self._write_ephemeral_click(wav, device)
+                    else:
+                        pcm = self._ensure_playback_pcm(wav, device)
+                        self._write_period(pcm, wav, self._playback_period_frames)
+                self._missing_device_warning_logged = False
+                return True
+            except self._alsaaudio.ALSAAudioError as exc:
+                message = str(exc)
+                if _is_pcm_try_again(message) or _is_device_busy(message):
+                    return False
+                if _is_missing_audio_device_error(message):
+                    self._log_missing_device_once(message)
+                    return True
+                if (
+                    _is_recoverable_alsa_pcm_error(message)
+                    and attempt + 1 < _MAX_WRITE_RECOVERY_ATTEMPTS
+                ):
+                    LOGGER.debug("recreating ALSA PCM after %s", message)
+                    self._close_playback_pcm()
+                    time.sleep(0.01)
+                    continue
+                LOGGER.warning("ALSA click playback failed: %s", message)
+                return True
+            except OSError:
+                LOGGER.exception("failed to play click through ALSA")
+                return True
+        return True
+
+    def _log_missing_device_once(self, message: str) -> None:
+        if self._missing_device_warning_logged:
+            return
+        self._missing_device_warning_logged = True
+        LOGGER.warning(
+            "click audio device unavailable (%s); dropping clicks until device returns",
+            message,
+        )
 
     def _uses_ephemeral_playback(self, device: str) -> bool:
         return is_wing_routing_pcm(device)
@@ -491,6 +512,15 @@ def _is_device_busy(message: str) -> bool:
     return "Device or resource busy" in message or "Resource busy" in message
 
 
+def _is_missing_audio_device_error(message: str) -> bool:
+    lowered = message.casefold()
+    return (
+        "no such device" in lowered
+        or "no such file" in lowered
+        or "host is down" in lowered
+    )
+
+
 def _is_recoverable_alsa_pcm_error(message: str) -> bool:
     lowered = message.casefold()
     markers = (
@@ -498,9 +528,6 @@ def _is_recoverable_alsa_pcm_error(message: str) -> bool:
         "bad file descriptor",
         "invalid argument",
         "already used",
-        "no such device",
-        "no such file",
-        "host is down",
         "broken pipe",
     )
     return any(marker in lowered for marker in markers)
