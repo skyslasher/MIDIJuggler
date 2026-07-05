@@ -1,8 +1,7 @@
 [Unit]
 Description=GamePi13 MIDIJuggler Kiosk on tty1
-After=network-online.target midijuggler.service networking.service
+After=network-online.target midijuggler.service
 Wants=network-online.target midijuggler.service
-After=ifup@eth0.service
 Conflicts=getty@tty1.service
 
 [Service]
@@ -23,7 +22,8 @@ ExecStartPre=+/opt/midijuggler/app/scripts/gamepi-disable-blanking.sh
 ExecStartPre=/opt/midijuggler/app/scripts/wait-for-boot-settled.sh
 ExecStartPre=/opt/midijuggler/app/scripts/wait-for-gamepi-network.sh
 ExecStartPre=/opt/midijuggler/app/scripts/wait-for-midijuggler-web.sh
-ExecStart=+/opt/midijuggler/app/scripts/gamepi-launch-kiosk.sh
+ExecStartPre=+/opt/midijuggler/app/scripts/gamepi-splash-stop.sh
+ExecStart=/opt/midijuggler/app/scripts/gamepi-start-kiosk.sh
 Restart=on-failure
 RestartSec=5
 

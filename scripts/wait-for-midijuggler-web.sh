@@ -6,9 +6,16 @@ timeout="${MIDIJUGGLER_WAIT_TIMEOUT:-60}"
 interval="${MIDIJUGGLER_WAIT_INTERVAL:-0.5}"
 
 deadline=$(($(date +%s) + timeout))
+last_log=0
 while [ "$(date +%s)" -lt "$deadline" ]; do
   if curl -fsS -o /dev/null "$url"; then
+    echo "web UI ready: ${url}" >&2
     exit 0
+  fi
+  now=$(date +%s)
+  if [ $((now - last_log)) -ge 10 ]; then
+    echo "still waiting for ${url}" >&2
+    last_log=$now
   fi
   sleep "$interval"
 done

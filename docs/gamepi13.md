@@ -156,10 +156,14 @@ daemonizes, so a tight restart loop spawns hundreds of processes and blocks X on
 `gamepi-fbcon.sh off` hides kernel console text on the SPI panel during splash (otherwise
 `console=tty1` boot messages look like an early splash stop).
 
-The kiosk waits for boot jobs, **Ethernet/DHCP**, and the MIDIJuggler web UI. Then
-`gamepi-launch-kiosk.sh` stops `fbi` and immediately exec `startx`.
+The kiosk waits for boot jobs, **Ethernet/DHCP**, and the MIDIJuggler web UI (while `fbi`
+keeps showing). Then `gamepi-splash-stop.sh` (root) releases `/dev/fb0` and
+`gamepi-start-kiosk.sh` (user `dietpi`) runs `startx` on `/dev/tty1`.
 
-`ExecStartPre` order: boot settle → network → web → splash stop + `startx`.
+`ExecStartPre` order: boot settle → network → web → splash stop → `startx`.
+
+Do **not** add `After=ifup@eth0.service` on the unit — that blocks the kiosk until
+DHCP finishes while the splash script keeps running, so X never appears to start.
 
 Override the interface name if not `eth0`:
 
