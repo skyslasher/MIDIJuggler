@@ -18,4 +18,9 @@ if pgrep -x fbi >/dev/null 2>&1; then
   sleep 0.2
 fi
 
+handoff_script="${GAMEPI_FB_HANDOFF_SCRIPT:-/opt/midijuggler/app/scripts/gamepi-fb-handoff.sh}"
+if [ -x "$handoff_script" ]; then
+  GAMEPI_FB_DEVICE="${GAMEPI_FB_DEVICE:-/dev/fb0}" "$handoff_script"
+fi
+
 rm -f /run/gamepi-splash.pid

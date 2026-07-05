@@ -58,4 +58,4 @@ fi
 systemctl stop getty@tty1.service 2>/dev/null || true
 
 echo "Showing splash on ${fb_device}: ${image}"
-exec fbi -d "$fb_device" -T 1 -a -noverbose -once "$image"
+exec fbi -d "$fb_device" -a -noverbose -once "$image"

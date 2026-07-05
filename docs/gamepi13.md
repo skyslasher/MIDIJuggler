@@ -38,7 +38,7 @@ Install X for the kiosk (once):
 ```bash
 sudo apt install -y \
   xserver-xorg xserver-xorg-legacy xinit xserver-xorg-video-fbdev \
-  x11-xserver-utils chromium unclutter fbi
+  x11-xserver-utils chromium unclutter fbi fbset
 sudo usermod -aG video,tty,input dietpi
 sudo /opt/midijuggler/app/scripts/install-gamepi13-xorg.sh
 ```
@@ -138,16 +138,23 @@ After `git pull`, redeploy services:
 
 ```bash
 sudo cp systemd/gamepi-splash.service systemd/gamepi-kiosk.service /etc/systemd/system/
-sudo chmod +x scripts/gamepi-disable-blanking.sh scripts/wait-for-fb0.sh configs/gamepi/kiosk.xsession
+sudo chmod +x scripts/gamepi-disable-blanking.sh scripts/wait-for-fb0.sh \
+  scripts/gamepi-fb-handoff.sh scripts/gamepi-start-kiosk.sh configs/gamepi/kiosk.xsession
 sudo systemctl daemon-reload
 sudo systemctl restart gamepi-splash.service gamepi-kiosk.service
 ```
 
 ## 7. Splash → kiosk handoff
 
-The splash (`fbi`, runs as **root**) is stopped when the kiosk starts. The kiosk unit
-runs `gamepi-splash-stop.sh` as **root** (`ExecStartPre=+…`) so it can stop the splash
-service and kill `fbi` without Polkit (`pkttyagent` / `Failed to execute /usr/bin/pkt…`).
+The splash (`fbi`, runs as **root**) stays visible until MIDIJuggler’s web UI responds.
+Only then does the kiosk stop `fbi`, release the framebuffer from the text console, and
+start X (`ExecStartPre` order: web wait → splash stop → `startx`).
+
+The kiosk runs `gamepi-splash-stop.sh` as **root** (`ExecStartPre=+…`) so it can stop the
+splash service and kill `fbi` without Polkit (`pkttyagent` / `Failed to execute /usr/bin/pkt…`).
+
+`fbi` must **not** use `-T 1` (VT grab conflicts with `startx` on vt1). Handoff unbinds
+framebuffer vtconsoles via `gamepi-fb-handoff.sh`.
 
 If X dies right after the splash with `trying fbdev: /dev/fb0` and `Return to log in`:
 
@@ -157,4 +164,4 @@ cat /home/dietpi/.local/share/xorg/Xorg.0.log | tail -40
 ```
 
 Check: `xserver-xorg-video-fbdev` installed, `/etc/X11/xorg.conf.d/99-fbdev.conf` present,
-`dietpi` in groups `video tty input`.
+`dietpi` in groups `video tty input`, package `fbset` installed if you need `con2fbmap` for debugging.
