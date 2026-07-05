@@ -8,25 +8,17 @@ Conflicts=getty@tty1.service
 Type=simple
 User=dietpi
 SupplementaryGroups=video tty input
-TimeoutStartSec=300
+TimeoutStartSec=120
 TimeoutStopSec=15
 KillMode=control-group
 KillSignal=SIGTERM
 FinalKillSignal=SIGKILL
 Environment=HOME=/home/dietpi
 Environment=FRAMEBUFFER=/dev/fb0
-Environment=GAMEPI_NETWORK_IF=eth0
 Environment=MIDIJUGGLER_SCRIPTS_DIR=/opt/midijuggler/app/scripts
 WorkingDirectory=/home/dietpi
-TTYPath=/dev/tty1
-TTYReset=no
-TTYVHangup=no
-StandardInput=tty
 StandardOutput=journal
 StandardError=journal
-ExecStartPre=+/opt/midijuggler/app/scripts/gamepi-disable-blanking.sh
-ExecStartPre=/opt/midijuggler/app/scripts/wait-for-boot-settled.sh
-ExecStartPre=/opt/midijuggler/app/scripts/wait-for-gamepi-network.sh
 ExecStartPre=/opt/midijuggler/app/scripts/wait-for-midijuggler-web.sh
 ExecStartPre=+/opt/midijuggler/app/scripts/gamepi-splash-stop.sh
 ExecStart=/opt/midijuggler/app/scripts/gamepi-start-kiosk.sh

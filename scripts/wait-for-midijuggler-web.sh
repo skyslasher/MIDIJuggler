@@ -5,6 +5,8 @@ url="${MIDIJUGGLER_WAIT_URL:-http://127.0.0.1:8080/static/clock-remote.html}"
 timeout="${MIDIJUGGLER_WAIT_TIMEOUT:-45}"
 interval="${MIDIJUGGLER_WAIT_INTERVAL:-0.5}"
 
+echo "waiting for ${url} (timeout ${timeout}s)" >&2
+
 deadline=$(($(date +%s) + timeout))
 last_log=0
 while [ "$(date +%s)" -lt "$deadline" ]; do

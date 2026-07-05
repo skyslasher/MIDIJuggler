@@ -157,13 +157,11 @@ daemonizes, so a tight restart loop spawns hundreds of processes and blocks X on
 `console=tty1` boot messages look like an early splash stop).
 
 The kiosk waits for boot jobs, **Ethernet/DHCP**, and the MIDIJuggler web UI (while `fbi`
-keeps showing). Then `gamepi-splash-stop.sh` (root) releases `/dev/fb0` and
-`gamepi-start-kiosk.sh` (user `dietpi`) runs `startx` on `/dev/tty1`.
+keeps showing). **`gamepi-splash-stop.sh` runs after the web wait** so the splash stays visible during
+boot. Do not set `TTYPath=/dev/tty1` on the unit while `fbi -T 1` holds that VT —
+systemd would hang at `Starting…` with no further logs.
 
-`ExecStartPre` order: boot settle → network → web → splash stop → `startx`. All pre
-scripts together must finish within `TimeoutStartSec` (300s). Do not add long waits
-without raising that limit — otherwise systemd kills the unit with `start-pre operation
-timed out`.
+`ExecStartPre` order: web wait → splash stop → `startx`.
 
 Do **not** add `After=ifup@eth0.service` on the unit — that blocks the kiosk until
 DHCP finishes while the splash script keeps running, so X never appears to start.
