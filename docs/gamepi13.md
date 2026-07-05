@@ -91,6 +91,18 @@ systemctl is-active gamepi-splash.service
 Common causes: missing image, `fbi` not installed, service not enabled, or **Start**
 held during boot (console mode instead of splash).
 
+If the journal shows `skipped, unmet condition check ConditionPathExists=/dev/fb0`
+(on older units) or `timed out waiting for /dev/fb0`, the ST7789 framebuffer is not
+ready yet when the splash starts. Current units wait up to 30s via
+`scripts/wait-for-fb0.sh` and order after `dev-fb0.device` instead of skipping
+immediately.
+
+```bash
+systemctl show gamepi-splash.service -p ConditionResult,ActiveState,Result
+sudo journalctl -u gamepi-splash.service -b --no-pager
+dmesg | grep -iE 'fb|st7789'
+```
+
 ## 6. Screen blanking / burn-in
 
 The GamePi13 panel is **IPS**, not OLED — permanent burn-in is **unlikely** for a
@@ -111,7 +123,7 @@ After `git pull`, redeploy services:
 
 ```bash
 sudo cp systemd/gamepi-splash.service systemd/gamepi-kiosk.service /etc/systemd/system/
-sudo chmod +x scripts/gamepi-disable-blanking.sh configs/gamepi/kiosk.xsession
+sudo chmod +x scripts/gamepi-disable-blanking.sh scripts/wait-for-fb0.sh configs/gamepi/kiosk.xsession
 sudo systemctl daemon-reload
 sudo systemctl restart gamepi-splash.service gamepi-kiosk.service
 ```
