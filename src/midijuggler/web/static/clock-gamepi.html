@@ -372,6 +372,23 @@
     const keysHeld = new Set();
     let rebootComboTriggered = false;
 
+    // GamePi13 gpio-key: physical Start → KEY_Q, Select → KEY_S (Chromium: q / s).
+    function isStartKey(key) {
+      return key === "q" || key === "Q";
+    }
+
+    function isSelectKey(key) {
+      return key === "s" || key === "S";
+    }
+
+    function isStartHeld() {
+      return keysHeld.has("q") || keysHeld.has("Q");
+    }
+
+    function isSelectHeld() {
+      return keysHeld.has("s") || keysHeld.has("S");
+    }
+
     function apiBase() {
       const params = new URLSearchParams(window.location.search);
       const host = params.get("host") || window.location.origin;
@@ -683,9 +700,7 @@
 
     function handleKeyDown(event) {
       keysHeld.add(event.key);
-      const startDown = keysHeld.has("s") || keysHeld.has("S");
-      const selectDown = keysHeld.has("q") || keysHeld.has("Q");
-      if (startDown && selectDown) {
+      if (isStartHeld() && isSelectHeld()) {
         event.preventDefault();
         openRebootModal();
         return;
@@ -697,7 +712,7 @@
           setModalFocus(modalFocus === "cancel" ? "ok" : "cancel");
           return;
         }
-        if (event.key === "Enter" || event.key === "s" || event.key === "S") {
+        if (event.key === "Enter" || isStartKey(event.key)) {
           if (modalFocus === "ok") {
             closeRebootModal();
             requestReboot();
@@ -707,14 +722,14 @@
           }
           return;
         }
-        if (event.key === "Escape" || event.key === "q" || event.key === "Q") {
+        if (event.key === "Escape" || isSelectKey(event.key)) {
           closeRebootModal();
           rebootComboTriggered = false;
         }
         return;
       }
 
-      if (event.key === "q" || event.key === "Q") {
+      if (isSelectKey(event.key)) {
         event.preventDefault();
         trigger("start_stop");
         return;
@@ -732,7 +747,7 @@
         return;
       }
 
-      if (event.key === "Enter" || event.key === "s" || event.key === "S") {
+      if (event.key === "Enter" || isStartKey(event.key)) {
         event.preventDefault();
         if (zone === "controls") {
           activateFocus();
@@ -773,7 +788,7 @@
 
     function handleKeyUp(event) {
       keysHeld.delete(event.key);
-      if (!keysHeld.has("s") && !keysHeld.has("S") && !keysHeld.has("q") && !keysHeld.has("Q")) {
+      if (!isStartHeld() && !isSelectHeld()) {
         rebootComboTriggered = false;
       }
     }

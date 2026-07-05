@@ -104,8 +104,8 @@ The kiosk loads [`/static/clock-gamepi.html`](../src/midijuggler/web/static/cloc
 | **D-pad ↓** | Enter control selection |
 | **D-pad ←/→** (control zone) | Move focus across Klick / Puls / Intervall / Helligkeit |
 | **D-pad ↑** (control zone) | Back to BPM zone |
-| **Start (`S`)** | Tap tempo (BPM zone) · activate focused control (control zone) |
-| **Select (`Q`)** | MIDI clock start/stop |
+| **Start** | Tap tempo (BPM zone) · activate focused control (control zone) |
+| **Select** | MIDI clock start/stop |
 | **Start + Select** | Reboot confirm dialog (**Abbrechen** pre-selected) |
 | **X / Y** | Brightness down / up (when L/R are hidden in the case) |
 
