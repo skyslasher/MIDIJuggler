@@ -128,5 +128,14 @@ else
   printf 'FAIL: splash-stop did not mark splash completed\n' >&2
 fi
 
+chromium_profile="$tmp/chromium-kiosk"
+rm -rf "$chromium_profile"
+mkdir -p "$chromium_profile"
+touch "$chromium_profile/stale"
+GAMEPI_CHROMIUM_USER_DATA_DIR="$chromium_profile" \
+  sh "$repo_root/scripts/gamepi-clear-chromium-cache.sh"
+assert "clear-chromium-cache recreates profile directory" [ -d "$chromium_profile" ]
+assert "clear-chromium-cache removes stale files" [ ! -f "$chromium_profile/stale" ]
+
 printf '\n%d passed, %d failed\n' "$pass" "$fail"
 [ "$fail" -eq 0 ]
