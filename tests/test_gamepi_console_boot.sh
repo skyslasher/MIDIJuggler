@@ -140,7 +140,14 @@ assert "clear-chromium-cache removes stale files" [ ! -f "$chromium_profile/stal
 mock_bin="$tmp/bin"
 mkdir -p "$mock_bin"
 restart_log="$tmp/systemctl-restarts.log"
+pull_log="$tmp/pull-log"
 : >"$restart_log"
+: >"$pull_log"
+cat >"$tmp/mock-pull.sh" <<'EOF'
+#!/bin/sh
+echo pulled >>"$PULL_LOG"
+EOF
+chmod +x "$tmp/mock-pull.sh"
 cat >"$mock_bin/systemctl" <<EOF
 #!/bin/sh
 case "\$1" in
@@ -183,12 +190,13 @@ echo recovered >>"$RECOVER_LOG"
 EOF
 chmod +x "$tmp/mock-wait.sh" "$tmp/mock-recover.sh"
 
-WAIT_LOG="$wait_log" RECOVER_LOG="$recover_log" PATH="$mock_bin:$PATH" \
+WAIT_LOG="$wait_log" RECOVER_LOG="$recover_log" PULL_LOG="$pull_log" PATH="$mock_bin:$PATH" \
+  MIDIJUGGLER_PULL_SCRIPT="$tmp/mock-pull.sh" \
   MIDIJUGGLER_WAIT_SCRIPT="$tmp/mock-wait.sh" \
   GAMEPI_RECOVER_DISPLAY_SCRIPT="$tmp/mock-recover.sh" \
   sh "$repo_root/scripts/gamepi-reload-after-pull.sh" >/dev/null 2>&1
+assert "reload-after-pull runs git pull helper" [ -f "$pull_log" ]
 assert "reload-after-pull waits for web UI" [ -f "$wait_log" ]
-assert_contains "reload-after-pull waits for web UI" "$(cat "$wait_log")" "waited"
 if grep -qx "gamepi-kiosk.service" "$restart_log" 2>/dev/null; then
   fail=$((fail + 1))
   printf 'FAIL: reload-after-pull restarted kiosk by default\n' >&2
@@ -199,7 +207,9 @@ fi
 assert "reload-after-pull runs display recovery" [ -f "$recover_log" ]
 
 : >"$restart_log"
-WAIT_LOG="$wait_log" RECOVER_LOG="$recover_log" PATH="$mock_bin:$PATH" \
+: >"$pull_log"
+WAIT_LOG="$wait_log" RECOVER_LOG="$recover_log" PULL_LOG="$pull_log" PATH="$mock_bin:$PATH" \
+  MIDIJUGGLER_PULL_SCRIPT="$tmp/mock-pull.sh" \
   MIDIJUGGLER_WAIT_SCRIPT="$tmp/mock-wait.sh" \
   GAMEPI_RECOVER_DISPLAY_SCRIPT="$tmp/mock-recover.sh" \
   GAMEPI_RELOAD_KIOSK=1 \

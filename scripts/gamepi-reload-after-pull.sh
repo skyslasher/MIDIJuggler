@@ -1,11 +1,19 @@
 #!/bin/sh
-# Safe post-deploy reload: restart midijuggler without tearing down X by default.
+# Safe post-deploy reload: pull app, restart midijuggler without tearing down X by default.
 
 set -eu
 
 app_root="${MIDIJUGGLER_APP_ROOT:-/opt/midijuggler/app}"
+pull_script="${MIDIJUGGLER_PULL_SCRIPT:-${app_root}/scripts/pull-midijuggler-app.sh}"
 wait_script="${MIDIJUGGLER_WAIT_SCRIPT:-${app_root}/scripts/wait-for-midijuggler-web.sh}"
 recover_script="${GAMEPI_RECOVER_DISPLAY_SCRIPT:-${app_root}/scripts/gamepi-recover-display.sh}"
+
+if [ "${MIDIJUGGLER_SKIP_GIT_PULL:-0}" != "1" ] && [ -x "$pull_script" ]; then
+  "$pull_script"
+elif [ "${MIDIJUGGLER_SKIP_GIT_PULL:-0}" != "1" ]; then
+  echo "pull script missing: ${pull_script}" >&2
+  echo "Run: sudo -u midijuggler git -C ${app_root} pull" >&2
+fi
 
 echo "Restarting midijuggler.service..." >&2
 systemctl restart midijuggler.service
