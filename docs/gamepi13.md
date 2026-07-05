@@ -140,7 +140,7 @@ After `git pull`, redeploy services:
 sudo cp systemd/gamepi-splash.service systemd/gamepi-kiosk.service /etc/systemd/system/
 sudo chmod +x scripts/gamepi-disable-blanking.sh scripts/wait-for-fb0.sh \
   scripts/wait-for-boot-settled.sh scripts/wait-for-gamepi-network.sh \
-  scripts/gamepi-launch-kiosk.sh scripts/gamepi-fb-handoff.sh \
+  scripts/gamepi-launch-kiosk.sh scripts/gamepi-fb-handoff.sh scripts/gamepi-fbcon.sh \
   scripts/gamepi-start-kiosk.sh configs/gamepi/kiosk.xsession
 sudo systemctl daemon-reload
 sudo systemctl restart gamepi-splash.service gamepi-kiosk.service
@@ -148,9 +148,12 @@ sudo systemctl restart gamepi-splash.service gamepi-kiosk.service
 
 ## 7. Splash → kiosk handoff
 
-The splash (`fbi`, runs as **root**) stays on screen until the kiosk kills it. Do **not**
-pass `-once` to `fbi` — that flag quits right after the first frame, which looks like an
-early splash stop while DHCP and other boot jobs still print on the console.
+The splash (`fbi`, runs as **root**) loops until `/run/gamepi-splash-hold` is cleared by
+the kiosk handoff. Do **not** pass `-once` or `-t 0` to `fbi` — both can make it exit
+immediately while boot continues.
+
+`gamepi-fbcon.sh off` hides kernel console text on the SPI panel during splash (otherwise
+`console=tty1` boot messages look like an early splash stop).
 
 The kiosk waits for boot jobs, **Ethernet/DHCP**, and the MIDIJuggler web UI. Then
 `gamepi-launch-kiosk.sh` stops `fbi` and immediately exec `startx`.
@@ -181,3 +184,14 @@ cat /home/dietpi/.local/share/xorg/Xorg.0.log | tail -40
 
 Check: `xserver-xorg-video-fbdev` installed, `/etc/X11/xorg.conf.d/99-fbdev.conf` present,
 `dietpi` in groups `video tty input`, package `fbset` installed if you need `con2fbmap` for debugging.
+
+Verify the deployed splash script on the Pi:
+
+```bash
+grep -E 'hold_flag|fbi ' /opt/midijuggler/app/scripts/gamepi-boot-splash.sh
+systemctl is-active gamepi-splash.service
+sudo journalctl -u gamepi-splash.service -b --no-pager | tail -20
+```
+
+Optional: remove `console=tty1` from `/boot/firmware/cmdline.txt` so boot logs stay on
+serial only (`console=ttyAMA0`).

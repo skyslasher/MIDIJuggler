@@ -61,6 +61,20 @@ if command -v chvt >/dev/null 2>&1; then
   chvt 1 2>/dev/null || true
 fi
 
-echo "Showing splash on ${fb_device}: ${image}"
-# Stay on screen until gamepi-launch-kiosk.sh kills fbi (-once exits after one frame).
-exec fbi -d "$fb_device" -T 1 -a -noverbose -t 0 "$image"
+fbcon_script="${GAMEPI_FBCON_SCRIPT:-/opt/midijuggler/app/scripts/gamepi-fbcon.sh}"
+if [ -x "$fbcon_script" ]; then
+  GAMEPI_FB_DEVICE="$fb_device" "$fbcon_script" off
+fi
+
+hold_flag=/run/gamepi-splash-hold
+: >"$hold_flag"
+
+echo "Showing splash on ${fb_device}: ${image} (until kiosk handoff)" >&2
+while [ -f "$hold_flag" ]; do
+  if ! fbi -d "$fb_device" -T 1 -a -noverbose "$image"; then
+    echo "fbi exited (status $?), restarting while hold flag set" >&2
+  fi
+  if [ -f "$hold_flag" ]; then
+    sleep 0.3
+  fi
+done

@@ -3,6 +3,8 @@ set -eu
 
 echo "handing off framebuffer from splash to X" >&2
 
+rm -f /run/gamepi-splash-hold
+
 systemctl stop gamepi-splash.service 2>/dev/null || true
 killall fbi 2>/dev/null || true
 
