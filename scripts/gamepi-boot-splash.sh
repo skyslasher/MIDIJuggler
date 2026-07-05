@@ -1,6 +1,7 @@
 #!/bin/sh
 set -eu
 
+completed_flag="${GAMEPI_SPLASH_COMPLETED_FLAG:-/run/gamepi-splash-completed}"
 image="${GAMEPI_SPLASH_IMAGE:-/etc/midijuggler/splash.png}"
 gpio="${GAMEPI_START_GPIO:-26}"
 chip="${GAMEPI_START_GPIO_CHIP:-gpiochip0}"
@@ -11,6 +12,11 @@ start_held_script="${GAMEPI_START_HELD_SCRIPT:-/opt/midijuggler/app/scripts/game
 blanking_script="${GAMEPI_BLANKING_SCRIPT:-/opt/midijuggler/app/scripts/gamepi-disable-blanking.sh}"
 
 console_boot_flag="${GAMEPI_CONSOLE_BOOT_FLAG:-/run/gamepi-console-boot}"
+
+if [ -f "$completed_flag" ]; then
+  echo "Splash already handed off this boot; skipping re-display" >&2
+  exit 0
+fi
 
 if [ -f "$console_boot_flag" ]; then
   echo "Console boot: skipping splash" >&2

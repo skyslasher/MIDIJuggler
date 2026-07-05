@@ -1,6 +1,8 @@
 #!/bin/sh
 set -eu
 
+completed_flag="${GAMEPI_SPLASH_COMPLETED_FLAG:-/run/gamepi-splash-completed}"
+
 had_splash=false
 if [ -f /run/gamepi-splash-hold ] || pgrep -x fbi >/dev/null 2>&1; then
   had_splash=true
@@ -35,5 +37,7 @@ if [ "$had_splash" = true ]; then
     GAMEPI_FB_DEVICE="${GAMEPI_FB_DEVICE:-/dev/fb0}" "$handoff_script"
   fi
 fi
+
+: >"$completed_flag"
 
 rm -f /run/gamepi-splash.pid

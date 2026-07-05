@@ -91,11 +91,25 @@ assert "non-executable pressed script prevents console flag" [ ! -f "$console_fl
 
 rm -f /tmp/gamepi-test-start-state
 
+# boot-splash skips fbi when splash already handed off this boot.
+rm -f /tmp/gamepi-test-start-state
+completed_flag="$tmp/gamepi-splash-completed"
+: >"$completed_flag"
+out="$(GAMEPI_SPLASH_COMPLETED_FLAG="$completed_flag" \
+  GAMEPI_FB_DEVICE="$missing_fb" \
+  GAMEPI_SPLASH_IMAGE="$tmp/missing-splash.png" \
+  GAMEPI_FBCON_SCRIPT="$noop_fbcon" \
+  sh "$repo_root/scripts/gamepi-boot-splash.sh" 2>&1)" || true
+assert_contains "boot-splash skips when splash already completed" "$out" "already handed off"
+
 # splash-stop skips fb handoff when splash never ran.
 noop_handoff="$tmp/noop-handoff.sh"
+splash_completed="$tmp/splash-completed-by-stop"
+rm -f "$splash_completed"
 printf '#!/bin/sh\necho handoff-called >&2\n' >"$noop_handoff"
 chmod +x "$noop_handoff"
 out="$(GAMEPI_FB_HANDOFF_SCRIPT="$noop_handoff" \
+  GAMEPI_SPLASH_COMPLETED_FLAG="$splash_completed" \
   sh "$repo_root/scripts/gamepi-splash-stop.sh" 2>&1)" || true
 assert_contains "splash-stop skips handoff without active splash" "$out" "skipping framebuffer handoff"
 if echo "$out" | grep -q handoff-called; then
@@ -104,6 +118,14 @@ if echo "$out" | grep -q handoff-called; then
 else
   pass=$((pass + 1))
   printf 'ok: handoff script not invoked without splash\n'
+fi
+
+if [ -f "$splash_completed" ]; then
+  pass=$((pass + 1))
+  printf 'ok: splash-stop marks splash completed\n'
+else
+  fail=$((fail + 1))
+  printf 'FAIL: splash-stop did not mark splash completed\n' >&2
 fi
 
 printf '\n%d passed, %d failed\n' "$pass" "$fail"

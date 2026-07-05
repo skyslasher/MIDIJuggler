@@ -1,11 +1,11 @@
 #!/bin/sh
-set -eu
+# Best-effort blanking disable; must never fail callers (systemd ExecStartPre).
 
 fb_device="${GAMEPI_FB_DEVICE:-/dev/fb0}"
 fb_name="$(basename "$fb_device")"
 
 if [ -w "/sys/class/graphics/${fb_name}/blank" ]; then
-  echo 0 > "/sys/class/graphics/${fb_name}/blank"
+  echo 0 > "/sys/class/graphics/${fb_name}/blank" 2>/dev/null || true
 fi
 
 if command -v fbset >/dev/null 2>&1; then
@@ -14,7 +14,7 @@ fi
 
 if [ -r /sys/module/kernel/parameters/consoleblank ]; then
   if [ -w /sys/module/kernel/parameters/consoleblank ]; then
-    echo 0 > /sys/module/kernel/parameters/consoleblank
+    echo 0 > /sys/module/kernel/parameters/consoleblank 2>/dev/null || true
   fi
 fi
 
@@ -30,7 +30,7 @@ elif command -v setterm >/dev/null 2>&1; then
 fi
 
 if command -v xset >/dev/null 2>&1 && [ -n "${DISPLAY:-}" ]; then
-  xset s off
-  xset -dpms
-  xset s noblank
+  xset s off 2>/dev/null || true
+  xset -dpms 2>/dev/null || true
+  xset s noblank 2>/dev/null || true
 fi
