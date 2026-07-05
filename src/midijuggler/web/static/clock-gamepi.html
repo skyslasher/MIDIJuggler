@@ -506,7 +506,7 @@
     function renderBrightness() {
       if (!brightnessAvailable) {
         brightnessFill.style.width = "35%";
-        brightnessTrack.title = "Kein Backlight (X/Y)";
+        brightnessTrack.title = "Kein Backlight (L/R)";
         return;
       }
       const pct = brightnessMax > 0 ? (brightnessLevel / brightnessMax) * 100 : 0;
@@ -679,24 +679,17 @@
       rebootModal.setAttribute("aria-hidden", "true");
     }
 
-    function handleBpmKey(key) {
-      switch (key) {
-        case "ArrowUp":
-          trigger("bpm_huge_up");
-          break;
-        case "ArrowDown":
-          trigger("bpm_huge_down");
-          break;
-        case "ArrowLeft":
-          trigger("bpm_down");
-          break;
-        case "ArrowRight":
-          trigger("bpm_up");
-          break;
-        default:
-          break;
-      }
-    }
+    // Face buttons (A/B/X/Y) adjust BPM; D-pad is navigation only.
+    const FACE_BUTTON_BPM = {
+      y: "bpm_huge_up",
+      Y: "bpm_huge_up",
+      x: "bpm_huge_down",
+      X: "bpm_huge_down",
+      b: "bpm_down",
+      B: "bpm_down",
+      a: "bpm_up",
+      A: "bpm_up",
+    };
 
     function handleKeyDown(event) {
       keysHeld.add(event.key);
@@ -735,15 +728,10 @@
         return;
       }
 
-      if (event.key === "x" || event.key === "X") {
+      const bpmPoint = FACE_BUTTON_BPM[event.key];
+      if (bpmPoint) {
         event.preventDefault();
-        adjustBrightness(-10);
-        return;
-      }
-
-      if (event.key === "y" || event.key === "Y") {
-        event.preventDefault();
-        adjustBrightness(10);
+        trigger(bpmPoint);
         return;
       }
 
@@ -761,9 +749,7 @@
         event.preventDefault();
         if (zone === "controls") {
           setZone("bpm");
-          return;
         }
-        handleBpmKey("ArrowUp");
         return;
       }
 
@@ -771,7 +757,6 @@
         event.preventDefault();
         if (zone === "bpm") {
           setZone("controls");
-          return;
         }
         return;
       }
@@ -780,9 +765,7 @@
         event.preventDefault();
         if (zone === "controls") {
           moveFocus(event.key === "ArrowLeft" ? -1 : 1);
-          return;
         }
-        handleBpmKey(event.key);
       }
     }
 

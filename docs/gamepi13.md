@@ -100,14 +100,15 @@ The kiosk loads [`/static/clock-gamepi.html`](../src/midijuggler/web/static/cloc
 
 | Input | Action |
 |-------|--------|
-| **D-pad** (BPM zone, default) | Up/Down = BPM ± huge · Left/Right = BPM ± step |
-| **D-pad ↓** | Enter control selection |
+| **Y / X** | BPM ± huge step |
+| **A / B** | BPM ± step |
+| **D-pad ↓** (BPM zone, default) | Enter control selection |
 | **D-pad ←/→** (control zone) | Move focus across Klick / Puls / Intervall / Helligkeit |
 | **D-pad ↑** (control zone) | Back to BPM zone |
 | **Start** | Tap tempo (BPM zone) · activate focused control (control zone) |
 | **Select** | MIDI clock start/stop |
 | **Start + Select** | Reboot confirm dialog (**Abbrechen** pre-selected) |
-| **X / Y** | Brightness down / up (when L/R are hidden in the case) |
+| **L / R** (shoulder) | Brightness down / up (`gamepi-brightness-keys.service`) |
 
 Hold **Start (`S`)** during **early boot** (from power-on through the framebuffer
 wait, up to ~45s) to skip splash and kiosk and land on a **text login on tty1**
