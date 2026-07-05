@@ -38,6 +38,11 @@ if [ -x "$CLEAR_SCRIPT" ]; then
   GAMEPI_CHROMIUM_USER_DATA_DIR="$CHROMIUM_USER_DATA_DIR" "$CLEAR_SCRIPT"
 fi
 
+WAIT_SCRIPT="${MIDIJUGGLER_WAIT_SCRIPT:-/opt/midijuggler/app/scripts/wait-for-midijuggler-web.sh}"
+if [ -x "$WAIT_SCRIPT" ]; then
+  "$WAIT_SCRIPT" || echo "web UI wait failed; starting Chromium anyway" >&2
+fi
+
 exec chromium --kiosk --noerrdialogs --disable-infobars \
   --disable-features=Translate \
   --user-data-dir="$CHROMIUM_USER_DATA_DIR" \

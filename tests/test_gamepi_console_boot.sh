@@ -219,10 +219,16 @@ assert "reload-after-pull restarts kiosk when requested" grep -qx "gamepi-kiosk.
 recover_mock_bin="$tmp/recover-bin"
 recover_socket="$tmp/X0"
 recover_disable="$tmp/noop-disable.sh"
+recover_handoff="$tmp/noop-handoff.sh"
+recover_health_ok="$tmp/health-ok.sh"
+recover_health_bad="$tmp/health-bad.sh"
 recover_restart_log="$tmp/recover-restarts.log"
 mkdir -p "$recover_mock_bin" "$(dirname "$recover_socket")"
 printf '#!/bin/sh\nexit 0\n' >"$recover_disable"
-chmod +x "$recover_disable"
+printf '#!/bin/sh\nexit 0\n' >"$recover_handoff"
+printf '#!/bin/sh\nexit 0\n' >"$recover_health_ok"
+printf '#!/bin/sh\nexit 1\n' >"$recover_health_bad"
+chmod +x "$recover_disable" "$recover_handoff" "$recover_health_ok" "$recover_health_bad"
 : >"$recover_restart_log"
 cat >"$recover_mock_bin/systemctl" <<EOF
 #!/bin/sh
@@ -253,20 +259,36 @@ EOF
 chmod +x "$recover_mock_bin/pgrep"
 python3 -c "import socket; s=socket.socket(socket.AF_UNIX); s.bind('$recover_socket')"
 
-recover_out="$tmp/recover-with-socket.out"
+recover_out="$tmp/recover-light-ok.out"
 GAMEPI_X_SOCKET="$recover_socket" \
   GAMEPI_BLANKING_SCRIPT="$recover_disable" \
+  GAMEPI_FB_HANDOFF_SCRIPT="$recover_handoff" \
+  GAMEPI_DISPLAY_HEALTH_SCRIPT="$recover_health_ok" \
+  GAMEPI_RECOVER_FORCE=0 \
   GAMEPI_RECOVER_X_SETTLE=0 \
   PATH="$recover_mock_bin:$PATH" \
   sh "$repo_root/scripts/gamepi-recover-display.sh" >"$recover_out" 2>&1
-assert_contains "recover succeeds when X socket exists without xset" "$(cat "$recover_out")" "display recovered on :0"
+assert_contains "light recover succeeds when display health ok" "$(cat "$recover_out")" "display healthy"
 if [ -s "$recover_restart_log" ]; then
   fail=$((fail + 1))
-  printf 'FAIL: recover restarted kiosk despite existing X socket\n' >&2
+  printf 'FAIL: light recover restarted kiosk despite healthy display\n' >&2
 else
   pass=$((pass + 1))
-  printf 'ok: recover does not restart kiosk when X socket exists\n'
+  printf 'ok: light recover does not restart kiosk when display healthy\n'
 fi
+
+: >"$recover_restart_log"
+recover_out="$tmp/recover-force-unhealthy.out"
+GAMEPI_X_SOCKET="$recover_socket" \
+  GAMEPI_BLANKING_SCRIPT="$recover_disable" \
+  GAMEPI_FB_HANDOFF_SCRIPT="$recover_handoff" \
+  GAMEPI_DISPLAY_HEALTH_SCRIPT="$recover_health_bad" \
+  GAMEPI_RECOVER_FORCE=1 \
+  GAMEPI_RECOVER_X_WAIT=0 \
+  PATH="$recover_mock_bin:$PATH" \
+  sh "$repo_root/scripts/gamepi-recover-display.sh" >"$recover_out" 2>&1 || true
+assert_contains "force recover restarts kiosk when display unhealthy" "$(cat "$recover_out")" "restarting gamepi-kiosk.service"
+assert "force recover calls systemctl restart when unhealthy" grep -qx "gamepi-kiosk.service" "$recover_restart_log"
 
 python3 -c "import socket; s=socket.socket(socket.AF_UNIX); s.bind('$recover_socket')" 2>/dev/null || true
 rm -f "$recover_socket"
@@ -274,12 +296,15 @@ rm -f "$recover_socket"
 recover_out="$tmp/recover-without-socket.out"
 GAMEPI_X_SOCKET="$recover_socket" \
   GAMEPI_BLANKING_SCRIPT="$recover_disable" \
+  GAMEPI_FB_HANDOFF_SCRIPT="$recover_handoff" \
+  GAMEPI_DISPLAY_HEALTH_SCRIPT="$recover_health_bad" \
+  GAMEPI_RECOVER_FORCE=0 \
   GAMEPI_RECOVER_X_SETTLE=0 \
   GAMEPI_RECOVER_X_WAIT=0 \
   PATH="$recover_mock_bin:$PATH" \
   sh "$repo_root/scripts/gamepi-recover-display.sh" >"$recover_out" 2>&1 || true
-assert_contains "recover restarts kiosk when socket missing" "$(cat "$recover_out")" "restarting gamepi-kiosk.service"
-assert "recover calls systemctl restart for missing X" grep -qx "gamepi-kiosk.service" "$recover_restart_log"
+assert_contains "light recover restarts kiosk when socket missing" "$(cat "$recover_out")" "restarting gamepi-kiosk.service"
+assert "light recover calls systemctl restart for missing X" grep -qx "gamepi-kiosk.service" "$recover_restart_log"
 
 printf '\n%d passed, %d failed\n' "$pass" "$fail"
 [ "$fail" -eq 0 ]

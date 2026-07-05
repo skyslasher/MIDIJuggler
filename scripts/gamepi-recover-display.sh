@@ -1,12 +1,29 @@
 #!/bin/sh
-# Recover a black GamePi panel: unblank fb0 and refresh X11 blanking settings.
+# Recover a black GamePi panel: unblank fb0, verify kiosk stack, restart when needed.
+#
+# When invoked directly (user recovery), restarts the kiosk unless the full stack
+# is healthy after blanking fixes. Reload scripts set GAMEPI_RECOVER_FORCE=0 for
+# a lighter check that still restarts kiosk when X or Chromium is missing.
 
 fb_device="${GAMEPI_FB_DEVICE:-/dev/fb0}"
 disable_script="${GAMEPI_BLANKING_SCRIPT:-/opt/midijuggler/app/scripts/gamepi-disable-blanking.sh}"
+handoff_script="${GAMEPI_FB_HANDOFF_SCRIPT:-/opt/midijuggler/app/scripts/gamepi-fb-handoff.sh}"
+health_script="${GAMEPI_DISPLAY_HEALTH_SCRIPT:-/opt/midijuggler/app/scripts/gamepi-display-health.sh}"
 wait_timeout="${GAMEPI_RECOVER_X_WAIT:-45}"
 settle_timeout="${GAMEPI_RECOVER_X_SETTLE:-5}"
 x_display="${GAMEPI_X_DISPLAY:-:0}"
 x_user="${GAMEPI_X_USER:-dietpi}"
+
+if [ -z "${GAMEPI_RECOVER_FORCE:-}" ]; then
+  case "$0" in
+    *gamepi-recover-display.sh)
+      GAMEPI_RECOVER_FORCE=1
+      ;;
+    *)
+      GAMEPI_RECOVER_FORCE=0
+      ;;
+  esac
+fi
 
 x_socket_path() {
   display_num="${1:-${x_display#:}}"
@@ -41,16 +58,34 @@ apply_blanking_fixes() {
 
   if x_socket_ready; then
     run_xset
+    if [ -x "$handoff_script" ]; then
+      GAMEPI_FB_DEVICE="$fb_device" GAMEPI_FB_HANDOFF_DELAY="${GAMEPI_FB_HANDOFF_DELAY:-0.2}" \
+        "$handoff_script"
+    fi
     return 0
   fi
 
   return 1
 }
 
-wait_for_x_socket() {
+display_health_ok() {
+  if [ ! -x "$health_script" ]; then
+    x_socket_ready
+    return $?
+  fi
+
+  GAMEPI_FB_DEVICE="$fb_device" \
+    GAMEPI_X_DISPLAY="$x_display" \
+    GAMEPI_X_SOCKET="${GAMEPI_X_SOCKET:-$(x_socket_path)}" \
+    GAMEPI_DIAGNOSE=1 \
+    "$health_script"
+}
+
+wait_for_health() {
   deadline=$(($(date +%s) + wait_timeout))
   while [ "$(date +%s)" -lt "$deadline" ]; do
-    if apply_blanking_fixes; then
+    apply_blanking_fixes || true
+    if display_health_ok; then
       return 0
     fi
     sleep 1
@@ -61,7 +96,8 @@ wait_for_x_socket() {
 wait_for_x_settle() {
   deadline=$(($(date +%s) + settle_timeout))
   while [ "$(date +%s)" -lt "$deadline" ]; do
-    if apply_blanking_fixes; then
+    apply_blanking_fixes || true
+    if x_socket_ready; then
       return 0
     fi
     sleep 1
@@ -69,39 +105,72 @@ wait_for_x_settle() {
   return 1
 }
 
-kiosk_process_alive() {
-  pgrep -x Xorg >/dev/null 2>&1 || pgrep -x chromium >/dev/null 2>&1
+restart_kiosk() {
+  reason="$1"
+  echo "$reason" >&2
+  if systemctl is-active --quiet gamepi-kiosk.service; then
+    systemctl restart gamepi-kiosk.service
+  elif systemctl is-enabled gamepi-kiosk.service >/dev/null 2>&1; then
+    systemctl start gamepi-kiosk.service
+  else
+    echo "gamepi-kiosk.service is not enabled" >&2
+    return 1
+  fi
 }
 
-if apply_blanking_fixes; then
-  echo "display recovered on ${x_display}" >&2
+echo "checking GamePi display health..." >&2
+apply_blanking_fixes || true
+
+if display_health_ok; then
+  echo "display healthy on ${x_display}" >&2
   exit 0
 fi
 
-if wait_for_x_settle; then
-  echo "display recovered on ${x_display}" >&2
-  exit 0
-fi
-
-if systemctl is-active --quiet gamepi-kiosk.service; then
-  if kiosk_process_alive; then
-    echo "kiosk processes alive but X socket missing; restarting gamepi-kiosk.service" >&2
-  else
-    echo "kiosk active but X socket missing; restarting gamepi-kiosk.service" >&2
+if [ "$GAMEPI_RECOVER_FORCE" = "1" ]; then
+  if restart_kiosk "recover: restarting gamepi-kiosk.service"; then
+    if wait_for_health; then
+      echo "display recovered after kiosk restart on ${x_display}" >&2
+      exit 0
+    fi
+    echo "display still unhealthy after kiosk restart (${wait_timeout}s)" >&2
+    display_health_ok || true
+    exit 1
   fi
-  systemctl restart gamepi-kiosk.service
-elif systemctl is-enabled gamepi-kiosk.service >/dev/null 2>&1; then
-  echo "starting gamepi-kiosk.service" >&2
-  systemctl start gamepi-kiosk.service
-else
-  echo "gamepi-kiosk.service is not enabled" >&2
   exit 1
 fi
 
-if wait_for_x_socket; then
-  echo "display recovered after kiosk start" >&2
+if wait_for_x_settle && display_health_ok; then
+  echo "display recovered on ${x_display}" >&2
   exit 0
 fi
 
-echo "display still unavailable after ${wait_timeout}s; try: sudo reboot" >&2
+if x_socket_ready && ! pgrep -x chromium >/dev/null 2>&1; then
+  if restart_kiosk "X running but Chromium missing; restarting gamepi-kiosk.service"; then
+    if wait_for_health; then
+      echo "display recovered after kiosk restart on ${x_display}" >&2
+      exit 0
+    fi
+  fi
+elif ! x_socket_ready; then
+  if pgrep -x Xorg >/dev/null 2>&1 || pgrep -x chromium >/dev/null 2>&1; then
+    restart_reason="kiosk processes alive but X socket missing; restarting gamepi-kiosk.service"
+  else
+    restart_reason="kiosk active but X socket missing; restarting gamepi-kiosk.service"
+  fi
+  if restart_kiosk "$restart_reason"; then
+    if wait_for_health; then
+      echo "display recovered after kiosk start on ${x_display}" >&2
+      exit 0
+    fi
+  fi
+else
+  apply_blanking_fixes || true
+  if display_health_ok; then
+    echo "display recovered on ${x_display}" >&2
+    exit 0
+  fi
+fi
+
+echo "display still unavailable after recovery; try: sudo reboot" >&2
+display_health_ok || true
 exit 1

@@ -4,8 +4,14 @@
 fb_device="${GAMEPI_FB_DEVICE:-/dev/fb0}"
 fb_name="$(basename "$fb_device")"
 
-if [ -w "/sys/class/graphics/${fb_name}/blank" ]; then
-  { echo 0 > "/sys/class/graphics/${fb_name}/blank"; } 2>/dev/null || true
+blank_path="/sys/class/graphics/${fb_name}/blank"
+if [ -w "$blank_path" ]; then
+  { echo 0 > "$blank_path"; } 2>/dev/null || true
+  # Some SPI panels need a second write after a short delay.
+  if [ -r "$blank_path" ] && [ "$(cat "$blank_path" 2>/dev/null)" != "0" ]; then
+    sleep 0.1
+    { echo 0 > "$blank_path"; } 2>/dev/null || true
+  fi
 fi
 
 if [ -w /sys/module/kernel/parameters/consoleblank ] 2>/dev/null; then
