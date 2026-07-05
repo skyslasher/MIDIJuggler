@@ -43,17 +43,25 @@ sudo usermod -aG video,tty,input dietpi
 sudo /opt/midijuggler/app/scripts/install-gamepi13-xorg.sh
 ```
 
-`xserver-xorg-legacy` + `/etc/X11/Xwrapper.config` may still be required on some setups. The
-GamePi SPI kiosk uses **fbdev on `/dev/fb0` only** — `startx` passes **`-novtswitch`**
-(no `vt1`) so X does not need to open `/dev/tty1` after the splash (`fbi -T 1`) releases
-the framebuffer. Re-run `install-gamepi13-xorg.sh` after updating `99-fbdev.conf`.
+`xserver-xorg-legacy` + [`configs/gamepi/Xwrapper.config`](../configs/gamepi/Xwrapper.config)
+(`allowed_users=anybody`, `needs_root_rights=yes`) let `startx` open `/dev/tty0`.
+Run `install-gamepi13-xorg.sh` after each pull that touches X config.
+
+Kiosk startup is **two units** so the splash can keep `/dev/tty1` until the web UI is
+ready:
+
+| Unit | Role |
+|------|------|
+| `gamepi-kiosk-ready.service` | wait for web → stop splash (`fbi`) |
+| `gamepi-kiosk.service` | `TTYPath=/dev/tty1` → `startx` |
 
 ```bash
 sudo cp /opt/midijuggler/app/systemd/gamepi-splash.service /etc/systemd/system/
+sudo cp /opt/midijuggler/app/systemd/gamepi-kiosk-ready.service /etc/systemd/system/
 sudo cp /opt/midijuggler/app/systemd/gamepi-kiosk.service /etc/systemd/system/
 sudo cp /opt/midijuggler/app/systemd/gamepi-brightness-keys.service /etc/systemd/system/
 sudo systemctl daemon-reload
-sudo systemctl enable --now gamepi-splash.service gamepi-kiosk.service gamepi-brightness-keys.service
+sudo systemctl enable --now gamepi-splash.service gamepi-kiosk-ready.service gamepi-kiosk.service gamepi-brightness-keys.service
 ```
 
 Requires `evdev` in the MIDIJuggler venv (`pip install -e ".[hid]"`).
@@ -139,59 +147,45 @@ consoleblank=0
 After `git pull`, redeploy services:
 
 ```bash
-sudo cp systemd/gamepi-splash.service systemd/gamepi-kiosk.service /etc/systemd/system/
+sudo cp systemd/gamepi-splash.service systemd/gamepi-kiosk-ready.service systemd/gamepi-kiosk.service /etc/systemd/system/
+sudo /opt/midijuggler/app/scripts/install-gamepi13-xorg.sh
 sudo chmod +x scripts/gamepi-disable-blanking.sh scripts/wait-for-fb0.sh \
-  scripts/wait-for-boot-settled.sh scripts/wait-for-gamepi-network.sh \
   scripts/gamepi-launch-kiosk.sh scripts/gamepi-fb-handoff.sh scripts/gamepi-fbcon.sh \
   scripts/gamepi-start-kiosk.sh configs/gamepi/kiosk.xsession
 sudo systemctl daemon-reload
-sudo systemctl restart gamepi-splash.service gamepi-kiosk.service
+sudo systemctl enable gamepi-kiosk-ready.service gamepi-kiosk.service
+sudo systemctl restart gamepi-splash.service gamepi-kiosk-ready.service gamepi-kiosk.service
 ```
 
 ## 7. Splash → kiosk handoff
 
-The splash (`fbi`, runs as **root**) stays on screen until the kiosk clears
-`/run/gamepi-splash-hold`. Start **one** background `fbi` only — with `-T 1` it
-daemonizes, so a tight restart loop spawns hundreds of processes and blocks X on
-`/dev/fb0`.
+Boot sequence:
 
-`gamepi-fbcon.sh off` hides kernel console text on the SPI panel during splash (otherwise
-`console=tty1` boot messages look like an early splash stop).
+1. `gamepi-splash.service` — one background `fbi -T 1` until hold flag cleared
+2. `gamepi-kiosk-ready.service` — web wait, then `gamepi-splash-stop.sh` (root)
+3. `gamepi-kiosk.service` — `TTYPath=/dev/tty1`, then `startx` (needs `xserver-xorg-legacy`)
 
-The kiosk waits for boot jobs, **Ethernet/DHCP**, and the MIDIJuggler web UI (while `fbi`
-keeps showing). **`gamepi-splash-stop.sh` runs after the web wait** so the splash stays visible during
-boot. Do not set `TTYPath=/dev/tty1` on the unit while `fbi -T 1` holds that VT —
-systemd would hang at `Starting…` with no further logs.
+Do **not** combine splash wait and `TTYPath=/dev/tty1` in one unit — systemd hangs
+while `fbi` holds vt1. Do **not** use a tight `fbi` restart loop (`fbi -T 1` daemonizes).
 
-`ExecStartPre` order: web wait → splash stop → `startx`.
+`gamepi-fbcon.sh off` hides kernel console text during splash. `gamepi-fb-handoff.sh`
+runs inside splash-stop before X starts.
 
-Do **not** add `After=ifup@eth0.service` on the unit — that blocks the kiosk until
-DHCP finishes while the splash script keeps running, so X never appears to start.
-
-Override the interface name if not `eth0`:
+If X fails with `Cannot open /dev/tty0`:
 
 ```bash
-# /etc/systemd/system/gamepi-kiosk.service.d/network.conf
-[Service]
-Environment=GAMEPI_NETWORK_IF=end0
+sudo /opt/midijuggler/app/scripts/install-gamepi13-xorg.sh
+ls -l /usr/lib/xorg/Xorg.wrap /usr/bin/X
+cat /etc/X11/Xwrapper.config
+groups dietpi
 ```
 
-The kiosk runs `gamepi-splash-stop.sh` as **root** (`ExecStartPre=+…`) so it can stop the
-splash service and kill `fbi` without Polkit (`pkttyagent` / `Failed to execute /usr/bin/pkt…`).
-
-`fbi` needs `-T 1` on the GamePi SPI panel (without it nothing is drawn). Before
-`startx`, `gamepi-fb-handoff.sh` resets vt1 and unbinds framebuffer vtconsoles so X
-can open `/dev/fb0` without conflicting with the splash.
-
-If X dies right after the splash with `trying fbdev: /dev/fb0` and `Return to log in`:
+If X fails after splash:
 
 ```bash
-sudo journalctl -u gamepi-kiosk.service -b --no-pager
-cat /home/dietpi/.local/share/xorg/Xorg.0.log | tail -40
+sudo journalctl -u gamepi-kiosk-ready.service -u gamepi-kiosk.service -b --no-pager
+tail -40 /home/dietpi/.local/share/xorg/Xorg.0.log
 ```
-
-Check: `xserver-xorg-video-fbdev` installed, `/etc/X11/xorg.conf.d/99-fbdev.conf` present,
-`dietpi` in groups `video tty input`, package `fbset` installed if you need `con2fbmap` for debugging.
 
 Verify the deployed splash script on the Pi:
 

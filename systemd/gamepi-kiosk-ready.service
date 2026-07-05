@@ -1,0 +1,19 @@
+[Unit]
+Description=Wait for MIDIJuggler web UI and release GamePi splash
+After=network-online.target midijuggler.service gamepi-splash.service
+Wants=network-online.target midijuggler.service
+Before=gamepi-kiosk.service
+
+[Service]
+Type=oneshot
+RemainAfterExit=yes
+User=dietpi
+Environment=MIDIJUGGLER_SCRIPTS_DIR=/opt/midijuggler/app/scripts
+StandardOutput=journal
+StandardError=journal
+ExecStartPre=+/opt/midijuggler/app/scripts/gamepi-disable-blanking.sh
+ExecStart=/opt/midijuggler/app/scripts/wait-for-midijuggler-web.sh
+ExecStart=+/opt/midijuggler/app/scripts/gamepi-splash-stop.sh
+
+[Install]
+WantedBy=multi-user.target

@@ -1,26 +1,27 @@
 [Unit]
 Description=GamePi13 MIDIJuggler Kiosk on tty1
-After=network-online.target midijuggler.service
-Wants=network-online.target midijuggler.service
+Requires=gamepi-kiosk-ready.service
+After=gamepi-kiosk-ready.service network-online.target midijuggler.service
 Conflicts=getty@tty1.service
 
 [Service]
 Type=simple
 User=dietpi
 SupplementaryGroups=video tty input
-TimeoutStartSec=120
+TimeoutStartSec=60
 TimeoutStopSec=15
 KillMode=control-group
 KillSignal=SIGTERM
 FinalKillSignal=SIGKILL
 Environment=HOME=/home/dietpi
 Environment=FRAMEBUFFER=/dev/fb0
-Environment=MIDIJUGGLER_SCRIPTS_DIR=/opt/midijuggler/app/scripts
 WorkingDirectory=/home/dietpi
+TTYPath=/dev/tty1
+TTYReset=no
+TTYVHangup=no
+StandardInput=tty
 StandardOutput=journal
 StandardError=journal
-ExecStartPre=/opt/midijuggler/app/scripts/wait-for-midijuggler-web.sh
-ExecStartPre=+/opt/midijuggler/app/scripts/gamepi-splash-stop.sh
 ExecStart=/opt/midijuggler/app/scripts/gamepi-start-kiosk.sh
 Restart=on-failure
 RestartSec=5
