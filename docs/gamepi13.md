@@ -43,10 +43,10 @@ sudo usermod -aG video,tty,input dietpi
 sudo /opt/midijuggler/app/scripts/install-gamepi13-xorg.sh
 ```
 
-`xserver-xorg-legacy` + `/etc/X11/Xwrapper.config` (`allowed_users=anybody`) are required
-so X can open `/dev/tty0`. After the splash releases vt1, `gamepi-start-kiosk.sh` uses
-`openvt` (package `kbd`) to attach `startx` to `/dev/tty1` without `TTYPath=` on the
-unit (that would deadlock while `fbi -T 1` still holds the console).
+`xserver-xorg-legacy` + `/etc/X11/Xwrapper.config` may still be required on some setups. The
+GamePi SPI kiosk uses **fbdev on `/dev/fb0` only** — `startx` passes **`-novtswitch`**
+(no `vt1`) so X does not need to open `/dev/tty1` after the splash (`fbi -T 1`) releases
+the framebuffer. Re-run `install-gamepi13-xorg.sh` after updating `99-fbdev.conf`.
 
 ```bash
 sudo cp /opt/midijuggler/app/systemd/gamepi-splash.service /etc/systemd/system/
