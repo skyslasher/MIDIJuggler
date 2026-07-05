@@ -139,19 +139,23 @@ After `git pull`, redeploy services:
 ```bash
 sudo cp systemd/gamepi-splash.service systemd/gamepi-kiosk.service /etc/systemd/system/
 sudo chmod +x scripts/gamepi-disable-blanking.sh scripts/wait-for-fb0.sh \
-  scripts/wait-for-gamepi-network.sh scripts/gamepi-launch-kiosk.sh \
-  scripts/gamepi-fb-handoff.sh scripts/gamepi-start-kiosk.sh configs/gamepi/kiosk.xsession
+  scripts/wait-for-boot-settled.sh scripts/wait-for-gamepi-network.sh \
+  scripts/gamepi-launch-kiosk.sh scripts/gamepi-fb-handoff.sh \
+  scripts/gamepi-start-kiosk.sh configs/gamepi/kiosk.xsession
 sudo systemctl daemon-reload
 sudo systemctl restart gamepi-splash.service gamepi-kiosk.service
 ```
 
 ## 7. Splash → kiosk handoff
 
-The splash (`fbi`, runs as **root**) stays visible while the kiosk unit waits for
-**Ethernet/DHCP** and the MIDIJuggler web UI. Only then does `gamepi-launch-kiosk.sh`
-stop `fbi` and immediately exec `startx` (minimal gap, no console boot spam).
+The splash (`fbi`, runs as **root**) stays on screen until the kiosk kills it. Do **not**
+pass `-once` to `fbi` — that flag quits right after the first frame, which looks like an
+early splash stop while DHCP and other boot jobs still print on the console.
 
-`ExecStartPre` order: network wait → web wait → splash stop + `startx`.
+The kiosk waits for boot jobs, **Ethernet/DHCP**, and the MIDIJuggler web UI. Then
+`gamepi-launch-kiosk.sh` stops `fbi` and immediately exec `startx`.
+
+`ExecStartPre` order: boot settle → network → web → splash stop + `startx`.
 
 Override the interface name if not `eth0`:
 

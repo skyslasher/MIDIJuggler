@@ -62,4 +62,5 @@ if command -v chvt >/dev/null 2>&1; then
 fi
 
 echo "Showing splash on ${fb_device}: ${image}"
-exec fbi -d "$fb_device" -T 1 -a -noverbose -once "$image"
+# Stay on screen until gamepi-launch-kiosk.sh kills fbi (-once exits after one frame).
+exec fbi -d "$fb_device" -T 1 -a -noverbose -t 0 "$image"
