@@ -216,5 +216,70 @@ WAIT_LOG="$wait_log" RECOVER_LOG="$recover_log" PULL_LOG="$pull_log" PATH="$mock
   sh "$repo_root/scripts/gamepi-reload-after-pull.sh" >/dev/null 2>&1
 assert "reload-after-pull restarts kiosk when requested" grep -qx "gamepi-kiosk.service" "$restart_log"
 
+recover_mock_bin="$tmp/recover-bin"
+recover_socket="$tmp/X0"
+recover_disable="$tmp/noop-disable.sh"
+recover_restart_log="$tmp/recover-restarts.log"
+mkdir -p "$recover_mock_bin" "$(dirname "$recover_socket")"
+printf '#!/bin/sh\nexit 0\n' >"$recover_disable"
+chmod +x "$recover_disable"
+: >"$recover_restart_log"
+cat >"$recover_mock_bin/systemctl" <<EOF
+#!/bin/sh
+case "\$1" in
+  is-active)
+    service="\$2"
+    if [ "\$service" = "--quiet" ]; then
+      service="\$3"
+    fi
+    [ "\$service" = "gamepi-kiosk.service" ]
+    ;;
+  is-enabled)
+    exit 1
+    ;;
+  restart|start)
+    echo "\$2" >>"$recover_restart_log"
+    ;;
+  *)
+    exit 1
+    ;;
+esac
+EOF
+chmod +x "$recover_mock_bin/systemctl"
+cat >"$recover_mock_bin/pgrep" <<'EOF'
+#!/bin/sh
+exit 1
+EOF
+chmod +x "$recover_mock_bin/pgrep"
+python3 -c "import socket; s=socket.socket(socket.AF_UNIX); s.bind('$recover_socket')"
+
+recover_out="$tmp/recover-with-socket.out"
+GAMEPI_X_SOCKET="$recover_socket" \
+  GAMEPI_BLANKING_SCRIPT="$recover_disable" \
+  GAMEPI_RECOVER_X_SETTLE=0 \
+  PATH="$recover_mock_bin:$PATH" \
+  sh "$repo_root/scripts/gamepi-recover-display.sh" >"$recover_out" 2>&1
+assert_contains "recover succeeds when X socket exists without xset" "$(cat "$recover_out")" "display recovered on :0"
+if [ -s "$recover_restart_log" ]; then
+  fail=$((fail + 1))
+  printf 'FAIL: recover restarted kiosk despite existing X socket\n' >&2
+else
+  pass=$((pass + 1))
+  printf 'ok: recover does not restart kiosk when X socket exists\n'
+fi
+
+python3 -c "import socket; s=socket.socket(socket.AF_UNIX); s.bind('$recover_socket')" 2>/dev/null || true
+rm -f "$recover_socket"
+: >"$recover_restart_log"
+recover_out="$tmp/recover-without-socket.out"
+GAMEPI_X_SOCKET="$recover_socket" \
+  GAMEPI_BLANKING_SCRIPT="$recover_disable" \
+  GAMEPI_RECOVER_X_SETTLE=0 \
+  GAMEPI_RECOVER_X_WAIT=0 \
+  PATH="$recover_mock_bin:$PATH" \
+  sh "$repo_root/scripts/gamepi-recover-display.sh" >"$recover_out" 2>&1 || true
+assert_contains "recover restarts kiosk when socket missing" "$(cat "$recover_out")" "restarting gamepi-kiosk.service"
+assert "recover calls systemctl restart for missing X" grep -qx "gamepi-kiosk.service" "$recover_restart_log"
+
 printf '\n%d passed, %d failed\n' "$pass" "$fail"
 [ "$fail" -eq 0 ]

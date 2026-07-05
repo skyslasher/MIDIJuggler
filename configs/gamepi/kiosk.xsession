@@ -1,11 +1,23 @@
 #!/bin/sh
 export FRAMEBUFFER=/dev/fb0
 
+xsession_pid=$$
+
 (
   while [ ! -S /tmp/.X11-unix/X0 ]; do
     sleep 0.1
   done
   /opt/midijuggler/app/scripts/gamepi-disable-blanking.sh
+) &
+
+(
+  while sleep 2; do
+    if [ -S /tmp/.X11-unix/X0 ]; then
+      continue
+    fi
+    kill -TERM "$xsession_pid" 2>/dev/null || true
+    exit 0
+  done
 ) &
 
 /opt/midijuggler/app/scripts/gamepi-disable-blanking.sh

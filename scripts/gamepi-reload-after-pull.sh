@@ -33,7 +33,7 @@ if [ "${GAMEPI_RELOAD_KIOSK:-0}" = "1" ] && systemctl is-active --quiet gamepi-k
 else
   echo "Leaving gamepi-kiosk.service running (set GAMEPI_RELOAD_KIOSK=1 to restart UI)." >&2
   if [ -x "$recover_script" ]; then
-    "$recover_script"
+    GAMEPI_RECOVER_X_SETTLE="${GAMEPI_RECOVER_X_SETTLE:-8}" "$recover_script"
   fi
 fi
 
