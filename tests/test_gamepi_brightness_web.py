@@ -186,7 +186,6 @@ def test_poll_mtime_triggers_refresh_on_mtime_change(tmp_path: Path, monkeypatch
     store = DataPointStore()
     module = GamePiBrightnessModule(store, state_path=state_path)
     module.running = True
-    module._inotify = None
     module._last_mtime_ns = state_path.stat().st_mtime_ns
     refresh_calls = {"count": 0}
     original_refresh = module.refresh
@@ -401,6 +400,41 @@ def test_adjust_brightness_invalidates_cache_and_uses_sudo(monkeypatch) -> None:
     assert refreshed["level"] == 165
     assert direct_reads["count"] == 2
     assert calls == [["--delta", "10"]]
+
+
+def test_brightness_refresh_endpoint_publishes_datapoint(monkeypatch) -> None:
+    from aiohttp import web
+    from aiohttp.test_utils import TestClient, TestServer
+
+    from midijuggler.web.server import WebInterface
+
+    config = parse_config({})
+    bus = EventBus()
+    store = DataPointStore()
+    web_iface = WebInterface(
+        config,
+        bus,
+        ClockBpmTracker(),
+        MasterClock(config.master_clock, bus),
+        datapoint_store=store,
+    )
+    store.register_many(GamePiBrightnessModule(store, state_path=Path("/tmp/unused")).datapoints())
+    monkeypatch.setattr(
+        gamepi_brightness,
+        "_direct_brightness_status",
+        lambda: {"available": True, "mode": "software", "level": 155, "max": 255},
+    )
+
+    async def scenario() -> None:
+        app = web_iface.create_app()
+        async with TestClient(TestServer(app)) as client:
+            response = await client.post("/api/gamepi/brightness/refresh")
+            assert response.status == 200
+            payload = await response.json()
+            assert payload["level"] == 155
+            assert store.snapshot()["gamepi.brightness"]["int_value"] == 155
+
+    asyncio.run(scenario())
 
 
 def test_adjust_brightness_uses_direct_path_without_sudo(monkeypatch) -> None:

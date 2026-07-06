@@ -303,6 +303,7 @@ class WebInterface:
         app.router.add_post("/api/clock/trigger", self.clock_trigger)
         app.router.add_get("/api/gamepi/brightness", self.gamepi_brightness_status)
         app.router.add_post("/api/gamepi/brightness", self.gamepi_brightness_adjust)
+        app.router.add_post("/api/gamepi/brightness/refresh", self.gamepi_brightness_refresh)
         app.router.add_post("/api/gamepi/reboot", self.gamepi_reboot)
         app.router.add_get("/api/midi-libraries", self.midi_libraries)
         app.router.add_get("/api/midi-libraries/{library_id}", self.midi_library)
@@ -984,6 +985,15 @@ class WebInterface:
         result = adjust_brightness_payload(delta)
         await publish_brightness_to_store(self.datapoint_store, result)
         return web.json_response(result)
+
+    async def gamepi_brightness_refresh(self, request: web.Request) -> web.Response:
+        from midijuggler.modules.interface.gamepi_brightness import publish_brightness_to_store
+        from midijuggler.web.gamepi_brightness import brightness_status_payload
+
+        if self.datapoint_store is None:
+            raise web.HTTPServiceUnavailable(text="datapoint store unavailable")
+        await publish_brightness_to_store(self.datapoint_store)
+        return web.json_response(brightness_status_payload(fresh=True))
 
     async def gamepi_reboot(self, request: web.Request) -> web.Response:
         from midijuggler.web.gamepi_system import request_reboot
@@ -4274,6 +4284,7 @@ class _QuietAccessPathsFilter(logging.Filter):
         '"GET /api/status ',
         '"GET /api/gamepi/brightness ',
         '"POST /api/gamepi/brightness ',
+        '"POST /api/gamepi/brightness/refresh ',
     )
 
     def filter(self, record: logging.LogRecord) -> bool:

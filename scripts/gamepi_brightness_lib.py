@@ -325,3 +325,20 @@ def brightness_status() -> dict[str, int | bool | str]:
         "level": load_level(max_level),
         "max": max_level,
     }
+
+
+def notify_midijuggler_refresh() -> bool:
+    """Ask the local web service to republish brightness to connected UIs."""
+    import urllib.error
+    import urllib.request
+
+    host = os.environ.get("MIDIJUGGLER_WEB_HOST", "127.0.0.1").strip() or "127.0.0.1"
+    port = os.environ.get("MIDIJUGGLER_WEB_PORT", "8080").strip() or "8080"
+    url = f"http://{host}:{port}/api/gamepi/brightness/refresh"
+    request = urllib.request.Request(url, data=b"", method="POST")
+    try:
+        with urllib.request.urlopen(request, timeout=2) as response:
+            response.read()
+    except (OSError, urllib.error.URLError):
+        return False
+    return True

@@ -14,7 +14,7 @@ from gamepi_lgpio_env import prepare_lgpio_runtime
 
 prepare_lgpio_runtime()
 
-from gamepi_brightness_lib import adjust_brightness, brightness_mode, sync_brightness
+from gamepi_brightness_lib import adjust_brightness, brightness_mode, notify_midijuggler_refresh, sync_brightness
 from gamepi_gpio_keys import brightness_delta_for_event, find_brightness_devices
 
 LOGGER = logging.getLogger("gamepi-brightness")
@@ -33,6 +33,8 @@ def _adjust(delta: int) -> None:
             result["max"],
             result.get("mode", "unknown"),
         )
+        if not notify_midijuggler_refresh():
+            LOGGER.debug("midijuggler brightness refresh notify failed")
     elif result.get("available"):
         LOGGER.error(
             "brightness apply failed (mode=%s level=%s)",
