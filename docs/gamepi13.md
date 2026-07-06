@@ -135,11 +135,13 @@ systemctl show gamepi-kiosk.service -p ConditionResult,ActiveState
 gpio-keys device and adjusts brightness through sysfs when present.
 
 Many GamePi13 panels (`waveshare13`) expose **no** `/sys/class/backlight` entry.
-In that case MIDIJuggler uses **software brightness** via `xgamma` on the kiosk
-X session (`:0`). Install once:
+MIDIJuggler then drives the panel backlight with **GPIO PWM** (default BCM **18**,
+same as Waveshare’s ST7789 wiring). Install once:
 
 ```bash
 sudo /opt/midijuggler/app/scripts/install-gamepi13-brightness.sh
+sudo cp /opt/midijuggler/app/systemd/gamepi-brightness-keys.service /etc/systemd/system/
+sudo systemctl daemon-reload
 sudo systemctl restart midijuggler.service gamepi-brightness-keys.service
 ```
 
@@ -147,18 +149,21 @@ Verify:
 
 ```bash
 curl -fsS http://127.0.0.1:8080/api/gamepi/brightness
-ls -l /sys/class/backlight/
-sudo -u midijuggler sudo -n /opt/midijuggler/app/scripts/gamepi-apply-gamma.sh 0.85
+/opt/midijuggler/venv/bin/python -c "import lgpio; print('lgpio ok')"
+sudo journalctl -u gamepi-brightness-keys.service -n 20 --no-pager
 ```
 
-If a hardware backlight appears later, set optional overrides in
-`/etc/midijuggler/environment` or the service unit:
+Both shoulder buttons (**GPL** / **GPR**, evdev `button@17` / `button@e`) should log
+brightness changes. The web UI uses the same backend — it does **not** go through
+`gamepi-brightness-keys.service`.
+
+If brightness still fails, try another GPIO (some boards use BCM 24):
 
 ```bash
-GAMEPI_BACKLIGHT_NAME=10-0045
-# or explicit paths:
-GAMEPI_BACKLIGHT_BRIGHTNESS=/sys/class/backlight/10-0045/brightness
-GAMEPI_BACKLIGHT_MAX_BRIGHTNESS=/sys/class/backlight/10-0045/max_brightness
+sudo systemctl edit gamepi-brightness-keys.service
+# add:
+# [Service]
+# Environment=GAMEPI_BACKLIGHT_GPIO=24
 ```
 
 ## 5. Splash image

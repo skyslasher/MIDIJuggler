@@ -6,6 +6,8 @@ import os
 import subprocess
 from pathlib import Path
 
+from gamepi_backlight_pwm import apply_pwm_level, pwm_available
+
 STATE_PATH = Path(os.environ.get("GAMEPI_BRIGHTNESS_STATE", "/var/lib/gamepi/brightness"))
 DEFAULT_STEP = int(os.environ.get("GAMEPI_BRIGHTNESS_STEP", "10"))
 SOFTWARE_MAX = int(os.environ.get("GAMEPI_BRIGHTNESS_MAX", "255"))
@@ -75,6 +77,8 @@ def store_level(level: int) -> None:
 def brightness_mode() -> str:
     if find_backlight() is not None:
         return "sysfs"
+    if pwm_available():
+        return "pwm"
     if _software_brightness_enabled():
         return "software"
     return "none"
@@ -85,15 +89,6 @@ def level_to_gamma(level: int, max_level: int = SOFTWARE_MAX) -> float:
         return GAMMA_MAX
     ratio = max(0.0, min(level / max_level, 1.0))
     return GAMMA_MIN + ratio * (GAMMA_MAX - GAMMA_MIN)
-
-
-def apply_software_level(level: int, max_level: int = SOFTWARE_MAX) -> tuple[int, bool]:
-    clamped = max(0, min(level, max_level))
-    gamma = level_to_gamma(clamped, max_level)
-    if not _run_gamma(gamma):
-        return load_level(max_level), False
-    store_level(clamped)
-    return clamped, True
 
 
 def _run_gamma(gamma: float) -> bool:
@@ -116,6 +111,32 @@ def _run_gamma(gamma: float) -> bool:
         return False
 
 
+def apply_level_value(level: int, max_level: int = SOFTWARE_MAX) -> tuple[int, bool, str]:
+    clamped = max(0, min(level, max_level))
+
+    backlight = find_backlight()
+    if backlight is not None:
+        brightness_path, max_path = backlight
+        sysfs_max = read_int(max_path, max_level)
+        applied = apply_level(clamped, brightness_path, max_path)
+        return applied, True, "sysfs"
+
+    if pwm_available():
+        if apply_pwm_level(clamped, max_level):
+            store_level(clamped)
+            return clamped, True, "pwm"
+        return load_level(max_level), False, "pwm"
+
+    if _software_brightness_enabled():
+        gamma = level_to_gamma(clamped, max_level)
+        if _run_gamma(gamma):
+            store_level(clamped)
+            return clamped, True, "software"
+        return load_level(max_level), False, "software"
+
+    return load_level(max_level), False, "none"
+
+
 def apply_level(level: int, brightness_path: Path, max_path: Path) -> int:
     max_level = read_int(max_path, SOFTWARE_MAX)
     clamped = max(0, min(level, max_level))
@@ -128,38 +149,47 @@ def apply_level(level: int, brightness_path: Path, max_path: Path) -> int:
 
 
 def adjust_brightness(delta: int) -> dict[str, int | bool | str]:
-    backlight = find_backlight()
-    if backlight is not None:
-        brightness_path, max_path = backlight
-        max_level = read_int(max_path, SOFTWARE_MAX)
-        current = read_int(brightness_path, load_level(max_level))
-        level = apply_level(current + delta, brightness_path, max_path)
-        return {
-            "ok": True,
-            "available": True,
-            "mode": "sysfs",
-            "level": level,
-            "max": max_level,
-        }
-
-    if not _software_brightness_enabled():
-        return {"ok": False, "available": False, "mode": "none"}
-
     max_level = SOFTWARE_MAX
+    if find_backlight() is not None:
+        max_path = find_backlight()[1]
+        max_level = read_int(max_path, SOFTWARE_MAX)
+
     current = load_level(max_level)
-    level, ok = apply_software_level(current + delta, max_level)
+    level, ok, mode = apply_level_value(current + delta, max_level)
+    available = mode != "none"
     return {
         "ok": ok,
-        "available": True,
-        "mode": "software",
+        "available": available,
+        "mode": mode,
+        "level": level,
+        "max": max_level,
+    }
+
+
+def sync_brightness() -> dict[str, int | bool | str]:
+    max_level = SOFTWARE_MAX
+    if find_backlight() is not None:
+        max_path = find_backlight()[1]
+        max_level = read_int(max_path, SOFTWARE_MAX)
+    level, ok, mode = apply_level_value(load_level(max_level), max_level)
+    return {
+        "ok": ok,
+        "available": mode != "none",
+        "mode": mode,
         "level": level,
         "max": max_level,
     }
 
 
 def brightness_status() -> dict[str, int | bool | str]:
-    backlight = find_backlight()
-    if backlight is not None:
+    mode = brightness_mode()
+    if mode == "none":
+        return {"available": False, "mode": "none"}
+
+    max_level = SOFTWARE_MAX
+    if mode == "sysfs":
+        backlight = find_backlight()
+        assert backlight is not None
         brightness_path, max_path = backlight
         max_level = read_int(max_path, SOFTWARE_MAX)
         level = read_int(brightness_path, load_level(max_level))
@@ -170,13 +200,9 @@ def brightness_status() -> dict[str, int | bool | str]:
             "max": max_level,
         }
 
-    if not _software_brightness_enabled():
-        return {"available": False, "mode": "none"}
-
-    max_level = SOFTWARE_MAX
     return {
         "available": True,
-        "mode": "software",
+        "mode": mode,
         "level": load_level(max_level),
         "max": max_level,
     }

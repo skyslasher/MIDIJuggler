@@ -578,10 +578,12 @@
           body: JSON.stringify({ delta }),
         });
         brightnessAvailable = Boolean(payload.available);
-        if (payload.available) {
+        if (payload.available && payload.ok !== false) {
           brightnessLevel = Number(payload.level) || brightnessLevel;
           brightnessMax = Number(payload.max) || brightnessMax;
           renderBrightness();
+        } else if (payload.available && payload.ok === false) {
+          setMessage("Helligkeit nicht gesetzt");
         } else {
           setMessage("Kein Backlight-Gerät");
         }

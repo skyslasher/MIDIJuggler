@@ -4,18 +4,16 @@
 from __future__ import annotations
 
 import logging
-import os
 import select
 import sys
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
-from gamepi_brightness_lib import DEFAULT_STEP, adjust_brightness, brightness_mode, brightness_status
-from gamepi_gpio_keys import BRIGHTNESS_DOWN, BRIGHTNESS_UP, find_brightness_devices
+from gamepi_brightness_lib import adjust_brightness, brightness_mode, sync_brightness
+from gamepi_gpio_keys import brightness_delta_for_event, find_brightness_devices
 
 LOGGER = logging.getLogger("gamepi-brightness")
-STEP = int(os.environ.get("GAMEPI_BRIGHTNESS_STEP", str(DEFAULT_STEP)))
 
 
 def _configure_logging() -> None:
@@ -31,17 +29,20 @@ def _adjust(delta: int) -> None:
             result["max"],
             result.get("mode", "unknown"),
         )
-    elif not result.get("available"):
+    elif result.get("available"):
+        LOGGER.error(
+            "brightness apply failed (mode=%s level=%s)",
+            result.get("mode", "unknown"),
+            result.get("level"),
+        )
+    else:
         LOGGER.warning("brightness not available (mode=%s)", result.get("mode", "none"))
 
 
-def _handle_event(event) -> None:
-    if event.type != 1 or event.value != 1:
-        return
-    if event.code == BRIGHTNESS_DOWN:
-        _adjust(-STEP)
-    elif event.code == BRIGHTNESS_UP:
-        _adjust(STEP)
+def _handle_event(event, device) -> None:
+    delta = brightness_delta_for_event(device, event)
+    if delta is not None:
+        _adjust(delta)
 
 
 def main() -> int:
@@ -49,15 +50,16 @@ def main() -> int:
     mode = brightness_mode()
     if mode == "none":
         LOGGER.warning(
-            "no backlight device and software brightness disabled; "
-            "set GAMEPI_SOFTWARE_BRIGHTNESS=1 or add /sys/class/backlight"
+            "no brightness backend available; install rpi-lgpio or enable /sys/class/backlight"
         )
         return 0
 
     LOGGER.info("brightness mode: %s", mode)
-    status = brightness_status()
-    if status.get("available"):
-        LOGGER.info("initial brightness %s/%s", status.get("level"), status.get("max"))
+    initial = sync_brightness()
+    if initial.get("ok"):
+        LOGGER.info("initial brightness %s/%s", initial.get("level"), initial.get("max"))
+    else:
+        LOGGER.error("initial brightness apply failed (mode=%s)", initial.get("mode"))
 
     try:
         devices = find_brightness_devices()
@@ -65,7 +67,7 @@ def main() -> int:
         LOGGER.error("python-evdev is required")
         return 1
     if not devices:
-        LOGGER.error("GamePi brightness input devices not found (button@17 / button@e or gpio-keys)")
+        LOGGER.error("GamePi brightness input devices not found (GPL/GPR or button@17 / button@e)")
         return 1
 
     for device in devices:
@@ -77,7 +79,7 @@ def main() -> int:
         for fd in ready:
             device = fds[fd]
             for event in device.read():
-                _handle_event(event)
+                _handle_event(event, device)
 
 
 if __name__ == "__main__":
