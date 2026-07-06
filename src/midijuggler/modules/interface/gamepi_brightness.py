@@ -54,7 +54,7 @@ async def publish_brightness_to_store(
     if payload is None:
         from midijuggler.web import gamepi_brightness as brightness_api
 
-        payload = brightness_api.brightness_status_payload()
+        payload = brightness_api.brightness_status_payload(fresh=True)
     value = status_to_datapoint_value(payload)
     previous = store.snapshot().get(str(BRIGHTNESS_POINT))
     if previous is not None and previous.get("int_value") != value.int_value:

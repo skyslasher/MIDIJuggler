@@ -80,10 +80,10 @@ def _invalidate_status_cache() -> None:
     _STATUS_CACHE = None
 
 
-def brightness_status_payload() -> dict[str, int | bool | str]:
+def brightness_status_payload(*, fresh: bool = False) -> dict[str, int | bool | str]:
     global _STATUS_CACHE
     now = time.monotonic()
-    if _STATUS_CACHE is not None:
+    if not fresh and _STATUS_CACHE is not None:
         cached_at, payload = _STATUS_CACHE
         if now - cached_at < _STATUS_CACHE_TTL:
             return payload

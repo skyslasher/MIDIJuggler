@@ -203,7 +203,7 @@ def test_poll_mtime_triggers_refresh_on_mtime_change(tmp_path: Path, monkeypatch
     monkeypatch.setattr(asyncio, "sleep", instant_sleep)
     monkeypatch.setattr(
         "midijuggler.web.gamepi_brightness.brightness_status_payload",
-        lambda: {"available": True, "mode": "software", "level": 140, "max": 255},
+        lambda **_: {"available": True, "mode": "software", "level": 140, "max": 255},
     )
 
     async def scenario() -> None:
@@ -328,6 +328,30 @@ def test_brightness_status_falls_back_to_sudo_when_direct_read_fails(monkeypatch
 
     assert payload["level"] == 200
     assert calls == [["--status"]]
+
+
+def test_refresh_reads_fresh_brightness_after_cache_warmup(monkeypatch) -> None:
+    store = DataPointStore()
+    module = GamePiBrightnessModule(store, state_path=Path("/tmp/unused-gamepi-brightness"))
+    store.register_many(module.datapoints())
+    reads = {"count": 0}
+
+    def fake_direct() -> dict[str, int | bool | str]:
+        reads["count"] += 1
+        level = 120 if reads["count"] == 1 else 150
+        return {"available": True, "mode": "software", "level": level, "max": 255}
+
+    monkeypatch.setattr(gamepi_brightness, "_direct_brightness_status", fake_direct)
+    monkeypatch.setattr(gamepi_brightness, "_STATUS_CACHE_TTL", 60.0)
+
+    async def scenario() -> None:
+        gamepi_brightness.brightness_status_payload()
+        assert reads["count"] == 1
+        await module.refresh()
+        assert store.snapshot()["gamepi.brightness"]["int_value"] == 150
+        assert reads["count"] == 2
+
+    asyncio.run(scenario())
 
 
 def test_brightness_status_is_cached(monkeypatch) -> None:
