@@ -149,10 +149,9 @@ sudo systemctl restart midijuggler.service gamepi-brightness-keys.service
 Verify:
 
 ```bash
-/usr/bin/python3 -c "import lgpio; print('lgpio ok')"
-cat /etc/midijuggler/brightness.env
+sudo /opt/midijuggler/app/scripts/gamepi-brightness-run.sh --status
+sudo /opt/midijuggler/app/scripts/gamepi-brightness-run.sh --delta -10
 curl -fsS http://127.0.0.1:8080/api/gamepi/brightness
-sudo journalctl -u gamepi-brightness-keys.service -n 20 --no-pager
 ```
 
 Both shoulder buttons (**GPL** / **GPR**, evdev `button@17` / `button@e`) should log

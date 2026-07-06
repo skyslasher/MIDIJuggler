@@ -16,21 +16,18 @@ def _app_root() -> Path:
     return Path(__file__).resolve().parents[3]
 
 
-def _brightness_python() -> str:
-    return os.environ.get("GAMEPI_BRIGHTNESS_PYTHON", "/usr/bin/python3")
-
-
-def _brightness_script() -> Path:
-    return _app_root() / "scripts" / "gamepi-brightness-adjust.py"
+def _brightness_runner() -> Path:
+    return _app_root() / "scripts" / "gamepi-brightness-run.sh"
 
 
 def _run_brightness_cli(*args: str) -> dict[str, int | bool | str]:
-    script = _brightness_script()
-    if not script.is_file():
+    runner = _brightness_runner()
+    if not runner.is_file():
         return {"ok": False, "available": False, "mode": "none"}
+    command = ["sudo", "-n", str(runner), *args]
     try:
         result = subprocess.run(
-            [_brightness_python(), str(script), *args],
+            command,
             capture_output=True,
             text=True,
             timeout=15,
