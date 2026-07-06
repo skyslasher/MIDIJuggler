@@ -12,6 +12,7 @@ WorkingDirectory=/opt/midijuggler/app
 Environment=PYTHONUNBUFFERED=1
 Environment=MIDIJUGGLER_SCRIPTS_DIR=/opt/midijuggler/app/scripts
 Environment=PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
+EnvironmentFile=-/etc/midijuggler/brightness.env
 ExecStart=/opt/midijuggler/venv/bin/midijuggler --config /etc/midijuggler/config.toml
 Restart=on-failure
 RestartSec=5

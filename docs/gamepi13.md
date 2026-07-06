@@ -141,6 +141,7 @@ same as Waveshare’s ST7789 wiring). Install once:
 ```bash
 sudo /opt/midijuggler/app/scripts/install-gamepi13-brightness.sh
 sudo cp /opt/midijuggler/app/systemd/gamepi-brightness-keys.service /etc/systemd/system/
+sudo cp /opt/midijuggler/app/systemd/midijuggler.service /etc/systemd/system/
 sudo systemctl daemon-reload
 sudo systemctl restart midijuggler.service gamepi-brightness-keys.service
 ```
@@ -148,8 +149,9 @@ sudo systemctl restart midijuggler.service gamepi-brightness-keys.service
 Verify:
 
 ```bash
+/usr/bin/python3 -c "import lgpio; print('lgpio ok')"
+cat /etc/midijuggler/brightness.env
 curl -fsS http://127.0.0.1:8080/api/gamepi/brightness
-/opt/midijuggler/venv/bin/python -c "import lgpio; print('lgpio ok')"
 sudo journalctl -u gamepi-brightness-keys.service -n 20 --no-pager
 ```
 
