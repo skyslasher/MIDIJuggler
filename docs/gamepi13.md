@@ -107,7 +107,8 @@ The kiosk loads [`/static/clock-gamepi.html`](../src/midijuggler/web/static/cloc
 | **D-pad ↑** (control zone) | Back to BPM zone |
 | **Start** | Tap tempo (BPM zone) · activate focused control (control zone) |
 | **Select** | MIDI clock start/stop |
-| **Start + Select** | Reboot confirm dialog (**Abbrechen** pre-selected) |
+| **Select + Start** | Reset brightness to default (200/255) |
+| **D-pad ← + A** | Reboot confirm dialog (**Abbrechen** pre-selected); hold **5 s** to reboot immediately |
 | **L / R** (shoulder) | Brightness down / up (`gamepi-brightness-keys.service`) |
 
 Hold **Start (`S`)** during **early boot** (from power-on through the framebuffer

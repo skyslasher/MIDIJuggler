@@ -239,7 +239,7 @@
       display: none;
       inset: 0;
       justify-content: center;
-      padding: 16px;
+      padding: 12px;
       position: fixed;
       z-index: 20;
     }
@@ -252,20 +252,28 @@
       background: var(--panel);
       border: 1px solid var(--line);
       border-radius: 12px;
-      padding: 12px;
+      box-sizing: border-box;
+      max-width: 132px;
+      padding: 10px 8px;
       width: 100%;
     }
 
     .modal h2 {
-      font-size: 0.82rem;
-      margin: 0 0 10px;
+      font-size: 0.78rem;
+      margin: 0 0 8px;
       text-align: center;
     }
 
     .modal-actions {
       display: grid;
-      gap: 6px;
+      gap: 5px;
       grid-template-columns: 1fr 1fr;
+    }
+
+    .modal-actions button {
+      font-size: 0.82rem;
+      min-height: 34px;
+      padding: 0.25rem 0.15rem;
     }
 
     .modal-actions button.danger {
@@ -367,8 +375,12 @@
     let brightnessMax = 255;
     const BRIGHTNESS_GAMMA_MIN = 0.12;
     const BRIGHTNESS_GAMMA_MAX = 1.0;
+    const BRIGHTNESS_DEFAULT = 200;
+    const REBOOT_HOLD_MS = 5000;
     const keysHeld = new Set();
     let rebootComboTriggered = false;
+    let brightnessResetTriggered = false;
+    let rebootHoldTimer = null;
 
     // GamePi13 gpio-key: physical Start → KEY_Q, Select → KEY_S (Chromium: q / s).
     function isStartKey(key) {
@@ -385,6 +397,42 @@
 
     function isSelectHeld() {
       return keysHeld.has("s") || keysHeld.has("S");
+    }
+
+    function isLeftHeld() {
+      return keysHeld.has("ArrowLeft");
+    }
+
+    function isAHeld() {
+      return keysHeld.has("a") || keysHeld.has("A");
+    }
+
+    function isRebootComboHeld() {
+      return isLeftHeld() && isAHeld();
+    }
+
+    function isBrightnessResetComboHeld() {
+      return isStartHeld() && isSelectHeld();
+    }
+
+    function clearRebootHoldTimer() {
+      if (rebootHoldTimer) {
+        clearTimeout(rebootHoldTimer);
+        rebootHoldTimer = null;
+      }
+    }
+
+    function startRebootHoldTimer() {
+      clearRebootHoldTimer();
+      rebootHoldTimer = setTimeout(() => {
+        rebootHoldTimer = null;
+        if (!isRebootComboHeld()) {
+          return;
+        }
+        closeRebootModal();
+        rebootComboTriggered = false;
+        requestReboot();
+      }, REBOOT_HOLD_MS);
     }
 
     function apiBase() {
@@ -628,6 +676,19 @@
       }
     }
 
+    async function resetBrightnessDefault() {
+      if (brightnessResetTriggered) {
+        return;
+      }
+      brightnessResetTriggered = true;
+      const delta = BRIGHTNESS_DEFAULT - brightnessLevel;
+      if (delta !== 0) {
+        await adjustBrightness(delta);
+      } else {
+        renderBrightness();
+      }
+    }
+
     async function requestReboot() {
       setMessage("");
       try {
@@ -677,11 +738,19 @@
       rebootCancel.classList.toggle("focused", which === "cancel");
     }
 
-    function openRebootModal() {
-      if (modalOpen || rebootComboTriggered) {
+    function handleRebootCombo() {
+      if (rebootComboTriggered) {
         return;
       }
       rebootComboTriggered = true;
+      openRebootModal();
+      startRebootHoldTimer();
+    }
+
+    function openRebootModal() {
+      if (modalOpen) {
+        return;
+      }
       modalOpen = true;
       rebootModal.classList.add("open");
       rebootModal.setAttribute("aria-hidden", "false");
@@ -690,6 +759,7 @@
 
     function closeRebootModal() {
       modalOpen = false;
+      clearRebootHoldTimer();
       rebootModal.classList.remove("open");
       rebootModal.setAttribute("aria-hidden", "true");
     }
@@ -708,9 +778,16 @@
 
     function handleKeyDown(event) {
       keysHeld.add(event.key);
-      if (isStartHeld() && isSelectHeld()) {
+
+      if (isRebootComboHeld()) {
         event.preventDefault();
-        openRebootModal();
+        handleRebootCombo();
+        return;
+      }
+
+      if (isBrightnessResetComboHeld()) {
+        event.preventDefault();
+        resetBrightnessDefault();
         return;
       }
 
@@ -786,8 +863,12 @@
 
     function handleKeyUp(event) {
       keysHeld.delete(event.key);
-      if (!isStartHeld() && !isSelectHeld()) {
+      clearRebootHoldTimer();
+      if (!isRebootComboHeld()) {
         rebootComboTriggered = false;
+      }
+      if (!isBrightnessResetComboHeld()) {
+        brightnessResetTriggered = false;
       }
     }
 
