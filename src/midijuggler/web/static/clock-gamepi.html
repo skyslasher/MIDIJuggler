@@ -206,11 +206,7 @@
       justify-content: center;
       min-height: 38px;
       padding: 0 6px;
-    }
-
-    .brightness-track.focused {
-      outline: 2px solid var(--accent);
-      outline-offset: 1px;
+      pointer-events: none;
     }
 
     .brightness-meter {
@@ -293,7 +289,7 @@
 
     <div class="row brightness" id="brightness-row">
       <button type="button" class="secondary" data-action="brightness_down" id="btn-dim">−</button>
-      <div class="brightness-track" id="brightness-track" tabindex="-1" aria-label="Helligkeit">
+      <div class="brightness-track" id="brightness-track" aria-hidden="true">
         <div class="brightness-meter"><span id="brightness-fill"></span></div>
       </div>
       <button type="button" class="secondary" data-action="brightness_up" id="btn-bright">+</button>
@@ -352,7 +348,6 @@
       btnFlash,
       btnInterval,
       btnDim,
-      brightnessTrack,
       btnBright,
     ];
 
@@ -647,9 +642,6 @@
       }
       if (target === btnBright) {
         adjustBrightness(10);
-        return;
-      }
-      if (target === brightnessTrack) {
         return;
       }
     }
