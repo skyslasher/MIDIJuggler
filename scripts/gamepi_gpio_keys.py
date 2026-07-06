@@ -200,8 +200,8 @@ def brightness_backend_warnings() -> list[str]:
             "/sys/class/leds and 'GPIO busy' if userspace PWM is enabled on GPIO 24"
         )
         warnings.append(
-            "MIDIJuggler uses software gamma (xgamma on the kiosk X session) when no "
-            "kernel backlight node exists; this dims the image but not the LED backlight"
+            "MIDIJuggler software brightness stores level 0–255 and dims the kiosk UI "
+            "(CSS filter); xgamma/xrandr on fb0 often has no visible effect on GamePi13"
         )
     return warnings
 

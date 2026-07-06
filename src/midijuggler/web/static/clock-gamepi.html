@@ -365,6 +365,8 @@
     let brightnessAvailable = false;
     let brightnessLevel = 0;
     let brightnessMax = 255;
+    const BRIGHTNESS_GAMMA_MIN = 0.12;
+    const BRIGHTNESS_GAMMA_MAX = 1.0;
     const keysHeld = new Set();
     let rebootComboTriggered = false;
 
@@ -498,15 +500,27 @@
       }
     }
 
+    function brightnessDisplayRatio() {
+      if (!brightnessAvailable || brightnessMax <= 0) {
+        return 1;
+      }
+      const ratio = Math.max(0, Math.min(brightnessLevel / brightnessMax, 1));
+      return BRIGHTNESS_GAMMA_MIN + ratio * (BRIGHTNESS_GAMMA_MAX - BRIGHTNESS_GAMMA_MIN);
+    }
+
     function renderBrightness() {
       if (!brightnessAvailable) {
         brightnessFill.style.width = "35%";
         brightnessTrack.title = "Kein Backlight (L/R)";
+        document.documentElement.style.filter = "";
         return;
       }
       const pct = brightnessMax > 0 ? (brightnessLevel / brightnessMax) * 100 : 0;
       brightnessFill.style.width = `${pct}%`;
       brightnessTrack.title = `Helligkeit ${brightnessLevel}/${brightnessMax}`;
+      const displayRatio = brightnessDisplayRatio();
+      document.documentElement.style.filter =
+        displayRatio < BRIGHTNESS_GAMMA_MAX - 0.001 ? `brightness(${displayRatio})` : "";
     }
 
     function renderClock(clock) {
@@ -846,6 +860,7 @@
       .catch((error) => setMessage(error.message || "Status nicht geladen"));
 
     loadBrightnessStatus();
+    setInterval(loadBrightnessStatus, 1500);
     connectMonitor();
   </script>
 </body>

@@ -152,7 +152,8 @@ def level_to_gamma(level: int, max_level: int = SOFTWARE_MAX) -> float:
     return GAMMA_MIN + ratio * (GAMMA_MAX - GAMMA_MIN)
 
 
-def _run_gamma(gamma: float) -> bool:
+def _run_display_brightness(gamma: float) -> bool:
+    """Best-effort X/fbdev dimming; may have no visible effect on SPI panels."""
     if not APPLY_GAMMA_SCRIPT.is_file():
         return False
     if os.geteuid() == 0:
@@ -170,6 +171,10 @@ def _run_gamma(gamma: float) -> bool:
         return result.returncode == 0
     except (OSError, subprocess.TimeoutExpired):
         return False
+
+
+def _run_gamma(gamma: float) -> bool:
+    return _run_display_brightness(gamma)
 
 
 def apply_level_value(level: int, max_level: int = SOFTWARE_MAX) -> tuple[int, bool, str]:
@@ -195,10 +200,11 @@ def apply_level_value(level: int, max_level: int = SOFTWARE_MAX) -> tuple[int, b
 
     if _software_brightness_enabled():
         gamma = level_to_gamma(clamped, max_level)
-        if _run_gamma(gamma):
-            store_level(clamped)
-            return clamped, True, "software"
-        return load_level(max_level), False, "software"
+        store_level(clamped)
+        _run_display_brightness(gamma)
+        # Visible dimming on GamePi13 is done in the kiosk UI (CSS filter); X/fbdev
+        # helpers above are best-effort and often no-op on the SPI panel.
+        return clamped, True, "software"
 
     return load_level(max_level), False, "none"
 

@@ -206,13 +206,13 @@ ls -l /sys/class/backlight/
 sudo /opt/midijuggler/app/scripts/gamepi-brightness-probe.py
 ```
 
-**Brightness without `/sys/class/leds`:** Stock `waveshare13` drives the panel
-backlight on **GPIO 24** inside the kernel driver. Userspace PWM on GPIO 24 fails
-with `GPIO busy`. MIDIJuggler therefore defaults to **software gamma** (`mode:
-software`) via `gamepi-apply-gamma.sh` while the kiosk X session is running.
-Optional hardware PWM remains off (`GAMEPI_PWM_BACKLIGHT=0` in
-`gamepi-brightness-keys.service`). True LED dimming would require a custom device-tree
-overlay that exposes `pwm-backlight` — not provided by Waveshare’s stock image.
+**Brightness without `/sys/class/leds`:** Stock `waveshare13` has no panel entry under
+`/sys/class/backlight` or `/sys/class/leds`. Userspace PWM on GPIO 24 fails with
+`GPIO busy`. MIDIJuggler uses **software mode** (`mode: software`): level 0–255 is
+stored in `/var/lib/gamepi/brightness`, and the **kiosk UI** applies a CSS
+`brightness()` filter (visible on the SPI panel). `xrandr` / `xgamma` are tried as
+best-effort but usually do not affect the fbdev display. True LED dimming would need
+a custom `pwm-backlight` device-tree overlay.
 
 ## 5. Splash image
 

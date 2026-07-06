@@ -158,6 +158,23 @@ def test_adjust_brightness_reports_failure_when_pwm_apply_fails(tmp_path, monkey
     assert payload["mode"] == "pwm"
 
 
+def test_adjust_brightness_software_ok_without_display_helper(tmp_path, monkeypatch) -> None:
+    lib = _load_module("gamepi_brightness_lib", "gamepi_brightness_lib.py")
+    monkeypatch.setattr(lib, "find_backlight", lambda: None)
+    monkeypatch.setattr(lib, "pwm_available", lambda: False)
+    monkeypatch.setattr(lib, "_run_display_brightness", lambda gamma: False)
+    monkeypatch.setenv("GAMEPI_SOFTWARE_BRIGHTNESS", "1")
+    monkeypatch.setenv("GAMEPI_PWM_BACKLIGHT", "0")
+    monkeypatch.setattr(lib, "STATE_PATH", tmp_path / "brightness")
+    monkeypatch.setenv("GAMEPI_BRIGHTNESS_DEFAULT", "200")
+
+    payload = lib.adjust_brightness(-10)
+
+    assert payload["ok"] is True
+    assert payload["mode"] == "software"
+    assert payload["level"] == 190
+
+
 def test_brightness_delta_for_event_uses_device_name(monkeypatch) -> None:
     keys = _load_module("gamepi_gpio_keys", "gamepi_gpio_keys.py")
     monkeypatch.setenv("GAMEPI_BRIGHTNESS_STEP", "10")
@@ -223,5 +240,5 @@ def test_brightness_backend_warnings_for_waveshare13(monkeypatch, tmp_path: Path
 
     warnings = keys.brightness_backend_warnings()
     assert any("GPIO 24" in warning for warning in warnings)
-    assert any("software gamma" in warning for warning in warnings)
+    assert any("CSS filter" in warning for warning in warnings)
 
