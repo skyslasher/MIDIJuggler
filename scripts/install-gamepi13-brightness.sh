@@ -33,8 +33,13 @@ else
 fi
 
 mkdir -p "$state_dir"
-chown root:root "$state_dir"
-chmod 755 "$state_dir"
+chown "root:${midijuggler_user}" "$state_dir"
+chmod 775 "$state_dir"
+if [ ! -f "${state_dir}/brightness" ]; then
+  echo 200 > "${state_dir}/brightness"
+fi
+chown "${midijuggler_user}:${midijuggler_user}" "${state_dir}/brightness"
+chmod 664 "${state_dir}/brightness"
 rm -f "$state_dir"/.lgd-nfy* 2>/dev/null || true
 
 if ! (cd "$state_dir" && "$brightness_python" -c "import lgpio") 2>/dev/null; then
@@ -62,7 +67,7 @@ EOF
 
 echo "installed ${sudoers_file}"
 echo "installed ${brightness_env}"
-echo "state dir: ${state_dir} (root:root 755 — brightness runs via sudo)"
+echo "state dir: ${state_dir} (brightness state writable by ${midijuggler_user})"
 if [ -d /sys/class/backlight ] && [ -n "$(ls -A /sys/class/backlight 2>/dev/null || true)" ]; then
   echo "hardware backlight detected under /sys/class/backlight"
 else

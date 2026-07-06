@@ -4268,16 +4268,17 @@ def _validate_midi_7bit(value: Any, field_name: str) -> int:
 
 
 class _QuietAccessPathsFilter(logging.Filter):
-    """Drop high-frequency polling GETs from aiohttp access logs."""
+    """Drop high-frequency status/brightness access logs."""
 
-    _QUIET_GET_PREFIXES = (
+    _QUIET_PREFIXES = (
         '"GET /api/status ',
         '"GET /api/gamepi/brightness ',
+        '"POST /api/gamepi/brightness ',
     )
 
     def filter(self, record: logging.LogRecord) -> bool:
         message = record.getMessage()
-        return not any(prefix in message for prefix in self._QUIET_GET_PREFIXES)
+        return not any(prefix in message for prefix in self._QUIET_PREFIXES)
 
 
 def _configure_access_logging() -> logging.Logger:

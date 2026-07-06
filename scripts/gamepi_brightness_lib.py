@@ -122,12 +122,13 @@ def load_level(max_level: int) -> int:
     return min(DEFAULT_LEVEL, max_level)
 
 
-def store_level(level: int) -> None:
+def store_level(level: int) -> bool:
     try:
         STATE_PATH.parent.mkdir(parents=True, exist_ok=True)
         STATE_PATH.write_text(f"{level}\n", encoding="utf-8")
+        return True
     except OSError:
-        pass
+        return False
 
 
 def brightness_mode() -> str:
@@ -173,6 +174,11 @@ def _run_display_brightness(gamma: float) -> bool:
         return False
 
 
+def _skip_x_brightness() -> bool:
+    value = os.environ.get("GAMEPI_SKIP_X_BRIGHTNESS", "1").strip().lower()
+    return value not in {"0", "false", "no", "off"}
+
+
 def _run_gamma(gamma: float) -> bool:
     return _run_display_brightness(gamma)
 
@@ -199,9 +205,11 @@ def apply_level_value(level: int, max_level: int = SOFTWARE_MAX) -> tuple[int, b
         return load_level(max_level), False, "pwm"
 
     if _software_brightness_enabled():
-        gamma = level_to_gamma(clamped, max_level)
-        store_level(clamped)
-        _run_display_brightness(gamma)
+        if not store_level(clamped):
+            return load_level(max_level), False, "software"
+        if not _skip_x_brightness():
+            gamma = level_to_gamma(clamped, max_level)
+            _run_display_brightness(gamma)
         # Visible dimming on GamePi13 is done in the kiosk UI (CSS filter); X/fbdev
         # helpers above are best-effort and often no-op on the SPI panel.
         return clamped, True, "software"

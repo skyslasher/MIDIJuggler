@@ -403,6 +403,58 @@ def test_adjust_brightness_invalidates_cache_and_uses_sudo(monkeypatch) -> None:
     assert calls == [["--delta", "10"]]
 
 
+def test_adjust_brightness_uses_direct_path_without_sudo(monkeypatch) -> None:
+    calls: list[list[str]] = []
+
+    def fake_direct(delta: int) -> dict[str, int | bool | str]:
+        return {
+            "ok": True,
+            "available": True,
+            "mode": "software",
+            "level": 170,
+            "max": 255,
+            "delta": delta,
+        }
+
+    def fake_cli(*args: str) -> dict[str, int | bool | str]:
+        calls.append(list(args))
+        return {"available": False, "mode": "none"}
+
+    monkeypatch.setattr(gamepi_brightness, "_direct_adjust_brightness", fake_direct)
+    monkeypatch.setattr(gamepi_brightness, "_run_brightness_cli", fake_cli)
+
+    payload = gamepi_brightness.adjust_brightness_payload(-10)
+
+    assert payload["level"] == 170
+    assert calls == []
+
+
+def test_set_brightness_uses_direct_path_without_sudo(monkeypatch) -> None:
+    calls: list[list[str]] = []
+
+    monkeypatch.setattr(
+        gamepi_brightness,
+        "_direct_set_brightness",
+        lambda level: {
+            "ok": True,
+            "available": True,
+            "mode": "software",
+            "level": level,
+            "max": 255,
+        },
+    )
+    monkeypatch.setattr(
+        gamepi_brightness,
+        "_run_brightness_cli",
+        lambda *args: calls.append(list(args)) or {"available": False, "mode": "none"},
+    )
+
+    payload = gamepi_brightness.set_brightness_payload(180)
+
+    assert payload["level"] == 180
+    assert calls == []
+
+
 def test_quiet_access_paths_filter() -> None:
     from midijuggler.web.server import _QuietAccessPathsFilter
 
@@ -427,6 +479,17 @@ def test_quiet_access_paths_filter() -> None:
             __file__,
             1,
             '127.0.0.1 [06/Jul/2026:12:00:00 +0000] "POST /api/gamepi/brightness HTTP/1.1" 200 123 "-" "curl"',
+            (),
+            None,
+        )
+    ) is False
+    assert quiet.filter(
+        logger.makeRecord(
+            logger.name,
+            logging.INFO,
+            __file__,
+            1,
+            '127.0.0.1 [06/Jul/2026:12:00:00 +0000] "POST /api/other HTTP/1.1" 200 123 "-" "curl"',
             (),
             None,
         )

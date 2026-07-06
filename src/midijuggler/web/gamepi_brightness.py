@@ -45,6 +45,26 @@ def _direct_brightness_status() -> dict[str, int | bool | str] | None:
         return None
 
 
+def _direct_adjust_brightness(delta: int) -> dict[str, int | bool | str] | None:
+    try:
+        payload = _import_brightness_lib().adjust_brightness(delta)
+    except Exception:
+        return None
+    if not payload.get("available") or not payload.get("ok"):
+        return None
+    return payload
+
+
+def _direct_set_brightness(level: int) -> dict[str, int | bool | str] | None:
+    try:
+        payload = _import_brightness_lib().set_brightness(level)
+    except Exception:
+        return None
+    if not payload.get("available") or not payload.get("ok"):
+        return None
+    return payload
+
+
 def _run_brightness_cli(*args: str) -> dict[str, int | bool | str]:
     runner = _brightness_runner()
     if not runner.is_file():
@@ -96,9 +116,15 @@ def brightness_status_payload(*, fresh: bool = False) -> dict[str, int | bool | 
 
 def adjust_brightness_payload(delta: int) -> dict[str, int | bool | str]:
     _invalidate_status_cache()
+    payload = _direct_adjust_brightness(delta)
+    if payload is not None:
+        return payload
     return _run_brightness_cli("--delta", str(delta))
 
 
 def set_brightness_payload(level: int) -> dict[str, int | bool | str]:
     _invalidate_status_cache()
+    payload = _direct_set_brightness(level)
+    if payload is not None:
+        return payload
     return _run_brightness_cli("--set", str(level))

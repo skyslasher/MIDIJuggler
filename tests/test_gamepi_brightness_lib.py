@@ -127,6 +127,40 @@ def test_adjust_brightness_uses_software_when_only_fake_sysfs(tmp_path: Path, mo
     assert payload["max"] == 255
 
 
+def test_software_brightness_skips_x_display_by_default(tmp_path: Path, monkeypatch) -> None:
+    lib = _load_module("gamepi_brightness_lib", "gamepi_brightness_lib.py")
+    monkeypatch.setattr(lib, "find_backlight", lambda: None)
+    monkeypatch.setattr(lib, "pwm_available", lambda: False)
+    monkeypatch.setenv("GAMEPI_SOFTWARE_BRIGHTNESS", "1")
+    monkeypatch.setenv("GAMEPI_PWM_BACKLIGHT", "0")
+    monkeypatch.delenv("GAMEPI_SKIP_X_BRIGHTNESS", raising=False)
+    monkeypatch.setattr(lib, "STATE_PATH", tmp_path / "brightness")
+    gamma_calls: list[float] = []
+    monkeypatch.setattr(lib, "_run_display_brightness", lambda gamma: gamma_calls.append(gamma) or True)
+
+    payload = lib.adjust_brightness(10)
+
+    assert payload["ok"] is True
+    assert payload["mode"] == "software"
+    assert gamma_calls == []
+
+
+def test_software_brightness_can_still_apply_x_when_enabled(tmp_path: Path, monkeypatch) -> None:
+    lib = _load_module("gamepi_brightness_lib", "gamepi_brightness_lib.py")
+    monkeypatch.setattr(lib, "find_backlight", lambda: None)
+    monkeypatch.setattr(lib, "pwm_available", lambda: False)
+    monkeypatch.setenv("GAMEPI_SOFTWARE_BRIGHTNESS", "1")
+    monkeypatch.setenv("GAMEPI_PWM_BACKLIGHT", "0")
+    monkeypatch.setenv("GAMEPI_SKIP_X_BRIGHTNESS", "0")
+    monkeypatch.setattr(lib, "STATE_PATH", tmp_path / "brightness")
+    gamma_calls: list[float] = []
+    monkeypatch.setattr(lib, "_run_display_brightness", lambda gamma: gamma_calls.append(gamma) or True)
+
+    payload = lib.adjust_brightness(10)
+
+    assert payload["ok"] is True
+    assert len(gamma_calls) == 1
+
 def test_adjust_brightness_pwm_updates_state(tmp_path, monkeypatch) -> None:
     lib = _load_module("gamepi_brightness_lib", "gamepi_brightness_lib.py")
     monkeypatch.setattr(lib, "find_backlight", lambda: None)
