@@ -13,7 +13,11 @@ from gamepi_lgpio_env import prepare_lgpio_runtime
 
 prepare_lgpio_runtime()
 
-from gamepi_brightness_lib import DEFAULT_STEP, adjust_brightness, brightness_status
+from gamepi_brightness_lib import DEFAULT_STEP, adjust_brightness, brightness_status, set_brightness
+
+
+def _parse_int(raw: str) -> int:
+    return int(raw.strip(), 0)
 
 
 def main() -> int:
@@ -21,11 +25,16 @@ def main() -> int:
         print(json.dumps(brightness_status()))
         return 0
 
+    if len(sys.argv) >= 3 and sys.argv[1] == "--set":
+        result = set_brightness(_parse_int(sys.argv[2]))
+        print(json.dumps(result))
+        return 0 if result.get("ok") else 1
+
     delta = DEFAULT_STEP
     if len(sys.argv) >= 3 and sys.argv[1] == "--delta":
-        delta = int(sys.argv[2])
+        delta = _parse_int(sys.argv[2])
     elif len(sys.argv) >= 2:
-        delta = int(sys.argv[1])
+        delta = _parse_int(sys.argv[1])
 
     result = adjust_brightness(delta)
     print(json.dumps(result))

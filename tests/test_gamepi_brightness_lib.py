@@ -41,12 +41,13 @@ def test_adjust_brightness_pwm_updates_state(tmp_path, monkeypatch) -> None:
     monkeypatch.setattr(lib, "pwm_available", lambda: True)
     monkeypatch.setattr(lib, "STATE_PATH", tmp_path / "brightness")
     monkeypatch.setattr(lib, "apply_pwm_level", lambda level, max_level=255: True)
+    monkeypatch.setenv("GAMEPI_BRIGHTNESS_DEFAULT", "200")
 
     payload = lib.adjust_brightness(-10)
 
     assert payload["ok"] is True
     assert payload["mode"] == "pwm"
-    assert payload["level"] == 245
+    assert payload["level"] == 190
 
 
 def test_adjust_brightness_reports_failure_when_pwm_apply_fails(tmp_path, monkeypatch) -> None:
@@ -73,3 +74,7 @@ def test_brightness_delta_for_event_uses_device_name(monkeypatch) -> None:
 
     assert keys.brightness_delta_for_event(gpl, down) == -10
     assert keys.brightness_delta_for_event(gpr, up) == 10
+
+    _, _, down_names, up_names = keys.brightness_button_names()
+    assert "button@14" in up_names
+    assert "button@17" in down_names

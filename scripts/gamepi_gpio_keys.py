@@ -13,6 +13,14 @@ def gpio_button_name(gpio: int) -> str:
     return f"button@{gpio:x}"
 
 
+def gpio_button_names(gpio: int) -> set[str]:
+    return {
+        gpio_button_name(gpio),
+        f"button@{gpio}",
+        f"gpio{gpio}",
+    }
+
+
 def _env_gpio(name: str, default: int) -> int:
     return int(os.environ.get(name, str(default)))
 
@@ -20,16 +28,18 @@ def _env_gpio(name: str, default: int) -> int:
 def brightness_button_names() -> tuple[str, str, set[str], set[str]]:
     l_gpio = _env_gpio("GAMEPI_L_GPIO", 23)
     r_gpio = _env_gpio("GAMEPI_R_GPIO", 14)
-    l_name = gpio_button_name(l_gpio).casefold()
-    r_name = gpio_button_name(r_gpio).casefold()
-    down_names = {l_name, "gpl", "gp l"}
-    up_names = {r_name, "gpr", "gp r"}
+    down_names = set(gpio_button_names(l_gpio))
+    up_names = set(gpio_button_names(r_gpio))
+    down_names.update({"gpl", "gp l"})
+    up_names.update({"gpr", "gp r"})
     for label in os.environ.get("GAMEPI_L_LABELS", "GPL").split(","):
         if label.strip():
             down_names.add(label.strip().casefold())
     for label in os.environ.get("GAMEPI_R_LABELS", "GPR").split(","):
         if label.strip():
             up_names.add(label.strip().casefold())
+    l_name = gpio_button_name(l_gpio).casefold()
+    r_name = gpio_button_name(r_gpio).casefold()
     return l_name, r_name, down_names, up_names
 
 
@@ -69,21 +79,13 @@ def find_brightness_devices():
         if name == "gpio-keys":
             legacy = device
             continue
-        if name in down_names or name in up_names:
+        keys = set(device.capabilities().get(ecodes.EV_KEY, []))
+        has_down = BRIGHTNESS_DOWN in keys
+        has_up = BRIGHTNESS_UP in keys
+        if name in down_names or name in up_names or has_down or has_up:
             if path not in seen:
                 matched.append(device)
                 seen.add(path)
-            continue
-        keys = set(device.capabilities().get(ecodes.EV_KEY, []))
-        brightness_keys = keys & {BRIGHTNESS_DOWN, BRIGHTNESS_UP}
-        if not brightness_keys:
-            continue
-        meta_keys = {0}
-        if keys - brightness_keys - meta_keys:
-            continue
-        if path not in seen:
-            matched.append(device)
-            seen.add(path)
 
     if legacy is not None:
         keys = legacy.capabilities().get(ecodes.EV_KEY, [])
@@ -102,12 +104,25 @@ def brightness_delta_for_event(device, event) -> int | None:
     _, _, down_names, up_names = brightness_button_names()
     name = device.name.casefold()
 
-    if name in up_names:
+    if name in up_names or event.code == BRIGHTNESS_UP:
         return step
-    if name in down_names:
-        return -step
-    if event.code == BRIGHTNESS_UP:
-        return step
-    if event.code == BRIGHTNESS_DOWN:
+    if name in down_names or event.code == BRIGHTNESS_DOWN:
         return -step
     return None
+
+
+def describe_input_devices() -> list[dict[str, object]]:
+    from evdev import InputDevice, list_devices
+
+    devices: list[dict[str, object]] = []
+    for path in list_devices():
+        device = InputDevice(path)
+        keys = sorted(device.capabilities().get(1, []))
+        devices.append(
+            {
+                "path": path,
+                "name": device.name,
+                "keys": keys,
+            }
+        )
+    return devices

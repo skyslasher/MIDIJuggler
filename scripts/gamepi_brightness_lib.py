@@ -6,10 +6,11 @@ import os
 import subprocess
 from pathlib import Path
 
-from gamepi_backlight_pwm import apply_pwm_level, pwm_available
+from gamepi_backlight_pwm import apply_pwm_level, last_pwm_error, pwm_available
 
 STATE_PATH = Path(os.environ.get("GAMEPI_BRIGHTNESS_STATE", "/var/lib/gamepi/brightness"))
 DEFAULT_STEP = int(os.environ.get("GAMEPI_BRIGHTNESS_STEP", "10"))
+DEFAULT_LEVEL = int(os.environ.get("GAMEPI_BRIGHTNESS_DEFAULT", "200"))
 SOFTWARE_MAX = int(os.environ.get("GAMEPI_BRIGHTNESS_MAX", "255"))
 GAMMA_MIN = float(os.environ.get("GAMEPI_BRIGHTNESS_GAMMA_MIN", "0.12"))
 GAMMA_MAX = float(os.environ.get("GAMEPI_BRIGHTNESS_GAMMA_MAX", "1.0"))
@@ -61,9 +62,9 @@ def read_int(path: Path, default: int) -> int:
 
 def load_level(max_level: int) -> int:
     if STATE_PATH.is_file():
-        stored = read_int(STATE_PATH, max_level)
+        stored = read_int(STATE_PATH, DEFAULT_LEVEL)
         return max(0, min(stored, max_level))
-    return max_level
+    return min(DEFAULT_LEVEL, max_level)
 
 
 def store_level(level: int) -> None:
@@ -154,16 +155,49 @@ def adjust_brightness(delta: int) -> dict[str, int | bool | str]:
         max_path = find_backlight()[1]
         max_level = read_int(max_path, SOFTWARE_MAX)
 
-    current = load_level(max_level)
-    level, ok, mode = apply_level_value(current + delta, max_level)
+    previous = load_level(max_level)
+    requested = max(0, min(previous + delta, max_level))
+    level, ok, mode = apply_level_value(requested, max_level)
     available = mode != "none"
-    return {
+    payload: dict[str, int | bool | str] = {
         "ok": ok,
         "available": available,
         "mode": mode,
         "level": level,
         "max": max_level,
+        "previous": previous,
+        "requested": requested,
+        "delta": delta,
     }
+    if mode == "pwm" and not ok:
+        error = last_pwm_error()
+        if error:
+            payload["error"] = error
+    return payload
+
+
+def set_brightness(level: int) -> dict[str, int | bool | str]:
+    max_level = SOFTWARE_MAX
+    if find_backlight() is not None:
+        max_path = find_backlight()[1]
+        max_level = read_int(max_path, SOFTWARE_MAX)
+    previous = load_level(max_level)
+    requested = max(0, min(level, max_level))
+    applied, ok, mode = apply_level_value(requested, max_level)
+    payload: dict[str, int | bool | str] = {
+        "ok": ok,
+        "available": mode != "none",
+        "mode": mode,
+        "level": applied,
+        "max": max_level,
+        "previous": previous,
+        "requested": requested,
+    }
+    if mode == "pwm" and not ok:
+        error = last_pwm_error()
+        if error:
+            payload["error"] = error
+    return payload
 
 
 def sync_brightness() -> dict[str, int | bool | str]:

@@ -46,7 +46,11 @@ def _adjust(delta: int) -> None:
 def _handle_event(event, device) -> None:
     delta = brightness_delta_for_event(device, event)
     if delta is not None:
+        LOGGER.info("key from %s (%s): code=%s delta=%s", device.path, device.name, event.code, delta)
         _adjust(delta)
+        return
+    if event.type == 1 and event.value == 1:
+        LOGGER.warning("ignored key from %s (%s): code=%s", device.path, device.name, event.code)
 
 
 def main() -> int:
@@ -75,7 +79,8 @@ def main() -> int:
         return 1
 
     for device in devices:
-        LOGGER.info("listening on %s (%s)", device.path, device.name)
+        keys = sorted(device.capabilities().get(1, []))
+        LOGGER.info("listening on %s (%s) keys=%s", device.path, device.name, keys)
 
     fds = {device.fd: device for device in devices}
     while True:
