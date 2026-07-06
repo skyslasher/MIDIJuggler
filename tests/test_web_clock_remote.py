@@ -35,8 +35,8 @@ def test_apply_clock_trigger_bpm_up_increases_bpm_direct_fallback() -> None:
     async def scenario() -> None:
         result = await interface.apply_clock_trigger("bpm_up")
         await interface.master_clock.flush_bpm_notifications()
-        assert result["master_clock"]["bpm"] == pytest.approx(120.5)
-        assert interface.master_clock.config.bpm == pytest.approx(120.5)
+        assert result["master_clock"]["bpm"] == pytest.approx(121.0)
+        assert interface.master_clock.config.bpm == pytest.approx(121.0)
 
     asyncio.run(scenario())
 
@@ -124,7 +124,7 @@ def test_clock_trigger_http_endpoint() -> None:
             return await response.json()
 
     payload = asyncio.run(scenario())
-    assert payload["master_clock"]["bpm"] == pytest.approx(100.5)
+    assert payload["master_clock"]["bpm"] == pytest.approx(101.0)
 
 
 def test_clock_trigger_http_rejects_unknown_point() -> None:

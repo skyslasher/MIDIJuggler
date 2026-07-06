@@ -71,9 +71,9 @@ class MasterClockConfig:
     click_command: str = "aplay"
     click_audio_device: str = ""
     tap_tempo_min_taps: int = 4
-    bpm_step: float = 0.5
+    bpm_step: float = 1.0
     bpm_huge_step: float = 10.0
-    bpm_quantize: float = 0.5
+    bpm_quantize: float = 1.0
     name: str = "Master clock"
     beat_flash_ms: float = 120.0
 
@@ -824,13 +824,13 @@ def _parse_master_clock(raw: Any) -> MasterClockConfig:
         raw.get("tap_tempo_min_taps", 4),
         "master_clock.tap_tempo_min_taps",
     )
-    bpm_step = _validate_bpm_step(raw.get("bpm_step", 0.5), "master_clock.bpm_step")
+    bpm_step = _validate_bpm_step(raw.get("bpm_step", 1.0), "master_clock.bpm_step")
     bpm_huge_step = _validate_bpm_step(
         raw.get("bpm_huge_step", 10.0),
         "master_clock.bpm_huge_step",
     )
     bpm_quantize = _validate_bpm_quantize(
-        raw.get("bpm_quantize", 0.5),
+        raw.get("bpm_quantize", 1.0),
         "master_clock.bpm_quantize",
     )
     beat_flash_ms = _validate_beat_flash_ms(
@@ -1630,8 +1630,8 @@ def _validate_bpm_step(value: Any, field_name: str) -> float:
 
 def _validate_bpm_quantize(value: Any, field_name: str) -> float:
     parsed = _as_float(value, field_name)
-    if parsed not in {0.5, 1.0}:
-        raise ValueError(f"{field_name} must be 0.5 or 1.0")
+    if parsed != 1.0:
+        raise ValueError(f"{field_name} must be 1.0")
     return parsed
 
 

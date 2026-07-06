@@ -410,7 +410,7 @@ def test_tap_tempo_datapoint_updates_bpm_on_rising_edge() -> None:
         await tap_edge(10.994)
         assert master_clock.bpm == pytest.approx(100.0)
         await tap_edge(11.491)
-        assert master_clock.bpm == pytest.approx(120.5)
+        assert master_clock.bpm == pytest.approx(121.0)
 
     asyncio.run(scenario())
 
@@ -457,7 +457,7 @@ def test_tap_tempo_datapoint_respects_configured_min_taps() -> None:
         await tap_edge(10.497)
         assert master_clock.bpm == pytest.approx(100.0)
         await tap_edge(10.994)
-        assert master_clock.bpm == pytest.approx(120.5)
+        assert master_clock.bpm == pytest.approx(121.0)
 
     asyncio.run(scenario())
 
@@ -506,7 +506,7 @@ def test_repeated_passthrough_bpm_up_steps_tempo() -> None:
 
     asyncio.run(scenario())
 
-    assert master_clock.bpm == pytest.approx(121.5)
+    assert master_clock.bpm == pytest.approx(123.0)
 
 
 def test_bpm_up_down_use_configured_step_and_quantize() -> None:
@@ -576,7 +576,7 @@ def test_bpm_huge_up_down_use_configured_huge_step() -> None:
     asyncio.run(scenario())
 
 
-def test_bpm_up_down_datapoints_step_and_quantize_by_half() -> None:
+def test_bpm_up_down_datapoints_step_and_quantize_by_one() -> None:
     config = parse_config(
         {
             "master_clock": {
@@ -599,12 +599,12 @@ def test_bpm_up_down_datapoints_step_and_quantize_by_half() -> None:
     async def scenario() -> None:
         await clock_gen.start()
         await tap_edge("clock.bpm_up")
-        assert master_clock.bpm == pytest.approx(120.5)
+        assert master_clock.bpm == pytest.approx(121.0)
         await store.write(float_value("clock.bpm_set", 120.3))
         await tap_edge("clock.bpm_up")
         assert master_clock.bpm == pytest.approx(121.0)
         await tap_edge("clock.bpm_down")
-        assert master_clock.bpm == pytest.approx(120.5)
+        assert master_clock.bpm == pytest.approx(120.0)
 
     asyncio.run(scenario())
 
@@ -625,7 +625,7 @@ def test_bpm_up_while_running_preserves_transport_position() -> None:
         await store.write(trigger_value("clock.bpm_up", active=True))
         assert master_clock.running is True
         assert master_clock.position_ticks == 7
-        assert master_clock.bpm == pytest.approx(120.5)
+        assert master_clock.bpm == pytest.approx(121.0)
 
     asyncio.run(scenario())
 
@@ -676,7 +676,7 @@ def test_tap_tempo_while_running_preserves_transport_position() -> None:
         await tap_edge(10.994)
         assert master_clock.running is True
         assert master_clock.position_ticks == 5
-        assert master_clock.bpm == pytest.approx(120.5)
+        assert master_clock.bpm == pytest.approx(121.0)
 
     asyncio.run(scenario())
 

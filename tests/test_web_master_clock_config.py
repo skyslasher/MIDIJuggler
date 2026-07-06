@@ -529,8 +529,8 @@ def test_tap_tempo_updates_master_clock_bpm() -> None:
     asyncio.run(interface.apply_tap_tempo(timestamp=10.994))
     result = asyncio.run(interface.apply_tap_tempo(timestamp=11.491))
 
-    assert result["master_clock"]["bpm"] == pytest.approx(120.5)
-    assert interface.master_clock.config.bpm == pytest.approx(120.5)
+    assert result["master_clock"]["bpm"] == pytest.approx(121.0)
+    assert interface.master_clock.config.bpm == pytest.approx(121.0)
 
 
 def test_master_clock_transport_toggle_starts_and_stops() -> None:

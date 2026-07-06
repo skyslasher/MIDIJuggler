@@ -361,6 +361,11 @@ def test_parse_config_rejects_invalid_bpm_quantize() -> None:
         parse_config({"master_clock": {"bpm_quantize": 0.25}})
 
 
+def test_parse_config_rejects_fractional_bpm_quantize() -> None:
+    with pytest.raises(ValueError, match="bpm_quantize"):
+        parse_config({"master_clock": {"bpm_quantize": 0.5}})
+
+
 def test_parse_config_rejects_invalid_bpm_step() -> None:
     with pytest.raises(ValueError, match="bpm_step"):
         parse_config({"master_clock": {"bpm_step": 0}})

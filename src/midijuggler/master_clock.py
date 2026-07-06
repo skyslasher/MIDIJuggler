@@ -69,7 +69,7 @@ def next_click_interval(current: str) -> str:
 
 TAP_TEMPO_RESET_TIMEOUT_SECONDS = 2.5
 TAP_TEMPO_MAX_TAPS = 5
-TAP_TEMPO_BPM_QUANTIZE_STEP = 0.5
+TAP_TEMPO_BPM_QUANTIZE_STEP = 1.0
 
 
 def quantize_bpm(bpm: float, step: float = TAP_TEMPO_BPM_QUANTIZE_STEP) -> float:

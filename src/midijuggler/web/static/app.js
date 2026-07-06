@@ -7847,9 +7847,9 @@ function renderMasterClockConfig(config) {
   masterBpmMax.value = config.bpm_max;
   masterClickInterval.value = config.click_interval;
   masterTapTempoMinTaps.value = config.tap_tempo_min_taps ?? 4;
-  masterBpmStep.value = config.bpm_step ?? 0.5;
+  masterBpmStep.value = config.bpm_step ?? 1.0;
   masterBpmHugeStep.value = config.bpm_huge_step ?? 10;
-  masterBpmQuantize.value = String(config.bpm_quantize ?? 0.5);
+  masterBpmQuantize.value = "1";
   masterBeatFlashMs.value = config.beat_flash_ms ?? 120;
   masterClickEnabled.checked = Boolean(config.click_enabled);
   replaceSelectOptions(
@@ -7904,7 +7904,7 @@ function masterClockFormPayload() {
     tap_tempo_min_taps: Number(masterTapTempoMinTaps.value),
     bpm_step: Number(masterBpmStep.value),
     bpm_huge_step: Number(masterBpmHugeStep.value),
-    bpm_quantize: Number(masterBpmQuantize.value),
+    bpm_quantize: 1,
     beat_flash_ms: Number(masterBeatFlashMs.value),
     click_audio_device: masterClickDevice.value,
   };
