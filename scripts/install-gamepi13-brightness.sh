@@ -5,12 +5,13 @@ set -eu
 repo_root="$(CDPATH= cd -- "$(dirname "$0")/.." && pwd)"
 apply_script="${repo_root}/scripts/gamepi-apply-gamma.sh"
 run_script="${repo_root}/scripts/gamepi-brightness-run.sh"
+reboot_script="${repo_root}/scripts/gamepi-reboot.sh"
 state_dir="/var/lib/gamepi"
 sudoers_file="/etc/sudoers.d/midijuggler-gamepi-brightness"
 midijuggler_user="${MIDIJUGGLER_USER:-midijuggler}"
 brightness_python="/usr/bin/python3"
 
-chmod +x "$apply_script" "$run_script"
+chmod +x "$apply_script" "$run_script" "$reboot_script"
 
 if ! command -v apt-get >/dev/null 2>&1; then
   echo "apt-get not found; install python3-rpi-lgpio and python3-evdev manually" >&2
@@ -45,9 +46,10 @@ if ! (cd "$state_dir" && "$brightness_python" -c "import lgpio") 2>/dev/null; th
 fi
 
 install -m 440 /dev/stdin "$sudoers_file" <<EOF
-# GamePi brightness: lgpio needs root in /var/lib/gamepi.
+# GamePi web UI: brightness (root lgpio) and reboot.
 ${midijuggler_user} ALL=(root) NOPASSWD: ${run_script}
 ${midijuggler_user} ALL=(root) NOPASSWD: ${apply_script}
+${midijuggler_user} ALL=(root) NOPASSWD: ${reboot_script}
 EOF
 
 brightness_env="/etc/midijuggler/brightness.env"

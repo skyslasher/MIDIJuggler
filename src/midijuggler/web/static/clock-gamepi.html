@@ -237,10 +237,13 @@
       align-items: center;
       background: rgb(8 12 20 / 82%);
       display: none;
-      inset: 0;
+      height: 100%;
       justify-content: center;
-      padding: 12px;
+      left: 0;
+      padding: 0;
       position: fixed;
+      top: 0;
+      width: 100%;
       z-index: 20;
     }
 
@@ -253,9 +256,10 @@
       border: 1px solid var(--line);
       border-radius: 12px;
       box-sizing: border-box;
-      max-width: 132px;
+      margin: 0 auto;
+      max-width: 148px;
       padding: 10px 8px;
-      width: 100%;
+      width: calc(100% - 24px);
     }
 
     .modal h2 {
@@ -324,6 +328,7 @@
     const liveDot = document.querySelector("#live-dot");
     const messageEl = document.querySelector("#message");
     const heroEl = document.querySelector("#hero");
+    const screenEl = document.querySelector(".screen");
     const btnClick = document.querySelector("#btn-click");
     const btnFlash = document.querySelector("#btn-flash");
     const btnInterval = document.querySelector("#btn-interval");
@@ -560,15 +565,19 @@
       if (!brightnessAvailable) {
         brightnessFill.style.width = "35%";
         brightnessTrack.title = "Kein Backlight (L/R)";
-        document.documentElement.style.filter = "";
+        if (screenEl) {
+          screenEl.style.filter = "";
+        }
         return;
       }
       const pct = brightnessMax > 0 ? (brightnessLevel / brightnessMax) * 100 : 0;
       brightnessFill.style.width = `${pct}%`;
       brightnessTrack.title = `Helligkeit ${brightnessLevel}/${brightnessMax}`;
       const displayRatio = brightnessDisplayRatio();
-      document.documentElement.style.filter =
-        displayRatio < BRIGHTNESS_GAMMA_MAX - 0.001 ? `brightness(${displayRatio})` : "";
+      if (screenEl) {
+        screenEl.style.filter =
+          displayRatio < BRIGHTNESS_GAMMA_MAX - 0.001 ? `brightness(${displayRatio})` : "";
+      }
     }
 
     function renderClock(clock) {
@@ -692,7 +701,11 @@
     async function requestReboot() {
       setMessage("");
       try {
-        await apiFetch("/api/gamepi/reboot", { method: "POST", body: "{}" });
+        const payload = await apiFetch("/api/gamepi/reboot", { method: "POST", body: "{}" });
+        if (payload.ok === false) {
+          setMessage(payload.error || "Neustart fehlgeschlagen");
+          return;
+        }
         setMessage("Neustart…");
       } catch (error) {
         setMessage(error.message || "Neustart fehlgeschlagen");

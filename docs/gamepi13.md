@@ -156,6 +156,10 @@ sudo systemctl daemon-reload
 sudo systemctl restart midijuggler.service gamepi-brightness-keys.service
 ```
 
+The install script also grants `midijuggler` passwordless sudo for
+`gamepi-reboot.sh` (kiosk **D-pad ← + A** reboot). Re-run it after pull if reboot
+from the UI fails with a permissions error.
+
 Verify:
 
 ```bash

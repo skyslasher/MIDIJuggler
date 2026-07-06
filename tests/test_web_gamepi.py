@@ -2,6 +2,8 @@ import asyncio
 
 import pytest
 from aiohttp.test_utils import TestClient, TestServer
+from types import SimpleNamespace
+from pathlib import Path
 
 from midijuggler.config import parse_config
 from midijuggler.eventbus import EventBus
@@ -43,13 +45,32 @@ def test_gamepi_brightness_adjust_requires_integer_delta() -> None:
 
 
 def test_gamepi_reboot_rejects_non_localhost() -> None:
-    from aiohttp.test_utils import make_mocked_request
-
     from midijuggler.web.gamepi_system import request_reboot
 
-    request = make_mocked_request("POST", "/api/gamepi/reboot", remote="203.0.113.1")
+    request = SimpleNamespace(remote="203.0.113.1")
     with pytest.raises(PermissionError, match="localhost"):
         request_reboot(request)
+
+
+def test_gamepi_reboot_uses_sudo_wrapper(monkeypatch, tmp_path: Path) -> None:
+    from midijuggler.web import gamepi_system
+
+    script = tmp_path / "gamepi-reboot.sh"
+    script.write_text("#!/bin/sh\n", encoding="utf-8")
+    monkeypatch.setattr(gamepi_system, "_reboot_script", lambda: script)
+
+    calls: list[list[str]] = []
+
+    def fake_run(command, **kwargs):
+        calls.append(command)
+        return SimpleNamespace(returncode=0, stdout="", stderr="")
+
+    monkeypatch.setattr(gamepi_system.subprocess, "run", fake_run)
+
+    payload = gamepi_system.request_reboot(SimpleNamespace(remote="127.0.0.1"))
+
+    assert payload == {"ok": True}
+    assert calls == [["sudo", "-n", str(script)]]
 
 
 def test_clock_gamepi_static_asset_exists() -> None:
