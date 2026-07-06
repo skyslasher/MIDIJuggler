@@ -973,6 +973,7 @@ class WebInterface:
         return web.json_response(brightness_status_payload())
 
     async def gamepi_brightness_adjust(self, request: web.Request) -> web.Response:
+        from midijuggler.modules.interface.gamepi_brightness import publish_brightness_to_store
         from midijuggler.web.gamepi_brightness import adjust_brightness_payload
 
         payload = await request.json()
@@ -980,7 +981,9 @@ class WebInterface:
             delta = int(payload.get("delta", 0))
         except (TypeError, ValueError) as exc:
             raise web.HTTPBadRequest(text="delta must be an integer") from exc
-        return web.json_response(adjust_brightness_payload(delta))
+        result = adjust_brightness_payload(delta)
+        await publish_brightness_to_store(self.datapoint_store, result)
+        return web.json_response(result)
 
     async def gamepi_reboot(self, request: web.Request) -> web.Response:
         from midijuggler.web.gamepi_system import request_reboot

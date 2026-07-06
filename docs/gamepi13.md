@@ -174,6 +174,11 @@ Both shoulder buttons (**GPL** / **GPR**, evdev `button@17` / `button@e`) should
 brightness changes. The web UI uses the same backend — it does **not** go through
 `gamepi-brightness-keys.service`.
 
+The kiosk UI (`clock-gamepi.html`) receives brightness updates over the monitor
+WebSocket as data point `gamepi.brightness` (including after L/R key changes via
+`/var/lib/gamepi/brightness`). POST `/api/gamepi/brightness` is still used for on-screen
++/− buttons.
+
 If `button@e` is missing, the overlay line may be present but **GPIO 14 is still
 blocked** (most often by UART). Diagnose:
 

@@ -18,6 +18,7 @@ from midijuggler.device.registry import DeviceRegistry
 from midijuggler.eventbus import EventBus
 from midijuggler.master_clock import MasterClock
 from midijuggler.modules.generator.master_clock import MasterClockGenerator
+from midijuggler.modules.interface.gamepi_brightness import GamePiBrightnessModule
 from midijuggler.modules.interface.web import WebInterfaceModule
 from midijuggler.modules.io.gpio import GpioIOModule
 from midijuggler.modules.io.hid import HidIOModule
@@ -89,5 +90,6 @@ def build_module_registry(
         )
     )
     registry.add(MasterClockGenerator(master_clock, store))
+    registry.add(GamePiBrightnessModule(store))
     registry.add(WebInterfaceModule(web, store))
     return registry, io_modules

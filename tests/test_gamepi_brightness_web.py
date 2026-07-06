@@ -1,12 +1,24 @@
 from __future__ import annotations
 
+import asyncio
 import logging
-from types import SimpleNamespace
+from pathlib import Path
+from unittest.mock import AsyncMock
 
 import pytest
 
+from midijuggler.clock import ClockBpmTracker
+from midijuggler.config import parse_config
+from midijuggler.datapoint.store import DataPointStore
+from midijuggler.eventbus import EventBus
+from midijuggler.master_clock import MasterClock
+from midijuggler.modules.interface.gamepi_brightness import (
+    BRIGHTNESS_POINT,
+    GamePiBrightnessModule,
+    publish_brightness_to_store,
+    status_to_datapoint_value,
+)
 from midijuggler.web import gamepi_brightness
-from midijuggler.web.server import _QuietAccessPathsFilter
 
 
 @pytest.fixture(autouse=True)
@@ -14,6 +26,179 @@ def reset_brightness_cache() -> None:
     gamepi_brightness._invalidate_status_cache()
     yield
     gamepi_brightness._invalidate_status_cache()
+
+
+def test_status_to_datapoint_value_maps_level_max_and_available() -> None:
+    value = status_to_datapoint_value(
+        {"available": True, "mode": "software", "level": 180, "max": 255}
+    )
+
+    assert value.point_id == BRIGHTNESS_POINT
+    assert value.int_value == 180
+    assert value.bool_value is True
+    assert value.float_value == 255.0
+
+
+def test_status_to_datapoint_value_marks_unavailable() -> None:
+    value = status_to_datapoint_value({"available": False, "mode": "none"})
+
+    assert value.int_value == 0
+    assert value.bool_value is False
+
+
+def test_publish_brightness_to_store_writes_datapoint(monkeypatch) -> None:
+    store = DataPointStore()
+    module = GamePiBrightnessModule(store, state_path=Path("/tmp/unused-gamepi-brightness"))
+    store.register_many(module.datapoints())
+    monkeypatch.setattr(
+        gamepi_brightness,
+        "_direct_brightness_status",
+        lambda: {"available": True, "mode": "software", "level": 150, "max": 255},
+    )
+
+    async def scenario() -> None:
+        await publish_brightness_to_store(store)
+
+    asyncio.run(scenario())
+
+    snapshot = store.snapshot()
+    assert snapshot["gamepi.brightness"]["int_value"] == 150
+    assert snapshot["gamepi.brightness"]["bool_value"] is True
+    assert snapshot["gamepi.brightness"]["float_value"] == 255.0
+
+
+def test_module_start_publishes_initial_brightness(monkeypatch) -> None:
+    store = DataPointStore()
+    module = GamePiBrightnessModule(store, state_path=Path("/tmp/unused-gamepi-brightness"))
+    monkeypatch.setattr(
+        gamepi_brightness,
+        "_direct_brightness_status",
+        lambda: {"available": True, "mode": "software", "level": 200, "max": 255},
+    )
+
+    async def scenario() -> None:
+        await module.start()
+        try:
+            snapshot = store.snapshot()
+            assert snapshot["gamepi.brightness"]["int_value"] == 200
+        finally:
+            await module.stop()
+
+    asyncio.run(scenario())
+
+
+def test_poll_mtime_triggers_refresh_on_mtime_change(tmp_path: Path, monkeypatch) -> None:
+    state_path = tmp_path / "brightness"
+    state_path.write_text("120\n", encoding="utf-8")
+    store = DataPointStore()
+    module = GamePiBrightnessModule(store, state_path=state_path)
+    module.running = True
+    module._inotify = None
+    module._last_mtime_ns = state_path.stat().st_mtime_ns
+    refresh_calls = {"count": 0}
+    original_refresh = module.refresh
+
+    async def counting_refresh() -> None:
+        refresh_calls["count"] += 1
+        await original_refresh()
+
+    module.refresh = counting_refresh  # type: ignore[method-assign]
+
+    async def instant_sleep(_seconds: float) -> None:
+        return None
+
+    monkeypatch.setattr(asyncio, "sleep", instant_sleep)
+    monkeypatch.setattr(
+        "midijuggler.web.gamepi_brightness.brightness_status_payload",
+        lambda: {"available": True, "mode": "software", "level": 140, "max": 255},
+    )
+
+    async def scenario() -> None:
+        state_path.write_text("140\n", encoding="utf-8")
+        await module._poll_mtime()
+        assert refresh_calls["count"] == 1
+
+    asyncio.run(scenario())
+
+
+def test_adjust_endpoint_publishes_brightness(monkeypatch) -> None:
+    from aiohttp import web
+    from aiohttp.test_utils import TestClient, TestServer
+
+    from midijuggler.web.server import WebInterface
+
+    config = parse_config({})
+    bus = EventBus()
+    store = DataPointStore()
+    web_iface = WebInterface(
+        config,
+        bus,
+        ClockBpmTracker(),
+        MasterClock(config.master_clock, bus),
+        datapoint_store=store,
+    )
+    store.register_many(GamePiBrightnessModule(store, state_path=Path("/tmp/unused")).datapoints())
+    writes: list[int] = []
+
+    async def capture_write(value) -> None:
+        writes.append(value.int_value or 0)
+
+    store.subscribe("gamepi.brightness", capture_write)
+
+    monkeypatch.setattr(
+        "midijuggler.web.gamepi_brightness.adjust_brightness_payload",
+        lambda delta: {
+            "ok": True,
+            "available": True,
+            "mode": "software",
+            "level": 170,
+            "max": 255,
+            "delta": delta,
+        },
+    )
+
+    async def scenario() -> None:
+        app = web_iface.create_app()
+        async with TestClient(TestServer(app)) as client:
+            response = await client.post("/api/gamepi/brightness", json={"delta": 10})
+            assert response.status == 200
+            payload = await response.json()
+            assert payload["level"] == 170
+
+    asyncio.run(scenario())
+
+    assert writes
+    assert writes[-1] == 170
+
+
+def test_web_interface_broadcasts_brightness_datapoint(monkeypatch) -> None:
+    from midijuggler.modules.interface.web import WebInterfaceModule
+    from midijuggler.web.server import WebInterface
+
+    config = parse_config({})
+    bus = EventBus()
+    store = DataPointStore()
+    web = WebInterface(
+        config,
+        bus,
+        ClockBpmTracker(),
+        MasterClock(config.master_clock, bus),
+    )
+    web.broadcast_datapoint_update = AsyncMock()
+    module = WebInterfaceModule(web, store)
+
+    async def scenario() -> None:
+        await module.start()
+        await publish_brightness_to_store(
+            store,
+            {"available": True, "mode": "software", "level": 190, "max": 255},
+        )
+
+    asyncio.run(scenario())
+    web.broadcast_datapoint_update.assert_awaited_once()
+    payload = web.broadcast_datapoint_update.await_args.args[0]
+    assert payload["id"] == "gamepi.brightness"
+    assert payload["int_value"] == 190
 
 
 def test_brightness_status_uses_direct_read_without_sudo(monkeypatch) -> None:
@@ -102,6 +287,8 @@ def test_adjust_brightness_invalidates_cache_and_uses_sudo(monkeypatch) -> None:
 
 
 def test_quiet_access_paths_filter() -> None:
+    from midijuggler.web.server import _QuietAccessPathsFilter
+
     quiet = _QuietAccessPathsFilter()
     logger = logging.getLogger("test.gamepi.access")
 
