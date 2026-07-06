@@ -4264,9 +4264,29 @@ def _validate_midi_7bit(value: Any, field_name: str) -> int:
     return parsed
 
 
+class _QuietAccessPathsFilter(logging.Filter):
+    """Drop high-frequency polling GETs from aiohttp access logs."""
+
+    _QUIET_GET_PREFIXES = (
+        '"GET /api/status ',
+        '"GET /api/gamepi/brightness ',
+    )
+
+    def filter(self, record: logging.LogRecord) -> bool:
+        message = record.getMessage()
+        return not any(prefix in message for prefix in self._QUIET_GET_PREFIXES)
+
+
+def _configure_access_logging() -> logging.Logger:
+    access_logger = logging.getLogger("aiohttp.access")
+    if not any(isinstance(item, _QuietAccessPathsFilter) for item in access_logger.filters):
+        access_logger.addFilter(_QuietAccessPathsFilter())
+    return access_logger
+
+
 async def run_web_server(interface: WebInterface) -> web.AppRunner:
     app = interface.create_app()
-    runner = web.AppRunner(app)
+    runner = web.AppRunner(app, access_log=_configure_access_logging())
     await runner.setup()
     site = web.TCPSite(runner, interface.config.web.host, interface.config.web.port)
     await site.start()

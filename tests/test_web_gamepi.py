@@ -5,14 +5,22 @@ from aiohttp.test_utils import TestClient, TestServer
 from types import SimpleNamespace
 from pathlib import Path
 
+from midijuggler.clock import ClockBpmTracker
 from midijuggler.config import parse_config
 from midijuggler.eventbus import EventBus
+from midijuggler.master_clock import MasterClock
 from midijuggler.web.server import WebInterface
 
 
 def _interface() -> WebInterface:
     config = parse_config({"master_clock": {"enabled": True}})
-    return WebInterface(config, EventBus())
+    bus = EventBus()
+    return WebInterface(
+        config,
+        bus,
+        ClockBpmTracker(),
+        MasterClock(config.master_clock, bus),
+    )
 
 
 def test_gamepi_brightness_status_endpoint() -> None:

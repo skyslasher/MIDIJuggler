@@ -5,7 +5,12 @@ from __future__ import annotations
 import json
 import os
 import subprocess
+import sys
+import time
 from pathlib import Path
+
+_STATUS_CACHE: tuple[float, dict[str, int | bool | str]] | None = None
+_STATUS_CACHE_TTL = float(os.environ.get("GAMEPI_BRIGHTNESS_STATUS_CACHE_SEC", "5"))
 
 
 def _app_root() -> Path:
@@ -16,8 +21,28 @@ def _app_root() -> Path:
     return Path(__file__).resolve().parents[3]
 
 
+def _scripts_dir() -> Path:
+    return _app_root() / "scripts"
+
+
 def _brightness_runner() -> Path:
-    return _app_root() / "scripts" / "gamepi-brightness-run.sh"
+    return _scripts_dir() / "gamepi-brightness-run.sh"
+
+
+def _import_brightness_lib():
+    scripts = str(_scripts_dir())
+    if scripts not in sys.path:
+        sys.path.insert(0, scripts)
+    import gamepi_brightness_lib
+
+    return gamepi_brightness_lib
+
+
+def _direct_brightness_status() -> dict[str, int | bool | str] | None:
+    try:
+        return _import_brightness_lib().brightness_status()
+    except Exception:
+        return None
 
 
 def _run_brightness_cli(*args: str) -> dict[str, int | bool | str]:
@@ -44,9 +69,31 @@ def _run_brightness_cli(*args: str) -> dict[str, int | bool | str]:
         return {"ok": False, "available": False, "mode": "none"}
 
 
+def _cache_status(payload: dict[str, int | bool | str]) -> dict[str, int | bool | str]:
+    global _STATUS_CACHE
+    _STATUS_CACHE = (time.monotonic(), payload)
+    return payload
+
+
+def _invalidate_status_cache() -> None:
+    global _STATUS_CACHE
+    _STATUS_CACHE = None
+
+
 def brightness_status_payload() -> dict[str, int | bool | str]:
-    return _run_brightness_cli("--status")
+    global _STATUS_CACHE
+    now = time.monotonic()
+    if _STATUS_CACHE is not None:
+        cached_at, payload = _STATUS_CACHE
+        if now - cached_at < _STATUS_CACHE_TTL:
+            return payload
+
+    payload = _direct_brightness_status()
+    if payload is None:
+        payload = _run_brightness_cli("--status")
+    return _cache_status(payload)
 
 
 def adjust_brightness_payload(delta: int) -> dict[str, int | bool | str]:
+    _invalidate_status_cache()
     return _run_brightness_cli("--delta", str(delta))

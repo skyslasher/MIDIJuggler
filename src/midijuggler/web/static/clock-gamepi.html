@@ -135,7 +135,7 @@
     }
 
     .bpm-value {
-      font-size: 4.1rem;
+      font-size: 6.5rem;
       font-variant-numeric: tabular-nums;
       font-weight: 800;
       line-height: 0.92;
@@ -379,6 +379,7 @@
     const BRIGHTNESS_GAMMA_MIN = 0.12;
     const BRIGHTNESS_GAMMA_MAX = 1.0;
     const BRIGHTNESS_DEFAULT = 200;
+    const BRIGHTNESS_POLL_MS = 10000;
     const REBOOT_HOLD_MS = 5000;
     const keysHeld = new Set();
     let rebootComboTriggered = false;
@@ -975,7 +976,12 @@
       .catch((error) => setMessage(error.message || "Status nicht geladen"));
 
     loadBrightnessStatus();
-    setInterval(loadBrightnessStatus, 1500);
+    setInterval(loadBrightnessStatus, BRIGHTNESS_POLL_MS);
+    document.addEventListener("visibilitychange", () => {
+      if (document.visibilityState === "visible") {
+        loadBrightnessStatus();
+      }
+    });
     connectMonitor();
   </script>
 </body>
