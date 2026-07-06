@@ -776,16 +776,31 @@
     }
 
     // Face buttons (A/B/X/Y) adjust BPM; D-pad is navigation only.
+    const FACE_BUTTON_BPM_BY_CODE = {
+      KeyY: "bpm_huge_up",
+      KeyX: "bpm_huge_down",
+      KeyB: "bpm_huge_up",
+      KeyA: "bpm_up",
+    };
+
     const FACE_BUTTON_BPM = {
       y: "bpm_huge_up",
       Y: "bpm_huge_up",
       x: "bpm_huge_down",
       X: "bpm_huge_down",
-      b: "bpm_down",
-      B: "bpm_down",
+      b: "bpm_huge_up",
+      B: "bpm_huge_up",
       a: "bpm_up",
       A: "bpm_up",
     };
+
+    function faceButtonBpmPoint(event) {
+      const byCode = FACE_BUTTON_BPM_BY_CODE[event.code];
+      if (byCode) {
+        return byCode;
+      }
+      return FACE_BUTTON_BPM[event.key] ?? null;
+    }
 
     function handleKeyDown(event) {
       keysHeld.add(event.key);
@@ -831,7 +846,7 @@
         return;
       }
 
-      const bpmPoint = FACE_BUTTON_BPM[event.key];
+      const bpmPoint = faceButtonBpmPoint(event);
       if (bpmPoint) {
         event.preventDefault();
         trigger(bpmPoint);
