@@ -167,21 +167,52 @@ Both shoulder buttons (**GPL** / **GPR**, evdev `button@17` / `button@e`) should
 brightness changes. The web UI uses the same backend — it does **not** go through
 `gamepi-brightness-keys.service`.
 
-If `button@e` is missing, add the missing overlay (does not skip when other keys exist):
+If `button@e` is missing, the overlay line may be present but **GPIO 14 is still
+blocked** (most often by UART). Diagnose:
 
 ```bash
-sudo /opt/midijuggler/app/scripts/install-gamepi13-keys.sh
 sudo /opt/midijuggler/app/scripts/gamepi-verify-keys.sh
+sudo grep -E 'enable_uart|gpio-key.*GPR|label="GPR"' /boot/firmware/config.txt
+grep -E 'console=(serial0|ttyAMA0|ttyS0)' /boot/firmware/cmdline.txt
+sudo dmesg | grep -iE 'gpio.?14|gpio-key|gpiokeys'
+```
+
+**Fix (GPR / `button@e`):** GPIO 14 is the R shoulder button *and* UART TX (physical
+pin 8). Disable the serial UART so `gpio-key` can claim the pin:
+
+```bash
+# /boot/firmware/config.txt — use ONE of these, not both uart console and GPR:
+enable_uart=0
+
+# /boot/firmware/cmdline.txt — remove serial console tokens, e.g. console=serial0,115200
+sudo nano /boot/firmware/cmdline.txt
+```
+
+Then reinstall any missing overlay lines and reboot:
+
+```bash
+sudo GAMEPI_KEYS_PROFILE=x1207 /opt/midijuggler/app/scripts/install-gamepi13-keys.sh
 sudo reboot
 ```
 
-Find the panel LED sysfs path:
+After reboot, `button@17` (GPL) and `button@e` (GPR) should both appear in
+`gamepi-verify-keys.sh`.
+
+Find the panel LED sysfs path (often empty on stock `waveshare13`):
 
 ```bash
 ls -l /sys/class/leds/
 ls -l /sys/class/backlight/
 sudo /opt/midijuggler/app/scripts/gamepi-brightness-probe.py
 ```
+
+**Brightness without `/sys/class/leds`:** Stock `waveshare13` drives the panel
+backlight on **GPIO 24** inside the kernel driver. Userspace PWM on GPIO 24 fails
+with `GPIO busy`. MIDIJuggler therefore defaults to **software gamma** (`mode:
+software`) via `gamepi-apply-gamma.sh` while the kiosk X session is running.
+Optional hardware PWM remains off (`GAMEPI_PWM_BACKLIGHT=0` in
+`gamepi-brightness-keys.service`). True LED dimming would require a custom device-tree
+overlay that exposes `pwm-backlight` — not provided by Waveshare’s stock image.
 
 ## 5. Splash image
 

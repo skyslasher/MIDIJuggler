@@ -16,9 +16,13 @@ prepare_lgpio_runtime()
 from gamepi_backlight_pwm import _gpio_candidates, last_pwm_error, pwm_available
 from gamepi_brightness_lib import brightness_status, find_backlight, set_brightness
 from gamepi_gpio_keys import (
+    boot_config_warnings,
+    brightness_backend_warnings,
     brightness_input_warnings,
     describe_input_devices,
+    dmesg_gpio_key_hints,
     find_brightness_devices,
+    resolve_boot_config,
 )
 
 
@@ -34,6 +38,9 @@ def main() -> int:
         "pwm_available": pwm_available(),
         "pwm_enabled": False,
         "pwm_candidates": _gpio_candidates(),
+        "boot_config": str(resolve_boot_config()) if resolve_boot_config() else None,
+        "boot_warnings": boot_config_warnings() + brightness_backend_warnings(),
+        "dmesg_gpio_key_hints": dmesg_gpio_key_hints(),
         "warnings": brightness_input_warnings(),
         "brightness_devices": [
             {

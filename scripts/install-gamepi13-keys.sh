@@ -63,3 +63,16 @@ if [ "$added" -eq 0 ]; then
 else
   echo "Reboot to activate new keyboard overlays."
 fi
+
+if command -v python3 >/dev/null 2>&1; then
+  PYTHONPATH="${repo_root}/scripts" python3 - <<'PY' || true
+from gamepi_gpio_keys import boot_config_overlay_line, boot_config_warnings
+
+gpr = boot_config_overlay_line("GPR")
+if gpr and "gpio=14" not in gpr:
+    print(f"warning: GPR overlay does not use gpio=14: {gpr}", flush=True)
+
+for warning in boot_config_warnings():
+    print(f"warning: {warning}", flush=True)
+PY
+fi
