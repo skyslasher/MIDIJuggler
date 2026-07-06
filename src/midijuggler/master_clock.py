@@ -260,7 +260,7 @@ class MasterClock:
         self._datapoint_sink: ClockDatapointSink | None = None
         self._tap_tempo = TapTempoTracker(
             min_taps=config.tap_tempo_min_taps,
-            quantize_step=config.bpm_quantize,
+            quantize_step=TAP_TEMPO_BPM_QUANTIZE_STEP,
         )
 
     def bind_datapoint_sink(self, sink: ClockDatapointSink | None) -> None:
@@ -299,7 +299,6 @@ class MasterClock:
         self.config = config
         self.remote = MasterClockRemote(config)
         self._tap_tempo.min_taps = config.tap_tempo_min_taps
-        self._tap_tempo.quantize_step = config.bpm_quantize
         await self._replace_click_player(config)
         self.bpm = config.bpm
         self.click_interval = config.click_interval

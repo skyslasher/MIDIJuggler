@@ -518,7 +518,6 @@ def test_bpm_up_down_use_configured_step_and_quantize() -> None:
                 "bpm_min": 40.0,
                 "bpm_max": 240.0,
                 "bpm_step": 1.0,
-                "bpm_quantize": 1.0,
             }
         }
     )
@@ -553,7 +552,6 @@ def test_bpm_huge_up_down_use_configured_huge_step() -> None:
                 "bpm_min": 40.0,
                 "bpm_max": 240.0,
                 "bpm_huge_step": 10.0,
-                "bpm_quantize": 1.0,
             }
         }
     )

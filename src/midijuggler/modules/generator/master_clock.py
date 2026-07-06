@@ -22,6 +22,7 @@ from midijuggler.master_clock import (
     MIDI_START,
     MIDI_STOP,
     MIDI_TIMING_CLOCK,
+    TAP_TEMPO_BPM_QUANTIZE_STEP,
     MasterClock,
     click_interval_from_set_value,
     next_click_interval,
@@ -455,7 +456,7 @@ class MasterClockGenerator(GeneratorModule):
     def _step_bpm(self, delta: float) -> float:
         stepped = quantize_bpm(
             self.clock.bpm + delta,
-            step=self.clock.config.bpm_quantize,
+            step=TAP_TEMPO_BPM_QUANTIZE_STEP,
         )
         return min(
             max(stepped, self.clock.config.bpm_min),

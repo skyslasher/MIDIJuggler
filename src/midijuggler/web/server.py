@@ -40,7 +40,6 @@ from midijuggler.config import (
     _validate_adapter_instance_name,
     _validate_tap_tempo_min_taps,
     _validate_bpm_step,
-    _validate_bpm_quantize,
     _validate_beat_flash_ms,
     parse_config,
     save_devices,
@@ -82,7 +81,7 @@ from midijuggler.events import (
     MasterClockStateEvent,
     MidiMessageEvent,
 )
-from midijuggler.master_clock import quantize_bpm
+from midijuggler.master_clock import quantize_bpm, TAP_TEMPO_BPM_QUANTIZE_STEP
 from midijuggler.learn import (
     LearnController,
     lookup_datapoint_ranges,
@@ -3555,7 +3554,6 @@ class WebInterface:
             "tap_tempo_min_taps": config.tap_tempo_min_taps,
             "bpm_step": config.bpm_step,
             "bpm_huge_step": config.bpm_huge_step,
-            "bpm_quantize": config.bpm_quantize,
             "click_audio_device": normalize_alsa_output_device(
                 config.click_audio_device,
             ),
@@ -3670,7 +3668,7 @@ class WebInterface:
         config = clock.config
 
         def stepped_bpm(delta: float) -> float:
-            stepped = quantize_bpm(clock.bpm + delta, step=config.bpm_quantize)
+            stepped = quantize_bpm(clock.bpm + delta, step=TAP_TEMPO_BPM_QUANTIZE_STEP)
             return min(max(stepped, config.bpm_min), config.bpm_max)
 
         if point == "bpm_up":
@@ -4123,10 +4121,6 @@ class WebInterface:
             payload.get("bpm_huge_step", current.bpm_huge_step),
             "bpm_huge_step",
         )
-        bpm_quantize = _validate_bpm_quantize(
-            payload.get("bpm_quantize", current.bpm_quantize),
-            "bpm_quantize",
-        )
         beat_flash_ms = _validate_beat_flash_ms(
             payload.get("beat_flash_ms", current.beat_flash_ms),
             "beat_flash_ms",
@@ -4162,7 +4156,6 @@ class WebInterface:
             tap_tempo_min_taps=tap_tempo_min_taps,
             bpm_step=bpm_step,
             bpm_huge_step=bpm_huge_step,
-            bpm_quantize=bpm_quantize,
             name=display_name,
             beat_flash_ms=beat_flash_ms,
         )

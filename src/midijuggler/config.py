@@ -73,7 +73,6 @@ class MasterClockConfig:
     tap_tempo_min_taps: int = 4
     bpm_step: float = 1.0
     bpm_huge_step: float = 10.0
-    bpm_quantize: float = 1.0
     name: str = "Master clock"
     beat_flash_ms: float = 120.0
 
@@ -688,7 +687,6 @@ def _format_master_clock_section(
         f"tap_tempo_min_taps = {config.tap_tempo_min_taps}\n"
         f"bpm_step = {config.bpm_step}\n"
         f"bpm_huge_step = {config.bpm_huge_step}\n"
-        f"bpm_quantize = {config.bpm_quantize}\n"
         f"click_audio_device = {_toml_string(config.click_audio_device)}\n"
         f"name = {_toml_string(config.name)}\n"
         f"beat_flash_ms = {config.beat_flash_ms}\n\n"
@@ -829,10 +827,6 @@ def _parse_master_clock(raw: Any) -> MasterClockConfig:
         raw.get("bpm_huge_step", 10.0),
         "master_clock.bpm_huge_step",
     )
-    bpm_quantize = _validate_bpm_quantize(
-        raw.get("bpm_quantize", 1.0),
-        "master_clock.bpm_quantize",
-    )
     beat_flash_ms = _validate_beat_flash_ms(
         raw.get("beat_flash_ms", 120.0),
         "master_clock.beat_flash_ms",
@@ -871,7 +865,6 @@ def _parse_master_clock(raw: Any) -> MasterClockConfig:
         tap_tempo_min_taps=tap_tempo_min_taps,
         bpm_step=bpm_step,
         bpm_huge_step=bpm_huge_step,
-        bpm_quantize=bpm_quantize,
         name=display_name,
         beat_flash_ms=beat_flash_ms,
     )
@@ -1625,13 +1618,6 @@ def _validate_bpm_step(value: Any, field_name: str) -> float:
     parsed = _as_float(value, field_name)
     if parsed <= 0 or not parsed.is_integer():
         raise ValueError(f"{field_name} must be a positive integer")
-    return parsed
-
-
-def _validate_bpm_quantize(value: Any, field_name: str) -> float:
-    parsed = _as_float(value, field_name)
-    if parsed != 1.0:
-        raise ValueError(f"{field_name} must be 1.0")
     return parsed
 
 
