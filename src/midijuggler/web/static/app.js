@@ -601,6 +601,9 @@ function learnInstanceLabel(module) {
   if (module === "clock") {
     return masterClockConfig?.name?.trim() || "Master clock";
   }
+  if (module === "gamepi") {
+    return "GamePi";
+  }
   if (module === "gpio") {
     return gpioConfig?.name?.trim() || "GPIO";
   }

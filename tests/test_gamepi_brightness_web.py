@@ -14,10 +14,12 @@ from midijuggler.eventbus import EventBus
 from midijuggler.master_clock import MasterClock
 from midijuggler.modules.interface.gamepi_brightness import (
     BRIGHTNESS_POINT,
+    BRIGHTNESS_SET_POINT,
     GamePiBrightnessModule,
     publish_brightness_to_store,
     status_to_datapoint_value,
 )
+from midijuggler.datapoint.types import DataPointDirection, float_value
 from midijuggler.web import gamepi_brightness
 
 
@@ -26,6 +28,97 @@ def reset_brightness_cache() -> None:
     gamepi_brightness._invalidate_status_cache()
     yield
     gamepi_brightness._invalidate_status_cache()
+
+
+def test_gamepi_brightness_datapoint_directions_match_connection_roles() -> None:
+    store = DataPointStore()
+    specs = {str(spec.id): spec for spec in GamePiBrightnessModule(store).datapoints()}
+
+    assert specs["gamepi.brightness"].direction == DataPointDirection.INPUT
+    assert specs["gamepi.brightness_set"].direction == DataPointDirection.OUTPUT
+
+
+def test_brightness_set_datapoint_applies_level_and_republishes_state(monkeypatch) -> None:
+    store = DataPointStore()
+    module = GamePiBrightnessModule(store, state_path=Path("/tmp/unused-gamepi-brightness"))
+    store.register_many(module.datapoints())
+    set_calls: list[int] = []
+
+    monkeypatch.setattr(
+        gamepi_brightness,
+        "set_brightness_payload",
+        lambda level: set_calls.append(level)
+        or {"ok": True, "available": True, "mode": "software", "level": level, "max": 255},
+    )
+    monkeypatch.setattr(
+        gamepi_brightness,
+        "_direct_brightness_status",
+        lambda: {"available": True, "mode": "software", "level": 120, "max": 255},
+    )
+
+    async def scenario() -> None:
+        await module.start()
+        try:
+            await store.write(float_value(BRIGHTNESS_SET_POINT, 180.0))
+            snapshot = store.snapshot()
+            assert snapshot["gamepi.brightness"]["int_value"] == 180
+        finally:
+            await module.stop()
+
+    asyncio.run(scenario())
+
+    assert set_calls == [180]
+
+
+def test_parse_connection_with_gamepi_brightness_endpoints() -> None:
+    from midijuggler.config import parse_config
+
+    config = parse_config(
+        {
+            "connections": [
+                {
+                    "id": "fader-to-gamepi-brightness",
+                    "source": "midi.cc_0_1",
+                    "target": "gamepi.brightness_set",
+                },
+                {
+                    "id": "gamepi-brightness-to-osc",
+                    "source": "gamepi.brightness",
+                    "target": "osc./monitor/brightness",
+                },
+            ],
+            "devices": [
+                {
+                    "uid": "midi",
+                    "name": "MIDI",
+                    "adapter": "midi",
+                    "library_kind": "midi",
+                    "library": "generic_cc",
+                },
+                {
+                    "uid": "osc",
+                    "name": "OSC",
+                    "adapter": "osc",
+                    "library_kind": "osc",
+                    "custom_points": [
+                        {
+                            "id": "/monitor/brightness",
+                            "direction": "target",
+                            "value_min": 0,
+                            "value_max": 255,
+                        }
+                    ],
+                },
+            ],
+            "adapters": {
+                "midi": {"enabled": True},
+                "osc": {"enabled": True, "type": "osc", "host": "127.0.0.1", "port": 9000},
+            },
+        }
+    )
+
+    assert config.connections[0].target == "gamepi.brightness_set"
+    assert config.connections[1].source == "gamepi.brightness"
 
 
 def test_status_to_datapoint_value_maps_level_max_and_available() -> None:

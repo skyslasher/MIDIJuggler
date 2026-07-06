@@ -92,7 +92,7 @@ class DeviceRegistry:
 
     def validate_connection_endpoint(self, point_id: str) -> None:
         module = point_id.partition(".")[0]
-        if module in {"clock", "mapping"}:
+        if module in {"clock", "gamepi", "mapping"}:
             return
         if module not in self._devices:
             raise ValueError(

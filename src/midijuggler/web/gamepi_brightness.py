@@ -97,3 +97,8 @@ def brightness_status_payload() -> dict[str, int | bool | str]:
 def adjust_brightness_payload(delta: int) -> dict[str, int | bool | str]:
     _invalidate_status_cache()
     return _run_brightness_cli("--delta", str(delta))
+
+
+def set_brightness_payload(level: int) -> dict[str, int | bool | str]:
+    _invalidate_status_cache()
+    return _run_brightness_cli("--set", str(level))

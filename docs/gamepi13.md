@@ -179,6 +179,10 @@ WebSocket as data point `gamepi.brightness` (including after L/R key changes via
 `/var/lib/gamepi/brightness`). POST `/api/gamepi/brightness` is still used for on-screen
 +/− buttons.
 
+In **Connections**, use `gamepi.brightness` as a readable source and
+`gamepi.brightness_set` as a writable target (same pattern as `clock.bpm` /
+`clock.bpm_set`).
+
 If `button@e` is missing, the overlay line may be present but **GPIO 14 is still
 blocked** (most often by UART). Diagnose:
 

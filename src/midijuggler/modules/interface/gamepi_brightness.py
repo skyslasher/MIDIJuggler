@@ -7,6 +7,7 @@ import contextlib
 import logging
 import os
 import sys
+from dataclasses import replace
 from pathlib import Path
 from typing import Any
 
@@ -24,6 +25,7 @@ LOGGER = logging.getLogger(__name__)
 
 GAMEPI_MODULE = "gamepi"
 BRIGHTNESS_POINT = DataPointId(GAMEPI_MODULE, "brightness")
+BRIGHTNESS_SET_POINT = DataPointId(GAMEPI_MODULE, "brightness_set")
 DEFAULT_STATE_PATH = Path(
     os.environ.get("GAMEPI_BRIGHTNESS_STATE", "/var/lib/gamepi/brightness")
 )
@@ -53,7 +55,11 @@ async def publish_brightness_to_store(
         from midijuggler.web import gamepi_brightness as brightness_api
 
         payload = brightness_api.brightness_status_payload()
-    await store.write(status_to_datapoint_value(payload))
+    value = status_to_datapoint_value(payload)
+    previous = store.snapshot().get(str(BRIGHTNESS_POINT))
+    if previous is not None and previous.get("int_value") != value.int_value:
+        value = replace(value, force_notify=True)
+    await store.write(value)
 
 
 class _LinuxInotifyWatcher:
@@ -158,8 +164,18 @@ class GamePiBrightnessModule(InterfaceModule):
             DataPointSpec(
                 id=BRIGHTNESS_POINT,
                 value_type=ValueType.INT,
-                direction=DataPointDirection.OUTPUT,
+                direction=DataPointDirection.INPUT,
                 label="GamePi display brightness",
+                value_min=0,
+                value_max=255,
+                protocol="gamepi",
+                category="display",
+            ),
+            DataPointSpec(
+                id=BRIGHTNESS_SET_POINT,
+                value_type=ValueType.INT,
+                direction=DataPointDirection.OUTPUT,
+                label="Set GamePi display brightness",
                 value_min=0,
                 value_max=255,
                 protocol="gamepi",
@@ -169,6 +185,7 @@ class GamePiBrightnessModule(InterfaceModule):
 
     async def start(self) -> None:
         await super().start()
+        self.store.subscribe(BRIGHTNESS_SET_POINT, self._on_brightness_set)
         await self.refresh()
         self._watch_task = asyncio.create_task(self._watch_loop())
 
@@ -187,6 +204,26 @@ class GamePiBrightnessModule(InterfaceModule):
         await publish_brightness_to_store(self.store)
         with contextlib.suppress(OSError):
             self._last_mtime_ns = self.state_path.stat().st_mtime_ns
+
+    async def _on_brightness_set(self, value: DataPointValue) -> None:
+        if value.int_value is not None:
+            requested = value.int_value
+        elif value.float_value is not None:
+            requested = int(round(value.float_value))
+        else:
+            return
+
+        current = self.store.snapshot().get(str(BRIGHTNESS_POINT))
+        if current is not None and current.get("int_value") == requested:
+            return
+
+        from midijuggler.web import gamepi_brightness as brightness_api
+
+        result = brightness_api.set_brightness_payload(requested)
+        if not result.get("available"):
+            LOGGER.warning("brightness_set ignored: backend unavailable")
+            return
+        await publish_brightness_to_store(self.store, result)
 
     async def _watch_loop(self) -> None:
         if sys.platform == "linux":
