@@ -35,6 +35,98 @@ def test_brightness_status_uses_software_when_no_sysfs(monkeypatch) -> None:
     assert payload["mode"] == "software"
 
 
+def _write_fake_led(entry: Path, brightness: int = 1, maximum: int = 1) -> None:
+    entry.mkdir()
+    (entry / "brightness").write_text(f"{brightness}\n", encoding="utf-8")
+    (entry / "max_brightness").write_text(f"{maximum}\n", encoding="utf-8")
+
+
+def test_find_backlight_ignores_fake_sysfs_leds(tmp_path: Path, monkeypatch) -> None:
+    lib = _load_module("gamepi_brightness_lib", "gamepi_brightness_lib.py")
+    leds = tmp_path / "leds"
+    leds.mkdir()
+    for name in ("default-on", "ACT", "PWR", "mmc0::"):
+        _write_fake_led(leds / name)
+
+    scan_leds = lib._scan_leds_dir
+    monkeypatch.setattr(lib, "_scan_backlight_dir", lambda root: None)
+    monkeypatch.setattr(lib, "_scan_leds_dir", lambda root: scan_leds(leds))
+
+    assert lib.find_backlight() is None
+
+
+def test_find_backlight_uses_panel_led_with_real_max(tmp_path: Path, monkeypatch) -> None:
+    lib = _load_module("gamepi_brightness_lib", "gamepi_brightness_lib.py")
+    leds = tmp_path / "leds"
+    leds.mkdir()
+    _write_fake_led(leds / "default-on", brightness=1, maximum=1)
+    panel = leds / "panel-backlight"
+    _write_fake_led(panel, brightness=128, maximum=255)
+
+    scan_leds = lib._scan_leds_dir
+    monkeypatch.setattr(lib, "_scan_backlight_dir", lambda root: None)
+    monkeypatch.setattr(lib, "_scan_leds_dir", lambda root: scan_leds(leds))
+
+    found = lib.find_backlight()
+    assert found is not None
+    assert found[0] == panel / "brightness"
+    assert found[1] == panel / "max_brightness"
+
+
+def test_brightness_mode_falls_back_to_software_for_fake_leds(tmp_path: Path, monkeypatch) -> None:
+    lib = _load_module("gamepi_brightness_lib", "gamepi_brightness_lib.py")
+    leds = tmp_path / "leds"
+    leds.mkdir()
+    _write_fake_led(leds / "default-on")
+
+    scan_leds = lib._scan_leds_dir
+    monkeypatch.setattr(lib, "_scan_backlight_dir", lambda root: None)
+    monkeypatch.setattr(lib, "_scan_leds_dir", lambda root: scan_leds(leds))
+    monkeypatch.setenv("GAMEPI_SOFTWARE_BRIGHTNESS", "1")
+    monkeypatch.setenv("GAMEPI_PWM_BACKLIGHT", "0")
+
+    assert lib.brightness_mode() == "software"
+
+
+def test_scan_backlight_dir_skips_one_brightness_panels(tmp_path: Path) -> None:
+    lib = _load_module("gamepi_brightness_lib", "gamepi_brightness_lib.py")
+    backlight = tmp_path / "backlight"
+    backlight.mkdir()
+    fake = backlight / "fake-bl"
+    _write_fake_led(fake, brightness=1, maximum=1)
+    real = backlight / "10-0045"
+    _write_fake_led(real, brightness=200, maximum=255)
+
+    found = lib._scan_backlight_dir(backlight)
+
+    assert found is not None
+    assert found[0] == real / "brightness"
+
+
+def test_adjust_brightness_uses_software_when_only_fake_sysfs(tmp_path: Path, monkeypatch) -> None:
+    lib = _load_module("gamepi_brightness_lib", "gamepi_brightness_lib.py")
+    leds = tmp_path / "leds"
+    leds.mkdir()
+    _write_fake_led(leds / "default-on")
+
+    scan_leds = lib._scan_leds_dir
+    monkeypatch.setattr(lib, "_scan_backlight_dir", lambda root: None)
+    monkeypatch.setattr(lib, "_scan_leds_dir", lambda root: scan_leds(leds))
+    monkeypatch.setattr(lib, "pwm_available", lambda: False)
+    monkeypatch.setattr(lib, "_run_gamma", lambda gamma: True)
+    monkeypatch.setenv("GAMEPI_SOFTWARE_BRIGHTNESS", "1")
+    monkeypatch.setenv("GAMEPI_PWM_BACKLIGHT", "0")
+    monkeypatch.setattr(lib, "STATE_PATH", tmp_path / "brightness")
+    monkeypatch.setenv("GAMEPI_BRIGHTNESS_DEFAULT", "200")
+
+    payload = lib.adjust_brightness(-10)
+
+    assert payload["ok"] is True
+    assert payload["mode"] == "software"
+    assert payload["level"] == 190
+    assert payload["max"] == 255
+
+
 def test_adjust_brightness_pwm_updates_state(tmp_path, monkeypatch) -> None:
     lib = _load_module("gamepi_brightness_lib", "gamepi_brightness_lib.py")
     monkeypatch.setattr(lib, "find_backlight", lambda: None)

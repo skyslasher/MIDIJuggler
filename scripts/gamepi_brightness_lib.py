@@ -27,6 +27,22 @@ def _software_brightness_enabled() -> bool:
     return value not in {"0", "false", "no", "off"}
 
 
+def _is_non_panel_led(name: str) -> bool:
+    lowered = name.casefold()
+    if lowered in {"default-on", "act", "pwr"}:
+        return True
+    return lowered.startswith("mmc")
+
+
+def _usable_sysfs_max(max_path: Path) -> int | None:
+    if not max_path.is_file():
+        return None
+    max_level = read_int(max_path, 0)
+    if max_level <= 1:
+        return None
+    return max_level
+
+
 def find_backlight() -> tuple[Path, Path] | None:
     override = os.environ.get("GAMEPI_BACKLIGHT_BRIGHTNESS", "").strip()
     max_override = os.environ.get("GAMEPI_BACKLIGHT_MAX_BRIGHTNESS", "").strip()
@@ -55,7 +71,7 @@ def _scan_backlight_dir(root: Path) -> tuple[Path, Path] | None:
     for entry in entries:
         brightness = entry / "brightness"
         maximum = entry / "max_brightness"
-        if brightness.is_file() and maximum.is_file():
+        if brightness.is_file() and maximum.is_file() and _usable_sysfs_max(maximum) is not None:
             return brightness, maximum
     return None
 
@@ -79,11 +95,15 @@ def _scan_leds_dir(root: Path) -> tuple[Path, Path] | None:
 
 
 def _led_brightness_paths(entry: Path) -> tuple[Path, Path] | None:
+    if _is_non_panel_led(entry.name):
+        return None
     brightness = entry / "brightness"
     if not brightness.is_file():
         return None
     maximum = entry / "max_brightness"
     if maximum.is_file():
+        if _usable_sysfs_max(maximum) is None:
+            return None
         return brightness, maximum
     return brightness, brightness
 

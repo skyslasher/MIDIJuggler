@@ -579,8 +579,14 @@
         });
         brightnessAvailable = Boolean(payload.available);
         if (payload.available && payload.ok !== false) {
-          brightnessLevel = Number(payload.level) || brightnessLevel;
-          brightnessMax = Number(payload.max) || brightnessMax;
+          const level = Number(payload.level);
+          if (Number.isFinite(level)) {
+            brightnessLevel = level;
+          }
+          const max = Number(payload.max);
+          if (Number.isFinite(max) && max > 0) {
+            brightnessMax = max;
+          }
           renderBrightness();
         } else if (payload.available && payload.ok === false) {
           setMessage("Helligkeit nicht gesetzt");
@@ -597,8 +603,10 @@
         const payload = await apiFetch("/api/gamepi/brightness");
         brightnessAvailable = Boolean(payload.available);
         if (payload.available) {
-          brightnessLevel = Number(payload.level) || 0;
-          brightnessMax = Number(payload.max) || 255;
+          const level = Number(payload.level);
+          brightnessLevel = Number.isFinite(level) ? level : 0;
+          const max = Number(payload.max);
+          brightnessMax = Number.isFinite(max) && max > 0 ? max : 255;
         }
         renderBrightness();
       } catch {

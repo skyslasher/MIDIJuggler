@@ -14,7 +14,7 @@ from gamepi_lgpio_env import prepare_lgpio_runtime
 prepare_lgpio_runtime()
 
 from gamepi_backlight_pwm import _gpio_candidates, last_pwm_error, pwm_available
-from gamepi_brightness_lib import brightness_status, find_backlight, set_brightness
+from gamepi_brightness_lib import brightness_mode, brightness_status, find_backlight, set_brightness
 from gamepi_gpio_keys import (
     boot_config_warnings,
     brightness_backend_warnings,
@@ -29,6 +29,7 @@ from gamepi_gpio_keys import (
 def main() -> int:
     backlight = find_backlight()
     payload = {
+        "brightness_mode": brightness_mode(),
         "brightness_status": brightness_status(),
         "backlight_sysfs": (
             {"brightness": str(backlight[0]), "max_brightness": str(backlight[1])}
