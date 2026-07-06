@@ -134,14 +134,16 @@
     }
 
     .bpm-value {
-      font-size: 4.5rem;
+      font-size: 4.1rem;
       font-variant-numeric: tabular-nums;
       font-weight: 800;
       line-height: 0.92;
       max-width: 100%;
       overflow: visible;
+      text-align: center;
       text-overflow: ellipsis;
       white-space: nowrap;
+      width: 100%;
     }
 
     .row {
@@ -488,7 +490,6 @@
     }
 
     function updateFlashButton() {
-      btnFlash.textContent = beatFlashEnabled ? "Puls" : "Puls aus";
       btnFlash.classList.toggle("active", beatFlashEnabled);
       btnFlash.classList.toggle("inactive", !beatFlashEnabled);
       bpmCard.classList.toggle("pulse-disabled", !beatFlashEnabled);
