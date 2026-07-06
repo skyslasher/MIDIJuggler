@@ -84,8 +84,9 @@ def test_clock_gamepi_static_asset_exists() -> None:
     assert "--inset-right" in text
     assert "Neustart?" in text
     assert "FACE_BUTTON_BPM_BY_CODE" in text
-    assert 'KeyB: "bpm_huge_up"' in text
-    assert 'KeyY: "bpm_huge_up"' in text
+    assert 'KeyX: "bpm_huge_up"' in text
+    assert 'KeyY: "bpm_down"' in text
+    assert 'KeyB: "bpm_huge_down"' in text
     assert 'a: "bpm_up"' in text
     assert "handleBpmKey" not in text
     assert '"Klick an"' not in text

@@ -100,9 +100,10 @@ The kiosk loads [`/static/clock-gamepi.html`](../src/midijuggler/web/static/cloc
 
 | Input | Action |
 |-------|--------|
-| **Y / B** | BPM + huge step |
-| **X** | BPM − huge step |
+| **X** | BPM + huge step |
+| **Y** | BPM − step |
 | **A** | BPM + step |
+| **B** | BPM − huge step |
 | **D-pad ↓** (BPM zone, default) | Enter control selection |
 | **D-pad ←/→** (control zone) | Move focus across Klick / Puls / Intervall / Helligkeit |
 | **D-pad ↑** (control zone) | Back to BPM zone |

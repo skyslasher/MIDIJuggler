@@ -777,21 +777,21 @@
 
     // Face buttons (A/B/X/Y) adjust BPM; D-pad is navigation only.
     const FACE_BUTTON_BPM_BY_CODE = {
-      KeyY: "bpm_huge_up",
-      KeyX: "bpm_huge_down",
-      KeyB: "bpm_huge_up",
+      KeyX: "bpm_huge_up",
+      KeyY: "bpm_down",
       KeyA: "bpm_up",
+      KeyB: "bpm_huge_down",
     };
 
     const FACE_BUTTON_BPM = {
-      y: "bpm_huge_up",
-      Y: "bpm_huge_up",
-      x: "bpm_huge_down",
-      X: "bpm_huge_down",
-      b: "bpm_huge_up",
-      B: "bpm_huge_up",
+      x: "bpm_huge_up",
+      X: "bpm_huge_up",
+      y: "bpm_down",
+      Y: "bpm_down",
       a: "bpm_up",
       A: "bpm_up",
+      b: "bpm_huge_down",
+      B: "bpm_huge_down",
     };
 
     function faceButtonBpmPoint(event) {
