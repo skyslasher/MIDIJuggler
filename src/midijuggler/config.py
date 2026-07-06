@@ -1623,8 +1623,8 @@ def _validate_tap_tempo_min_taps(value: Any, field_name: str) -> int:
 
 def _validate_bpm_step(value: Any, field_name: str) -> float:
     parsed = _as_float(value, field_name)
-    if parsed <= 0:
-        raise ValueError(f"{field_name} must be > 0")
+    if parsed <= 0 or not parsed.is_integer():
+        raise ValueError(f"{field_name} must be a positive integer")
     return parsed
 
 

@@ -371,6 +371,11 @@ def test_parse_config_rejects_invalid_bpm_step() -> None:
         parse_config({"master_clock": {"bpm_step": 0}})
 
 
+def test_parse_config_rejects_fractional_bpm_step() -> None:
+    with pytest.raises(ValueError, match="bpm_step"):
+        parse_config({"master_clock": {"bpm_step": 0.5}})
+
+
 def test_parse_config_rejects_tap_tempo_min_taps_below_minimum() -> None:
     with pytest.raises(ValueError, match="tap_tempo_min_taps"):
         parse_config({"master_clock": {"tap_tempo_min_taps": 2}})
