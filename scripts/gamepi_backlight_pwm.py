@@ -4,6 +4,8 @@ from __future__ import annotations
 
 import os
 
+from gamepi_lgpio_env import prepare_lgpio_runtime
+
 _PWM_HANDLE: tuple[int, int] | None = None
 
 
@@ -23,8 +25,11 @@ def pwm_available() -> bool:
     if os.environ.get("GAMEPI_PWM_BACKLIGHT", "1").strip().lower() in {"0", "false", "no", "off"}:
         return False
     try:
+        prepare_lgpio_runtime()
         import lgpio  # noqa: F401
     except ImportError:
+        return False
+    except OSError:
         return False
     return True
 
@@ -33,8 +38,11 @@ def apply_pwm_level(level: int, max_level: int = 255) -> bool:
     global _PWM_HANDLE
 
     try:
+        prepare_lgpio_runtime()
         import lgpio
     except ImportError:
+        return False
+    except OSError:
         return False
 
     if max_level <= 0:
@@ -68,6 +76,7 @@ def close_pwm() -> None:
     if _PWM_HANDLE is None:
         return
     try:
+        prepare_lgpio_runtime()
         import lgpio
 
         handle, gpio = _PWM_HANDLE

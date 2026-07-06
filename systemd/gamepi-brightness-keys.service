@@ -5,6 +5,8 @@ Wants=systemd-udev-settle.service
 
 [Service]
 Type=simple
+WorkingDirectory=/var/lib/gamepi
+Environment=GAMEPI_LGPIO_DIR=/var/lib/gamepi
 Environment=GAMEPI_BRIGHTNESS_STEP=10
 Environment=GAMEPI_BACKLIGHT_GPIO=18
 Environment=GAMEPI_PWM_BACKLIGHT=1

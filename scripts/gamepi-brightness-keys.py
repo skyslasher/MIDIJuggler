@@ -10,6 +10,10 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
+from gamepi_lgpio_env import prepare_lgpio_runtime
+
+prepare_lgpio_runtime()
+
 from gamepi_brightness_lib import adjust_brightness, brightness_mode, sync_brightness
 from gamepi_gpio_keys import brightness_delta_for_event, find_brightness_devices
 

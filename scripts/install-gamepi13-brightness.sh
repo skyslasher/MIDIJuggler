@@ -32,18 +32,16 @@ else
   brightness_python="/opt/midijuggler/venv/bin/python"
 fi
 
-if ! "$brightness_python" -c "import lgpio" 2>/dev/null; then
+if ! (cd "$state_dir" && "$brightness_python" -c "import lgpio") 2>/dev/null; then
   echo "error: lgpio not available in ${brightness_python}" >&2
   echo "try: sudo apt-get install -y python3-rpi-lgpio" >&2
   exit 1
 fi
 
 mkdir -p "$state_dir"
+chmod 1777 "$state_dir"
 if id "$midijuggler_user" >/dev/null 2>&1; then
-  chown root:"$midijuggler_user" "$state_dir"
-  chmod 775 "$state_dir"
-else
-  chmod 755 "$state_dir"
+  chown root:"$midijuggler_user" "$state_dir" 2>/dev/null || true
 fi
 
 install -m 440 /dev/stdin "$sudoers_file" <<EOF
@@ -66,4 +64,9 @@ else
   echo "no sysfs backlight — GPIO PWM on GAMEPI_BACKLIGHT_GPIO (default 18) will be used"
 fi
 
-"$brightness_python" -c "import lgpio; print('lgpio ok')"
+PYTHONPATH="${repo_root}/scripts" "$brightness_python" - <<'PY'
+from gamepi_lgpio_env import prepare_lgpio_runtime
+prepare_lgpio_runtime()
+import lgpio
+print("lgpio ok")
+PY
