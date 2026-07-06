@@ -8,7 +8,7 @@ Type=simple
 WorkingDirectory=/var/lib/gamepi
 Environment=GAMEPI_LGPIO_DIR=/var/lib/gamepi
 Environment=GAMEPI_BRIGHTNESS_STEP=10
-Environment=GAMEPI_BACKLIGHT_GPIO_CANDIDATES=24,18
+Environment=GAMEPI_BACKLIGHT_GPIO_CANDIDATES=24
 Environment=GAMEPI_BRIGHTNESS_DEFAULT=200
 Environment=GAMEPI_PWM_BACKLIGHT=1
 EnvironmentFile=-/etc/midijuggler/brightness.env

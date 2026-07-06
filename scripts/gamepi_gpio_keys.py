@@ -10,15 +10,8 @@ BRIGHTNESS_UP = 225
 
 
 def gpio_button_name(gpio: int) -> str:
+    """Kernel names per-GPIO buttons with the GPIO number in hex: GPIO 14 -> button@e."""
     return f"button@{gpio:x}"
-
-
-def gpio_button_names(gpio: int) -> set[str]:
-    return {
-        gpio_button_name(gpio),
-        f"button@{gpio}",
-        f"gpio{gpio}",
-    }
 
 
 def _env_gpio(name: str, default: int) -> int:
@@ -28,19 +21,15 @@ def _env_gpio(name: str, default: int) -> int:
 def brightness_button_names() -> tuple[str, str, set[str], set[str]]:
     l_gpio = _env_gpio("GAMEPI_L_GPIO", 23)
     r_gpio = _env_gpio("GAMEPI_R_GPIO", 14)
-    down_names = set(gpio_button_names(l_gpio))
-    up_names = set(gpio_button_names(r_gpio))
-    down_names.update({"gpl", "gp l"})
-    up_names.update({"gpr", "gp r"})
+    down_names = {gpio_button_name(l_gpio), "gpl"}
+    up_names = {gpio_button_name(r_gpio), "gpr"}
     for label in os.environ.get("GAMEPI_L_LABELS", "GPL").split(","):
         if label.strip():
             down_names.add(label.strip().casefold())
     for label in os.environ.get("GAMEPI_R_LABELS", "GPR").split(","):
         if label.strip():
             up_names.add(label.strip().casefold())
-    l_name = gpio_button_name(l_gpio).casefold()
-    r_name = gpio_button_name(r_gpio).casefold()
-    return l_name, r_name, down_names, up_names
+    return gpio_button_name(l_gpio), gpio_button_name(r_gpio), down_names, up_names
 
 
 def find_start_device():
@@ -64,9 +53,21 @@ def find_start_device():
     return None
 
 
+def _device_is_brightness(device, down_names: set[str], up_names: set[str]) -> bool:
+    from evdev import ecodes
+
+    name = device.name.casefold()
+    keys = set(device.capabilities().get(ecodes.EV_KEY, []))
+    if name in down_names and BRIGHTNESS_DOWN in keys:
+        return True
+    if name in up_names and BRIGHTNESS_UP in keys:
+        return True
+    return False
+
+
 def find_brightness_devices():
     """Return evdev devices for L/R brightness keys (may be one legacy or two GPIO buttons)."""
-    from evdev import InputDevice, ecodes, list_devices
+    from evdev import InputDevice, list_devices
 
     _, _, down_names, up_names = brightness_button_names()
     matched: list[InputDevice] = []
@@ -79,16 +80,13 @@ def find_brightness_devices():
         if name == "gpio-keys":
             legacy = device
             continue
-        keys = set(device.capabilities().get(ecodes.EV_KEY, []))
-        has_down = BRIGHTNESS_DOWN in keys
-        has_up = BRIGHTNESS_UP in keys
-        if name in down_names or name in up_names or has_down or has_up:
+        if _device_is_brightness(device, down_names, up_names):
             if path not in seen:
                 matched.append(device)
                 seen.add(path)
 
     if legacy is not None:
-        keys = legacy.capabilities().get(ecodes.EV_KEY, [])
+        keys = legacy.capabilities().get(1, [])
         if BRIGHTNESS_DOWN in keys or BRIGHTNESS_UP in keys:
             return [legacy]
 
@@ -104,9 +102,9 @@ def brightness_delta_for_event(device, event) -> int | None:
     _, _, down_names, up_names = brightness_button_names()
     name = device.name.casefold()
 
-    if name in up_names or event.code == BRIGHTNESS_UP:
+    if name in up_names and event.code == BRIGHTNESS_UP:
         return step
-    if name in down_names or event.code == BRIGHTNESS_DOWN:
+    if name in down_names and event.code == BRIGHTNESS_DOWN:
         return -step
     return None
 
@@ -126,3 +124,18 @@ def describe_input_devices() -> list[dict[str, object]]:
             }
         )
     return devices
+
+
+def brightness_input_warnings() -> list[str]:
+    devices = describe_input_devices()
+    warnings: list[str] = []
+    names = {entry["name"] for entry in devices}
+    if "button@e" not in names:
+        warnings.append(
+            "GPR device button@e (GPIO 14, key 225) missing; re-run install-gamepi13-keys.sh and reboot"
+        )
+    if "button@14" in names:
+        warnings.append(
+            "button@14 is GPIO 20 / GPB (key 48), not the R shoulder button; do not use it for brightness"
+        )
+    return warnings

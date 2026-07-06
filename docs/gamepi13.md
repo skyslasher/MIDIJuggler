@@ -135,8 +135,18 @@ systemctl show gamepi-kiosk.service -p ConditionResult,ActiveState
 gpio-keys device and adjusts brightness through sysfs when present.
 
 Many GamePi13 panels (`waveshare13`) expose **no** `/sys/class/backlight` entry.
-MIDIJuggler then drives the panel backlight with **GPIO PWM** (default BCM **18**,
-same as Waveshare’s ST7789 wiring). Install once:
+MIDIJuggler then drives the panel backlight with **GPIO PWM on BCM 24**. **Do not use
+GPIO 18** — that pin is wired to the GamePi speaker (`audremap18`); PWM there makes
+the speaker chirp.
+
+Shoulder buttons in evdev:
+
+| Button | GPIO | evdev | Key |
+|--------|------|-------|-----|
+| L (GPL) | 23 | `button@17` | 224 Brightness Down |
+| R (GPR) | 14 | `button@e` | 225 Brightness Up |
+
+Note: `button@14` is **GPIO 20 / GPB (key 48)**, not the R shoulder button.
 
 ```bash
 sudo /opt/midijuggler/app/scripts/install-gamepi13-brightness.sh
@@ -158,13 +168,11 @@ Both shoulder buttons (**GPL** / **GPR**, evdev `button@17` / `button@e`) should
 brightness changes. The web UI uses the same backend — it does **not** go through
 `gamepi-brightness-keys.service`.
 
-If brightness still fails, try another GPIO (some boards use BCM 24):
+If `button@e` is missing from probe output, reinstall keyboard overlays:
 
 ```bash
-sudo systemctl edit gamepi-brightness-keys.service
-# add:
-# [Service]
-# Environment=GAMEPI_BACKLIGHT_GPIO=24
+sudo /opt/midijuggler/app/scripts/install-gamepi13-keys.sh
+sudo reboot
 ```
 
 ## 5. Splash image

@@ -76,5 +76,6 @@ def test_brightness_delta_for_event_uses_device_name(monkeypatch) -> None:
     assert keys.brightness_delta_for_event(gpr, up) == 10
 
     _, _, down_names, up_names = keys.brightness_button_names()
-    assert "button@14" in up_names
     assert "button@17" in down_names
+    assert "button@e" in up_names
+    assert "button@14" not in up_names

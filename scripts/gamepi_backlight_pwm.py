@@ -21,7 +21,7 @@ def _backlight_pwm_frequency() -> int:
 
 
 def _gpio_candidates() -> list[int]:
-    raw = os.environ.get("GAMEPI_BACKLIGHT_GPIO_CANDIDATES", "24,18")
+    raw = os.environ.get("GAMEPI_BACKLIGHT_GPIO_CANDIDATES", "24")
     pins = [int(part.strip()) for part in raw.split(",") if part.strip()]
     saved = _load_saved_gpio()
     if saved is not None and saved not in pins:
