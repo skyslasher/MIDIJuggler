@@ -61,6 +61,8 @@ class MasterClockConfig:
     send_transport: bool = True
     bpm_osc_address: str = "/midijuggler/clock/bpm"
     click_interval_osc_address: str = "/midijuggler/clock/click_interval"
+    start_stop_osc_address: str = "/midijuggler/clock/start_stop"
+    click_toggle_osc_address: str = "/midijuggler/clock/click_toggle"
     bpm_msb_cc: int = 20
     bpm_lsb_cc: int = 21
     click_interval_cc: int = 22
@@ -78,12 +80,26 @@ class MasterClockConfig:
 
 
 @dataclass(frozen=True)
+class RotaryDisplayConfig:
+    enabled: bool = False
+    transport: str = "osc"
+    feedback_host: str = ""
+    feedback_port: int = 9001
+    serial_port: str = ""
+    serial_baud: int = 115200
+    hello_osc_address: str = "/midijuggler/rotary/hello"
+    sync_osc_address: str = "/midijuggler/rotary/sync"
+    beat_osc_address: str = "/midijuggler/rotary/beat"
+
+
+@dataclass(frozen=True)
 class AppConfig:
     web: WebConfig = field(default_factory=WebConfig)
     runtime: RuntimeConfig = field(default_factory=RuntimeConfig)
     adapters: dict[str, AdapterConfig] = field(default_factory=dict)
     devices: dict[str, DeviceConfig] = field(default_factory=dict)
     master_clock: MasterClockConfig = field(default_factory=MasterClockConfig)
+    rotary_display: RotaryDisplayConfig = field(default_factory=RotaryDisplayConfig)
     connections: list[ConnectionSpec] = field(default_factory=list)
     load_issues: tuple[str, ...] = ()
 
@@ -122,6 +138,7 @@ def load_config(path: str | Path) -> AppConfig:
         adapters=config.adapters,
         devices=config.devices,
         master_clock=config.master_clock,
+        rotary_display=config.rotary_display,
         connections=config.connections,
         load_issues=tuple(prefix_issues + list(config.load_issues)),
     )
@@ -673,6 +690,8 @@ def _format_master_clock_section(
             + f"send_transport = {_toml_bool(config.send_transport)}\n"
             f"bpm_osc_address = {_toml_string(config.bpm_osc_address)}\n"
             f"click_interval_osc_address = {_toml_string(config.click_interval_osc_address)}\n"
+            f"start_stop_osc_address = {_toml_string(config.start_stop_osc_address)}\n"
+            f"click_toggle_osc_address = {_toml_string(config.click_toggle_osc_address)}\n"
             f"bpm_msb_cc = {config.bpm_msb_cc}\n"
             f"bpm_lsb_cc = {config.bpm_lsb_cc}\n"
             f"click_interval_cc = {config.click_interval_cc}\n"
@@ -764,6 +783,7 @@ def parse_config(raw: dict[str, Any], *, strict: bool = True) -> AppConfig:
     )
     devices = normalize_device_libraries(devices, adapters)
     master_clock = _parse_master_clock(raw.get("master_clock", {}))
+    rotary_display = _parse_rotary_display(raw.get("rotary_display", {}))
     connections = _parse_connections(raw.get("connections", []), issues)
     connections = normalize_connections(connections, devices)
     devices, connections = _finalize_devices_and_connections(
@@ -779,6 +799,7 @@ def parse_config(raw: dict[str, Any], *, strict: bool = True) -> AppConfig:
         adapters=adapters,
         devices=devices,
         master_clock=master_clock,
+        rotary_display=rotary_display,
         connections=connections,
         load_issues=tuple(issues or ()),
     )
@@ -850,6 +871,12 @@ def _parse_master_clock(raw: Any) -> MasterClockConfig:
         click_interval_osc_address=str(
             raw.get("click_interval_osc_address", "/midijuggler/clock/click_interval")
         ),
+        start_stop_osc_address=str(
+            raw.get("start_stop_osc_address", "/midijuggler/clock/start_stop")
+        ),
+        click_toggle_osc_address=str(
+            raw.get("click_toggle_osc_address", "/midijuggler/clock/click_toggle")
+        ),
         bpm_msb_cc=_as_int(raw.get("bpm_msb_cc", 20), "master_clock.bpm_msb_cc"),
         bpm_lsb_cc=_as_int(raw.get("bpm_lsb_cc", 21), "master_clock.bpm_lsb_cc"),
         click_interval_cc=_as_int(
@@ -867,6 +894,39 @@ def _parse_master_clock(raw: Any) -> MasterClockConfig:
         bpm_huge_step=bpm_huge_step,
         name=display_name,
         beat_flash_ms=beat_flash_ms,
+    )
+
+
+def _parse_rotary_display(raw: Any) -> RotaryDisplayConfig:
+    if raw is None:
+        raw = {}
+    if not isinstance(raw, dict):
+        raise ValueError("rotary_display must be a table")
+
+    feedback_port = _as_int(raw.get("feedback_port", 9001), "rotary_display.feedback_port")
+    if feedback_port <= 0 or feedback_port > 65535:
+        raise ValueError("rotary_display.feedback_port must be between 1 and 65535")
+
+    transport = str(raw.get("transport", "osc")).strip().lower()
+    if transport not in {"osc", "serial", "both"}:
+        raise ValueError("rotary_display.transport must be osc, serial, or both")
+
+    serial_baud = _as_int(raw.get("serial_baud", 115200), "rotary_display.serial_baud")
+    if serial_baud <= 0:
+        raise ValueError("rotary_display.serial_baud must be positive")
+
+    return RotaryDisplayConfig(
+        enabled=bool(raw.get("enabled", False)),
+        transport=transport,
+        feedback_host=str(raw.get("feedback_host", "")).strip(),
+        feedback_port=feedback_port,
+        serial_port=str(raw.get("serial_port", "")).strip(),
+        serial_baud=serial_baud,
+        hello_osc_address=str(
+            raw.get("hello_osc_address", "/midijuggler/rotary/hello")
+        ),
+        sync_osc_address=str(raw.get("sync_osc_address", "/midijuggler/rotary/sync")),
+        beat_osc_address=str(raw.get("beat_osc_address", "/midijuggler/rotary/beat")),
     )
 
 

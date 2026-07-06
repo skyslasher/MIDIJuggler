@@ -214,13 +214,15 @@ class MIDIJugglerService:
         await adapter.send_midi_message(event)
 
     async def _handle_osc_message(self, event: OscMessageEvent) -> None:
+        if event.direction != "input":
+            return
         if (
-            event.direction == "input"
-            and self.config.master_clock.enabled
-            and not self.config.runtime.datapoint_routing
+            self.config.master_clock.enabled
+            and event.source in self._allowed_osc_input_sources()
         ):
-            if event.source in self._allowed_osc_input_sources():
-                await self.master_clock.handle_osc_message(event)
+            command = self.master_clock.remote.command_from_osc(event)
+            if command is not None:
+                await self.master_clock.handle_command(command)
 
     async def _handle_master_clock_command(self, event: MasterClockCommandEvent) -> None:
         if self.config.master_clock.enabled:

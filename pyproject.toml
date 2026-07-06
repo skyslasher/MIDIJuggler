@@ -31,6 +31,9 @@ rtp = [
 hid = [
   "evdev>=1.7",
 ]
+rotary = [
+  "pyserial>=3.5",
+]
 
 [project.scripts]
 midijuggler = "midijuggler.__main__:main"

@@ -94,6 +94,17 @@ send master-clock transport, BPM and click-interval controls. When either key
 is omitted from the TOML file, all enabled adapter instances of that type are
 accepted for backward compatibility.
 
+Additional OSC addresses are always handled by the master clock (also with
+`runtime.datapoint_routing = true`):
+
+| Address | Action |
+|---------|--------|
+| `/midijuggler/clock/start_stop` | Toggle transport |
+| `/midijuggler/clock/click_toggle` | Toggle audio click |
+
+See [`rotary_display.md`](rotary_display.md) for WiFi/OSC and USB serial
+feedback to the Elecrow rotary display.
+
 ## Transport
 
 Incoming MIDI realtime messages control the master clock:

@@ -170,7 +170,24 @@ class MasterClockRemote:
         self._pending_bpm_msb: int | None = None
 
     def command_from_osc(self, event: OscMessageEvent) -> MasterClockCommandEvent | None:
-        if event.direction != "input" or not event.arguments:
+        if event.direction != "input":
+            return None
+
+        if event.address == self.config.start_stop_osc_address:
+            return MasterClockCommandEvent(
+                source=event.source,
+                command="start_stop",
+                value=1.0,
+            )
+
+        if event.address == self.config.click_toggle_osc_address:
+            return MasterClockCommandEvent(
+                source=event.source,
+                command="toggle_click",
+                value=1.0,
+            )
+
+        if not event.arguments:
             return None
 
         if event.address == self.config.bpm_osc_address:
@@ -323,6 +340,13 @@ class MasterClock:
             await self.continue_transport()
         elif event.command == "stop":
             await self.stop_transport()
+        elif event.command == "start_stop":
+            if self.running:
+                await self.stop_transport()
+            else:
+                await self.start_transport(reset_position=True)
+        elif event.command == "toggle_click":
+            await self.toggle_click_enabled()
 
     async def handle_osc_message(self, event: OscMessageEvent) -> None:
         command = self.remote.command_from_osc(event)

@@ -1,0 +1,32 @@
+[runtime]
+datapoint_routing = true
+
+[master_clock]
+enabled = true
+bpm = 120.0
+bpm_min = 40.0
+bpm_max = 240.0
+auto_start = false
+output_targets = ["midi"]
+send_transport = true
+click_enabled = false
+click_interval = "quarter"
+bpm_step = 1.0
+
+[adapters.osc]
+enabled = true
+listen_host = "0.0.0.0"
+listen_port = 9000
+
+[rotary_display]
+enabled = true
+# osc = WiFi/UDP only, serial = USB only, both = accept either path
+transport = "both"
+feedback_host = ""
+feedback_port = 9001
+serial_port = "/dev/ttyACM0"
+serial_baud = 115200
+
+[web]
+host = "0.0.0.0"
+port = 8080
