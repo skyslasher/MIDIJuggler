@@ -103,7 +103,7 @@
       max-width: 100%;
       min-width: 0;
       overflow: hidden;
-      padding: 8px 10px;
+      padding: 0px;
       text-align: center;
       width: 100%;
     }
@@ -134,12 +134,12 @@
     }
 
     .bpm-value {
-      font-size: 3.5rem;
+      font-size: 4.5rem;
       font-variant-numeric: tabular-nums;
       font-weight: 800;
       line-height: 0.92;
       max-width: 100%;
-      overflow: hidden;
+      overflow: visible;
       text-overflow: ellipsis;
       white-space: nowrap;
     }
@@ -165,13 +165,12 @@
       color: #08111f;
       cursor: pointer;
       font: inherit;
-      font-size: 0.68rem;
+      font-size: 1.0rem;
       font-weight: 700;
       min-height: 38px;
       min-width: 0;
-      overflow: hidden;
+      overflow: visible;
       padding: 0.35rem 0.2rem;
-      text-overflow: ellipsis;
       white-space: nowrap;
     }
 
@@ -523,7 +522,6 @@
       bpmCard.classList.toggle("running", Boolean(clock.running));
 
       const clickEnabled = Boolean(clock.click_enabled);
-      btnClick.textContent = clickEnabled ? "Klick an" : "Klick aus";
       btnClick.classList.toggle("active", clickEnabled);
       btnClick.classList.toggle("inactive", !clickEnabled);
 

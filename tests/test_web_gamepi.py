@@ -66,3 +66,5 @@ def test_clock_gamepi_static_asset_exists() -> None:
     assert 'y: "bpm_huge_up"' in text
     assert 'a: "bpm_up"' in text
     assert "handleBpmKey" not in text
+    assert '"Klick an"' not in text
+    assert 'id="btn-click">Klick</button>' in text
