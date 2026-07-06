@@ -132,10 +132,34 @@ systemctl show gamepi-kiosk.service -p ConditionResult,ActiveState
 ## 4. Brightness
 
 `gamepi-brightness-keys.service` listens for Brightness Down/Up (L/R) on the
-gpio-keys device and writes `/sys/class/backlight/*/brightness` when present.
+gpio-keys device and adjusts brightness through sysfs when present.
 
-If the ST7789 panel exposes no backlight sysfs entry, the service logs a warning and
-keeps running; adjust `GAMEPI_BRIGHTNESS_STEP` or add a PWM GPIO later if needed.
+Many GamePi13 panels (`waveshare13`) expose **no** `/sys/class/backlight` entry.
+In that case MIDIJuggler uses **software brightness** via `xgamma` on the kiosk
+X session (`:0`). Install once:
+
+```bash
+sudo /opt/midijuggler/app/scripts/install-gamepi13-brightness.sh
+sudo systemctl restart midijuggler.service gamepi-brightness-keys.service
+```
+
+Verify:
+
+```bash
+curl -fsS http://127.0.0.1:8080/api/gamepi/brightness
+ls -l /sys/class/backlight/
+sudo -u midijuggler sudo -n /opt/midijuggler/app/scripts/gamepi-apply-gamma.sh 0.85
+```
+
+If a hardware backlight appears later, set optional overrides in
+`/etc/midijuggler/environment` or the service unit:
+
+```bash
+GAMEPI_BACKLIGHT_NAME=10-0045
+# or explicit paths:
+GAMEPI_BACKLIGHT_BRIGHTNESS=/sys/class/backlight/10-0045/brightness
+GAMEPI_BACKLIGHT_MAX_BRIGHTNESS=/sys/class/backlight/10-0045/max_brightness
+```
 
 ## 5. Splash image
 

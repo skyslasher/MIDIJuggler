@@ -11,7 +11,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
-from gamepi_brightness_lib import DEFAULT_STEP, adjust_brightness, apply_level, find_backlight, load_level, read_int
+from gamepi_brightness_lib import DEFAULT_STEP, adjust_brightness, brightness_mode, brightness_status
 from gamepi_gpio_keys import BRIGHTNESS_DOWN, BRIGHTNESS_UP, find_brightness_devices
 
 LOGGER = logging.getLogger("gamepi-brightness")
@@ -22,29 +22,42 @@ def _configure_logging() -> None:
     logging.basicConfig(level=logging.INFO, format="%(levelname)s: %(message)s")
 
 
-def _adjust(delta: int, backlight: tuple[Path, Path]) -> None:
+def _adjust(delta: int) -> None:
     result = adjust_brightness(delta)
     if result.get("ok"):
-        LOGGER.info("brightness set to %s/%s", result["level"], result["max"])
+        LOGGER.info(
+            "brightness set to %s/%s (%s)",
+            result["level"],
+            result["max"],
+            result.get("mode", "unknown"),
+        )
+    elif not result.get("available"):
+        LOGGER.warning("brightness not available (mode=%s)", result.get("mode", "none"))
 
 
-def _handle_event(event, backlight: tuple[Path, Path]) -> None:
+def _handle_event(event) -> None:
     if event.type != 1 or event.value != 1:
         return
     if event.code == BRIGHTNESS_DOWN:
-        _adjust(-STEP, backlight)
+        _adjust(-STEP)
     elif event.code == BRIGHTNESS_UP:
-        _adjust(STEP, backlight)
+        _adjust(STEP)
 
 
 def main() -> int:
     _configure_logging()
-    backlight = find_backlight()
-    if backlight is None:
+    mode = brightness_mode()
+    if mode == "none":
         LOGGER.warning(
-            "no /sys/class/backlight device found; L/R keys will not change hardware brightness"
+            "no backlight device and software brightness disabled; "
+            "set GAMEPI_SOFTWARE_BRIGHTNESS=1 or add /sys/class/backlight"
         )
         return 0
+
+    LOGGER.info("brightness mode: %s", mode)
+    status = brightness_status()
+    if status.get("available"):
+        LOGGER.info("initial brightness %s/%s", status.get("level"), status.get("max"))
 
     try:
         devices = find_brightness_devices()
@@ -58,17 +71,13 @@ def main() -> int:
     for device in devices:
         LOGGER.info("listening on %s (%s)", device.path, device.name)
 
-    max_path = backlight[1]
-    max_level = read_int(max_path, 255)
-    apply_level(load_level(max_level), backlight[0], max_path)
-
     fds = {device.fd: device for device in devices}
     while True:
         ready, _, _ = select.select(fds.keys(), [], [])
         for fd in ready:
             device = fds[fd]
             for event in device.read():
-                _handle_event(event, backlight)
+                _handle_event(event)
 
 
 if __name__ == "__main__":

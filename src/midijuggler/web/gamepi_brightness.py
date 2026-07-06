@@ -15,6 +15,8 @@ def _ensure_scripts_path() -> None:
     path = str(scripts)
     if path not in sys.path:
         sys.path.insert(0, path)
+    gamma_script = scripts / "gamepi-apply-gamma.sh"
+    os.environ.setdefault("GAMEPI_APPLY_GAMMA_SCRIPT", str(gamma_script))
 
 
 def brightness_status_payload() -> dict[str, int | bool]:
