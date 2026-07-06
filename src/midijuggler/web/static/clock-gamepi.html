@@ -578,12 +578,20 @@
       }
     }
 
+    function formatBpmDisplay(value) {
+      const amount = Number(value);
+      if (!Number.isFinite(amount)) {
+        return "--";
+      }
+      return String(Math.round(amount));
+    }
+
     function renderClock(clock) {
       if (!clock) {
         return;
       }
       currentClock = clock;
-      bpmEl.textContent = clock.bpm ? Number(clock.bpm).toFixed(1) : "--";
+      bpmEl.textContent = clock.bpm ? formatBpmDisplay(clock.bpm) : "--";
       bpmCard.classList.toggle("running", Boolean(clock.running));
 
       const clickEnabled = Boolean(clock.click_enabled);

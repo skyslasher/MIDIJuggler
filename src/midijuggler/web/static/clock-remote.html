@@ -288,6 +288,14 @@
       messageEl.textContent = text || "";
     }
 
+    function formatBpmDisplay(value) {
+      const amount = Number(value);
+      if (!Number.isFinite(amount)) {
+        return "--";
+      }
+      return String(Math.round(amount));
+    }
+
     function formatStep(value) {
       const amount = Number(value);
       if (!Number.isFinite(amount) || amount <= 0) {
@@ -412,7 +420,7 @@
         return;
       }
       currentClock = clock;
-      bpmEl.textContent = clock.bpm ? Number(clock.bpm).toFixed(1) : "--";
+      bpmEl.textContent = clock.bpm ? formatBpmDisplay(clock.bpm) : "--";
       const running = Boolean(clock.running);
       runningEl.textContent = running ? "Running" : "Stopped";
       runningEl.className = running ? "on" : "off";

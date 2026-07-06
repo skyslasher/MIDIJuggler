@@ -1,4 +1,13 @@
 const bpm = document.querySelector("#bpm");
+
+function formatBpmDisplay(value) {
+  const amount = Number(value);
+  if (!Number.isFinite(amount)) {
+    return "--";
+  }
+  return String(Math.round(amount));
+}
+
 const masterTap = document.querySelector("#master-tap");
 const masterTransport = document.querySelector("#master-transport");
 const masterClock = document.querySelector("#master-clock");
@@ -348,7 +357,7 @@ function renderStatus(status) {
   }
   const displayedBpm = status.master_clock?.bpm ?? status.bpm;
   if (displayedBpm != null) {
-    bpm.textContent = Number(displayedBpm).toFixed(1);
+    bpm.textContent = formatBpmDisplay(displayedBpm);
   }
   if (status.learn_mode != null) {
     learnMode = Boolean(status.learn_mode);
@@ -7993,7 +8002,7 @@ function connect() {
       }
       appendEvent(data.payload);
       if (data.payload.kind === "BpmChangedEvent") {
-        bpm.textContent = data.payload.bpm.toFixed(1);
+        bpm.textContent = formatBpmDisplay(data.payload.bpm);
         syncMasterClockRuntimeState({ bpm: data.payload.bpm });
       }
     }
