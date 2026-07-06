@@ -134,10 +134,9 @@ systemctl show gamepi-kiosk.service -p ConditionResult,ActiveState
 `gamepi-brightness-keys.service` listens for Brightness Down/Up (L/R) on the
 gpio-keys device and adjusts brightness through sysfs when present.
 
-Many GamePi13 panels (`waveshare13`) expose **no** `/sys/class/backlight` entry.
-MIDIJuggler then drives the panel backlight with **GPIO PWM on BCM 24**. **Do not use
-GPIO 18** — that pin is wired to the GamePi speaker (`audremap18`); PWM there makes
-the speaker chirp.
+Many GamePi13 panels expose backlight control through the **kernel display driver**
+(`/sys/class/leds/*` or `/sys/class/backlight/*`), not userspace GPIO PWM. **Do not use
+GPIO 18** (speaker audio) or raw PWM on **GPIO 24** (`GPIO busy` — owned by `waveshare13`).
 
 Shoulder buttons in evdev:
 
@@ -168,11 +167,20 @@ Both shoulder buttons (**GPL** / **GPR**, evdev `button@17` / `button@e`) should
 brightness changes. The web UI uses the same backend — it does **not** go through
 `gamepi-brightness-keys.service`.
 
-If `button@e` is missing from probe output, reinstall keyboard overlays:
+If `button@e` is missing, add the missing overlay (does not skip when other keys exist):
 
 ```bash
 sudo /opt/midijuggler/app/scripts/install-gamepi13-keys.sh
+sudo /opt/midijuggler/app/scripts/gamepi-verify-keys.sh
 sudo reboot
+```
+
+Find the panel LED sysfs path:
+
+```bash
+ls -l /sys/class/leds/
+ls -l /sys/class/backlight/
+sudo /opt/midijuggler/app/scripts/gamepi-brightness-probe.py
 ```
 
 ## 5. Splash image

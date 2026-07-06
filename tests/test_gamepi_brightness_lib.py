@@ -22,31 +22,33 @@ def _load_module(name: str, filename: str):
     return module
 
 
-def test_brightness_status_uses_pwm_when_no_sysfs(monkeypatch) -> None:
+def test_brightness_status_uses_software_when_no_sysfs(monkeypatch) -> None:
     lib = _load_module("gamepi_brightness_lib", "gamepi_brightness_lib.py")
     monkeypatch.setattr(lib, "find_backlight", lambda: None)
-    monkeypatch.setattr(lib, "pwm_available", lambda: True)
     monkeypatch.setattr(lib, "STATE_PATH", Path("/tmp/unused-brightness-test"))
-    monkeypatch.setenv("GAMEPI_SOFTWARE_BRIGHTNESS", "0")
+    monkeypatch.setenv("GAMEPI_SOFTWARE_BRIGHTNESS", "1")
+    monkeypatch.setenv("GAMEPI_PWM_BACKLIGHT", "0")
 
     payload = lib.brightness_status()
 
     assert payload["available"] is True
-    assert payload["mode"] == "pwm"
+    assert payload["mode"] == "software"
 
 
 def test_adjust_brightness_pwm_updates_state(tmp_path, monkeypatch) -> None:
     lib = _load_module("gamepi_brightness_lib", "gamepi_brightness_lib.py")
     monkeypatch.setattr(lib, "find_backlight", lambda: None)
-    monkeypatch.setattr(lib, "pwm_available", lambda: True)
+    monkeypatch.setattr(lib, "pwm_available", lambda: False)
+    monkeypatch.setattr(lib, "_run_gamma", lambda gamma: True)
+    monkeypatch.setenv("GAMEPI_SOFTWARE_BRIGHTNESS", "1")
+    monkeypatch.setenv("GAMEPI_PWM_BACKLIGHT", "0")
     monkeypatch.setattr(lib, "STATE_PATH", tmp_path / "brightness")
-    monkeypatch.setattr(lib, "apply_pwm_level", lambda level, max_level=255: True)
     monkeypatch.setenv("GAMEPI_BRIGHTNESS_DEFAULT", "200")
 
     payload = lib.adjust_brightness(-10)
 
     assert payload["ok"] is True
-    assert payload["mode"] == "pwm"
+    assert payload["mode"] == "software"
     assert payload["level"] == 190
 
 
@@ -56,6 +58,7 @@ def test_adjust_brightness_reports_failure_when_pwm_apply_fails(tmp_path, monkey
     monkeypatch.setattr(lib, "pwm_available", lambda: True)
     monkeypatch.setattr(lib, "STATE_PATH", tmp_path / "brightness")
     monkeypatch.setattr(lib, "apply_pwm_level", lambda level, max_level=255: False)
+    monkeypatch.setenv("GAMEPI_PWM_BACKLIGHT", "1")
 
     payload = lib.adjust_brightness(-10)
 

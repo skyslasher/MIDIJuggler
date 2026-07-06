@@ -36,7 +36,14 @@ def find_backlight() -> tuple[Path, Path] | None:
         if brightness.is_file() and maximum.is_file():
             return brightness, maximum
 
-    root = Path("/sys/class/backlight")
+    found = _scan_backlight_dir(Path("/sys/class/backlight"))
+    if found is not None:
+        return found
+
+    return _scan_leds_dir(Path("/sys/class/leds"))
+
+
+def _scan_backlight_dir(root: Path) -> tuple[Path, Path] | None:
     if not root.is_dir():
         return None
     preferred = os.environ.get("GAMEPI_BACKLIGHT_NAME", "").strip()
@@ -51,6 +58,34 @@ def find_backlight() -> tuple[Path, Path] | None:
         if brightness.is_file() and maximum.is_file():
             return brightness, maximum
     return None
+
+
+def _scan_leds_dir(root: Path) -> tuple[Path, Path] | None:
+    if not root.is_dir():
+        return None
+    preferred_names = ("backlight", "lcd", "fb", "st7789", "waveshare", "bl", "panel")
+    entries = sorted(root.iterdir(), key=lambda path: path.name)
+    for name in preferred_names:
+        for entry in entries:
+            if name in entry.name.casefold():
+                found = _led_brightness_paths(entry)
+                if found is not None:
+                    return found
+    for entry in entries:
+        found = _led_brightness_paths(entry)
+        if found is not None:
+            return found
+    return None
+
+
+def _led_brightness_paths(entry: Path) -> tuple[Path, Path] | None:
+    brightness = entry / "brightness"
+    if not brightness.is_file():
+        return None
+    maximum = entry / "max_brightness"
+    if maximum.is_file():
+        return brightness, maximum
+    return brightness, brightness
 
 
 def read_int(path: Path, default: int) -> int:
@@ -78,10 +113,15 @@ def store_level(level: int) -> None:
 def brightness_mode() -> str:
     if find_backlight() is not None:
         return "sysfs"
-    if pwm_available():
-        return "pwm"
     if _software_brightness_enabled():
         return "software"
+    if pwm_available() and os.environ.get("GAMEPI_PWM_BACKLIGHT", "0").strip().lower() in {
+        "1",
+        "true",
+        "yes",
+        "on",
+    }:
+        return "pwm"
     return "none"
 
 
@@ -122,7 +162,12 @@ def apply_level_value(level: int, max_level: int = SOFTWARE_MAX) -> tuple[int, b
         applied = apply_level(clamped, brightness_path, max_path)
         return applied, True, "sysfs"
 
-    if pwm_available():
+    if pwm_available() and os.environ.get("GAMEPI_PWM_BACKLIGHT", "0").strip().lower() in {
+        "1",
+        "true",
+        "yes",
+        "on",
+    }:
         if apply_pwm_level(clamped, max_level):
             store_level(clamped)
             return clamped, True, "pwm"
@@ -139,7 +184,10 @@ def apply_level_value(level: int, max_level: int = SOFTWARE_MAX) -> tuple[int, b
 
 
 def apply_level(level: int, brightness_path: Path, max_path: Path) -> int:
-    max_level = read_int(max_path, SOFTWARE_MAX)
+    if max_path == brightness_path:
+        max_level = SOFTWARE_MAX
+    else:
+        max_level = read_int(max_path, SOFTWARE_MAX)
     clamped = max(0, min(level, max_level))
     try:
         brightness_path.write_text(f"{clamped}\n", encoding="utf-8")
@@ -225,7 +273,10 @@ def brightness_status() -> dict[str, int | bool | str]:
         backlight = find_backlight()
         assert backlight is not None
         brightness_path, max_path = backlight
-        max_level = read_int(max_path, SOFTWARE_MAX)
+        if max_path == brightness_path:
+            max_level = SOFTWARE_MAX
+        else:
+            max_level = read_int(max_path, SOFTWARE_MAX)
         level = read_int(brightness_path, load_level(max_level))
         return {
             "available": True,

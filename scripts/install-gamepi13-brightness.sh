@@ -64,7 +64,7 @@ echo "state dir: ${state_dir} (root:root 755 — brightness runs via sudo)"
 if [ -d /sys/class/backlight ] && [ -n "$(ls -A /sys/class/backlight 2>/dev/null || true)" ]; then
   echo "hardware backlight detected under /sys/class/backlight"
 else
-  echo "no sysfs backlight — GPIO PWM on GAMEPI_BACKLIGHT_GPIO (default 18) will be used"
+  echo "no sysfs backlight/leds — software gamma fallback will be used (PWM disabled on GamePi)"
 fi
 
 sudo env PYTHONPATH="${repo_root}/scripts" "$run_script" --status

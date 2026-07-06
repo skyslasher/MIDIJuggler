@@ -1,4 +1,5 @@
 #!/bin/sh
+# Ensure all GamePi13 gpio-key overlays from the repo are present in boot config.
 set -eu
 
 repo_root="$(cd "$(dirname "$0")/.." && pwd)"
@@ -34,17 +35,31 @@ if [ ! -f "$boot_config" ]; then
   exit 1
 fi
 
-if grep -q 'label="GPSTART"' "$boot_config" 2>/dev/null; then
-  echo "${profile_label} gpio-key lines already present in ${boot_config}"
-  echo "To switch profiles, edit ${boot_config} manually and replace the GamePi13 overlay block."
-  exit 0
+added=0
+while IFS= read -r line; do
+  case "$line" in
+    "" | \#*) continue ;;
+  esac
+  label=$(printf '%s\n' "$line" | sed -n 's/.*label="\([^"]*\)".*/\1/p')
+  if [ -z "$label" ]; then
+    continue
+  fi
+  if grep -q "label=\"${label}\"" "$boot_config" 2>/dev/null; then
+    continue
+  fi
+  if [ "$added" -eq 0 ]; then
+    {
+      echo
+      echo "# ${profile_label} keyboard mapping (MIDIJuggler)"
+    } >>"$boot_config"
+    added=1
+  fi
+  echo "$line" >>"$boot_config"
+  echo "added missing overlay: ${label}"
+done <"$keys_conf"
+
+if [ "$added" -eq 0 ]; then
+  echo "${profile_label} gpio-key overlays already complete in ${boot_config}"
+else
+  echo "Reboot to activate new keyboard overlays."
 fi
-
-{
-  echo
-  echo "# ${profile_label} keyboard mapping (MIDIJuggler)"
-  grep -v '^#' "$keys_conf" | sed '/^[[:space:]]*$/d'
-} >>"$boot_config"
-
-echo "Appended ${profile_label} gpio-key overlays to ${boot_config}"
-echo "Reboot to activate keyboard mapping."
