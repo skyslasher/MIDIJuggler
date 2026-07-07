@@ -40,6 +40,8 @@ def serial_command_to_clock_event(
         return MasterClockCommandEvent(source=source, command="start_stop", value=1.0)
     if command == "click_toggle":
         return MasterClockCommandEvent(source=source, command="toggle_click", value=1.0)
+    if command == "tap_tempo":
+        return MasterClockCommandEvent(source=source, command="tap_tempo", value=1.0)
     if command == "interval" and args:
         interval = args[0].lower()
         if interval in CLICK_INTERVALS:

@@ -65,6 +65,7 @@ also repeats `hello` every few seconds so MIDIJuggler can connect after boot.
 | `/midijuggler/clock/click_interval` | string | Set interval (`sixteenth` … `whole`) |
 | `/midijuggler/clock/start_stop` | optional | Toggle transport |
 | `/midijuggler/clock/click_toggle` | optional | Toggle audio click |
+| `/midijuggler/clock/tap_tempo` | optional | Register tap tempo |
 | `/midijuggler/rotary/hello` | string host, int port | Register feedback target (WiFi) |
 
 ### USB serial (115200 baud, one command per line)
@@ -74,6 +75,7 @@ bpm 128.0
 start_stop
 click_toggle
 interval quarter
+tap_tempo
 hello
 ```
 

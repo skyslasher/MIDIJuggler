@@ -246,7 +246,7 @@ class RotaryDisplayModule(InterfaceModule):
             return
         LOGGER.info("rotary display serial command: %s", line.strip())
         await self.master_clock.handle_command(event)
-        if event.command == "set_bpm":
+        if event.command in {"set_bpm", "tap_tempo"}:
             await self.master_clock.flush_bpm_notifications()
         await self._send_sync(force=True)
 

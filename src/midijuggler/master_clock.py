@@ -187,6 +187,13 @@ class MasterClockRemote:
                 value=1.0,
             )
 
+        if event.address == "/midijuggler/clock/tap_tempo":
+            return MasterClockCommandEvent(
+                source=event.source,
+                command="tap_tempo",
+                value=1.0,
+            )
+
         if not event.arguments:
             return None
 
@@ -347,6 +354,8 @@ class MasterClock:
                 await self.start_transport(reset_position=True)
         elif event.command == "toggle_click":
             await self.toggle_click_enabled()
+        elif event.command == "tap_tempo":
+            await self.register_tap_tempo()
 
     async def handle_osc_message(self, event: OscMessageEvent) -> None:
         command = self.remote.command_from_osc(event)

@@ -50,6 +50,10 @@ def test_serial_command_mapping() -> None:
     assert event.command == "set_click_interval"
     assert event.value == "half"
 
+    event = serial_command_to_clock_event("tap_tempo", [])
+    assert event is not None
+    assert event.command == "tap_tempo"
+
 
 def test_serial_sync_and_beat_lines() -> None:
     line = format_sync_line(
