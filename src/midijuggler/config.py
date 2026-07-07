@@ -426,7 +426,8 @@ def _format_custom_point_lines(point: CustomPointSpec) -> list[str]:
 
 
 def _toml_decode_hint(exc: tomllib.TOMLDecodeError) -> str:
-    if exc.msg == "Cannot overwrite a value":
+    msg = getattr(exc, "msg", str(exc))
+    if msg == "Cannot overwrite a value":
         return (
             "Each connection needs its own [[connections]] header; do not reuse "
             "[connections] or connections = [...] together with [[connections]]. "

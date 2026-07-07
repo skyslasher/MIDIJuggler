@@ -30,9 +30,8 @@ device and route clock commands through MIDIJuggler.
    midijuggler --config configs/rotary_display.toml
    ```
 
-7. Log should show `rotary display serial connected on …` and then
-   `rotary display hello on serial`. The display receives `sync …` lines and
-   shows the master-clock BPM / RUN state.
+7. Log should show `rotary display serial connected on …` once at connect. The
+   display receives `sync …` lines and shows the master-clock BPM / RUN state.
 
 ## Transports
 

@@ -234,7 +234,6 @@ class RotaryDisplayModule(InterfaceModule):
         command, args = parsed
         if command == "hello":
             self._serial_connected = True
-            LOGGER.info("rotary display hello on serial")
             await self._send_sync(force=True)
             return
         event = serial_command_to_clock_event(command, args)
