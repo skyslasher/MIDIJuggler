@@ -38,6 +38,7 @@ from midijuggler.master_clock import MIDI_TIMING_CLOCK, MasterClock
 from midijuggler.device.registry import DeviceRegistry
 from midijuggler.device.lookup import device_id_for_adapter
 from midijuggler.modules.build import build_module_registry
+from midijuggler.modules.interface.rotary_display.module import RotaryDisplayModule
 from midijuggler.modules.modifier.graph import ModifierGraph
 from midijuggler.modules.io.midi import MidiIOModule
 from midijuggler.modules.io.osc import OscIOModule
@@ -114,6 +115,10 @@ class MIDIJugglerService:
             self.web,
             self.device_registry,
         )
+        for module in self.module_registry.modules():
+            if isinstance(module, RotaryDisplayModule):
+                self.web.bind_rotary_display_module(module)
+                break
         self.web.bind_osc_io_modules(self.io_modules)
         for module in self.module_registry.modules():
             if isinstance(module, ModifierGraph):

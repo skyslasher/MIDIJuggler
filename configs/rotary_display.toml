@@ -20,13 +20,25 @@ listen_port = 9000
 
 [rotary_display]
 enabled = true
-# USB-only firmware (elecrow128-serial): use transport = "serial"
-transport = "serial"
+# Host transport: how MIDIJuggler sends sync/beat to the device (osc|serial|both)
+transport = "both"
 feedback_host = ""
 feedback_port = 9001
 # macOS: ls /dev/cu.usbmodem*   Linux: ls /dev/ttyACM*
 serial_port = "/dev/cu.usbmodem12201"
 serial_baud = 115200
+
+[rotary_display.device]
+# Device transport: how the rotary display sends/receives clock (serial|wifi|both)
+transport = "both"
+wifi_enabled = true
+wifi_ssid = ""
+wifi_pass = ""
+host = "midijuggler.local"
+port = 9000
+listen_port = 9001
+pulse_enabled = true
+bpm_step = 1.0
 
 [web]
 host = "0.0.0.0"

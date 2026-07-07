@@ -15,6 +15,11 @@ from midijuggler.eventbus import EventBus
 from midijuggler.events import MasterClockCommandEvent, MasterClockStateEvent, OscMessageEvent
 from midijuggler.master_clock import MasterClock
 from midijuggler.modules.base import InterfaceModule
+from midijuggler.modules.interface.rotary_display.device_config import (
+    build_device_config_commands,
+    device_config_fingerprint,
+    push_device_config_sync,
+)
 from midijuggler.modules.interface.rotary_display.protocol import (
     RotarySyncState,
     format_beat_line,
@@ -51,6 +56,8 @@ class RotaryDisplayModule(InterfaceModule):
         self._serial_task: asyncio.Task[None] | None = None
         self._last_sync: RotarySyncState | None = None
         self._last_beat: float | None = None
+        self._last_pushed_fingerprint: str | None = None
+        self._serial_lock = asyncio.Lock()
         self._use_osc = config.transport in {"osc", "both"}
         self._use_serial = config.transport in {"serial", "both"}
 
@@ -152,10 +159,74 @@ class RotaryDisplayModule(InterfaceModule):
                 if callable(flush):
                     flush()
 
-            await asyncio.to_thread(write_and_flush)
+            async with self._serial_lock:
+                await asyncio.to_thread(write_and_flush)
         except OSError:
             LOGGER.exception("rotary display serial write failed")
             self._serial_connected = False
+
+    def update_config(self, config: RotaryDisplayConfig) -> None:
+        previous_fingerprint = device_config_fingerprint(self.config.device)
+        self.config = config
+        self._use_osc = config.transport in {"osc", "both"}
+        self._use_serial = config.transport in {"serial", "both"}
+        if device_config_fingerprint(config.device) != previous_fingerprint:
+            self._last_pushed_fingerprint = None
+
+    def device_push_status(self) -> dict[str, Any]:
+        fingerprint = device_config_fingerprint(self.config.device)
+        return {
+            "serial_connected": self._serial_connected,
+            "last_pushed_fingerprint": self._last_pushed_fingerprint,
+            "current_fingerprint": fingerprint,
+            "push_pending": self._last_pushed_fingerprint != fingerprint,
+        }
+
+    async def push_device_config(self, *, force: bool = False) -> dict[str, Any]:
+        fingerprint = device_config_fingerprint(self.config.device)
+        if not force and fingerprint == self._last_pushed_fingerprint:
+            return {
+                "pushed": False,
+                "reason": "unchanged",
+                "fingerprint": fingerprint,
+            }
+        if not self._use_serial or not self._serial_connected or self._serial_port is None:
+            return {
+                "pushed": False,
+                "reason": "serial not connected",
+                "fingerprint": fingerprint,
+            }
+
+        commands = build_device_config_commands(self.config.device)
+
+        async with self._serial_lock:
+            result = await asyncio.to_thread(
+                push_device_config_sync,
+                self._serial_port,
+                commands,
+            )
+
+        if result.get("ok"):
+            self._last_pushed_fingerprint = fingerprint
+            LOGGER.info("rotary display device config pushed (%d commands)", len(commands))
+            return {
+                "pushed": True,
+                "fingerprint": fingerprint,
+                "commands": commands,
+                "responses": result.get("responses", []),
+            }
+
+        LOGGER.warning(
+            "rotary display device config push failed: %s",
+            result.get("failed_command") or result.get("error") or result.get("responses"),
+        )
+        return {
+            "pushed": False,
+            "reason": "device rejected config",
+            "fingerprint": fingerprint,
+            "commands": commands,
+            **result,
+        }
 
     async def _send_osc(self, address: str, arguments: list[Any]) -> None:
         if not self._use_osc or not self._feedback_host or self._feedback_port <= 0:
@@ -238,6 +309,11 @@ class RotaryDisplayModule(InterfaceModule):
         command, args = parsed
         if command == "hello":
             self._serial_connected = True
+            push_result = await self.push_device_config()
+            if push_result.get("pushed"):
+                LOGGER.info("rotary display config pushed on hello")
+            elif push_result.get("reason") not in {"unchanged", "serial not connected"}:
+                LOGGER.warning("rotary display config push on hello failed: %s", push_result)
             await self._send_sync(force=True)
             return
         event = serial_command_to_clock_event(command, args)

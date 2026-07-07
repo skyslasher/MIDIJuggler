@@ -29,6 +29,25 @@ const masterClickEnabled = document.querySelector("#master-click-enabled");
 const masterClickWav = document.querySelector("#master-click-wav");
 const masterClickDevice = document.querySelector("#master-click-device");
 const masterClockMessage = document.querySelector("#master-clock-message");
+const rotaryDisplayForm = document.querySelector("#rotary-display-form");
+const rotaryEnabled = document.querySelector("#rotary-enabled");
+const rotaryHostTransport = document.querySelector("#rotary-host-transport");
+const rotarySerialPort = document.querySelector("#rotary-serial-port");
+const rotarySerialBaud = document.querySelector("#rotary-serial-baud");
+const rotaryFeedbackHost = document.querySelector("#rotary-feedback-host");
+const rotaryFeedbackPort = document.querySelector("#rotary-feedback-port");
+const rotaryDeviceTransport = document.querySelector("#rotary-device-transport");
+const rotaryWifiEnabled = document.querySelector("#rotary-wifi-enabled");
+const rotaryWifiSsid = document.querySelector("#rotary-wifi-ssid");
+const rotaryWifiPass = document.querySelector("#rotary-wifi-pass");
+const rotaryDeviceHost = document.querySelector("#rotary-device-host");
+const rotaryDevicePort = document.querySelector("#rotary-device-port");
+const rotaryDeviceListenPort = document.querySelector("#rotary-device-listen-port");
+const rotaryPulseEnabled = document.querySelector("#rotary-pulse-enabled");
+const rotaryBpmStep = document.querySelector("#rotary-bpm-step");
+const rotaryPushStatus = document.querySelector("#rotary-push-status");
+const rotaryPushButton = document.querySelector("#rotary-push-button");
+const rotaryDisplayMessage = document.querySelector("#rotary-display-message");
 const configImportForm = document.querySelector("#config-import-form");
 const configImportFile = document.querySelector("#config-import-file");
 const configImportMessage = document.querySelector("#config-import-message");
@@ -185,6 +204,7 @@ let cachedMidiLibraryList = [];
 let hidAdaptersConfig = null;
 let hidLearnInstanceName = "";
 let masterClockConfig = null;
+let rotaryDisplayConfig = null;
 let masterClockRuntime = null;
 let datapointRoutingEnabled = false;
 let masterBpmDirty = false;
@@ -7891,6 +7911,111 @@ function renderMasterClockConfig(config) {
   renderAdapterTargetList(masterOutputTargets, config.available_output_targets || []);
 }
 
+function renderRotaryDisplayConfig(config) {
+  rotaryDisplayConfig = config;
+  if (!rotaryDisplayForm) {
+    return;
+  }
+  const device = config.device || {};
+  if (rotaryEnabled) {
+    rotaryEnabled.checked = Boolean(config.enabled);
+  }
+  if (rotaryHostTransport) {
+    rotaryHostTransport.value = config.transport || "osc";
+  }
+  if (rotarySerialPort) {
+    rotarySerialPort.value = config.serial_port || "";
+  }
+  if (rotarySerialBaud) {
+    rotarySerialBaud.value = config.serial_baud ?? 115200;
+  }
+  if (rotaryFeedbackHost) {
+    rotaryFeedbackHost.value = config.feedback_host || "";
+  }
+  if (rotaryFeedbackPort) {
+    rotaryFeedbackPort.value = config.feedback_port ?? 9001;
+  }
+  if (rotaryDeviceTransport) {
+    rotaryDeviceTransport.value = device.transport || "both";
+  }
+  if (rotaryWifiEnabled) {
+    rotaryWifiEnabled.checked = Boolean(device.wifi_enabled);
+  }
+  if (rotaryWifiSsid) {
+    rotaryWifiSsid.value = device.wifi_ssid || "";
+  }
+  if (rotaryWifiPass) {
+    rotaryWifiPass.value = device.wifi_pass || "";
+  }
+  if (rotaryDeviceHost) {
+    rotaryDeviceHost.value = device.host || "midijuggler.local";
+  }
+  if (rotaryDevicePort) {
+    rotaryDevicePort.value = device.port ?? 9000;
+  }
+  if (rotaryDeviceListenPort) {
+    rotaryDeviceListenPort.value = device.listen_port ?? 9001;
+  }
+  if (rotaryPulseEnabled) {
+    rotaryPulseEnabled.checked = Boolean(device.pulse_enabled);
+  }
+  if (rotaryBpmStep) {
+    rotaryBpmStep.value = device.bpm_step ?? 1.0;
+  }
+  if (rotaryPushStatus) {
+    const push = config.push || {};
+    const connected = push.serial_connected ? "connected" : "not connected";
+    const pending = push.push_pending ? "push pending" : "in sync";
+    rotaryPushStatus.textContent = `Serial ${connected}; ${pending}`;
+  }
+}
+
+function rotaryDisplayFormPayload() {
+  return {
+    enabled: Boolean(rotaryEnabled?.checked),
+    transport: rotaryHostTransport?.value || "osc",
+    serial_port: rotarySerialPort?.value.trim() || "",
+    serial_baud: Number(rotarySerialBaud?.value || 115200),
+    feedback_host: rotaryFeedbackHost?.value.trim() || "",
+    feedback_port: Number(rotaryFeedbackPort?.value || 9001),
+    device: {
+      transport: rotaryDeviceTransport?.value || "both",
+      wifi_enabled: Boolean(rotaryWifiEnabled?.checked),
+      wifi_ssid: rotaryWifiSsid?.value.trim() || "",
+      wifi_pass: rotaryWifiPass?.value || "",
+      host: rotaryDeviceHost?.value.trim() || "midijuggler.local",
+      port: Number(rotaryDevicePort?.value || 9000),
+      listen_port: Number(rotaryDeviceListenPort?.value || 9001),
+      pulse_enabled: Boolean(rotaryPulseEnabled?.checked),
+      bpm_step: Number(rotaryBpmStep?.value || 1.0),
+    },
+  };
+}
+
+function showRotaryDisplayMessage(config, fallbackMessage) {
+  if (!rotaryDisplayMessage) {
+    return;
+  }
+  if (config?.restart_required) {
+    rotaryDisplayMessage.textContent = "saved; restart service to apply serial port changes";
+    return;
+  }
+  if (config?.persisted === false) {
+    rotaryDisplayMessage.textContent = `saved for runtime only: ${config.persist_error || fallbackMessage}`;
+    return;
+  }
+  const push = config?.push_result;
+  if (push?.pushed) {
+    rotaryDisplayMessage.textContent = "saved and config pushed to device";
+    return;
+  }
+  if (push?.reason === "serial not connected") {
+    rotaryDisplayMessage.textContent = "saved; push pending until device connects";
+    return;
+  }
+  rotaryDisplayMessage.textContent = fallbackMessage || "saved";
+}
+
 function renderMasterClockStatusCard(clock) {
   if (!masterClock || !clock) {
     return;
@@ -8499,6 +8624,65 @@ masterClockForm.addEventListener("submit", (event) => {
     });
 });
 
+rotaryDisplayForm?.addEventListener("submit", (event) => {
+  event.preventDefault();
+  if (rotaryDisplayMessage) {
+    rotaryDisplayMessage.textContent = "saving...";
+  }
+  fetch("/api/rotary-display", {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify(rotaryDisplayFormPayload()),
+  })
+    .then(async (response) => {
+      if (!response.ok) {
+        throw new Error(await response.text());
+      }
+      return response.json();
+    })
+    .then((config) => {
+      renderRotaryDisplayConfig(config);
+      showRotaryDisplayMessage(config, "saved");
+    })
+    .catch((error) => {
+      if (rotaryDisplayMessage) {
+        rotaryDisplayMessage.textContent = `error: ${error.message}`;
+      }
+      if (rotaryDisplayConfig) {
+        renderRotaryDisplayConfig(rotaryDisplayConfig);
+      }
+    });
+});
+
+rotaryPushButton?.addEventListener("click", () => {
+  if (rotaryDisplayMessage) {
+    rotaryDisplayMessage.textContent = "pushing...";
+  }
+  fetch("/api/rotary-display/push", { method: "POST", body: "{}" })
+    .then(async (response) => {
+      if (!response.ok) {
+        throw new Error(await response.text());
+      }
+      return response.json();
+    })
+    .then((config) => {
+      renderRotaryDisplayConfig(config);
+      const push = config.push_result;
+      if (push?.pushed) {
+        showRotaryDisplayMessage(config, "config pushed to device");
+      } else if (push?.reason) {
+        rotaryDisplayMessage.textContent = `push failed: ${push.reason}`;
+      } else {
+        rotaryDisplayMessage.textContent = "push failed";
+      }
+    })
+    .catch((error) => {
+      if (rotaryDisplayMessage) {
+        rotaryDisplayMessage.textContent = `error: ${error.message}`;
+      }
+    });
+});
+
 configImportForm.addEventListener("submit", (event) => {
   event.preventDefault();
   const file = configImportFile.files[0];
@@ -8551,6 +8735,7 @@ masterBpm?.addEventListener("change", () => {
   masterBpmDirty = true;
 });
 fetch("/api/master-clock").then((response) => response.json()).then(renderMasterClockConfig);
+fetch("/api/rotary-display").then((response) => response.json()).then(renderRotaryDisplayConfig);
 fetch("/api/osc-libraries").then((response) => response.json()).then(renderOscLibraries);
 fetch("/api/midi-libraries").then((response) => response.json()).then(renderMidiLibraries);
 connect();

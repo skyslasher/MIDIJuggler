@@ -493,6 +493,95 @@
           </form>
         </article>
         <article>
+          <h2>Rotary Display</h2>
+          <p class="hint">
+            Host transport controls how MIDIJuggler sends clock sync to the device.
+            Device settings are pushed over USB serial when the device sends
+            <code>hello</code> (and after saving here).
+          </p>
+          <form id="rotary-display-form">
+            <label class="inline-field">
+              <input id="rotary-enabled" type="checkbox" />
+              Enabled
+            </label>
+            <div class="form-grid">
+              <label>
+                Host transport
+                <select id="rotary-host-transport">
+                  <option value="osc">OSC</option>
+                  <option value="serial">Serial</option>
+                  <option value="both">Both</option>
+                </select>
+              </label>
+              <label>
+                Serial port
+                <input id="rotary-serial-port" type="text" autocomplete="off" spellcheck="false" />
+              </label>
+              <label>
+                Serial baud
+                <input id="rotary-serial-baud" type="number" min="1" step="1" />
+              </label>
+              <label>
+                Feedback host
+                <input id="rotary-feedback-host" type="text" autocomplete="off" spellcheck="false" />
+              </label>
+              <label>
+                Feedback port
+                <input id="rotary-feedback-port" type="number" min="1" max="65535" step="1" />
+              </label>
+            </div>
+            <fieldset>
+              <legend>Device config (pushed over serial)</legend>
+              <div class="form-grid">
+                <label>
+                  Device transport
+                  <select id="rotary-device-transport">
+                    <option value="both">Both</option>
+                    <option value="serial">Serial</option>
+                    <option value="wifi">WiFi</option>
+                  </select>
+                </label>
+                <label class="inline-field">
+                  <input id="rotary-wifi-enabled" type="checkbox" />
+                  WiFi enabled
+                </label>
+                <label>
+                  WiFi SSID
+                  <input id="rotary-wifi-ssid" type="text" autocomplete="off" spellcheck="false" />
+                </label>
+                <label>
+                  WiFi password
+                  <input id="rotary-wifi-pass" type="text" autocomplete="off" spellcheck="false" />
+                </label>
+                <label>
+                  OSC host
+                  <input id="rotary-device-host" type="text" autocomplete="off" spellcheck="false" />
+                </label>
+                <label>
+                  OSC port
+                  <input id="rotary-device-port" type="number" min="1" max="65535" step="1" />
+                </label>
+                <label>
+                  Listen port
+                  <input id="rotary-device-listen-port" type="number" min="1" max="65535" step="1" />
+                </label>
+                <label class="inline-field">
+                  <input id="rotary-pulse-enabled" type="checkbox" />
+                  Pulse enabled (TOML only)
+                </label>
+                <label>
+                  BPM step (TOML only)
+                  <input id="rotary-bpm-step" type="number" min="0.1" step="0.1" />
+                </label>
+              </div>
+            </fieldset>
+            <p id="rotary-push-status" class="hint"></p>
+            <button type="submit">Save rotary display</button>
+            <button type="button" id="rotary-push-button">Push config now</button>
+            <p id="rotary-display-message" class="message"></p>
+          </form>
+        </article>
+        <article>
           <h2>Configuration import/export</h2>
           <p>Export the active TOML configuration or import a saved configuration for another setup.</p>
           <a class="button-link" href="/api/config/export" download>Export configuration</a>

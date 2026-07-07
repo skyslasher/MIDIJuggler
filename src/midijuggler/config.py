@@ -80,6 +80,19 @@ class MasterClockConfig:
 
 
 @dataclass(frozen=True)
+class RotaryDisplayDeviceConfig:
+    transport: str = "both"
+    wifi_enabled: bool = True
+    wifi_ssid: str = ""
+    wifi_pass: str = ""
+    host: str = "midijuggler.local"
+    port: int = 9000
+    listen_port: int = 9001
+    pulse_enabled: bool = True
+    bpm_step: float = 1.0
+
+
+@dataclass(frozen=True)
 class RotaryDisplayConfig:
     enabled: bool = False
     transport: str = "osc"
@@ -90,6 +103,7 @@ class RotaryDisplayConfig:
     hello_osc_address: str = "/midijuggler/rotary/hello"
     sync_osc_address: str = "/midijuggler/rotary/sync"
     beat_osc_address: str = "/midijuggler/rotary/beat"
+    device: RotaryDisplayDeviceConfig = field(default_factory=RotaryDisplayDeviceConfig)
 
 
 @dataclass(frozen=True)
@@ -338,6 +352,23 @@ def save_runtime_config(path: str | Path, runtime: RuntimeConfig) -> None:
 
     temp_path = config_path.with_suffix(config_path.suffix + ".tmp")
     temp_path.write_text(new_text, encoding="utf-8")
+    temp_path.replace(config_path)
+
+
+def save_rotary_display_config(path: str | Path, config: RotaryDisplayConfig) -> None:
+    """Persist rotary display host and device config in a TOML config file."""
+
+    config_path = Path(path)
+    text = config_path.read_text(encoding="utf-8")
+    text = _replace_toml_section(text, "[rotary_display]", _format_rotary_display_section(config))
+    text = _replace_toml_section(
+        text,
+        "[rotary_display.device]",
+        _format_rotary_display_device_section(config.device),
+    )
+
+    temp_path = config_path.with_suffix(config_path.suffix + ".tmp")
+    temp_path.write_text(text, encoding="utf-8")
     temp_path.replace(config_path)
 
 
@@ -928,6 +959,74 @@ def _parse_rotary_display(raw: Any) -> RotaryDisplayConfig:
         ),
         sync_osc_address=str(raw.get("sync_osc_address", "/midijuggler/rotary/sync")),
         beat_osc_address=str(raw.get("beat_osc_address", "/midijuggler/rotary/beat")),
+        device=_parse_rotary_display_device(raw.get("device", {})),
+    )
+
+
+def _parse_rotary_display_device(raw: Any) -> RotaryDisplayDeviceConfig:
+    if raw is None:
+        raw = {}
+    if not isinstance(raw, dict):
+        raise ValueError("rotary_display.device must be a table")
+
+    transport = str(raw.get("transport", "both")).strip().lower()
+    if transport not in {"serial", "wifi", "both"}:
+        raise ValueError("rotary_display.device.transport must be serial, wifi, or both")
+
+    port = _as_int(raw.get("port", 9000), "rotary_display.device.port")
+    listen_port = _as_int(raw.get("listen_port", 9001), "rotary_display.device.listen_port")
+    for field_name, value in (("port", port), ("listen_port", listen_port)):
+        if value <= 0 or value > 65535:
+            raise ValueError(f"rotary_display.device.{field_name} must be between 1 and 65535")
+
+    bpm_step = _as_float(raw.get("bpm_step", 1.0), "rotary_display.device.bpm_step")
+    if bpm_step <= 0:
+        raise ValueError("rotary_display.device.bpm_step must be positive")
+
+    host = str(raw.get("host", "midijuggler.local")).strip()
+    if not host:
+        raise ValueError("rotary_display.device.host must not be empty")
+
+    return RotaryDisplayDeviceConfig(
+        transport=transport,
+        wifi_enabled=bool(raw.get("wifi_enabled", True)),
+        wifi_ssid=str(raw.get("wifi_ssid", "")).strip(),
+        wifi_pass=str(raw.get("wifi_pass", "")),
+        host=host,
+        port=port,
+        listen_port=listen_port,
+        pulse_enabled=bool(raw.get("pulse_enabled", True)),
+        bpm_step=bpm_step,
+    )
+
+
+def _format_rotary_display_section(config: RotaryDisplayConfig) -> str:
+    return (
+        "[rotary_display]\n"
+        f"enabled = {_toml_bool(config.enabled)}\n"
+        f"transport = {_toml_string(config.transport)}\n"
+        f"feedback_host = {_toml_string(config.feedback_host)}\n"
+        f"feedback_port = {config.feedback_port}\n"
+        f"serial_port = {_toml_string(config.serial_port)}\n"
+        f"serial_baud = {config.serial_baud}\n"
+        f"hello_osc_address = {_toml_string(config.hello_osc_address)}\n"
+        f"sync_osc_address = {_toml_string(config.sync_osc_address)}\n"
+        f"beat_osc_address = {_toml_string(config.beat_osc_address)}\n\n"
+    )
+
+
+def _format_rotary_display_device_section(device: RotaryDisplayDeviceConfig) -> str:
+    return (
+        "[rotary_display.device]\n"
+        f"transport = {_toml_string(device.transport)}\n"
+        f"wifi_enabled = {_toml_bool(device.wifi_enabled)}\n"
+        f"wifi_ssid = {_toml_string(device.wifi_ssid)}\n"
+        f"wifi_pass = {_toml_string(device.wifi_pass)}\n"
+        f"host = {_toml_string(device.host)}\n"
+        f"port = {device.port}\n"
+        f"listen_port = {device.listen_port}\n"
+        f"pulse_enabled = {_toml_bool(device.pulse_enabled)}\n"
+        f"bpm_step = {device.bpm_step}\n\n"
     )
 
 

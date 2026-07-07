@@ -79,6 +79,43 @@ def test_rotary_display_registers_feedback_from_hello(monkeypatch: pytest.Monkey
     assert sent[0][1:] == ("192.168.1.50", 9001)
 
 
+def test_rotary_display_pushes_config_on_serial_hello(monkeypatch: pytest.MonkeyPatch) -> None:
+    push_calls: list[bool] = []
+
+    async def fake_push(*, force: bool = False) -> dict:
+        push_calls.append(force)
+        return {"pushed": True}
+
+    config = parse_config(
+        {
+            "master_clock": {"enabled": True, "bpm": 120.0},
+            "rotary_display": {
+                "enabled": True,
+                "transport": "serial",
+                "serial_port": "/dev/null",
+                "device": {"host": "midijuggler.local"},
+            },
+        }
+    )
+    store = DataPointStore()
+    bus = EventBus()
+    master_clock = MasterClock(config.master_clock, bus)
+    module = RotaryDisplayModule(store, config.rotary_display, master_clock, bus)
+    module._serial_connected = True
+    monkeypatch.setattr(module, "push_device_config", fake_push)
+
+    async def noop_sync(**kwargs: object) -> None:
+        return None
+
+    monkeypatch.setattr(module, "_send_sync", noop_sync)
+
+    async def scenario() -> None:
+        await module._handle_serial_line("hello\n")
+
+    asyncio.run(scenario())
+    assert push_calls == [False]
+
+
 def test_rotary_display_serial_command_updates_bpm(monkeypatch: pytest.MonkeyPatch) -> None:
     sync_payloads: list[str] = []
 

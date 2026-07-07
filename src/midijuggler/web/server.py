@@ -12,7 +12,7 @@ import tomllib
 from dataclasses import replace
 from importlib import resources
 from pathlib import Path
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 from aiohttp import WSMsgType, web
 
@@ -37,6 +37,8 @@ from midijuggler.config import (
     AppConfig,
     MasterClockConfig,
     RuntimeConfig,
+    RotaryDisplayConfig,
+    RotaryDisplayDeviceConfig,
     _validate_adapter_instance_name,
     _validate_tap_tempo_min_taps,
     _validate_bpm_step,
@@ -49,6 +51,7 @@ from midijuggler.config import (
     update_suppressed_inferred_device_adapters,
     save_connections,
     save_master_clock_config,
+    save_rotary_display_config,
     save_runtime_config,
     remove_midi_adapter_configs,
     remove_osc_adapter_configs,
@@ -142,6 +145,9 @@ from midijuggler.web.monitor_coalesce import (
     monitor_datapoint_key,
     monitor_event_key,
 )
+
+if TYPE_CHECKING:
+    from midijuggler.modules.interface.rotary_display.module import RotaryDisplayModule
 from midijuggler.system_hostname import (
     apply_hostname,
     can_restart_service,
@@ -262,7 +268,11 @@ class WebInterface:
         self._hid_learn_instance: str | None = None
         self._adapter_runtime_status: dict[str, dict[str, str]] = {}
         self._monitor_coalescer = MonitorCoalescer()
+        self._rotary_display_module: RotaryDisplayModule | None = None
         self.bus.subscribe("*", self._broadcast_event)
+
+    def bind_rotary_display_module(self, module: RotaryDisplayModule) -> None:
+        self._rotary_display_module = module
 
     def bind_osc_io_modules(self, io_modules: dict[str, OscIOModule]) -> None:
         self._osc_io_modules = io_modules
@@ -305,6 +315,9 @@ class WebInterface:
         app.router.add_post("/api/gamepi/brightness", self.gamepi_brightness_adjust)
         app.router.add_post("/api/gamepi/brightness/refresh", self.gamepi_brightness_refresh)
         app.router.add_post("/api/gamepi/reboot", self.gamepi_reboot)
+        app.router.add_get("/api/rotary-display", self.rotary_display_config)
+        app.router.add_post("/api/rotary-display", self.set_rotary_display_config)
+        app.router.add_post("/api/rotary-display/push", self.push_rotary_display_config)
         app.router.add_get("/api/midi-libraries", self.midi_libraries)
         app.router.add_get("/api/midi-libraries/{library_id}", self.midi_library)
         app.router.add_get("/api/osc-libraries", self.osc_libraries)
@@ -1002,6 +1015,24 @@ class WebInterface:
             return web.json_response(request_reboot(request))
         except PermissionError as exc:
             raise web.HTTPForbidden(text=str(exc)) from exc
+
+    async def rotary_display_config(self, request: web.Request) -> web.Response:
+        return web.json_response(self.rotary_display_config_payload())
+
+    async def set_rotary_display_config(self, request: web.Request) -> web.Response:
+        payload = await request.json()
+        try:
+            response = await self.apply_rotary_display_config(payload)
+        except ValueError as exc:
+            raise web.HTTPBadRequest(text=str(exc)) from exc
+        return web.json_response(response)
+
+    async def push_rotary_display_config(self, request: web.Request) -> web.Response:
+        try:
+            response = await self.apply_rotary_display_push()
+        except ValueError as exc:
+            raise web.HTTPBadRequest(text=str(exc)) from exc
+        return web.json_response(response)
 
     async def master_clock_transport(self, request: web.Request) -> web.Response:
         payload = await request.json()
@@ -3618,6 +3649,161 @@ class WebInterface:
         )
         await self.broadcast_status()
         return response
+
+    def rotary_display_config_payload(self) -> dict[str, Any]:
+        config = self.config.rotary_display
+        device = config.device
+        push_status = (
+            self._rotary_display_module.device_push_status()
+            if self._rotary_display_module is not None
+            else {
+                "serial_connected": False,
+                "last_pushed_fingerprint": None,
+                "current_fingerprint": None,
+                "push_pending": True,
+            }
+        )
+        return {
+            "enabled": config.enabled,
+            "transport": config.transport,
+            "feedback_host": config.feedback_host,
+            "feedback_port": config.feedback_port,
+            "serial_port": config.serial_port,
+            "serial_baud": config.serial_baud,
+            "device": {
+                "transport": device.transport,
+                "wifi_enabled": device.wifi_enabled,
+                "wifi_ssid": device.wifi_ssid,
+                "wifi_pass": device.wifi_pass,
+                "host": device.host,
+                "port": device.port,
+                "listen_port": device.listen_port,
+                "pulse_enabled": device.pulse_enabled,
+                "bpm_step": device.bpm_step,
+            },
+            "push": push_status,
+        }
+
+    async def apply_rotary_display_config(self, payload: dict[str, Any]) -> dict[str, Any]:
+        if not isinstance(payload, dict):
+            raise ValueError("rotary display config payload must be an object")
+
+        config = self._normalized_rotary_display_config(payload)
+        previous_serial_port = self.config.rotary_display.serial_port
+        self.config = replace(self.config, rotary_display=config)
+
+        if self._rotary_display_module is not None:
+            self._rotary_display_module.update_config(config)
+
+        persisted = False
+        persist_error = ""
+        if self.config_path is not None:
+            try:
+                save_rotary_display_config(self.config_path, config)
+                persisted = True
+            except OSError as exc:
+                persist_error = str(exc)
+                LOGGER.warning(
+                    "Rotary display config applied at runtime but could not be persisted to %s: %s",
+                    self.config_path,
+                    exc,
+                )
+        else:
+            persist_error = "no config path available"
+
+        push_result: dict[str, Any] = {"pushed": False, "reason": "module unavailable"}
+        if self._rotary_display_module is not None:
+            push_result = await self._rotary_display_module.push_device_config(force=True)
+
+        response = self.rotary_display_config_payload()
+        response.update(
+            {
+                "persisted": persisted,
+                "persist_error": persist_error,
+                "restart_required": config.serial_port != previous_serial_port,
+                "push_result": push_result,
+            }
+        )
+        return response
+
+    async def apply_rotary_display_push(self) -> dict[str, Any]:
+        if self._rotary_display_module is None:
+            raise ValueError("rotary display module is not enabled")
+        push_result = await self._rotary_display_module.push_device_config(force=True)
+        response = self.rotary_display_config_payload()
+        response["push_result"] = push_result
+        return response
+
+    def _normalized_rotary_display_config(self, payload: dict[str, Any]) -> RotaryDisplayConfig:
+        current = self.config.rotary_display
+        device_payload = payload.get("device", {})
+        if device_payload is not None and not isinstance(device_payload, dict):
+            raise ValueError("rotary display device config must be an object")
+
+        raw_device = dict(current.device.__dict__)
+        if isinstance(device_payload, dict):
+            if "transport" in device_payload:
+                transport = str(device_payload["transport"]).strip().lower()
+                if transport not in {"serial", "wifi", "both"}:
+                    raise ValueError("device.transport must be serial, wifi, or both")
+                raw_device["transport"] = transport
+            if "wifi_enabled" in device_payload:
+                raw_device["wifi_enabled"] = bool(device_payload["wifi_enabled"])
+            if "wifi_ssid" in device_payload:
+                raw_device["wifi_ssid"] = str(device_payload["wifi_ssid"]).strip()
+            if "wifi_pass" in device_payload:
+                raw_device["wifi_pass"] = str(device_payload["wifi_pass"])
+            if "host" in device_payload:
+                host = str(device_payload["host"]).strip()
+                if not host:
+                    raise ValueError("device.host must not be empty")
+                raw_device["host"] = host
+            if "port" in device_payload:
+                port = int(device_payload["port"])
+                if port <= 0 or port > 65535:
+                    raise ValueError("device.port must be between 1 and 65535")
+                raw_device["port"] = port
+            if "listen_port" in device_payload:
+                listen_port = int(device_payload["listen_port"])
+                if listen_port <= 0 or listen_port > 65535:
+                    raise ValueError("device.listen_port must be between 1 and 65535")
+                raw_device["listen_port"] = listen_port
+            if "pulse_enabled" in device_payload:
+                raw_device["pulse_enabled"] = bool(device_payload["pulse_enabled"])
+            if "bpm_step" in device_payload:
+                bpm_step = float(device_payload["bpm_step"])
+                if bpm_step <= 0:
+                    raise ValueError("device.bpm_step must be positive")
+                raw_device["bpm_step"] = bpm_step
+
+        device = RotaryDisplayDeviceConfig(**raw_device)
+
+        transport = str(payload.get("transport", current.transport)).strip().lower()
+        if transport not in {"osc", "serial", "both"}:
+            raise ValueError("transport must be osc, serial, or both")
+
+        feedback_port = int(payload.get("feedback_port", current.feedback_port))
+        if feedback_port <= 0 or feedback_port > 65535:
+            raise ValueError("feedback_port must be between 1 and 65535")
+
+        serial_baud = int(payload.get("serial_baud", current.serial_baud))
+        if serial_baud <= 0:
+            raise ValueError("serial_baud must be positive")
+
+        return RotaryDisplayConfig(
+            enabled=bool(payload.get("enabled", current.enabled)),
+            transport=transport,
+            feedback_host=str(payload.get("feedback_host", current.feedback_host)).strip(),
+            feedback_port=feedback_port,
+            serial_port=str(payload.get("serial_port", current.serial_port)).strip(),
+            serial_baud=serial_baud,
+            hello_osc_address=str(
+                payload.get("hello_osc_address", current.hello_osc_address)
+            ),
+            sync_osc_address=str(payload.get("sync_osc_address", current.sync_osc_address)),
+            beat_osc_address=str(payload.get("beat_osc_address", current.beat_osc_address)),
+            device=device,
+        )
 
     async def apply_tap_tempo(self, timestamp: float | None = None) -> dict[str, Any]:
         now = time.monotonic() if timestamp is None else timestamp
