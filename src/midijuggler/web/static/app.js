@@ -314,13 +314,31 @@ function pulseTapButtonFallback() {
 }
 
 function handleClockBeatDatapoint(update) {
-  if (!update || update.id !== "clock.beat") {
+  if (!update?.id?.startsWith("clock.")) {
     return;
   }
-  const active = update.float_value != null
-    ? Number(update.float_value) > 0.5
-    : Boolean(update.bool_value);
-  setTapPulse(active);
+  if (update.id === "clock.beat") {
+    const active = update.float_value != null
+      ? Number(update.float_value) > 0.5
+      : Boolean(update.bool_value);
+    setTapPulse(active);
+    return;
+  }
+  if (update.id === "clock.click_enabled" && update.bool_value != null) {
+    if (masterClickEnabled) {
+      masterClickEnabled.checked = Boolean(update.bool_value);
+    }
+    syncMasterClockRuntimeState({ click_enabled: update.bool_value });
+    return;
+  }
+  if (update.id === "clock.bpm" && update.float_value != null) {
+    bpm.textContent = formatBpmDisplay(update.float_value);
+    syncMasterClockRuntimeState({ bpm: update.float_value });
+    return;
+  }
+  if (update.id === "clock.running" && update.bool_value != null) {
+    syncMasterClockRuntimeState({ running: update.bool_value });
+  }
 }
 
 function pulseTapButton() {
@@ -7884,14 +7902,34 @@ function renderMasterClockConfig(config) {
 }
 
 function syncMasterClockRuntimeState(clock) {
-  if (!clock || clock.bpm == null) {
+  if (!clock) {
     return;
   }
-  if (masterClockConfig) {
-    masterClockConfig = { ...masterClockConfig, bpm: clock.bpm };
+  if (clock.bpm != null) {
+    if (masterClockConfig) {
+      masterClockConfig = { ...masterClockConfig, bpm: clock.bpm };
+    }
+    if (!masterBpmDirty && masterBpm) {
+      masterBpm.value = clock.bpm;
+    }
   }
-  if (!masterBpmDirty && masterBpm) {
-    masterBpm.value = clock.bpm;
+  if (clock.click_enabled != null) {
+    if (masterClockConfig) {
+      masterClockConfig = {
+        ...masterClockConfig,
+        click_enabled: Boolean(clock.click_enabled),
+      };
+    }
+    if (masterClickEnabled) {
+      masterClickEnabled.checked = Boolean(clock.click_enabled);
+    }
+  }
+  if (clock.running != null && masterClockRuntime) {
+    masterClockRuntime = { ...masterClockRuntime, running: Boolean(clock.running) };
+    if (masterTransport) {
+      masterTransport.textContent = clock.running ? "Stop" : "Start";
+      masterTransport.classList.toggle("danger-button", Boolean(clock.running));
+    }
   }
 }
 

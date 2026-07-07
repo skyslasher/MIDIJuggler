@@ -186,6 +186,7 @@ class MasterClockStateEvent(Event):
     running: bool = False
     position_ticks: int = 0
     click_interval: str = "quarter"
+    click_enabled: bool = False
 
     def as_dict(self) -> dict[str, Any]:
         payload = super().as_dict()
@@ -195,6 +196,7 @@ class MasterClockStateEvent(Event):
                 "running": self.running,
                 "position_ticks": self.position_ticks,
                 "click_interval": self.click_interval,
+                "click_enabled": self.click_enabled,
             }
         )
         return payload

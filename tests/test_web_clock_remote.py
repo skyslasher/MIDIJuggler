@@ -55,6 +55,33 @@ def test_apply_clock_trigger_rejects_disabled_master_clock() -> None:
         asyncio.run(interface.apply_clock_trigger("bpm_up"))
 
 
+def test_apply_clock_trigger_click_toggle_broadcasts_click_enabled_status() -> None:
+    config = parse_config({"master_clock": {"enabled": True, "click_enabled": False}})
+    interface = WebInterface(
+        config,
+        EventBus(),
+        ClockBpmTracker(),
+        MasterClock(config.master_clock, EventBus()),
+    )
+    payloads: list[dict] = []
+
+    async def capture(payload: dict) -> None:
+        payloads.append(payload)
+
+    interface._broadcast_payload = capture  # type: ignore[method-assign]
+    interface._websockets = [object()]  # noqa: SLF001
+
+    async def scenario() -> None:
+        result = await interface.apply_clock_trigger("click_toggle")
+        assert result["master_clock"]["click_enabled"] is True
+
+    asyncio.run(scenario())
+
+    status_payloads = [payload for payload in payloads if payload.get("type") == "status"]
+    assert status_payloads
+    assert status_payloads[-1]["payload"]["master_clock"]["click_enabled"] is True
+
+
 def test_status_payload_includes_click_enabled() -> None:
     config = parse_config(
         {"master_clock": {"enabled": True, "click_enabled": True}}

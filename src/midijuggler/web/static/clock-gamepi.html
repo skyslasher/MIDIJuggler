@@ -612,17 +612,25 @@
       if (!clock) {
         return;
       }
-      currentClock = clock;
-      bpmEl.textContent = clock.bpm ? formatBpmDisplay(clock.bpm) : "--";
-      bpmCard.classList.toggle("running", Boolean(clock.running));
+      currentClock = { ...currentClock, ...clock };
+      if (clock.bpm != null) {
+        bpmEl.textContent = clock.bpm ? formatBpmDisplay(clock.bpm) : "--";
+      }
+      if (clock.running != null) {
+        bpmCard.classList.toggle("running", Boolean(clock.running));
+      }
 
-      const clickEnabled = Boolean(clock.click_enabled);
-      btnClick.classList.toggle("active", clickEnabled);
-      btnClick.classList.toggle("inactive", !clickEnabled);
+      if (clock.click_enabled != null) {
+        const clickEnabled = Boolean(clock.click_enabled);
+        btnClick.classList.toggle("active", clickEnabled);
+        btnClick.classList.toggle("inactive", !clickEnabled);
+      }
 
-      const interval = clock.click_interval || "quarter";
-      currentClickInterval = interval;
-      btnInterval.textContent = CLICK_SHORT[interval] || interval;
+      if (clock.click_interval != null) {
+        const interval = clock.click_interval || "quarter";
+        currentClickInterval = interval;
+        btnInterval.textContent = CLICK_SHORT[interval] || interval;
+      }
     }
 
     function nextClickInterval(interval) {
@@ -961,6 +969,16 @@
         }
         if (payload.type === "datapoint" && payload.payload?.id === "gamepi.brightness") {
           applyBrightnessDatapoint(payload.payload);
+          return;
+        }
+        if (payload.type === "datapoint" && payload.payload?.id?.startsWith("clock.")) {
+          if (payload.payload.id === "clock.click_enabled" && payload.payload.bool_value != null) {
+            renderClock({ click_enabled: payload.payload.bool_value });
+          } else if (payload.payload.id === "clock.bpm" && payload.payload.float_value != null) {
+            renderClock({ bpm: payload.payload.float_value });
+          } else if (payload.payload.id === "clock.running" && payload.payload.bool_value != null) {
+            renderClock({ running: payload.payload.bool_value });
+          }
           return;
         }
         if (

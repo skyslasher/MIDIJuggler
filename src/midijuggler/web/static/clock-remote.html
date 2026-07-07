@@ -385,11 +385,25 @@
       }
     }
 
-    function handleBeatDatapoint(update) {
-      if (!update || update.id !== "clock.beat") {
+    function handleClockDatapoint(update) {
+      if (!update?.id?.startsWith("clock.")) {
         return;
       }
-      setBeatPulse(isBeatActive(update));
+      if (update.id === "clock.beat") {
+        setBeatPulse(isBeatActive(update));
+        return;
+      }
+      if (update.id === "clock.click_enabled" && update.bool_value != null) {
+        renderClock({ click_enabled: update.bool_value });
+        return;
+      }
+      if (update.id === "clock.bpm" && update.float_value != null) {
+        renderClock({ bpm: update.float_value });
+        return;
+      }
+      if (update.id === "clock.running" && update.bool_value != null) {
+        renderClock({ running: update.bool_value });
+      }
     }
 
     function pulseBeatFallback() {
@@ -419,24 +433,34 @@
       if (!clock) {
         return;
       }
-      currentClock = clock;
-      bpmEl.textContent = clock.bpm ? formatBpmDisplay(clock.bpm) : "--";
-      const running = Boolean(clock.running);
-      runningEl.textContent = running ? "Running" : "Stopped";
-      runningEl.className = running ? "on" : "off";
-      transportBtn.textContent = running ? "Stop" : "Start";
-      transportBtn.classList.toggle("danger", running);
+      currentClock = { ...currentClock, ...clock };
+      if (clock.bpm != null) {
+        bpmEl.textContent = clock.bpm ? formatBpmDisplay(clock.bpm) : "--";
+      }
+      if (clock.running != null) {
+        const running = Boolean(clock.running);
+        runningEl.textContent = running ? "Running" : "Stopped";
+        runningEl.className = running ? "on" : "off";
+        transportBtn.textContent = running ? "Stop" : "Start";
+        transportBtn.classList.toggle("danger", running);
+      }
 
-      const clickEnabled = Boolean(clock.click_enabled);
-      clickEnabledEl.textContent = clickEnabled ? "On" : "Off";
-      clickEnabledEl.className = clickEnabled ? "on" : "off";
-      clickToggleBtn.textContent = clickEnabled ? "Click on" : "Click off";
+      if (clock.click_enabled != null) {
+        const clickEnabled = Boolean(clock.click_enabled);
+        clickEnabledEl.textContent = clickEnabled ? "On" : "Off";
+        clickEnabledEl.className = clickEnabled ? "on" : "off";
+        clickToggleBtn.textContent = clickEnabled ? "Click on" : "Click off";
+      }
 
-      const interval = clock.click_interval || "quarter";
-      currentClickInterval = interval;
-      clickIntervalEl.textContent = interval;
-      clickIntervalBtn.textContent = CLICK_INTERVAL_LABELS[interval] || interval;
-      renderStepButtons(clock);
+      if (clock.click_interval != null) {
+        const interval = clock.click_interval || "quarter";
+        currentClickInterval = interval;
+        clickIntervalEl.textContent = interval;
+        clickIntervalBtn.textContent = CLICK_INTERVAL_LABELS[interval] || interval;
+      }
+      if (clock.bpm_step != null || clock.bpm_huge_step != null) {
+        renderStepButtons(currentClock);
+      }
     }
 
     function nextClickInterval(interval) {
@@ -576,7 +600,7 @@
           return;
         }
         if (payload.type === "datapoint") {
-          handleBeatDatapoint(payload.payload);
+          handleClockDatapoint(payload.payload);
           return;
         }
         if (

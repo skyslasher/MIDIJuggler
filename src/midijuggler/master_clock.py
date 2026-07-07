@@ -408,6 +408,7 @@ class MasterClock:
             await self._prepare_click_audio()
         else:
             await self._release_click_audio()
+        await self._publish_state()
 
     async def toggle_click_enabled(self) -> None:
         await self.set_click_enabled(not self.config.click_enabled)
@@ -644,6 +645,7 @@ class MasterClock:
                 running=self.running,
                 position_ticks=self.position_ticks,
                 click_interval=self.click_interval,
+                click_enabled=self.config.click_enabled,
             )
         )
 

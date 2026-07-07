@@ -1373,22 +1373,8 @@ class WebInterface:
                     immediate=self.learn.state.enabled,
                 )
         if isinstance(event, MasterClockStateEvent):
-            await self._broadcast_payload(
-                {
-                    "type": "status",
-                    "payload": {
-                        "bpm": event.bpm,
-                        "master_clock": {
-                            "enabled": self.master_clock.config.enabled,
-                            "bpm": event.bpm,
-                            "running": event.running,
-                            "position_ticks": event.position_ticks,
-                            "click_interval": event.click_interval,
-                            "parameters": self.master_clock.parameters.as_controls(),
-                        },
-                    },
-                }
-            )
+            await self.broadcast_status()
+            return
 
     async def _broadcast_payload(self, payload: dict[str, Any]) -> None:
         if not self._websockets:
@@ -3630,6 +3616,7 @@ class WebInterface:
                 "alsa_config_error": alsa_config_error,
             }
         )
+        await self.broadcast_status()
         return response
 
     async def apply_tap_tempo(self, timestamp: float | None = None) -> dict[str, Any]:
@@ -3669,6 +3656,7 @@ class WebInterface:
         payload = self._status_payload()
         if point == "tap_tempo":
             payload["tap_count"] = self.master_clock.tap_count
+        await self.broadcast_status()
         return payload
 
     async def _apply_clock_trigger_direct(
@@ -3747,7 +3735,9 @@ class WebInterface:
             await self.master_clock.continue_transport()
         else:
             raise ValueError("action must be toggle, start, stop or continue")
-        return self._status_payload()
+        payload = self._status_payload()
+        await self.broadcast_status()
+        return payload
 
     def _midi_instance_payload(
         self,
