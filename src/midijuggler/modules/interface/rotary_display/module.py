@@ -66,7 +66,11 @@ class RotaryDisplayModule(InterfaceModule):
         self.bus.subscribe(OscMessageEvent, self._on_osc_message)
         if self._use_serial and self.config.serial_port:
             self._serial_task = asyncio.create_task(self._serial_loop())
-        await self._send_sync()
+        elif self._use_serial and not self.config.serial_port:
+            LOGGER.error(
+                "rotary_display serial transport enabled but serial_port is empty; "
+                "set serial_port in config (macOS: /dev/cu.usbmodem*)"
+            )
 
     async def stop(self) -> None:
         if self._serial_task is not None:
@@ -110,25 +114,10 @@ class RotaryDisplayModule(InterfaceModule):
         await self._send_sync()
 
     def _current_sync_state(self) -> RotarySyncState:
-        snapshot = self.store.snapshot()
-        bpm_entry = snapshot.get("clock.bpm") or {}
-        running_entry = snapshot.get("clock.running") or {}
-        click_entry = snapshot.get("clock.click_enabled") or {}
-        bpm = float(bpm_entry.get("float_value") or self.master_clock.bpm)
-        running = bool(
-            running_entry.get("bool_value")
-            if running_entry.get("bool_value") is not None
-            else self.master_clock.running
-        )
-        click_enabled = bool(
-            click_entry.get("bool_value")
-            if click_entry.get("bool_value") is not None
-            else self.master_clock.config.click_enabled
-        )
         return RotarySyncState(
-            bpm=bpm,
-            running=running,
-            click_enabled=click_enabled,
+            bpm=self.master_clock.bpm,
+            running=self.master_clock.running,
+            click_enabled=self.master_clock.config.click_enabled,
             click_interval=self.master_clock.click_interval,
         )
 
@@ -151,7 +140,15 @@ class RotaryDisplayModule(InterfaceModule):
         if not self._use_serial or not self._serial_connected or self._serial_port is None:
             return
         try:
-            await asyncio.to_thread(self._serial_port.write, payload.encode("utf-8"))
+            data = payload.encode("utf-8")
+
+            def write_and_flush() -> None:
+                self._serial_port.write(data)
+                flush = getattr(self._serial_port, "flush", None)
+                if callable(flush):
+                    flush()
+
+            await asyncio.to_thread(write_and_flush)
         except OSError:
             LOGGER.exception("rotary display serial write failed")
             self._serial_connected = False
@@ -175,26 +172,40 @@ class RotaryDisplayModule(InterfaceModule):
                 self._feedback_port,
             )
 
+    def _open_serial_port(self, port_name: str) -> Any:
+        import serial
+
+        # dsrdtr=False avoids toggling DTR on open, which would reset ESP32 USB CDC boards.
+        return serial.Serial(
+            port_name,
+            self.config.serial_baud,
+            timeout=0.2,
+            dsrdtr=False,
+            rtscts=False,
+        )
+
     async def _serial_loop(self) -> None:
         try:
-            import serial
+            import serial  # noqa: F401
         except ImportError:
             LOGGER.error(
                 "rotary_display serial transport requires pyserial; "
-                "install with: pip install pyserial"
+                "install with: pip install pyserial  "
+                "(or: pip install 'midijuggler[rotary]')"
             )
             return
 
         port_name = self.config.serial_port
         while self.running:
             try:
-                self._serial_port = serial.Serial(
+                self._serial_port = await asyncio.to_thread(
+                    self._open_serial_port,
                     port_name,
-                    self.config.serial_baud,
-                    timeout=0.2,
                 )
                 self._serial_connected = True
                 LOGGER.info("rotary display serial connected on %s", port_name)
+                # USB CDC boards reboot when the host opens the port; wait for hello.
+                await asyncio.sleep(1.5)
                 await self._send_sync(force=True)
                 while self.running:
                     line = await asyncio.to_thread(self._serial_port.readline)
@@ -205,7 +216,10 @@ class RotaryDisplayModule(InterfaceModule):
             except asyncio.CancelledError:
                 raise
             except OSError:
-                LOGGER.exception("rotary display serial error on %s", port_name)
+                LOGGER.exception(
+                    "rotary display serial error on %s (check port path and close other serial tools)",
+                    port_name,
+                )
                 self._serial_connected = False
                 if self._serial_port is not None:
                     with contextlib.suppress(Exception):
@@ -220,13 +234,18 @@ class RotaryDisplayModule(InterfaceModule):
         command, args = parsed
         if command == "hello":
             self._serial_connected = True
+            LOGGER.info("rotary display hello on serial")
             await self._send_sync(force=True)
             return
         event = serial_command_to_clock_event(command, args)
         if event is None:
             LOGGER.debug("ignored rotary serial line: %s", line.strip())
             return
+        LOGGER.info("rotary display serial command: %s", line.strip())
         await self.master_clock.handle_command(event)
+        if event.command == "set_bpm":
+            await self.master_clock.flush_bpm_notifications()
+        await self._send_sync(force=True)
 
 
 def _udp_send(payload: bytes, host: str, port: int) -> None:

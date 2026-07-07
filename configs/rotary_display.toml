@@ -20,11 +20,12 @@ listen_port = 9000
 
 [rotary_display]
 enabled = true
-# osc = WiFi/UDP only, serial = USB only, both = accept either path
-transport = "both"
+# USB-only firmware (elecrow128-serial): use transport = "serial"
+transport = "serial"
 feedback_host = ""
 feedback_port = 9001
-serial_port = "/dev/ttyACM0"
+# macOS: ls /dev/cu.usbmodem*   Linux: ls /dev/ttyACM*
+serial_port = "/dev/cu.usbmodem12201"
 serial_baud = 115200
 
 [web]

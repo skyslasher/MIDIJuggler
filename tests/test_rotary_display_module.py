@@ -80,6 +80,8 @@ def test_rotary_display_registers_feedback_from_hello(monkeypatch: pytest.Monkey
 
 
 def test_rotary_display_serial_command_updates_bpm(monkeypatch: pytest.MonkeyPatch) -> None:
+    sync_payloads: list[str] = []
+
     config = parse_config(
         {
             "master_clock": {"enabled": True, "bpm": 120.0},
@@ -103,6 +105,11 @@ def test_rotary_display_serial_command_updates_bpm(monkeypatch: pytest.MonkeyPat
     )
     module._serial_connected = True
 
+    async def capture_sync(payload: str) -> None:
+        sync_payloads.append(payload)
+
+    monkeypatch.setattr(module, "_send_serial", capture_sync)
+
     async def scenario() -> None:
         await generator.start()
         await module.start()
@@ -112,3 +119,41 @@ def test_rotary_display_serial_command_updates_bpm(monkeypatch: pytest.MonkeyPat
 
     asyncio.run(scenario())
     assert master_clock.bpm == pytest.approx(140.0)
+    sync_lines = [payload for payload in sync_payloads if payload.startswith("sync ")]
+    assert sync_lines
+    assert "sync 140.0" in sync_lines[-1]
+
+
+def test_rotary_display_serial_open_uses_no_dtr() -> None:
+    config = parse_config(
+        {
+            "rotary_display": {
+                "enabled": True,
+                "transport": "serial",
+                "serial_port": "/dev/null",
+            }
+        }
+    )
+    store = DataPointStore()
+    bus = EventBus()
+    master_clock = MasterClock(MasterClockConfig(), bus)
+    module = RotaryDisplayModule(store, config.rotary_display, master_clock, bus)
+
+    captured: dict[str, object] = {}
+
+    class FakeSerial:
+        def __init__(self, *args: object, **kwargs: object) -> None:
+            captured["kwargs"] = kwargs
+
+    import sys
+
+    fake_serial = type(sys)("serial")
+    fake_serial.Serial = FakeSerial
+    sys.modules["serial"] = fake_serial
+    try:
+        module._open_serial_port("/dev/null")
+    finally:
+        del sys.modules["serial"]
+
+    assert captured["kwargs"]["dsrdtr"] is False
+    assert captured["kwargs"]["rtscts"] is False
