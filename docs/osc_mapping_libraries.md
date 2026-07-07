@@ -8,6 +8,7 @@ Available libraries:
 
 - `behringer_x32`
 - `behringer_wing`
+- `rotary_display`
 
 The web API exposes the packaged libraries:
 
@@ -15,6 +16,7 @@ The web API exposes the packaged libraries:
 GET /api/osc-libraries
 GET /api/osc-libraries/behringer_x32
 GET /api/osc-libraries/behringer_wing
+GET /api/osc-libraries/rotary_display
 ```
 
 ## Mapping syntax
@@ -109,3 +111,56 @@ ranges = [
   { name = "bus", start = 1, end = 16 },
 ]
 ```
+
+## Rotary display
+
+The `rotary_display` library catalogs OSC addresses for the Elecrow rotary
+encoder. Bind it to an OSC adapter device in the Connections UI:
+
+```toml
+[[devices]]
+uid = "rotary_encoder"
+id = "rotary_encoder"
+name = "Rotary Display"
+adapter = "osc"
+library = "rotary_display"
+library_kind = "osc"
+```
+
+Encoder commands (`direction = "source"`):
+
+| Parameter | Address |
+|-----------|---------|
+| Set BPM | `/midijuggler/clock/bpm` |
+| Start/stop | `/midijuggler/clock/start_stop` |
+| Click toggle | `/midijuggler/clock/click_toggle` |
+| Tap tempo | `/midijuggler/clock/tap_tempo` |
+| Click interval | `/midijuggler/clock/click_interval` |
+| Hello | `/midijuggler/rotary/hello` |
+
+Host feedback (`direction = "target"`):
+
+| Parameter | Address |
+|-----------|---------|
+| Sync state | `/midijuggler/rotary/sync` |
+| Beat pulse | `/midijuggler/rotary/beat` |
+
+Example connections:
+
+```toml
+[[connections]]
+id = "rotary-bpm-to-clock"
+source = "rotary_encoder./midijuggler/clock/bpm"
+target = "clock.bpm_set"
+modifier = "passthrough"
+
+[[connections]]
+id = "clock-beat-to-rotary"
+source = "clock.beat"
+target = "rotary_encoder./midijuggler/rotary/beat"
+modifier = "passthrough"
+```
+
+When `[rotary_display] enabled = true`, the interface module handles transport
+directly. Default connections are only auto-added when that module is disabled
+and a `rotary_display` device exists. See [`rotary_display.md`](rotary_display.md).

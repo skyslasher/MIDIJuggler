@@ -18,6 +18,16 @@ enabled = true
 listen_host = "0.0.0.0"
 listen_port = 9000
 
+# Optional: bind the main OSC adapter to the rotary_display library for Connections UI.
+# When [rotary_display] enabled is false, default [[connections]] are added automatically.
+[[devices]]
+uid = "rotary_encoder"
+id = "rotary_encoder"
+name = "Rotary Display"
+adapter = "osc"
+library = "rotary_display"
+library_kind = "osc"
+
 [rotary_display]
 enabled = true
 # Host transport: how MIDIJuggler sends sync/beat to the device (osc|serial|both)

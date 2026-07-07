@@ -103,6 +103,28 @@ The `rotary_display` module subscribes to `clock.beat`, `clock.bpm`,
 `clock.running`, and `clock.click_enabled` and pushes sync/beat messages on
 change.
 
+## OSC library and Connections UI
+
+Packaged OSC library id: `rotary_display` (see [`osc_mapping_libraries.md`](osc_mapping_libraries.md)).
+
+To wire the encoder through the Connections page, add a device bound to your OSC
+adapter:
+
+```toml
+[[devices]]
+uid = "rotary_encoder"
+id = "rotary_encoder"
+name = "Rotary Display"
+adapter = "osc"
+library = "rotary_display"
+library_kind = "osc"
+```
+
+The library exposes all `/midijuggler/clock/*` command addresses and
+`/midijuggler/rotary/*` feedback targets for connection bundles and monitoring.
+When `[rotary_display] enabled = false`, MIDIJuggler also adds default
+encoder→clock and beat→display connections for such a device.
+
 ## Troubleshooting
 
 | Symptom | Fix |

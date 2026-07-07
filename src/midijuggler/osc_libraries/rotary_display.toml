@@ -1,0 +1,96 @@
+[library]
+id = "rotary_display"
+name = "MIDIJuggler Rotary Display"
+vendor = "MIDIJuggler"
+model = "Elecrow Rotary Encoder"
+notes = "OSC protocol for the Elecrow 1.28 inch rotary display. Encoder commands use /midijuggler/clock/* on the host listen port; feedback to the device uses /midijuggler/rotary/* on the device listen port."
+
+# Device -> host (encoder commands)
+[[parameters]]
+id = "clock_bpm"
+label = "Set BPM"
+address = "/midijuggler/clock/bpm"
+value_type = "float"
+value_min = 40.0
+value_max = 240.0
+category = "clock"
+direction = "source"
+description = "Set master clock BPM from the rotary encoder."
+
+[[parameters]]
+id = "clock_start_stop"
+label = "Start / Stop"
+address = "/midijuggler/clock/start_stop"
+value_type = "int"
+value_min = 0
+value_max = 1
+category = "clock"
+direction = "source"
+description = "Toggle master clock transport."
+
+[[parameters]]
+id = "clock_click_toggle"
+label = "Click toggle"
+address = "/midijuggler/clock/click_toggle"
+value_type = "int"
+value_min = 0
+value_max = 1
+category = "clock"
+direction = "source"
+description = "Toggle the master clock audio click."
+
+[[parameters]]
+id = "clock_tap_tempo"
+label = "Tap tempo"
+address = "/midijuggler/clock/tap_tempo"
+value_type = "int"
+value_min = 0
+value_max = 1
+category = "clock"
+direction = "source"
+description = "Register a tap-tempo pulse from the encoder button."
+
+[[parameters]]
+id = "clock_click_interval"
+label = "Click interval"
+address = "/midijuggler/clock/click_interval"
+value_type = "string"
+value_min = 0
+value_max = 1
+category = "clock"
+direction = "source"
+description = "Set click interval (sixteenth, eighth, quarter, half, whole)."
+
+[[parameters]]
+id = "rotary_hello"
+label = "Hello / register"
+address = "/midijuggler/rotary/hello"
+value_type = "string"
+value_min = 0
+value_max = 1
+category = "registration"
+direction = "source"
+description = "Device registration with feedback host (string) and listen port (int)."
+
+# Host -> device (feedback)
+[[parameters]]
+id = "rotary_sync"
+label = "Clock sync"
+address = "/midijuggler/rotary/sync"
+value_type = "float"
+value_min = 40.0
+value_max = 240.0
+category = "feedback"
+direction = "target"
+description = "Push BPM, running, click-enabled and interval to the display (multi-argument OSC)."
+
+[[parameters]]
+id = "rotary_beat"
+label = "Beat pulse"
+address = "/midijuggler/rotary/beat"
+value_type = "float"
+value_min = 0.0
+value_max = 1.0
+category = "feedback"
+direction = "target"
+description = "Beat flash pulse for the display LED ring and UI."

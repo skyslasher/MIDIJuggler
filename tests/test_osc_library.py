@@ -7,6 +7,7 @@ def test_lists_packaged_behringer_osc_libraries() -> None:
     assert [library.id for library in libraries] == [
         "behringer_wing",
         "behringer_x32",
+        "rotary_display",
     ]
 
 

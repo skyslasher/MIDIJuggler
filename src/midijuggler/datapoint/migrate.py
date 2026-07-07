@@ -7,6 +7,7 @@ from midijuggler.datapoint.clock_connections import (
     merge_clock_output_connections,
     usable_clock_output_targets,
 )
+from midijuggler.datapoint.rotary_connections import merge_rotary_display_connections
 from midijuggler.datapoint.types import ConnectionSpec
 
 
@@ -37,4 +38,7 @@ def effective_connections(
         config.devices,
         config.adapters,
     )
-    return merge_clock_output_connections(resolved, output_targets)
+    merged = merge_clock_output_connections(resolved, output_targets)
+    if not config.rotary_display.enabled:
+        merged = merge_rotary_display_connections(merged, config.devices)
+    return merged
