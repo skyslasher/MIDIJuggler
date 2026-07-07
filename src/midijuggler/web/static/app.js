@@ -8013,6 +8013,11 @@ function showRotaryDisplayMessage(config, fallbackMessage) {
     rotaryDisplayMessage.textContent = "saved; push pending until device connects";
     return;
   }
+  if (push?.reason) {
+    const detail = push.failed_command ? ` (${push.failed_command})` : "";
+    rotaryDisplayMessage.textContent = `saved; push failed: ${push.reason}${detail}`;
+    return;
+  }
   rotaryDisplayMessage.textContent = fallbackMessage || "saved";
 }
 
@@ -8671,7 +8676,8 @@ rotaryPushButton?.addEventListener("click", () => {
       if (push?.pushed) {
         showRotaryDisplayMessage(config, "config pushed to device");
       } else if (push?.reason) {
-        rotaryDisplayMessage.textContent = `push failed: ${push.reason}`;
+        const detail = push.failed_command ? ` (${push.failed_command})` : "";
+        rotaryDisplayMessage.textContent = `push failed: ${push.reason}${detail}`;
       } else {
         rotaryDisplayMessage.textContent = "push failed";
       }

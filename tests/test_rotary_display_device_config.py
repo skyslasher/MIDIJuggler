@@ -132,3 +132,17 @@ def test_read_config_response_lines_stops_on_ok() -> None:
     port = FakePort([["cfg transport=both", "ok"]])
     lines = read_config_response_lines(port, timeout_s=0.1)
     assert lines == ["cfg transport=both", "ok"]
+
+
+def test_read_config_response_lines_ignores_device_noise() -> None:
+    port = FakePort([["hello", "renderHome: dynamic parts=14", "ok"]])
+    lines = read_config_response_lines(port, timeout_s=0.1)
+    assert lines == ["ok"]
+
+
+def test_push_device_config_sync_fails_with_timeout_reason() -> None:
+    port = FakePort([["hello"]])
+    result = push_device_config_sync(port, ["transport both"], timeout_s=0.05)
+    assert result["ok"] is False
+    assert result["reason"] == "timeout waiting for ok"
+    assert result["failed_command"] == "transport both"

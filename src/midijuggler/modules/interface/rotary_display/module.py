@@ -222,7 +222,7 @@ class RotaryDisplayModule(InterfaceModule):
         )
         return {
             "pushed": False,
-            "reason": "device rejected config",
+            "reason": result.get("reason") or "device rejected config",
             "fingerprint": fingerprint,
             "commands": commands,
             **result,
@@ -283,7 +283,8 @@ class RotaryDisplayModule(InterfaceModule):
                 await asyncio.sleep(1.5)
                 await self._send_sync(force=True)
                 while self.running:
-                    line = await asyncio.to_thread(self._serial_port.readline)
+                    async with self._serial_lock:
+                        line = await asyncio.to_thread(self._serial_port.readline)
                     if not line:
                         continue
                     text = line.decode("utf-8", errors="replace")
