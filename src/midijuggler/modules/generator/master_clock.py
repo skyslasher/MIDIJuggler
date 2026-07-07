@@ -25,6 +25,7 @@ from midijuggler.master_clock import (
     TAP_TEMPO_BPM_QUANTIZE_STEP,
     MasterClock,
     click_interval_from_set_value,
+    click_interval_to_set_value,
     next_click_interval,
     quantize_bpm,
 )
@@ -189,6 +190,16 @@ class MasterClockGenerator(GeneratorModule):
                 value_type=ValueType.BOOL,
                 direction=DataPointDirection.INPUT,
                 label="Audio click enabled",
+                protocol="clock",
+                category="transport",
+            ),
+            DataPointSpec(
+                id=DataPointId(CLOCK_MODULE, "click_interval"),
+                value_type=ValueType.FLOAT,
+                direction=DataPointDirection.INPUT,
+                label="Click/beat interval (0=whole .. 4=sixteenth)",
+                value_min=0.0,
+                value_max=4.0,
                 protocol="clock",
                 category="transport",
             ),
@@ -543,6 +554,12 @@ class MasterClockGenerator(GeneratorModule):
                 point_id=DataPointId(CLOCK_MODULE, "click_enabled"),
                 value_type=ValueType.BOOL,
                 bool_value=self.clock.config.click_enabled,
+            )
+        )
+        await self.store.write(
+            float_value(
+                DataPointId(CLOCK_MODULE, "click_interval"),
+                click_interval_to_set_value(self.clock.click_interval),
             )
         )
         await self.store.write(float_value(DataPointId(CLOCK_MODULE, "bpm"), self.clock.bpm))

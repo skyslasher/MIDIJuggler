@@ -52,6 +52,30 @@ def rotary_clock_feedback_connections(device_id: str) -> list[ConnectionSpec]:
 
     return [
         ConnectionSpec(
+            id=f"clock-bpm-to-{device_id}",
+            source="clock.bpm",
+            target=f"{device_id}./midijuggler/rotary/bpm",
+            modifier=ModifierKind.PASSTHROUGH,
+        ),
+        ConnectionSpec(
+            id=f"clock-running-to-{device_id}",
+            source="clock.running",
+            target=f"{device_id}./midijuggler/rotary/running",
+            modifier=ModifierKind.PASSTHROUGH,
+        ),
+        ConnectionSpec(
+            id=f"clock-click-enabled-to-{device_id}",
+            source="clock.click_enabled",
+            target=f"{device_id}./midijuggler/rotary/click_enabled",
+            modifier=ModifierKind.PASSTHROUGH,
+        ),
+        ConnectionSpec(
+            id=f"clock-click-interval-to-{device_id}",
+            source="clock.click_interval",
+            target=f"{device_id}./midijuggler/rotary/click_interval",
+            modifier=ModifierKind.PASSTHROUGH,
+        ),
+        ConnectionSpec(
             id=f"clock-beat-to-{device_id}",
             source="clock.beat",
             target=f"{device_id}./midijuggler/rotary/beat",

@@ -61,6 +61,15 @@ def click_interval_from_set_value(value: float) -> str:
     return CLICK_INTERVALS[len(CLICK_INTERVALS) - 1 - index]
 
 
+def click_interval_to_set_value(interval: str) -> float:
+    """Map a named click interval to the connection float (0=whole .. 4=sixteenth)."""
+
+    if interval not in CLICK_INTERVALS:
+        interval = "quarter"
+    index = CLICK_INTERVALS.index(interval)
+    return float(len(CLICK_INTERVALS) - 1 - index)
+
+
 def next_click_interval(current: str) -> str:
     if current not in CLICK_INTERVALS:
         return CLICK_INTERVALS[2]

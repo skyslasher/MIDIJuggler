@@ -4,6 +4,9 @@ from midijuggler.datapoint.rotary_connections import (
     merge_rotary_display_connections,
     rotary_encoder_to_clock_connections,
 )
+from midijuggler.datapoint.rotary_module_feedback import (
+    rotary_module_feedback_connections,
+)
 from midijuggler.datapoint.types import ConnectionSpec, ModifierKind
 from midijuggler.osc_library import get_osc_library, list_osc_libraries
 
@@ -33,6 +36,14 @@ def test_rotary_display_library_contains_clock_and_feedback_points() -> None:
     assert parameters["clock_bpm"].address == "/midijuggler/clock/bpm"
     assert parameters["clock_bpm"].direction == "source"
     assert parameters["clock_start_stop"].address == "/midijuggler/clock/start_stop"
+    assert parameters["rotary_bpm"].address == "/midijuggler/rotary/bpm"
+    assert parameters["rotary_bpm"].direction == "target"
+    assert parameters["rotary_running"].address == "/midijuggler/rotary/running"
+    assert parameters["rotary_running"].direction == "target"
+    assert parameters["rotary_click_enabled"].address == "/midijuggler/rotary/click_enabled"
+    assert parameters["rotary_click_enabled"].direction == "target"
+    assert parameters["rotary_click_interval"].address == "/midijuggler/rotary/click_interval"
+    assert parameters["rotary_click_interval"].direction == "target"
     assert parameters["rotary_beat"].address == "/midijuggler/rotary/beat"
     assert parameters["rotary_beat"].direction == "target"
     assert parameters["rotary_hello"].category == "registration"
@@ -91,3 +102,11 @@ def test_effective_connections_skips_rotary_defaults_when_module_enabled() -> No
         connection.source.startswith("rotary_encoder./midijuggler/clock/")
         for connection in connections
     )
+
+
+def test_effective_connections_adds_module_feedback_when_module_enabled() -> None:
+    config = parse_config(_config_with_rotary_device(rotary_module_enabled=True))
+    connections = effective_connections(config)
+    expected = {(connection.source, connection.target) for connection in rotary_module_feedback_connections()}
+    actual = {(connection.source, connection.target) for connection in connections}
+    assert expected.issubset(actual)

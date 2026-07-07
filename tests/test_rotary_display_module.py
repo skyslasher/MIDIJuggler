@@ -3,12 +3,15 @@ import asyncio
 import pytest
 
 from midijuggler.config import MasterClockConfig, parse_config
+from midijuggler.datapoint.migrate import effective_connections
 from midijuggler.datapoint.store import DataPointStore
+from midijuggler.datapoint.types import DataPointId, float_value
 from midijuggler.eventbus import EventBus
 from midijuggler.events import OscMessageEvent
-from midijuggler.master_clock import MasterClock
+from midijuggler.master_clock import MasterClock, click_interval_to_set_value
 from midijuggler.modules.generator.master_clock import MasterClockGenerator
 from midijuggler.modules.interface.rotary_display.module import RotaryDisplayModule
+from midijuggler.modules.modifier.graph import ModifierGraph
 from midijuggler.osc.protocol import decode_messages
 
 
@@ -210,6 +213,9 @@ def test_rotary_display_syncs_click_interval_from_clock_state(
     store = DataPointStore()
     bus = EventBus()
     master_clock = MasterClock(config.master_clock, bus)
+    generator = MasterClockGenerator(master_clock, store)
+    store.register_many(generator.datapoints())
+    graph = ModifierGraph(store, effective_connections(config))
     module = RotaryDisplayModule(store, config.rotary_display, master_clock, bus)
     module._serial_connected = True
 
@@ -219,12 +225,22 @@ def test_rotary_display_syncs_click_interval_from_clock_state(
     monkeypatch.setattr(module, "_send_serial", capture_sync)
 
     async def scenario() -> None:
+        await generator.start()
+        await graph.start()
         await module.start()
-        await master_clock.set_click_interval("eighth")
+        await store.write(
+            float_value(
+                DataPointId("clock", "click_interval_set"),
+                click_interval_to_set_value("eighth"),
+            )
+        )
         await asyncio.sleep(0)
         await module.stop()
+        await graph.stop()
+        await generator.stop()
 
     asyncio.run(scenario())
 
-    assert sync_payloads
-    assert "eighth" in sync_payloads[-1]
+    sync_lines = [payload for payload in sync_payloads if payload.startswith("sync ")]
+    assert sync_lines
+    assert "eighth" in sync_lines[-1]

@@ -16,6 +16,7 @@ from midijuggler.master_clock import (
     MasterClock,
     bpm_to_parameters,
     click_interval_from_set_value,
+    click_interval_to_set_value,
 )
 
 
@@ -53,6 +54,17 @@ def test_click_interval_from_set_value_maps_whole_to_zero() -> None:
     assert click_interval_from_set_value(0.0) == "whole"
     assert click_interval_from_set_value(2.0) == "quarter"
     assert click_interval_from_set_value(4.0) == "sixteenth"
+
+
+def test_click_interval_to_set_value_maps_whole_to_zero() -> None:
+    assert click_interval_to_set_value("whole") == 0.0
+    assert click_interval_to_set_value("quarter") == 2.0
+    assert click_interval_to_set_value("sixteenth") == 4.0
+
+
+def test_click_interval_to_set_value_round_trips_with_from_set_value() -> None:
+    for interval in ("whole", "half", "quarter", "eighth", "sixteenth"):
+        assert click_interval_from_set_value(click_interval_to_set_value(interval)) == interval
 
 
 def test_bpm_to_parameters_exposes_millisecond_values() -> None:

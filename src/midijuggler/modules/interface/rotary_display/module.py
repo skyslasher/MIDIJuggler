@@ -10,15 +10,25 @@ from typing import Any
 
 from midijuggler.config import RotaryDisplayConfig
 from midijuggler.datapoint.store import DataPointStore
-from midijuggler.datapoint.types import DataPointId, DataPointValue
+from midijuggler.datapoint.types import (
+    DataPointDirection,
+    DataPointId,
+    DataPointSpec,
+    DataPointValue,
+    ValueType,
+)
 from midijuggler.eventbus import EventBus
-from midijuggler.events import MasterClockCommandEvent, MasterClockStateEvent, OscMessageEvent
-from midijuggler.master_clock import MasterClock
+from midijuggler.events import MasterClockCommandEvent, OscMessageEvent
+from midijuggler.master_clock import MasterClock, click_interval_from_set_value
 from midijuggler.modules.base import InterfaceModule
 from midijuggler.modules.interface.rotary_display.device_config import (
     build_device_config_commands,
     device_config_fingerprint,
     push_device_config_sync,
+)
+from midijuggler.datapoint.rotary_module_feedback import (
+    ROTARY_FEEDBACK_POINTS,
+    ROTARY_MODULE,
 )
 from midijuggler.modules.interface.rotary_display.protocol import (
     RotarySyncState,
@@ -31,8 +41,6 @@ from midijuggler.modules.interface.rotary_display.protocol import (
 from midijuggler.osc.protocol import encode_message
 
 LOGGER = logging.getLogger(__name__)
-
-ROTARY_MODULE = "rotary_display"
 
 
 class RotaryDisplayModule(InterfaceModule):
@@ -61,16 +69,63 @@ class RotaryDisplayModule(InterfaceModule):
         self._use_osc = config.transport in {"osc", "both"}
         self._use_serial = config.transport in {"serial", "both"}
 
-    def datapoints(self) -> list:
-        return []
+    def datapoints(self) -> list[DataPointSpec]:
+        bpm_min = self.master_clock.config.bpm_min
+        bpm_max = self.master_clock.config.bpm_max
+        specs = [
+            DataPointSpec(
+                id=DataPointId(ROTARY_MODULE, "bpm"),
+                value_type=ValueType.FLOAT,
+                direction=DataPointDirection.OUTPUT,
+                label="Feedback BPM",
+                value_min=bpm_min,
+                value_max=bpm_max,
+                protocol="rotary_display",
+                category="feedback",
+            ),
+            DataPointSpec(
+                id=DataPointId(ROTARY_MODULE, "running"),
+                value_type=ValueType.BOOL,
+                direction=DataPointDirection.OUTPUT,
+                label="Feedback transport running",
+                protocol="rotary_display",
+                category="feedback",
+            ),
+            DataPointSpec(
+                id=DataPointId(ROTARY_MODULE, "click_enabled"),
+                value_type=ValueType.BOOL,
+                direction=DataPointDirection.OUTPUT,
+                label="Feedback audio click enabled",
+                protocol="rotary_display",
+                category="feedback",
+            ),
+            DataPointSpec(
+                id=DataPointId(ROTARY_MODULE, "click_interval"),
+                value_type=ValueType.FLOAT,
+                direction=DataPointDirection.OUTPUT,
+                label="Feedback click interval (0=whole .. 4=sixteenth)",
+                value_min=0.0,
+                value_max=4.0,
+                protocol="rotary_display",
+                category="feedback",
+            ),
+            DataPointSpec(
+                id=DataPointId(ROTARY_MODULE, "beat"),
+                value_type=ValueType.FLOAT,
+                direction=DataPointDirection.OUTPUT,
+                label="Feedback beat pulse",
+                value_min=0.0,
+                value_max=1.0,
+                protocol="rotary_display",
+                category="feedback",
+            ),
+        ]
+        return specs
 
     async def start(self) -> None:
         await super().start()
-        self.store.subscribe(DataPointId("clock", "beat"), self._on_beat)
-        self.store.subscribe(DataPointId("clock", "bpm"), self._on_clock_state)
-        self.store.subscribe(DataPointId("clock", "running"), self._on_clock_state)
-        self.store.subscribe(DataPointId("clock", "click_enabled"), self._on_clock_state)
-        self.bus.subscribe(MasterClockStateEvent, self._on_master_clock_state)
+        for point in ROTARY_FEEDBACK_POINTS:
+            self.store.subscribe(DataPointId(ROTARY_MODULE, point), self._on_feedback)
         self.bus.subscribe(OscMessageEvent, self._on_osc_message)
         if self._use_serial and self.config.serial_port:
             self._serial_task = asyncio.create_task(self._serial_loop())
@@ -109,27 +164,46 @@ class RotaryDisplayModule(InterfaceModule):
         )
         await self._send_sync(force=True)
 
-    async def _on_beat(self, value: DataPointValue) -> None:
-        if value.float_value is None:
+    async def _on_feedback(self, value: DataPointValue) -> None:
+        if value.point_id.point == "beat":
+            if value.float_value is None:
+                return
+            beat = float(value.float_value)
+            if self._last_beat is not None and abs(self._last_beat - beat) <= 1e-6:
+                return
+            self._last_beat = beat
+            await self._send_beat(beat)
             return
-        beat = float(value.float_value)
-        if self._last_beat is not None and abs(self._last_beat - beat) <= 1e-6:
-            return
-        self._last_beat = beat
-        await self._send_beat(beat)
-
-    async def _on_clock_state(self, _value: DataPointValue) -> None:
-        await self._send_sync()
-
-    async def _on_master_clock_state(self, _event: MasterClockStateEvent) -> None:
-        await self._send_sync()
+        await self._send_sync(force=True)
 
     def _current_sync_state(self) -> RotarySyncState:
+        snapshot = self.store.snapshot()
+        bpm_value = snapshot.get(str(DataPointId(ROTARY_MODULE, "bpm")))
+        running_value = snapshot.get(str(DataPointId(ROTARY_MODULE, "running")))
+        click_value = snapshot.get(str(DataPointId(ROTARY_MODULE, "click_enabled")))
+        interval_value = snapshot.get(str(DataPointId(ROTARY_MODULE, "click_interval")))
+
+        bpm = self.master_clock.bpm
+        if bpm_value is not None and bpm_value.get("float_value") is not None:
+            bpm = float(bpm_value["float_value"])
+
+        running = self.master_clock.running
+        if running_value is not None and running_value.get("bool_value") is not None:
+            running = bool(running_value["bool_value"])
+
+        click_enabled = self.master_clock.config.click_enabled
+        if click_value is not None and click_value.get("bool_value") is not None:
+            click_enabled = bool(click_value["bool_value"])
+
+        click_interval = self.master_clock.click_interval
+        if interval_value is not None and interval_value.get("float_value") is not None:
+            click_interval = click_interval_from_set_value(float(interval_value["float_value"]))
+
         return RotarySyncState(
-            bpm=self.master_clock.bpm,
-            running=self.master_clock.running,
-            click_enabled=self.master_clock.config.click_enabled,
-            click_interval=self.master_clock.click_interval,
+            bpm=bpm,
+            running=running,
+            click_enabled=click_enabled,
+            click_interval=click_interval,
         )
 
     async def _send_sync(self, *, force: bool = False) -> None:

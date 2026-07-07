@@ -74,15 +74,59 @@ description = "Device registration with feedback host (string) and listen port (
 
 # Host -> device (feedback)
 [[parameters]]
+id = "rotary_bpm"
+label = "Feedback BPM"
+address = "/midijuggler/rotary/bpm"
+value_type = "float"
+value_min = 40.0
+value_max = 240.0
+category = "feedback"
+direction = "target"
+description = "Push current BPM to the display."
+
+[[parameters]]
+id = "rotary_running"
+label = "Feedback transport running"
+address = "/midijuggler/rotary/running"
+value_type = "int"
+value_min = 0
+value_max = 1
+category = "feedback"
+direction = "target"
+description = "Push transport running state (1=running, 0=stopped)."
+
+[[parameters]]
+id = "rotary_click_enabled"
+label = "Feedback audio click"
+address = "/midijuggler/rotary/click_enabled"
+value_type = "int"
+value_min = 0
+value_max = 1
+category = "feedback"
+direction = "target"
+description = "Push audio click enabled state."
+
+[[parameters]]
+id = "rotary_click_interval"
+label = "Feedback click interval"
+address = "/midijuggler/rotary/click_interval"
+value_type = "string"
+value_min = 0
+value_max = 1
+category = "feedback"
+direction = "target"
+description = "Push click interval name (sixteenth..whole). Prefer rotary_display.click_interval via module."
+
+[[parameters]]
 id = "rotary_sync"
-label = "Clock sync"
+label = "Clock sync (combined)"
 address = "/midijuggler/rotary/sync"
 value_type = "float"
 value_min = 40.0
 value_max = 240.0
 category = "feedback"
 direction = "target"
-description = "Push BPM, running, click-enabled and interval to the display (multi-argument OSC)."
+description = "Combined sync message (bpm, running, click, interval). Used by the interface module."
 
 [[parameters]]
 id = "rotary_beat"

@@ -21,4 +21,4 @@ def is_disconnected_endpoint(endpoint: str) -> bool:
 
 
 def is_reserved_connection_module(module: str) -> bool:
-    return module in {"clock", "gamepi", "mapping", DISCONNECTED_MODULE}
+    return module in {"clock", "gamepi", "mapping", DISCONNECTED_MODULE, "rotary_display"}
