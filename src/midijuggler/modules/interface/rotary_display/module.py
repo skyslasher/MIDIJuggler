@@ -12,7 +12,7 @@ from midijuggler.config import RotaryDisplayConfig
 from midijuggler.datapoint.store import DataPointStore
 from midijuggler.datapoint.types import DataPointId, DataPointValue
 from midijuggler.eventbus import EventBus
-from midijuggler.events import MasterClockCommandEvent, OscMessageEvent
+from midijuggler.events import MasterClockCommandEvent, MasterClockStateEvent, OscMessageEvent
 from midijuggler.master_clock import MasterClock
 from midijuggler.modules.base import InterfaceModule
 from midijuggler.modules.interface.rotary_display.protocol import (
@@ -63,6 +63,7 @@ class RotaryDisplayModule(InterfaceModule):
         self.store.subscribe(DataPointId("clock", "bpm"), self._on_clock_state)
         self.store.subscribe(DataPointId("clock", "running"), self._on_clock_state)
         self.store.subscribe(DataPointId("clock", "click_enabled"), self._on_clock_state)
+        self.bus.subscribe(MasterClockStateEvent, self._on_master_clock_state)
         self.bus.subscribe(OscMessageEvent, self._on_osc_message)
         if self._use_serial and self.config.serial_port:
             self._serial_task = asyncio.create_task(self._serial_loop())
@@ -111,6 +112,9 @@ class RotaryDisplayModule(InterfaceModule):
         await self._send_beat(beat)
 
     async def _on_clock_state(self, _value: DataPointValue) -> None:
+        await self._send_sync()
+
+    async def _on_master_clock_state(self, _event: MasterClockStateEvent) -> None:
         await self._send_sync()
 
     def _current_sync_state(self) -> RotarySyncState:

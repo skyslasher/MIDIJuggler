@@ -157,3 +157,37 @@ def test_rotary_display_serial_open_uses_no_dtr() -> None:
 
     assert captured["kwargs"]["dsrdtr"] is False
     assert captured["kwargs"]["rtscts"] is False
+
+
+def test_rotary_display_syncs_click_interval_from_clock_state(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    sync_payloads: list[str] = []
+
+    config = parse_config(
+        {
+            "master_clock": {"enabled": True, "bpm": 120.0, "click_interval": "quarter"},
+            "rotary_display": {"enabled": True, "transport": "serial", "serial_port": ""},
+        }
+    )
+    store = DataPointStore()
+    bus = EventBus()
+    master_clock = MasterClock(config.master_clock, bus)
+    module = RotaryDisplayModule(store, config.rotary_display, master_clock, bus)
+    module._serial_connected = True
+
+    async def capture_sync(payload: str) -> None:
+        sync_payloads.append(payload)
+
+    monkeypatch.setattr(module, "_send_serial", capture_sync)
+
+    async def scenario() -> None:
+        await module.start()
+        await master_clock.set_click_interval("eighth")
+        await asyncio.sleep(0)
+        await module.stop()
+
+    asyncio.run(scenario())
+
+    assert sync_payloads
+    assert "eighth" in sync_payloads[-1]
