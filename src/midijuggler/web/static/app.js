@@ -403,17 +403,7 @@ function renderStatus(status) {
     const clock = status.master_clock;
     masterClockRuntime = clock;
     syncMasterClockRuntimeState(clock);
-    const params = clock.parameters || {};
-    masterClock.replaceChildren();
-    masterClock.append(
-      statusRow("Enabled", statusPill(clock.enabled ? "yes" : "no", Boolean(clock.enabled))),
-      statusRow("Running", statusPill(clock.running ? "yes" : "no", Boolean(clock.running))),
-      statusRow("Click", statusPill(clock.click_interval || "--", Boolean(clock.click_interval))),
-      timeCards([
-        ["Quarter ms", params.quarter_ms],
-        ["Eighth ms", params.eighth_ms],
-      ]),
-    );
+    renderMasterClockStatusCard(clock);
     masterTransport.textContent = clock.running ? "Stop" : "Start";
     masterTransport.classList.toggle("danger-button", Boolean(clock.running));
   }
@@ -7901,9 +7891,35 @@ function renderMasterClockConfig(config) {
   renderAdapterTargetList(masterOutputTargets, config.available_output_targets || []);
 }
 
+function renderMasterClockStatusCard(clock) {
+  if (!masterClock || !clock) {
+    return;
+  }
+  const params = clock.parameters || {};
+  masterClock.replaceChildren();
+  masterClock.append(
+    statusRow("Enabled", statusPill(clock.enabled ? "yes" : "no", Boolean(clock.enabled))),
+    statusRow("Running", statusPill(clock.running ? "yes" : "no", Boolean(clock.running))),
+    statusRow("Click", statusPill(clock.click_interval || "--", Boolean(clock.click_interval))),
+    statusRow(
+      "Audio click",
+      statusPill(clock.click_enabled ? "on" : "off", Boolean(clock.click_enabled)),
+    ),
+    timeCards([
+      ["Quarter ms", params.quarter_ms],
+      ["Eighth ms", params.eighth_ms],
+    ]),
+  );
+}
+
 function syncMasterClockRuntimeState(clock) {
   if (!clock) {
     return;
+  }
+  if (masterClockRuntime) {
+    masterClockRuntime = { ...masterClockRuntime, ...clock };
+  } else {
+    masterClockRuntime = { ...clock };
   }
   if (clock.bpm != null) {
     if (masterClockConfig) {
@@ -7924,12 +7940,15 @@ function syncMasterClockRuntimeState(clock) {
       masterClickEnabled.checked = Boolean(clock.click_enabled);
     }
   }
-  if (clock.running != null && masterClockRuntime) {
-    masterClockRuntime = { ...masterClockRuntime, running: Boolean(clock.running) };
-    if (masterTransport) {
-      masterTransport.textContent = clock.running ? "Stop" : "Start";
-      masterTransport.classList.toggle("danger-button", Boolean(clock.running));
-    }
+  if (clock.running != null && masterTransport) {
+    masterTransport.textContent = clock.running ? "Stop" : "Start";
+    masterTransport.classList.toggle("danger-button", Boolean(clock.running));
+  }
+  if (
+    masterClockRuntime
+    && (clock.click_enabled != null || clock.running != null || clock.click_interval != null)
+  ) {
+    renderMasterClockStatusCard(masterClockRuntime);
   }
 }
 
