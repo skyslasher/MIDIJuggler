@@ -303,10 +303,39 @@ class RotaryDisplayModule(InterfaceModule):
             await asyncio.sleep(0.1)
         return self._serial_connected and self._serial_port is not None
 
+    def _device_push_serial_available(self) -> bool:
+        return bool(self.config.serial_port.strip())
+
+    async def _ensure_serial_push_ready(self, *, timeout_s: float = 8.0) -> bool:
+        """Prepare USB serial for device config push, independent of host transport."""
+
+        if not self._device_push_serial_available():
+            return False
+        if self._serial_connected and self._serial_port is not None:
+            return True
+        if self._serial_transport_enabled():
+            return await self._ensure_serial_ready(timeout_s=timeout_s)
+
+        if not self.running:
+            return False
+        if self._serial_task is None or self._serial_task.done():
+            self._serial_task = asyncio.create_task(
+                self._serial_loop(),
+                name="rotary-display-serial-push",
+            )
+
+        deadline = time.monotonic() + timeout_s
+        while time.monotonic() < deadline:
+            if self._serial_connected and self._serial_port is not None:
+                return True
+            await asyncio.sleep(0.1)
+        return self._serial_connected and self._serial_port is not None
+
     def device_push_status(self) -> dict[str, Any]:
         fingerprint = device_config_fingerprint(self.config.device)
         return {
             "serial_connected": self._serial_connected,
+            "host_uses_serial": self._serial_transport_enabled(),
             "last_pushed_fingerprint": self._last_pushed_fingerprint,
             "current_fingerprint": fingerprint,
             "push_pending": self._last_pushed_fingerprint != fingerprint,
@@ -320,9 +349,14 @@ class RotaryDisplayModule(InterfaceModule):
                 "reason": "unchanged",
                 "fingerprint": fingerprint,
             }
-        if self._serial_transport_enabled():
-            await self._ensure_serial_ready()
-        if not self._serial_transport_enabled() or not self._serial_connected or self._serial_port is None:
+        if not self._device_push_serial_available():
+            return {
+                "pushed": False,
+                "reason": "serial port not configured",
+                "fingerprint": fingerprint,
+            }
+        await self._ensure_serial_push_ready()
+        if not self._serial_connected or self._serial_port is None:
             return {
                 "pushed": False,
                 "reason": "serial not connected",

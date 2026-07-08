@@ -332,6 +332,46 @@ def test_push_device_config_waits_for_serial_after_runtime_enable(
         await module.stop()
         return result
 
+def test_push_device_config_uses_usb_when_host_transport_is_osc(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    async def scenario() -> dict:
+        config = parse_config(
+            {
+                "rotary_display": {
+                    "enabled": True,
+                    "transport": "serial",
+                    "serial_port": "/dev/ttyACM0",
+                    "device": {"transport": "wifi"},
+                }
+            }
+        )
+        store = DataPointStore()
+        bus = EventBus()
+        master_clock = MasterClock(MasterClockConfig(enabled=True), bus)
+        module = RotaryDisplayModule(store, config.rotary_display, master_clock, bus)
+        module._serial_connected = True
+        module._serial_port = object()
+
+        push_calls: list[list[str]] = []
+
+        def fake_push_sync(port: object, commands: list[str], *, timeout_s: float = 3.0) -> dict:
+            push_calls.append(commands)
+            return {"ok": True, "responses": ["ok"]}
+
+        monkeypatch.setattr(
+            "midijuggler.modules.interface.rotary_display.module.push_device_config_sync",
+            fake_push_sync,
+        )
+
+        await module.start()
+        osc_config = replace(config.rotary_display, transport="osc")
+        module.update_config(osc_config)
+        result = await module.push_device_config(force=True)
+        await module.apply_runtime_config(osc_config)
+        await module.stop()
+        return result
+
     result = asyncio.run(scenario())
 
     assert result["pushed"] is True

@@ -7987,9 +7987,19 @@ function renderRotaryDisplayConfig(config) {
   }
   if (rotaryPushStatus) {
     const push = config.push || {};
-    const connected = push.serial_connected ? "connected" : "not connected";
     const pending = push.push_pending ? "push pending" : "in sync";
-    rotaryPushStatus.textContent = `Serial ${connected}; ${pending}`;
+    const hostUsesSerial =
+      push.host_uses_serial ??
+      (config.transport === "serial" || config.transport === "both");
+    if (hostUsesSerial) {
+      const connected = push.serial_connected ? "connected" : "not connected";
+      rotaryPushStatus.textContent = `Serial ${connected}; ${pending}`;
+    } else if (push.push_pending) {
+      const usb = push.serial_connected ? "USB connected" : "USB not connected";
+      rotaryPushStatus.textContent = `Host OSC; ${usb}; ${pending}`;
+    } else {
+      rotaryPushStatus.textContent = `Host OSC; ${pending}`;
+    }
   }
 }
 

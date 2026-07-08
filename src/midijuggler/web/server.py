@@ -3732,7 +3732,10 @@ class WebInterface:
         previous_serial_port = self.config.rotary_display.serial_port
         self.config = replace(self.config, rotary_display=config)
 
+        push_result: dict[str, Any] = {"pushed": False, "reason": "module unavailable"}
         if self._rotary_display_module is not None:
+            self._rotary_display_module.update_config(config)
+            push_result = await self._rotary_display_module.push_device_config(force=True)
             await self._rotary_display_module.apply_runtime_config(config)
 
         persisted = False
@@ -3750,10 +3753,6 @@ class WebInterface:
                 )
         else:
             persist_error = "no config path available"
-
-        push_result: dict[str, Any] = {"pushed": False, "reason": "module unavailable"}
-        if self._rotary_display_module is not None:
-            push_result = await self._rotary_display_module.push_device_config(force=True)
 
         response = self.rotary_display_config_payload()
         response.update(
