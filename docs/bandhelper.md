@@ -70,3 +70,22 @@ to target devices.
 - iPad and Pi must be on the same Wi‑Fi; allow multicast for Link
 - `follow_when_running = false` (default): local transport keeps BPM priority while running
 - Beat/phase over Link is intentionally not wired yet
+- `song.link_peers` counts **other** Link apps in the session (not including MIDIJuggler). A value of `2` means three Link-enabled apps total, for example BandHelper on the iPad, MIDIJuggler on the Pi, and one more app on the LAN (another iPad, DAW, metronome app, etc.)
+
+## Troubleshooting
+
+### Link shows several peers but only MIDIJuggler should be active
+
+Ableton Link discovers every Link-enabled app on the LAN. Close other Link clients (DAWs, metronome apps, second BandHelper devices) or disable Link in apps you are not using. The peer count in MIDIJuggler is informational only.
+
+### No BPM change in the master clock
+
+Check all of the following:
+
+1. **BandHelper song selection must trigger the Tempo action** (*Settings > App Control > Song Selection > Tempo*). Selecting a song alone does not push tempo to Link unless that action is configured.
+2. **`[bandhelper] enabled = true`** in TOML and restart MIDIJuggler after enabling.
+3. **`pip install 'midijuggler[ableton_link]'`** on the Pi.
+4. **Master clock transport stopped** unless `follow_when_running = true`.
+5. **Song tempo differs** from the current master clock BPM by at least `min_bpm_delta`.
+
+After a song change you should see journal lines such as `bandhelper Link session tempo …` and `bandhelper applied Link tempo …`, and monitor updates on `song.link_tempo` and `clock.bpm`.

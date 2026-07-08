@@ -55,6 +55,8 @@ class BandHelperModule(InterfaceModule):
         self._loop: asyncio.AbstractEventLoop | None = None
         self._poll_task: asyncio.Task[None] | None = None
         self._last_link_tempo: float | None = None
+        self._last_link_peers: int | None = None
+        self._last_skip_reason: str | None = None
         self._last_key: ParsedKey | None = None
 
     def datapoints(self) -> list[DataPointSpec]:
@@ -73,7 +75,7 @@ class BandHelperModule(InterfaceModule):
                 id=DataPointId(SONG_MODULE, "link_peers"),
                 value_type=ValueType.INT,
                 direction=DataPointDirection.INPUT,
-                label="Ableton Link peer count",
+                label="Ableton Link other peer count",
                 value_min=0,
                 value_max=64,
                 protocol="ableton_link",
@@ -131,42 +133,67 @@ class BandHelperModule(InterfaceModule):
         self._link.enabled = True
         self._link.add_tempo_callback(self._on_link_tempo_callback)
         self._poll_task = asyncio.create_task(self._link_poll_loop())
-        LOGGER.info("bandhelper Ableton Link session enabled")
+        LOGGER.info(
+            "bandhelper Ableton Link enabled (start_bpm=%.2f, other_peers=%d, session_tempo=%.2f)",
+            self.config.start_bpm,
+            int(self._link.num_peers),
+            float(self._link.tempo),
+        )
+        await self._sync_link_tempo(float(self._link.tempo), int(self._link.num_peers))
 
     def _on_link_tempo_callback(self, tempo: float) -> None:
         if self._loop is None:
             return
 
         def schedule() -> None:
-            asyncio.create_task(self._handle_link_tempo(float(tempo)))
+            asyncio.create_task(self._sync_link_tempo(float(tempo), peers=None))
 
         self._loop.call_soon_threadsafe(schedule)
 
     async def _link_poll_loop(self) -> None:
         interval = max(self.config.poll_interval_ms, 10) / 1000.0
         while self.running and self._link is not None:
-            await self._publish_link_status(
-                tempo=float(self._link.tempo),
-                peers=int(self._link.num_peers),
+            await self._sync_link_tempo(
+                float(self._link.tempo),
+                int(self._link.num_peers),
             )
             await asyncio.sleep(interval)
 
-    async def _handle_link_tempo(self, tempo: float) -> None:
-        await self._publish_link_status(tempo=tempo, peers=None)
+    async def _sync_link_tempo(self, tempo: float, peers: int | None) -> None:
+        await self._publish_link_status(tempo=tempo, peers=peers)
         if not self._should_apply_link_tempo(tempo):
             return
         quantized = quantize_bpm(tempo, self.config.quantize_step)
         await self.master_clock.set_bpm(quantized)
-        LOGGER.info("bandhelper applied Link tempo %.2f BPM", quantized)
+        await self.master_clock.flush_bpm_notifications()
+        LOGGER.info(
+            "bandhelper applied Link tempo %.2f BPM (raw %.2f)",
+            quantized,
+            tempo,
+        )
 
     def _should_apply_link_tempo(self, tempo: float) -> bool:
         if tempo <= 0:
+            self._log_skip("invalid tempo", tempo)
             return False
         if not self.config.follow_when_running and self.master_clock.running:
+            self._log_skip("transport running and follow_when_running=false", tempo)
             return False
         if abs(self.master_clock.bpm - tempo) < self.config.min_bpm_delta:
+            self._log_skip(
+                f"delta below min_bpm_delta ({self.config.min_bpm_delta})",
+                tempo,
+            )
             return False
+        self._last_skip_reason = None
         return True
+
+    def _log_skip(self, reason: str, tempo: float) -> None:
+        message = f"bandhelper skipped Link tempo {tempo:.2f}: {reason}"
+        if message == self._last_skip_reason:
+            return
+        self._last_skip_reason = message
+        LOGGER.info(message)
 
     async def _publish_link_status(
         self,
@@ -174,26 +201,35 @@ class BandHelperModule(InterfaceModule):
         tempo: float,
         peers: int | None,
     ) -> None:
-        if (
+        tempo_changed = (
             self._last_link_tempo is None
             or abs(self._last_link_tempo - tempo) > 1e-6
-        ):
+        )
+        if tempo_changed:
             self._last_link_tempo = tempo
             await self.store.write(
                 DataPointValue(
                     point_id=DataPointId(SONG_MODULE, "link_tempo"),
                     value_type=ValueType.FLOAT,
                     float_value=tempo,
+                    force_notify=True,
                 )
             )
+            LOGGER.info("bandhelper Link session tempo %.2f BPM", tempo)
 
-        if peers is not None:
+        if peers is not None and peers != self._last_link_peers:
+            self._last_link_peers = peers
             await self.store.write(
                 DataPointValue(
                     point_id=DataPointId(SONG_MODULE, "link_peers"),
                     value_type=ValueType.INT,
                     int_value=peers,
+                    force_notify=True,
                 )
+            )
+            LOGGER.info(
+                "bandhelper Link reports %d other peer(s) in session",
+                peers,
             )
 
     async def _on_osc_message(self, event: OscMessageEvent) -> None:

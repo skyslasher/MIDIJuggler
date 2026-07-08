@@ -8097,7 +8097,7 @@ function renderBandhelperConfig(config) {
     const peers = status.link_peers ?? "--";
     const tempo = status.link_tempo ?? "--";
     const key = formatSongKey(status.key_root, status.key_minor);
-    bandhelperStatus.textContent = `${module}; Link ${tempo} BPM, ${peers} peer(s), key ${key}`;
+    bandhelperStatus.textContent = `${module}; Link ${tempo} BPM, ${peers} other peer(s), key ${key}`;
   }
 }
 

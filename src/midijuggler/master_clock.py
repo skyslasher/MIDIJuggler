@@ -43,6 +43,8 @@ class ClockDatapointSink(Protocol):
 
     async def publish_beat(self) -> None: ...
 
+    async def publish_outputs(self) -> None: ...
+
 
 CLICK_INTERVAL_TICKS = {
     "sixteenth": MIDI_CLOCK_TICKS_PER_QUARTER // 4,
@@ -405,6 +407,8 @@ class MasterClock:
             )
             await self._publish_state()
             await self._publish_parameters()
+            if self._datapoint_sink is not None:
+                await self._datapoint_sink.publish_outputs()
             if abs(self.bpm - published_bpm) > 1e-6:
                 self._schedule_bpm_notify()
         except asyncio.CancelledError:

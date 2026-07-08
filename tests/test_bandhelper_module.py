@@ -12,6 +12,7 @@ from midijuggler.modules.interface.bandhelper.key import (
     parse_key_mode,
     parse_key_root,
 )
+from midijuggler.modules.generator.master_clock import MasterClockGenerator
 from midijuggler.modules.interface.bandhelper.module import BandHelperModule, SONG_MODULE
 
 
@@ -105,7 +106,7 @@ def test_bandhelper_module_applies_link_tempo(monkeypatch: pytest.MonkeyPatch) -
 
     async def scenario() -> None:
         await module.start()
-        await module._handle_link_tempo(132.4)
+        await module._sync_link_tempo(132.4, peers=1)
         await module.stop()
 
     asyncio.run(scenario())
@@ -113,6 +114,66 @@ def test_bandhelper_module_applies_link_tempo(monkeypatch: pytest.MonkeyPatch) -
     assert master_clock.bpm == 132.0
     snapshot = store.snapshot()
     assert snapshot[str(f"{SONG_MODULE}.link_tempo")]["float_value"] == pytest.approx(132.4)
+    assert snapshot[str(f"{SONG_MODULE}.link_peers")]["int_value"] == 1
+
+
+def test_bandhelper_skips_link_tempo_when_transport_running() -> None:
+    config = parse_config(
+        {
+            "master_clock": {"enabled": True, "bpm": 120.0},
+            "bandhelper": {
+                "enabled": True,
+                "link_enabled": False,
+                "follow_when_running": False,
+            },
+        }
+    )
+    store = DataPointStore()
+    bus = EventBus()
+    master_clock = MasterClock(config.master_clock, bus)
+    master_clock.running = True
+    module = BandHelperModule(store, config.bandhelper, master_clock, bus)
+
+    async def scenario() -> None:
+        await module.start()
+        await module._sync_link_tempo(140.0, peers=2)
+        await module.stop()
+
+    asyncio.run(scenario())
+
+    assert master_clock.bpm == 120.0
+
+
+def test_bandhelper_link_tempo_updates_clock_bpm_datapoint() -> None:
+    config = parse_config(
+        {
+            "master_clock": {"enabled": True, "bpm": 120.0},
+            "bandhelper": {
+                "enabled": True,
+                "link_enabled": False,
+                "min_bpm_delta": 0.5,
+            },
+        }
+    )
+    store = DataPointStore()
+    bus = EventBus()
+    master_clock = MasterClock(config.master_clock, bus)
+    clock_gen = MasterClockGenerator(master_clock, store)
+    master_clock.bind_datapoint_sink(clock_gen)
+    module = BandHelperModule(store, config.bandhelper, master_clock, bus)
+
+    async def scenario() -> None:
+        await clock_gen.start()
+        await module.start()
+        await module._sync_link_tempo(132.4, peers=1)
+        await master_clock.flush_bpm_notifications()
+        await module.stop()
+        await clock_gen.stop()
+
+    asyncio.run(scenario())
+
+    snapshot = store.snapshot()
+    assert snapshot["clock.bpm"]["float_value"] == pytest.approx(132.0)
 
 
 def test_bandhelper_module_registers_datapoints() -> None:

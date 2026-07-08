@@ -65,6 +65,9 @@ class MasterClockGenerator(GeneratorModule):
         self._click_interval_cycle_pressed = False
         self._beat_off_task: asyncio.Task[None] | None = None
 
+    async def publish_outputs(self) -> None:
+        await self._publish_outputs()
+
     def datapoints(self) -> list[DataPointSpec]:
         return [
             DataPointSpec(
