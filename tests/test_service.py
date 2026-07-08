@@ -281,6 +281,33 @@ def test_service_filters_master_clock_osc_input_targets() -> None:
     assert service.master_clock.bpm == pytest.approx(150.0)
 
 
+def test_service_ignores_echo_suppressed_master_clock_osc() -> None:
+    async def scenario() -> None:
+        service = MIDIJugglerService(
+            parse_config(
+                {
+                    "runtime": {"datapoint_routing": False},
+                    "master_clock": {"enabled": True},
+                    "adapters": {"osc": {"enabled": True}},
+                }
+            )
+        )
+        await service._handle_osc_message(
+            OscMessageEvent(
+                source="osc",
+                direction="input",
+                address="/midijuggler/clock/bpm",
+                arguments=(200.0,),
+                echo_suppressed=True,
+            )
+        )
+        return service
+
+    service = asyncio.run(scenario())
+
+    assert service.master_clock.bpm == pytest.approx(120.0)
+
+
 def test_service_writes_master_clock_alsa_config(tmp_path) -> None:
     config_path = tmp_path / "config.toml"
     config_path.write_text(

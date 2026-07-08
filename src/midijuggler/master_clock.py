@@ -347,7 +347,7 @@ class MasterClock:
 
     async def handle_command(self, event: MasterClockCommandEvent) -> None:
         if event.command == "set_bpm":
-            await self.set_bpm(float(event.value))
+            await self.set_bpm(float(event.value), source=event.source)
         elif event.command == "set_click_interval":
             await self.set_click_interval(str(event.value))
         elif event.command == "start":
@@ -378,11 +378,27 @@ class MasterClock:
         if command is not None:
             await self.handle_command(command)
 
-    async def set_bpm(self, bpm: float) -> None:
+    async def set_bpm(self, bpm: float, *, source: str | None = None) -> None:
         if not self.config.bpm_min <= bpm <= self.config.bpm_max:
-            raise ValueError(
-                f"bpm must be between {self.config.bpm_min} and {self.config.bpm_max}"
-            )
+            clamped = min(max(bpm, self.config.bpm_min), self.config.bpm_max)
+            if source:
+                LOGGER.warning(
+                    "bpm %.3f out of range [%.1f, %.1f] from %s; clamping to %.3f",
+                    bpm,
+                    self.config.bpm_min,
+                    self.config.bpm_max,
+                    source,
+                    clamped,
+                )
+            else:
+                LOGGER.warning(
+                    "bpm %.3f out of range [%.1f, %.1f]; clamping to %.3f",
+                    bpm,
+                    self.config.bpm_min,
+                    self.config.bpm_max,
+                    clamped,
+                )
+            bpm = clamped
         if abs(self.bpm - bpm) <= 1e-6:
             return
         self.bpm = bpm

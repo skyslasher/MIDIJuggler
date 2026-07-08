@@ -573,6 +573,29 @@ def test_master_clock_bpm_and_click_interval_can_be_set_by_midi_cc() -> None:
     assert clock.click_interval == "half"
 
 
+def test_set_bpm_clamps_out_of_range_values(caplog) -> None:
+    async def scenario() -> MasterClock:
+        bus = EventBus()
+        clock = MasterClock(
+            MasterClockConfig(enabled=True, bpm=120.0, bpm_min=40.0, bpm_max=240.0),
+            bus,
+        )
+        with caplog.at_level(logging.WARNING, logger="midijuggler.master_clock"):
+            await clock.set_bpm(0.0)
+            await clock.set_bpm(300.0)
+            await clock.handle_command(
+                MasterClockCommandEvent(source="osc", command="set_bpm", value=1.0)
+            )
+        return clock
+
+    clock = asyncio.run(scenario())
+
+    assert clock.bpm == pytest.approx(40.0)
+    assert "clamping to 40.000" in caplog.text
+    assert "clamping to 240.000" in caplog.text
+    assert "from osc" in caplog.text
+
+
 def test_master_clock_can_be_reconfigured_at_runtime() -> None:
     async def scenario() -> MasterClock:
         bus = EventBus()

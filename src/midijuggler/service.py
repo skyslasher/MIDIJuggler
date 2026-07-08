@@ -224,7 +224,7 @@ class MIDIJugglerService:
         await adapter.send_midi_message(event)
 
     async def _handle_osc_message(self, event: OscMessageEvent) -> None:
-        if event.direction != "input":
+        if event.direction != "input" or event.echo_suppressed:
             return
         if (
             self.config.master_clock.enabled
