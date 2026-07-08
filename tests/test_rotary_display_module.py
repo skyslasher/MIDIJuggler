@@ -1,4 +1,5 @@
 import asyncio
+from dataclasses import replace
 
 import pytest
 
@@ -244,3 +245,93 @@ def test_rotary_display_syncs_click_interval_from_clock_state(
     sync_lines = [payload for payload in sync_payloads if payload.startswith("sync ")]
     assert sync_lines
     assert "eighth" in sync_lines[-1]
+
+
+def test_apply_runtime_config_starts_serial_when_enabling_host_transport() -> None:
+    async def scenario() -> None:
+        config = parse_config(
+            {
+                "rotary_display": {
+                    "enabled": True,
+                    "transport": "osc",
+                    "serial_port": "/dev/ttyACM0",
+                }
+            }
+        )
+        store = DataPointStore()
+        bus = EventBus()
+        master_clock = MasterClock(MasterClockConfig(enabled=True), bus)
+        module = RotaryDisplayModule(store, config.rotary_display, master_clock, bus)
+
+        loop_started = asyncio.Event()
+
+        async def fake_serial_loop() -> None:
+            module._serial_connected = True
+            module._serial_port = object()
+            loop_started.set()
+            await asyncio.Event().wait()
+
+        module._serial_loop = fake_serial_loop  # type: ignore[method-assign]
+
+        await module.start()
+        assert module._serial_task is None
+
+        serial_config = replace(config.rotary_display, transport="serial")
+        await module.apply_runtime_config(serial_config)
+
+        assert module._use_serial is True
+        assert module._serial_task is not None
+        await asyncio.wait_for(loop_started.wait(), timeout=1.0)
+        await module.stop()
+
+    asyncio.run(scenario())
+
+
+def test_push_device_config_waits_for_serial_after_runtime_enable(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    async def scenario() -> dict:
+        config = parse_config(
+            {
+                "rotary_display": {
+                    "enabled": True,
+                    "transport": "osc",
+                    "serial_port": "/dev/ttyACM0",
+                    "device": {"transport": "serial"},
+                }
+            }
+        )
+        store = DataPointStore()
+        bus = EventBus()
+        master_clock = MasterClock(MasterClockConfig(enabled=True), bus)
+        module = RotaryDisplayModule(store, config.rotary_display, master_clock, bus)
+
+        async def fake_serial_loop() -> None:
+            await asyncio.sleep(0.2)
+            module._serial_connected = True
+            module._serial_port = object()
+            await asyncio.Event().wait()
+
+        module._serial_loop = fake_serial_loop  # type: ignore[method-assign]
+
+        push_calls: list[list[str]] = []
+
+        def fake_push_sync(port: object, commands: list[str], *, timeout_s: float = 3.0) -> dict:
+            push_calls.append(commands)
+            return {"ok": True, "responses": ["ok"]}
+
+        monkeypatch.setattr(
+            "midijuggler.modules.interface.rotary_display.module.push_device_config_sync",
+            fake_push_sync,
+        )
+
+        await module.start()
+        serial_config = replace(config.rotary_display, transport="serial")
+        await module.apply_runtime_config(serial_config)
+        result = await module.push_device_config(force=True)
+        await module.stop()
+        return result
+
+    result = asyncio.run(scenario())
+
+    assert result["pushed"] is True

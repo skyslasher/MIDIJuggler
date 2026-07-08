@@ -6,6 +6,7 @@ import asyncio
 import contextlib
 import logging
 import socket
+import time
 from typing import Any
 
 from midijuggler.config import RotaryDisplayConfig
@@ -127,24 +128,10 @@ class RotaryDisplayModule(InterfaceModule):
         for point in ROTARY_FEEDBACK_POINTS:
             self.store.subscribe(DataPointId(ROTARY_MODULE, point), self._on_feedback)
         self.bus.subscribe(OscMessageEvent, self._on_osc_message)
-        if self._use_serial and self.config.serial_port:
-            self._serial_task = asyncio.create_task(self._serial_loop())
-        elif self._use_serial and not self.config.serial_port:
-            LOGGER.error(
-                "rotary_display serial transport enabled but serial_port is empty; "
-                "set serial_port in config (macOS: /dev/cu.usbmodem*)"
-            )
+        self._start_serial_loop_if_needed()
 
     async def stop(self) -> None:
-        if self._serial_task is not None:
-            self._serial_task.cancel()
-            with contextlib.suppress(asyncio.CancelledError):
-                await self._serial_task
-            self._serial_task = None
-        if self._serial_port is not None:
-            with contextlib.suppress(Exception):
-                self._serial_port.close()
-            self._serial_port = None
+        await self._stop_serial()
         await super().stop()
 
     async def _on_osc_message(self, event: OscMessageEvent) -> None:
@@ -247,6 +234,75 @@ class RotaryDisplayModule(InterfaceModule):
         if device_config_fingerprint(config.device) != previous_fingerprint:
             self._last_pushed_fingerprint = None
 
+    async def apply_runtime_config(self, config: RotaryDisplayConfig) -> None:
+        """Apply config at runtime and reconcile serial transport state."""
+
+        previous_use_serial = self._use_serial
+        previous_serial_port = self.config.serial_port
+        self.update_config(config)
+
+        serial_needed = self._serial_transport_enabled()
+        serial_was_needed = previous_use_serial and bool(previous_serial_port.strip())
+        serial_port_changed = previous_serial_port != config.serial_port
+
+        if not serial_needed:
+            await self._stop_serial()
+            return
+
+        if (
+            not serial_was_needed
+            or serial_port_changed
+            or self._serial_task is None
+            or self._serial_task.done()
+        ):
+            await self._stop_serial()
+            self._start_serial_loop_if_needed()
+
+    def _serial_transport_enabled(self) -> bool:
+        return self._use_serial and bool(self.config.serial_port.strip())
+
+    def _start_serial_loop_if_needed(self) -> None:
+        if not self.running or not self._use_serial:
+            return
+        if not self.config.serial_port.strip():
+            LOGGER.error(
+                "rotary_display serial transport enabled but serial_port is empty; "
+                "set serial_port in config (macOS: /dev/cu.usbmodem*)"
+            )
+            return
+        if self._serial_task is not None and not self._serial_task.done():
+            return
+        self._serial_task = asyncio.create_task(
+            self._serial_loop(),
+            name="rotary-display-serial",
+        )
+
+    async def _stop_serial(self) -> None:
+        if self._serial_task is not None:
+            self._serial_task.cancel()
+            with contextlib.suppress(asyncio.CancelledError):
+                await self._serial_task
+            self._serial_task = None
+        if self._serial_port is not None:
+            with contextlib.suppress(Exception):
+                self._serial_port.close()
+            self._serial_port = None
+        self._serial_connected = False
+
+    async def _ensure_serial_ready(self, *, timeout_s: float = 8.0) -> bool:
+        if not self._serial_transport_enabled():
+            return False
+        self._start_serial_loop_if_needed()
+        if self._serial_connected and self._serial_port is not None:
+            return True
+
+        deadline = time.monotonic() + timeout_s
+        while time.monotonic() < deadline:
+            if self._serial_connected and self._serial_port is not None:
+                return True
+            await asyncio.sleep(0.1)
+        return self._serial_connected and self._serial_port is not None
+
     def device_push_status(self) -> dict[str, Any]:
         fingerprint = device_config_fingerprint(self.config.device)
         return {
@@ -264,7 +320,9 @@ class RotaryDisplayModule(InterfaceModule):
                 "reason": "unchanged",
                 "fingerprint": fingerprint,
             }
-        if not self._use_serial or not self._serial_connected or self._serial_port is None:
+        if self._serial_transport_enabled():
+            await self._ensure_serial_ready()
+        if not self._serial_transport_enabled() or not self._serial_connected or self._serial_port is None:
             return {
                 "pushed": False,
                 "reason": "serial not connected",

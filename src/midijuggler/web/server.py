@@ -3733,7 +3733,7 @@ class WebInterface:
         self.config = replace(self.config, rotary_display=config)
 
         if self._rotary_display_module is not None:
-            self._rotary_display_module.update_config(config)
+            await self._rotary_display_module.apply_runtime_config(config)
 
         persisted = False
         persist_error = ""
