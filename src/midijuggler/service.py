@@ -119,6 +119,7 @@ class MIDIJugglerService:
         )
         for module in self.module_registry.modules():
             if isinstance(module, RotaryDisplayModule):
+                self._wire_rotary_display_module(module)
                 self.web.bind_rotary_display_module(module)
             elif isinstance(module, BandHelperModule):
                 self.web.bind_bandhelper_module(module)
@@ -248,6 +249,25 @@ class MIDIJugglerService:
             for adapter in self.adapters
             if adapter.config.enabled and (adapter.config.kind or adapter.name) in kinds
         }
+
+    def _wire_rotary_display_module(self, module: RotaryDisplayModule) -> None:
+        def register_feedback_target(host: str, port: int) -> None:
+            for adapter in self.adapters:
+                if not isinstance(adapter, OscAdapter):
+                    continue
+                device = self.device_registry.device_for_adapter(adapter.name)
+                if device is None or str(device.library or "").strip() != "rotary_display":
+                    continue
+                adapter.set_remote_endpoint(host, port)
+                LOGGER.info(
+                    "rotary display OSC feedback target set on adapter %s -> %s:%s",
+                    adapter.name,
+                    host,
+                    port,
+                )
+                return
+
+        module.set_feedback_registration_handler(register_feedback_target)
 
     def _allowed_midi_input_sources(self) -> set[str]:
         enabled = self._enabled_adapter_names({"midi", "rtp_midi"})

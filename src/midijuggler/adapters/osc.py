@@ -130,6 +130,12 @@ class OscAdapter(Adapter):
             )
         )
 
+    def set_remote_endpoint(self, host: str, port: int) -> None:
+        """Update the outbound OSC destination at runtime."""
+
+        self._remote_host = str(host).strip()
+        self._remote_port = int(port)
+
     async def reload(self, config: AdapterConfig) -> None:
         previous_bind = self._bind_address() if self.running else None
         self.config = config

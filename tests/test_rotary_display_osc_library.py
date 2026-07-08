@@ -95,11 +95,25 @@ def test_effective_connections_adds_rotary_defaults_when_module_disabled() -> No
     )
 
 
-def test_effective_connections_skips_rotary_defaults_when_module_enabled() -> None:
+def test_effective_connections_adds_encoder_defaults_when_module_enabled() -> None:
+    config = parse_config(_config_with_rotary_device(rotary_module_enabled=True))
+    connections = effective_connections(config)
+    assert any(
+        connection.source == "rotary_encoder./midijuggler/clock/bpm"
+        and connection.target == "clock.bpm_set"
+        for connection in connections
+    )
+    assert not any(
+        connection.target == "rotary_encoder./midijuggler/rotary/bpm"
+        for connection in connections
+    )
+
+
+def test_effective_connections_skips_rotary_device_feedback_when_module_enabled() -> None:
     config = parse_config(_config_with_rotary_device(rotary_module_enabled=True))
     connections = effective_connections(config)
     assert not any(
-        connection.source.startswith("rotary_encoder./midijuggler/clock/")
+        connection.target.startswith("rotary_encoder./midijuggler/rotary/")
         for connection in connections
     )
 

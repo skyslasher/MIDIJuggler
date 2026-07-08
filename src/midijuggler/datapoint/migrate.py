@@ -46,6 +46,12 @@ def effective_connections(
         merged,
         enabled=config.rotary_display.enabled,
     )
-    if not config.rotary_display.enabled:
+    if config.rotary_display.enabled:
+        merged = merge_rotary_display_connections(
+            merged,
+            config.devices,
+            include_feedback=False,
+        )
+    else:
         merged = merge_rotary_display_connections(merged, config.devices)
     return merged

@@ -83,6 +83,41 @@ def test_rotary_display_registers_feedback_from_hello(monkeypatch: pytest.Monkey
     assert sent[0][1:] == ("192.168.1.50", 9001)
 
 
+def test_rotary_display_hello_registers_feedback_handler() -> None:
+    registered: list[tuple[str, int]] = []
+
+    config = parse_config(
+        {
+            "master_clock": {"enabled": True, "bpm": 120.0},
+            "rotary_display": {"enabled": True, "transport": "osc"},
+        }
+    )
+    store = DataPointStore()
+    bus = EventBus()
+    master_clock = MasterClock(config.master_clock, bus)
+    module = RotaryDisplayModule(store, config.rotary_display, master_clock, bus)
+    module.set_feedback_registration_handler(
+        lambda host, port: registered.append((host, port))
+    )
+
+    async def scenario() -> None:
+        await module.start()
+        await bus.publish(
+            OscMessageEvent(
+                source="osc",
+                address="/midijuggler/rotary/hello",
+                arguments=("192.168.1.60", 9001),
+                direction="input",
+            )
+        )
+        await asyncio.sleep(0)
+        await module.stop()
+
+    asyncio.run(scenario())
+
+    assert registered == [("192.168.1.60", 9001)]
+
+
 def test_rotary_display_pushes_config_on_serial_hello(monkeypatch: pytest.MonkeyPatch) -> None:
     push_calls: list[bool] = []
 

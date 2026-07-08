@@ -7,6 +7,7 @@ import contextlib
 import logging
 import socket
 import time
+from collections.abc import Callable
 from typing import Any
 
 from midijuggler.config import RotaryDisplayConfig
@@ -69,6 +70,7 @@ class RotaryDisplayModule(InterfaceModule):
         self._serial_lock = asyncio.Lock()
         self._use_osc = config.transport in {"osc", "both"}
         self._use_serial = config.transport in {"serial", "both"}
+        self._feedback_registration_handler: Callable[[str, int], None] | None = None
 
     def datapoints(self) -> list[DataPointSpec]:
         bpm_min = self.master_clock.config.bpm_min
@@ -129,6 +131,30 @@ class RotaryDisplayModule(InterfaceModule):
             self.store.subscribe(DataPointId(ROTARY_MODULE, point), self._on_feedback)
         self.bus.subscribe(OscMessageEvent, self._on_osc_message)
         self._start_serial_loop_if_needed()
+        self._apply_configured_feedback_target()
+
+    def set_feedback_registration_handler(
+        self,
+        handler: Callable[[str, int], None] | None,
+    ) -> None:
+        self._feedback_registration_handler = handler
+        self._apply_configured_feedback_target()
+
+    def _apply_configured_feedback_target(self) -> None:
+        if self._feedback_registration_handler is None:
+            return
+        if not self.config.feedback_host:
+            return
+        self._feedback_registration_handler(
+            self.config.feedback_host,
+            self.config.feedback_port,
+        )
+
+    def _register_feedback_target(self, host: str, port: int) -> None:
+        self._feedback_host = host
+        self._feedback_port = port
+        if self._feedback_registration_handler is not None:
+            self._feedback_registration_handler(host, port)
 
     async def stop(self) -> None:
         await self._stop_serial()
@@ -143,7 +169,8 @@ class RotaryDisplayModule(InterfaceModule):
         if parsed is None:
             LOGGER.warning("ignored rotary hello with invalid arguments: %s", event.arguments)
             return
-        self._feedback_host, self._feedback_port = parsed
+        host, port = parsed
+        self._register_feedback_target(host, port)
         LOGGER.info(
             "rotary display registered at %s:%s",
             self._feedback_host,
