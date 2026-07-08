@@ -35,6 +35,8 @@ from midijuggler.config import (
     DEFAULT_ADAPTERS,
     AdapterConfig,
     AppConfig,
+    BandHelperConfig,
+    GamePiConfig,
     MasterClockConfig,
     RuntimeConfig,
     RotaryDisplayConfig,
@@ -51,6 +53,8 @@ from midijuggler.config import (
     update_suppressed_inferred_device_adapters,
     save_connections,
     save_master_clock_config,
+    save_bandhelper_config,
+    save_gamepi_config,
     save_rotary_display_config,
     save_runtime_config,
     remove_midi_adapter_configs,
@@ -147,6 +151,8 @@ from midijuggler.web.monitor_coalesce import (
 )
 
 if TYPE_CHECKING:
+    from midijuggler.modules.interface.bandhelper.module import BandHelperModule
+    from midijuggler.modules.interface.gamepi_brightness import GamePiBrightnessModule
     from midijuggler.modules.interface.rotary_display.module import RotaryDisplayModule
 from midijuggler.system_hostname import (
     apply_hostname,
@@ -269,10 +275,18 @@ class WebInterface:
         self._adapter_runtime_status: dict[str, dict[str, str]] = {}
         self._monitor_coalescer = MonitorCoalescer()
         self._rotary_display_module: RotaryDisplayModule | None = None
+        self._bandhelper_module: BandHelperModule | None = None
+        self._gamepi_module: GamePiBrightnessModule | None = None
         self.bus.subscribe("*", self._broadcast_event)
 
     def bind_rotary_display_module(self, module: RotaryDisplayModule) -> None:
         self._rotary_display_module = module
+
+    def bind_bandhelper_module(self, module: BandHelperModule) -> None:
+        self._bandhelper_module = module
+
+    def bind_gamepi_module(self, module: GamePiBrightnessModule) -> None:
+        self._gamepi_module = module
 
     def bind_osc_io_modules(self, io_modules: dict[str, OscIOModule]) -> None:
         self._osc_io_modules = io_modules
@@ -318,6 +332,10 @@ class WebInterface:
         app.router.add_get("/api/rotary-display", self.rotary_display_config)
         app.router.add_post("/api/rotary-display", self.set_rotary_display_config)
         app.router.add_post("/api/rotary-display/push", self.push_rotary_display_config)
+        app.router.add_get("/api/bandhelper", self.bandhelper_config)
+        app.router.add_post("/api/bandhelper", self.set_bandhelper_config)
+        app.router.add_get("/api/gamepi", self.gamepi_config)
+        app.router.add_post("/api/gamepi", self.set_gamepi_config)
         app.router.add_get("/api/midi-libraries", self.midi_libraries)
         app.router.add_get("/api/midi-libraries/{library_id}", self.midi_library)
         app.router.add_get("/api/osc-libraries", self.osc_libraries)
@@ -1030,6 +1048,28 @@ class WebInterface:
     async def push_rotary_display_config(self, request: web.Request) -> web.Response:
         try:
             response = await self.apply_rotary_display_push()
+        except ValueError as exc:
+            raise web.HTTPBadRequest(text=str(exc)) from exc
+        return web.json_response(response)
+
+    async def bandhelper_config(self, request: web.Request) -> web.Response:
+        return web.json_response(self.bandhelper_config_payload())
+
+    async def set_bandhelper_config(self, request: web.Request) -> web.Response:
+        payload = await request.json()
+        try:
+            response = await self.apply_bandhelper_config(payload)
+        except ValueError as exc:
+            raise web.HTTPBadRequest(text=str(exc)) from exc
+        return web.json_response(response)
+
+    async def gamepi_config(self, request: web.Request) -> web.Response:
+        return web.json_response(self.gamepi_config_payload())
+
+    async def set_gamepi_config(self, request: web.Request) -> web.Response:
+        payload = await request.json()
+        try:
+            response = await self.apply_gamepi_config(payload)
         except ValueError as exc:
             raise web.HTTPBadRequest(text=str(exc)) from exc
         return web.json_response(response)
@@ -3803,6 +3843,189 @@ class WebInterface:
             sync_osc_address=str(payload.get("sync_osc_address", current.sync_osc_address)),
             beat_osc_address=str(payload.get("beat_osc_address", current.beat_osc_address)),
             device=device,
+        )
+
+    def bandhelper_config_payload(self) -> dict[str, Any]:
+        config = self.config.bandhelper
+        snapshot = self.datapoint_store.snapshot() if self.datapoint_store is not None else {}
+        link_tempo = snapshot.get("song.link_tempo", {})
+        link_peers = snapshot.get("song.link_peers", {})
+        key_root = snapshot.get("song.key_root", {})
+        key_minor = snapshot.get("song.key_minor", {})
+        return {
+            "enabled": config.enabled,
+            "link_enabled": config.link_enabled,
+            "start_bpm": config.start_bpm,
+            "min_bpm_delta": config.min_bpm_delta,
+            "follow_when_running": config.follow_when_running,
+            "quantize_step": config.quantize_step,
+            "poll_interval_ms": config.poll_interval_ms,
+            "key_osc_address": config.key_osc_address,
+            "key_root_osc_address": config.key_root_osc_address,
+            "key_mode_osc_address": config.key_mode_osc_address,
+            "module_active": self._bandhelper_module is not None,
+            "status": {
+                "link_tempo": link_tempo.get("float_value"),
+                "link_peers": link_peers.get("int_value"),
+                "key_root": key_root.get("int_value"),
+                "key_minor": key_minor.get("bool_value"),
+            },
+        }
+
+    async def apply_bandhelper_config(self, payload: dict[str, Any]) -> dict[str, Any]:
+        if not isinstance(payload, dict):
+            raise ValueError("bandhelper config payload must be an object")
+
+        config = self._normalized_bandhelper_config(payload)
+        previous_enabled = self.config.bandhelper.enabled
+        self.config = replace(self.config, bandhelper=config)
+
+        if self._bandhelper_module is not None:
+            self._bandhelper_module.update_config(config)
+
+        persisted = False
+        persist_error = ""
+        if self.config_path is not None:
+            try:
+                save_bandhelper_config(self.config_path, config)
+                persisted = True
+            except OSError as exc:
+                persist_error = str(exc)
+                LOGGER.warning(
+                    "BandHelper config applied at runtime but could not be persisted to %s: %s",
+                    self.config_path,
+                    exc,
+                )
+        else:
+            persist_error = "no config path available"
+
+        response = self.bandhelper_config_payload()
+        response.update(
+            {
+                "persisted": persisted,
+                "persist_error": persist_error,
+                "restart_required": config.enabled != previous_enabled,
+            }
+        )
+        return response
+
+    def _normalized_bandhelper_config(self, payload: dict[str, Any]) -> BandHelperConfig:
+        current = self.config.bandhelper
+        start_bpm = float(payload.get("start_bpm", current.start_bpm))
+        if start_bpm <= 0:
+            raise ValueError("start_bpm must be positive")
+
+        min_bpm_delta = float(payload.get("min_bpm_delta", current.min_bpm_delta))
+        if min_bpm_delta < 0:
+            raise ValueError("min_bpm_delta must be >= 0")
+
+        quantize_step = float(payload.get("quantize_step", current.quantize_step))
+        if quantize_step <= 0:
+            raise ValueError("quantize_step must be positive")
+
+        poll_interval_ms = int(payload.get("poll_interval_ms", current.poll_interval_ms))
+        if poll_interval_ms <= 0:
+            raise ValueError("poll_interval_ms must be positive")
+
+        return BandHelperConfig(
+            enabled=bool(payload.get("enabled", current.enabled)),
+            link_enabled=bool(payload.get("link_enabled", current.link_enabled)),
+            start_bpm=start_bpm,
+            min_bpm_delta=min_bpm_delta,
+            follow_when_running=bool(
+                payload.get("follow_when_running", current.follow_when_running)
+            ),
+            quantize_step=quantize_step,
+            poll_interval_ms=poll_interval_ms,
+            key_osc_address=str(
+                payload.get("key_osc_address", current.key_osc_address)
+            ).strip(),
+            key_root_osc_address=str(
+                payload.get("key_root_osc_address", current.key_root_osc_address)
+            ).strip(),
+            key_mode_osc_address=str(
+                payload.get("key_mode_osc_address", current.key_mode_osc_address)
+            ).strip(),
+        )
+
+    def gamepi_config_payload(self) -> dict[str, Any]:
+        from midijuggler.web.gamepi_brightness import brightness_status_payload
+
+        config = self.config.gamepi
+        brightness = brightness_status_payload()
+        return {
+            "enabled": config.enabled,
+            "brightness_state_path": config.brightness_state_path,
+            "brightness_poll_sec": config.brightness_poll_sec,
+            "kiosk_url": config.kiosk_url,
+            "module_active": self._gamepi_module is not None,
+            "brightness": brightness,
+        }
+
+    async def apply_gamepi_config(self, payload: dict[str, Any]) -> dict[str, Any]:
+        if not isinstance(payload, dict):
+            raise ValueError("gamepi config payload must be an object")
+
+        config = self._normalized_gamepi_config(payload)
+        previous = self.config.gamepi
+        self.config = replace(self.config, gamepi=config)
+
+        if self._gamepi_module is not None:
+            self._gamepi_module.update_config(config)
+
+        persisted = False
+        persist_error = ""
+        if self.config_path is not None:
+            try:
+                save_gamepi_config(self.config_path, config)
+                persisted = True
+            except OSError as exc:
+                persist_error = str(exc)
+                LOGGER.warning(
+                    "GamePi config applied at runtime but could not be persisted to %s: %s",
+                    self.config_path,
+                    exc,
+                )
+        else:
+            persist_error = "no config path available"
+
+        response = self.gamepi_config_payload()
+        response.update(
+            {
+                "persisted": persisted,
+                "persist_error": persist_error,
+                "restart_required": (
+                    config.enabled != previous.enabled
+                    or config.brightness_state_path != previous.brightness_state_path
+                    or config.brightness_poll_sec != previous.brightness_poll_sec
+                ),
+            }
+        )
+        return response
+
+    def _normalized_gamepi_config(self, payload: dict[str, Any]) -> GamePiConfig:
+        current = self.config.gamepi
+        brightness_poll_sec = float(
+            payload.get("brightness_poll_sec", current.brightness_poll_sec)
+        )
+        if brightness_poll_sec <= 0:
+            raise ValueError("brightness_poll_sec must be positive")
+
+        brightness_state_path = str(
+            payload.get("brightness_state_path", current.brightness_state_path)
+        ).strip()
+        if not brightness_state_path:
+            raise ValueError("brightness_state_path must not be empty")
+
+        kiosk_url = str(payload.get("kiosk_url", current.kiosk_url)).strip()
+        if not kiosk_url:
+            raise ValueError("kiosk_url must not be empty")
+
+        return GamePiConfig(
+            enabled=bool(payload.get("enabled", current.enabled)),
+            brightness_state_path=brightness_state_path,
+            brightness_poll_sec=brightness_poll_sec,
+            kiosk_url=kiosk_url,
         )
 
     async def apply_tap_tempo(self, timestamp: float | None = None) -> dict[str, Any]:

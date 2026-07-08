@@ -92,7 +92,8 @@ def build_module_registry(
         )
     )
     registry.add(MasterClockGenerator(master_clock, store))
-    registry.add(GamePiBrightnessModule(store))
+    if config.gamepi.enabled:
+        registry.add(GamePiBrightnessModule(store, config=config.gamepi))
     if config.rotary_display.enabled:
         registry.add(
             RotaryDisplayModule(

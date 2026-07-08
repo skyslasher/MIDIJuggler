@@ -48,6 +48,27 @@ const rotaryBpmStep = document.querySelector("#rotary-bpm-step");
 const rotaryPushStatus = document.querySelector("#rotary-push-status");
 const rotaryPushButton = document.querySelector("#rotary-push-button");
 const rotaryDisplayMessage = document.querySelector("#rotary-display-message");
+const bandhelperForm = document.querySelector("#bandhelper-form");
+const bandhelperEnabled = document.querySelector("#bandhelper-enabled");
+const bandhelperLinkEnabled = document.querySelector("#bandhelper-link-enabled");
+const bandhelperFollowWhenRunning = document.querySelector("#bandhelper-follow-when-running");
+const bandhelperStartBpm = document.querySelector("#bandhelper-start-bpm");
+const bandhelperMinBpmDelta = document.querySelector("#bandhelper-min-bpm-delta");
+const bandhelperQuantizeStep = document.querySelector("#bandhelper-quantize-step");
+const bandhelperPollIntervalMs = document.querySelector("#bandhelper-poll-interval-ms");
+const bandhelperKeyOscAddress = document.querySelector("#bandhelper-key-osc-address");
+const bandhelperKeyRootOscAddress = document.querySelector("#bandhelper-key-root-osc-address");
+const bandhelperKeyModeOscAddress = document.querySelector("#bandhelper-key-mode-osc-address");
+const bandhelperStatus = document.querySelector("#bandhelper-status");
+const bandhelperMessage = document.querySelector("#bandhelper-message");
+const gamepiForm = document.querySelector("#gamepi-form");
+const gamepiEnabled = document.querySelector("#gamepi-enabled");
+const gamepiBrightnessStatePath = document.querySelector("#gamepi-brightness-state-path");
+const gamepiBrightnessPollSec = document.querySelector("#gamepi-brightness-poll-sec");
+const gamepiKioskUrl = document.querySelector("#gamepi-kiosk-url");
+const gamepiBrightnessStatus = document.querySelector("#gamepi-brightness-status");
+const gamepiBrightnessRefresh = document.querySelector("#gamepi-brightness-refresh");
+const gamepiMessage = document.querySelector("#gamepi-message");
 const configImportForm = document.querySelector("#config-import-form");
 const configImportFile = document.querySelector("#config-import-file");
 const configImportMessage = document.querySelector("#config-import-message");
@@ -205,6 +226,8 @@ let hidAdaptersConfig = null;
 let hidLearnInstanceName = "";
 let masterClockConfig = null;
 let rotaryDisplayConfig = null;
+let bandhelperConfig = null;
+let gamepiConfig = null;
 let masterClockRuntime = null;
 let datapointRoutingEnabled = false;
 let masterBpmDirty = false;
@@ -8021,6 +8044,151 @@ function showRotaryDisplayMessage(config, fallbackMessage) {
   rotaryDisplayMessage.textContent = fallbackMessage || "saved";
 }
 
+const PITCH_CLASS_NAMES = ["C", "C#", "D", "D#", "E", "F", "F#", "G", "G#", "A", "A#", "B"];
+
+function formatSongKey(root, minor) {
+  if (root == null || Number.isNaN(Number(root))) {
+    return "--";
+  }
+  const name = PITCH_CLASS_NAMES[Number(root) % 12] || "?";
+  return minor ? `${name}m` : name;
+}
+
+function renderBandhelperConfig(config) {
+  bandhelperConfig = config;
+  if (!bandhelperForm) {
+    return;
+  }
+  if (bandhelperEnabled) {
+    bandhelperEnabled.checked = Boolean(config.enabled);
+  }
+  if (bandhelperLinkEnabled) {
+    bandhelperLinkEnabled.checked = Boolean(config.link_enabled);
+  }
+  if (bandhelperFollowWhenRunning) {
+    bandhelperFollowWhenRunning.checked = Boolean(config.follow_when_running);
+  }
+  if (bandhelperStartBpm) {
+    bandhelperStartBpm.value = config.start_bpm ?? 120;
+  }
+  if (bandhelperMinBpmDelta) {
+    bandhelperMinBpmDelta.value = config.min_bpm_delta ?? 0.5;
+  }
+  if (bandhelperQuantizeStep) {
+    bandhelperQuantizeStep.value = config.quantize_step ?? 1;
+  }
+  if (bandhelperPollIntervalMs) {
+    bandhelperPollIntervalMs.value = config.poll_interval_ms ?? 50;
+  }
+  if (bandhelperKeyOscAddress) {
+    bandhelperKeyOscAddress.value = config.key_osc_address || "/midijuggler/song/key";
+  }
+  if (bandhelperKeyRootOscAddress) {
+    bandhelperKeyRootOscAddress.value =
+      config.key_root_osc_address || "/midijuggler/song/key_root";
+  }
+  if (bandhelperKeyModeOscAddress) {
+    bandhelperKeyModeOscAddress.value =
+      config.key_mode_osc_address || "/midijuggler/song/key_mode";
+  }
+  if (bandhelperStatus) {
+    const status = config.status || {};
+    const module = config.module_active ? "module active" : "module inactive (restart required)";
+    const peers = status.link_peers ?? "--";
+    const tempo = status.link_tempo ?? "--";
+    const key = formatSongKey(status.key_root, status.key_minor);
+    bandhelperStatus.textContent = `${module}; Link ${tempo} BPM, ${peers} peer(s), key ${key}`;
+  }
+}
+
+function bandhelperFormPayload() {
+  return {
+    enabled: Boolean(bandhelperEnabled?.checked),
+    link_enabled: Boolean(bandhelperLinkEnabled?.checked),
+    follow_when_running: Boolean(bandhelperFollowWhenRunning?.checked),
+    start_bpm: Number(bandhelperStartBpm?.value || 120),
+    min_bpm_delta: Number(bandhelperMinBpmDelta?.value || 0.5),
+    quantize_step: Number(bandhelperQuantizeStep?.value || 1),
+    poll_interval_ms: Number(bandhelperPollIntervalMs?.value || 50),
+    key_osc_address: bandhelperKeyOscAddress?.value.trim() || "/midijuggler/song/key",
+    key_root_osc_address:
+      bandhelperKeyRootOscAddress?.value.trim() || "/midijuggler/song/key_root",
+    key_mode_osc_address:
+      bandhelperKeyModeOscAddress?.value.trim() || "/midijuggler/song/key_mode",
+  };
+}
+
+function showBandhelperMessage(config, fallbackMessage) {
+  if (!bandhelperMessage) {
+    return;
+  }
+  if (config?.restart_required) {
+    bandhelperMessage.textContent = "saved; restart service to apply enabled state";
+    return;
+  }
+  if (config?.persisted === false) {
+    bandhelperMessage.textContent = `saved for runtime only: ${config.persist_error || fallbackMessage}`;
+    return;
+  }
+  bandhelperMessage.textContent = fallbackMessage || "saved";
+}
+
+function renderGamepiConfig(config) {
+  gamepiConfig = config;
+  if (!gamepiForm) {
+    return;
+  }
+  if (gamepiEnabled) {
+    gamepiEnabled.checked = Boolean(config.enabled);
+  }
+  if (gamepiBrightnessStatePath) {
+    gamepiBrightnessStatePath.value =
+      config.brightness_state_path || "/var/lib/gamepi/brightness";
+  }
+  if (gamepiBrightnessPollSec) {
+    gamepiBrightnessPollSec.value = config.brightness_poll_sec ?? 0.5;
+  }
+  if (gamepiKioskUrl) {
+    gamepiKioskUrl.value =
+      config.kiosk_url || "http://127.0.0.1:8080/static/clock-gamepi.html";
+  }
+  if (gamepiBrightnessStatus) {
+    const brightness = config.brightness || {};
+    const module = config.module_active ? "module active" : "module inactive (restart required)";
+    if (brightness.available) {
+      gamepiBrightnessStatus.textContent = `${module}; brightness ${brightness.level}/${brightness.max} (${brightness.mode || "unknown"})`;
+    } else {
+      gamepiBrightnessStatus.textContent = `${module}; brightness backend unavailable`;
+    }
+  }
+}
+
+function gamepiFormPayload() {
+  return {
+    enabled: Boolean(gamepiEnabled?.checked),
+    brightness_state_path:
+      gamepiBrightnessStatePath?.value.trim() || "/var/lib/gamepi/brightness",
+    brightness_poll_sec: Number(gamepiBrightnessPollSec?.value || 0.5),
+    kiosk_url:
+      gamepiKioskUrl?.value.trim() || "http://127.0.0.1:8080/static/clock-gamepi.html",
+  };
+}
+
+function showGamepiMessage(config, fallbackMessage) {
+  if (!gamepiMessage) {
+    return;
+  }
+  if (config?.restart_required) {
+    gamepiMessage.textContent = "saved; restart service to apply module settings";
+    return;
+  }
+  if (config?.persisted === false) {
+    gamepiMessage.textContent = `saved for runtime only: ${config.persist_error || fallbackMessage}`;
+    return;
+  }
+  gamepiMessage.textContent = fallbackMessage || "saved";
+}
+
 function renderMasterClockStatusCard(clock) {
   if (!masterClock || !clock) {
     return;
@@ -8689,6 +8857,92 @@ rotaryPushButton?.addEventListener("click", () => {
     });
 });
 
+bandhelperForm?.addEventListener("submit", (event) => {
+  event.preventDefault();
+  if (bandhelperMessage) {
+    bandhelperMessage.textContent = "saving...";
+  }
+  fetch("/api/bandhelper", {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify(bandhelperFormPayload()),
+  })
+    .then(async (response) => {
+      if (!response.ok) {
+        throw new Error(await response.text());
+      }
+      return response.json();
+    })
+    .then((config) => {
+      renderBandhelperConfig(config);
+      showBandhelperMessage(config, "saved");
+    })
+    .catch((error) => {
+      if (bandhelperMessage) {
+        bandhelperMessage.textContent = `error: ${error.message}`;
+      }
+      if (bandhelperConfig) {
+        renderBandhelperConfig(bandhelperConfig);
+      }
+    });
+});
+
+gamepiForm?.addEventListener("submit", (event) => {
+  event.preventDefault();
+  if (gamepiMessage) {
+    gamepiMessage.textContent = "saving...";
+  }
+  fetch("/api/gamepi", {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify(gamepiFormPayload()),
+  })
+    .then(async (response) => {
+      if (!response.ok) {
+        throw new Error(await response.text());
+      }
+      return response.json();
+    })
+    .then((config) => {
+      renderGamepiConfig(config);
+      showGamepiMessage(config, "saved");
+    })
+    .catch((error) => {
+      if (gamepiMessage) {
+        gamepiMessage.textContent = `error: ${error.message}`;
+      }
+      if (gamepiConfig) {
+        renderGamepiConfig(gamepiConfig);
+      }
+    });
+});
+
+gamepiBrightnessRefresh?.addEventListener("click", () => {
+  if (gamepiMessage) {
+    gamepiMessage.textContent = "refreshing brightness...";
+  }
+  fetch("/api/gamepi/brightness/refresh", { method: "POST", body: "{}" })
+    .then(async (response) => {
+      if (!response.ok) {
+        throw new Error(await response.text());
+      }
+      return response.json();
+    })
+    .then(() => fetch("/api/gamepi"))
+    .then((response) => response.json())
+    .then((config) => {
+      renderGamepiConfig(config);
+      if (gamepiMessage) {
+        gamepiMessage.textContent = "brightness refreshed";
+      }
+    })
+    .catch((error) => {
+      if (gamepiMessage) {
+        gamepiMessage.textContent = `error: ${error.message}`;
+      }
+    });
+});
+
 configImportForm.addEventListener("submit", (event) => {
   event.preventDefault();
   const file = configImportFile.files[0];
@@ -8742,6 +8996,8 @@ masterBpm?.addEventListener("change", () => {
 });
 fetch("/api/master-clock").then((response) => response.json()).then(renderMasterClockConfig);
 fetch("/api/rotary-display").then((response) => response.json()).then(renderRotaryDisplayConfig);
+fetch("/api/bandhelper").then((response) => response.json()).then(renderBandhelperConfig);
+fetch("/api/gamepi").then((response) => response.json()).then(renderGamepiConfig);
 fetch("/api/osc-libraries").then((response) => response.json()).then(renderOscLibraries);
 fetch("/api/midi-libraries").then((response) => response.json()).then(renderMidiLibraries);
 connect();

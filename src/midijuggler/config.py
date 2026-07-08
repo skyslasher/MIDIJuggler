@@ -121,6 +121,14 @@ class BandHelperConfig:
 
 
 @dataclass(frozen=True)
+class GamePiConfig:
+    enabled: bool = True
+    brightness_state_path: str = "/var/lib/gamepi/brightness"
+    brightness_poll_sec: float = 0.5
+    kiosk_url: str = "http://127.0.0.1:8080/static/clock-gamepi.html"
+
+
+@dataclass(frozen=True)
 class AppConfig:
     web: WebConfig = field(default_factory=WebConfig)
     runtime: RuntimeConfig = field(default_factory=RuntimeConfig)
@@ -129,6 +137,7 @@ class AppConfig:
     master_clock: MasterClockConfig = field(default_factory=MasterClockConfig)
     rotary_display: RotaryDisplayConfig = field(default_factory=RotaryDisplayConfig)
     bandhelper: BandHelperConfig = field(default_factory=BandHelperConfig)
+    gamepi: GamePiConfig = field(default_factory=GamePiConfig)
     connections: list[ConnectionSpec] = field(default_factory=list)
     load_issues: tuple[str, ...] = ()
 
@@ -169,6 +178,7 @@ def load_config(path: str | Path) -> AppConfig:
         master_clock=config.master_clock,
         rotary_display=config.rotary_display,
         bandhelper=config.bandhelper,
+        gamepi=config.gamepi,
         connections=config.connections,
         load_issues=tuple(prefix_issues + list(config.load_issues)),
     )
@@ -382,6 +392,30 @@ def save_rotary_display_config(path: str | Path, config: RotaryDisplayConfig) ->
         "[rotary_display.device]",
         _format_rotary_display_device_section(config.device),
     )
+
+    temp_path = config_path.with_suffix(config_path.suffix + ".tmp")
+    temp_path.write_text(text, encoding="utf-8")
+    temp_path.replace(config_path)
+
+
+def save_bandhelper_config(path: str | Path, config: BandHelperConfig) -> None:
+    """Persist BandHelper integration settings in a TOML config file."""
+
+    config_path = Path(path)
+    text = config_path.read_text(encoding="utf-8")
+    text = _replace_toml_section(text, "[bandhelper]", _format_bandhelper_section(config))
+
+    temp_path = config_path.with_suffix(config_path.suffix + ".tmp")
+    temp_path.write_text(text, encoding="utf-8")
+    temp_path.replace(config_path)
+
+
+def save_gamepi_config(path: str | Path, config: GamePiConfig) -> None:
+    """Persist GamePi integration settings in a TOML config file."""
+
+    config_path = Path(path)
+    text = config_path.read_text(encoding="utf-8")
+    text = _replace_toml_section(text, "[gamepi]", _format_gamepi_section(config))
 
     temp_path = config_path.with_suffix(config_path.suffix + ".tmp")
     temp_path.write_text(text, encoding="utf-8")
@@ -833,6 +867,7 @@ def parse_config(raw: dict[str, Any], *, strict: bool = True) -> AppConfig:
     master_clock = _parse_master_clock(raw.get("master_clock", {}))
     rotary_display = _parse_rotary_display(raw.get("rotary_display", {}))
     bandhelper = _parse_bandhelper(raw.get("bandhelper", {}))
+    gamepi = _parse_gamepi(raw.get("gamepi", {}))
     connections = _parse_connections(raw.get("connections", []), issues)
     connections = normalize_connections(connections, devices)
     devices, connections = _finalize_devices_and_connections(
@@ -850,6 +885,7 @@ def parse_config(raw: dict[str, Any], *, strict: bool = True) -> AppConfig:
         master_clock=master_clock,
         rotary_display=rotary_display,
         bandhelper=bandhelper,
+        gamepi=gamepi,
         connections=connections,
         load_issues=tuple(issues or ()),
     )
@@ -1058,6 +1094,65 @@ def _parse_bandhelper(raw: Any) -> BandHelperConfig:
         key_mode_osc_address=str(
             raw.get("key_mode_osc_address", "/midijuggler/song/key_mode")
         ),
+    )
+
+
+def _parse_gamepi(raw: Any) -> GamePiConfig:
+    if raw is None:
+        raw = {}
+    if not isinstance(raw, dict):
+        raise ValueError("gamepi must be a table")
+
+    brightness_poll_sec = _as_float(
+        raw.get("brightness_poll_sec", 0.5),
+        "gamepi.brightness_poll_sec",
+    )
+    if brightness_poll_sec <= 0:
+        raise ValueError("gamepi.brightness_poll_sec must be positive")
+
+    brightness_state_path = str(
+        raw.get("brightness_state_path", "/var/lib/gamepi/brightness")
+    ).strip()
+    if not brightness_state_path:
+        raise ValueError("gamepi.brightness_state_path must not be empty")
+
+    kiosk_url = str(
+        raw.get("kiosk_url", "http://127.0.0.1:8080/static/clock-gamepi.html")
+    ).strip()
+    if not kiosk_url:
+        raise ValueError("gamepi.kiosk_url must not be empty")
+
+    return GamePiConfig(
+        enabled=bool(raw.get("enabled", True)),
+        brightness_state_path=brightness_state_path,
+        brightness_poll_sec=brightness_poll_sec,
+        kiosk_url=kiosk_url,
+    )
+
+
+def _format_bandhelper_section(config: BandHelperConfig) -> str:
+    return (
+        "[bandhelper]\n"
+        f"enabled = {_toml_bool(config.enabled)}\n"
+        f"link_enabled = {_toml_bool(config.link_enabled)}\n"
+        f"start_bpm = {config.start_bpm}\n"
+        f"min_bpm_delta = {config.min_bpm_delta}\n"
+        f"follow_when_running = {_toml_bool(config.follow_when_running)}\n"
+        f"quantize_step = {config.quantize_step}\n"
+        f"poll_interval_ms = {config.poll_interval_ms}\n"
+        f"key_osc_address = {_toml_string(config.key_osc_address)}\n"
+        f"key_root_osc_address = {_toml_string(config.key_root_osc_address)}\n"
+        f"key_mode_osc_address = {_toml_string(config.key_mode_osc_address)}\n\n"
+    )
+
+
+def _format_gamepi_section(config: GamePiConfig) -> str:
+    return (
+        "[gamepi]\n"
+        f"enabled = {_toml_bool(config.enabled)}\n"
+        f"brightness_state_path = {_toml_string(config.brightness_state_path)}\n"
+        f"brightness_poll_sec = {config.brightness_poll_sec}\n"
+        f"kiosk_url = {_toml_string(config.kiosk_url)}\n\n"
     )
 
 

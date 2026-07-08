@@ -10,6 +10,7 @@ from dataclasses import replace
 from pathlib import Path
 from typing import Any
 
+from midijuggler.config import GamePiConfig
 from midijuggler.datapoint.store import DataPointStore
 from midijuggler.datapoint.types import (
     DataPointDirection,
@@ -28,7 +29,6 @@ BRIGHTNESS_SET_POINT = DataPointId(GAMEPI_MODULE, "brightness_set")
 DEFAULT_STATE_PATH = Path(
     os.environ.get("GAMEPI_BRIGHTNESS_STATE", "/var/lib/gamepi/brightness")
 )
-MTIME_POLL_SEC = float(os.environ.get("GAMEPI_BRIGHTNESS_WATCH_POLL_SEC", "0.5"))
 
 
 def status_to_datapoint_value(payload: dict[str, Any]) -> DataPointValue:
@@ -68,10 +68,12 @@ class GamePiBrightnessModule(InterfaceModule):
         self,
         store: DataPointStore,
         *,
+        config: GamePiConfig | None = None,
         state_path: Path | None = None,
     ) -> None:
         super().__init__(GAMEPI_MODULE, store)
-        self.state_path = state_path or DEFAULT_STATE_PATH
+        self.config = config or GamePiConfig()
+        self.state_path = Path(state_path or self.config.brightness_state_path or DEFAULT_STATE_PATH)
         self._watch_task: asyncio.Task[None] | None = None
         self._last_mtime_ns: int | None = None
 
@@ -113,6 +115,10 @@ class GamePiBrightnessModule(InterfaceModule):
             self._watch_task = None
         await super().stop()
 
+    def update_config(self, config: GamePiConfig) -> None:
+        self.config = config
+        self.state_path = Path(config.brightness_state_path)
+
     async def refresh(self) -> None:
         await publish_brightness_to_store(self.store)
         with contextlib.suppress(OSError):
@@ -143,7 +149,7 @@ class GamePiBrightnessModule(InterfaceModule):
             await self._poll_mtime()
 
     async def _poll_mtime(self) -> None:
-        await asyncio.sleep(MTIME_POLL_SEC)
+        await asyncio.sleep(max(self.config.brightness_poll_sec, 0.1))
         try:
             mtime_ns = self.state_path.stat().st_mtime_ns
         except OSError:

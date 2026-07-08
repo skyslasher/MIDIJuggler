@@ -582,6 +582,91 @@
           </form>
         </article>
         <article>
+          <h2>BandHelper</h2>
+          <p class="hint">
+            Follow song tempo from BandHelper over Ableton Link and receive musical key
+            from OSC presets. See <code>docs/bandhelper.md</code> for BandHelper setup.
+          </p>
+          <form id="bandhelper-form">
+            <label class="inline-field">
+              <input id="bandhelper-enabled" type="checkbox" />
+              Enabled
+            </label>
+            <div class="form-grid">
+              <label class="inline-field">
+                <input id="bandhelper-link-enabled" type="checkbox" />
+                Ableton Link enabled
+              </label>
+              <label class="inline-field">
+                <input id="bandhelper-follow-when-running" type="checkbox" />
+                Follow BPM while transport running
+              </label>
+              <label>
+                Start BPM
+                <input id="bandhelper-start-bpm" type="number" min="1" step="0.1" />
+              </label>
+              <label>
+                Min BPM delta
+                <input id="bandhelper-min-bpm-delta" type="number" min="0" step="0.1" />
+              </label>
+              <label>
+                Quantize step
+                <input id="bandhelper-quantize-step" type="number" min="0.1" step="0.1" />
+              </label>
+              <label>
+                Poll interval (ms)
+                <input id="bandhelper-poll-interval-ms" type="number" min="10" step="1" />
+              </label>
+              <label>
+                Key OSC address
+                <input id="bandhelper-key-osc-address" type="text" autocomplete="off" spellcheck="false" />
+              </label>
+              <label>
+                Key root OSC address
+                <input id="bandhelper-key-root-osc-address" type="text" autocomplete="off" spellcheck="false" />
+              </label>
+              <label>
+                Key mode OSC address
+                <input id="bandhelper-key-mode-osc-address" type="text" autocomplete="off" spellcheck="false" />
+              </label>
+            </div>
+            <p id="bandhelper-status" class="hint"></p>
+            <button type="submit">Save BandHelper</button>
+            <p id="bandhelper-message" class="message"></p>
+          </form>
+        </article>
+        <article>
+          <h2>GamePi</h2>
+          <p class="hint">
+            Co-located kiosk UI and brightness datapoints. Changing enabled or watch
+            settings requires a service restart.
+          </p>
+          <form id="gamepi-form">
+            <label class="inline-field">
+              <input id="gamepi-enabled" type="checkbox" />
+              Enabled
+            </label>
+            <div class="form-grid">
+              <label>
+                Brightness state path
+                <input id="gamepi-brightness-state-path" type="text" autocomplete="off" spellcheck="false" />
+              </label>
+              <label>
+                Brightness poll interval (s)
+                <input id="gamepi-brightness-poll-sec" type="number" min="0.1" step="0.1" />
+              </label>
+              <label>
+                Kiosk URL
+                <input id="gamepi-kiosk-url" type="text" autocomplete="off" spellcheck="false" />
+              </label>
+            </div>
+            <p id="gamepi-brightness-status" class="hint"></p>
+            <button type="submit">Save GamePi</button>
+            <button type="button" id="gamepi-brightness-refresh">Refresh brightness</button>
+            <p id="gamepi-message" class="message"></p>
+          </form>
+        </article>
+        <article>
           <h2>Configuration import/export</h2>
           <p>Export the active TOML configuration or import a saved configuration for another setup.</p>
           <a class="button-link" href="/api/config/export" download>Export configuration</a>

@@ -38,6 +38,8 @@ from midijuggler.master_clock import MIDI_TIMING_CLOCK, MasterClock
 from midijuggler.device.registry import DeviceRegistry
 from midijuggler.device.lookup import device_id_for_adapter
 from midijuggler.modules.build import build_module_registry
+from midijuggler.modules.interface.bandhelper.module import BandHelperModule
+from midijuggler.modules.interface.gamepi_brightness import GamePiBrightnessModule
 from midijuggler.modules.interface.rotary_display.module import RotaryDisplayModule
 from midijuggler.modules.modifier.graph import ModifierGraph
 from midijuggler.modules.io.midi import MidiIOModule
@@ -118,7 +120,10 @@ class MIDIJugglerService:
         for module in self.module_registry.modules():
             if isinstance(module, RotaryDisplayModule):
                 self.web.bind_rotary_display_module(module)
-                break
+            elif isinstance(module, BandHelperModule):
+                self.web.bind_bandhelper_module(module)
+            elif isinstance(module, GamePiBrightnessModule):
+                self.web.bind_gamepi_module(module)
         self.web.bind_osc_io_modules(self.io_modules)
         for module in self.module_registry.modules():
             if isinstance(module, ModifierGraph):
