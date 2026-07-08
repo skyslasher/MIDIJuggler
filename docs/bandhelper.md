@@ -3,7 +3,7 @@
 BandHelper can drive MIDIJuggler song context on the Pi:
 
 - **Tempo:** Ableton Link (`Settings > Tempo & Pitch > Send Tempo to Ableton Link`)
-- **Tonart:** OSC preset per song (Ableton Link carries no key metadata)
+- **Key:** OSC preset per song (Ableton Link does not carry key metadata)
 
 ## Enable in MIDIJuggler
 
@@ -21,51 +21,52 @@ Install the optional dependency on the Pi:
 pip install 'midijuggler[ableton_link]'
 ```
 
-## BandHelper: Tempo via Ableton Link
+## BandHelper: tempo via Ableton Link
 
-1. *Settings > Tempo & Pitch* → **Send Tempo to Ableton Link** on
-2. *Set Up Ableton Link* → Link aktivieren
-3. Pro Song im Repertoire ein **Tempo** setzen
-4. *Settings > App Control* → **Song Selection** → Aktion **Tempo**
+1. *Settings > Tempo & Pitch* → turn on **Send Tempo to Ableton Link**
+2. *Set Up Ableton Link* → enable Ableton Link
+3. Set a **tempo** for each song in the repertoire
+4. *Settings > App Control* → **Song Selection** → **Tempo** action
 
-Beim Songwechsel aktualisiert BandHelper die Link-Session. MIDIJuggler folgt als
-Link-Peer und schreibt die BPM in den Master Clock (`clock.bpm`).
+When you change songs, BandHelper updates the Link session tempo. MIDIJuggler
+joins as a Link peer and writes the BPM to the master clock (`clock.bpm`).
 
-## BandHelper: Tonart via OSC
+## BandHelper: key via OSC
 
-Ableton Link transportiert **keine Tonart**. BandHelper unterstützt in OSC-Presets
-keine dynamischen Platzhalter — pro Song ein Preset mit festem Key-String.
+Ableton Link does **not** transport musical key. BandHelper OSC presets do not
+support dynamic placeholders either — use one preset per song with a fixed key
+string.
 
-1. *Repertoire > MIDI/OSC Devices* → OSC-Gerät mit Pi-IP und Port **9000**
-2. *Repertoire > MIDI/OSC Presets* → OSC-Nachricht:
-   - Adresse: `/midijuggler/song/key`
-   - Typ: string
-   - Wert: z. B. `Am`, `Bb`, `F# minor`
-3. Preset dem Song zuweisen
+1. *Repertoire > MIDI/OSC Devices* → add an OSC device pointing at the Pi IP and port **9000**
+2. *Repertoire > MIDI/OSC Presets* → add an OSC message:
+   - Address: `/midijuggler/song/key`
+   - Type: string
+   - Value: e.g. `Am`, `Bb`, `F# minor`
+3. Attach the preset to the song
 4. *Settings > App Control* → **Song Selection** → **Send MIDI/OSC Presets**
 
-Optional getrennte Nachrichten:
+Optional separate messages:
 
-| Adresse | Argument | Datapoint |
+| Address | Argument | Datapoint |
 |---------|----------|-----------|
 | `/midijuggler/song/key` | string `Am` | `song.key_root` + `song.key_minor` |
-| `/midijuggler/song/key_root` | string `Bb` oder int `0..11` | `song.key_root` |
-| `/midijuggler/song/key_mode` | `minor` / `major` oder `1` / `0` | `song.key_minor` |
+| `/midijuggler/song/key_root` | string `Bb` or int `0..11` | `song.key_root` |
+| `/midijuggler/song/key_mode` | `minor` / `major` or `1` / `0` | `song.key_minor` |
 
 ## Datapoints
 
-| ID | Typ | Bedeutung |
-|----|-----|-----------|
-| `song.link_tempo` | float | Aktuelles Link-Tempo |
-| `song.link_peers` | int | Anzahl Link-Peers |
-| `song.key_root` | int | Grundton `0=C` … `11=B` |
-| `song.key_minor` | bool | `true` = Moll |
+| ID | Type | Meaning |
+|----|------|---------|
+| `song.link_tempo` | float | Current Link tempo |
+| `song.link_peers` | int | Number of Link peers |
+| `song.key_root` | int | Pitch class `0=C` … `11=B` |
+| `song.key_minor` | bool | `true` = minor |
 
-Später für Wing-Effekte: Connections von `song.key_root` / `song.key_minor` auf
-Zielgeräte legen.
+For Wing effects later: add Connections from `song.key_root` / `song.key_minor`
+to target devices.
 
-## Hinweise
+## Notes
 
-- iPad und Pi im gleichen WLAN; Multicast für Link erlauben
-- `follow_when_running = false` (Standard): lokaler Transport behält BPM-Vorrang
-- Beat/Phase über Link ist bewusst noch nicht angebunden
+- iPad and Pi must be on the same Wi‑Fi; allow multicast for Link
+- `follow_when_running = false` (default): local transport keeps BPM priority while running
+- Beat/phase over Link is intentionally not wired yet
