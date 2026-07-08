@@ -34,6 +34,9 @@ hid = [
 rotary = [
   "pyserial>=3.5",
 ]
+ableton_link = [
+  "aalink>=0.2",
+]
 
 [project.scripts]
 midijuggler = "midijuggler.__main__:main"

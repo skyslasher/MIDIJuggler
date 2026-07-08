@@ -18,6 +18,7 @@ from midijuggler.device.registry import DeviceRegistry
 from midijuggler.eventbus import EventBus
 from midijuggler.master_clock import MasterClock
 from midijuggler.modules.generator.master_clock import MasterClockGenerator
+from midijuggler.modules.interface.bandhelper import BandHelperModule
 from midijuggler.modules.interface.gamepi_brightness import GamePiBrightnessModule
 from midijuggler.modules.interface.rotary_display import RotaryDisplayModule
 from midijuggler.modules.interface.web import WebInterfaceModule
@@ -97,6 +98,15 @@ def build_module_registry(
             RotaryDisplayModule(
                 store,
                 config.rotary_display,
+                master_clock,
+                bus,
+            )
+        )
+    if config.bandhelper.enabled:
+        registry.add(
+            BandHelperModule(
+                store,
+                config.bandhelper,
                 master_clock,
                 bus,
             )

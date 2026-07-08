@@ -1,0 +1,286 @@
+"""BandHelper song context: Ableton Link BPM follow and OSC key input."""
+
+from __future__ import annotations
+
+import asyncio
+import contextlib
+import logging
+from typing import Any
+
+from midijuggler.config import BandHelperConfig
+from midijuggler.datapoint.store import DataPointStore
+from midijuggler.datapoint.types import (
+    DataPointDirection,
+    DataPointId,
+    DataPointSpec,
+    DataPointValue,
+    ValueType,
+)
+from midijuggler.eventbus import EventBus
+from midijuggler.events import OscMessageEvent
+from midijuggler.master_clock import MasterClock, quantize_bpm
+from midijuggler.modules.base import InterfaceModule
+from midijuggler.modules.interface.bandhelper.key import (
+    ParsedKey,
+    parse_key,
+    parse_key_mode,
+    parse_key_root,
+)
+
+LOGGER = logging.getLogger(__name__)
+
+SONG_MODULE = "song"
+
+try:
+    from aalink import Link as AbletonLink
+except ImportError:  # pragma: no cover - optional dependency
+    AbletonLink = None
+
+
+class BandHelperModule(InterfaceModule):
+    """Follow BandHelper tempo via Ableton Link and receive song key via OSC."""
+
+    def __init__(
+        self,
+        store: DataPointStore,
+        config: BandHelperConfig,
+        master_clock: MasterClock,
+        bus: EventBus,
+    ) -> None:
+        super().__init__(SONG_MODULE, store)
+        self.config = config
+        self.master_clock = master_clock
+        self.bus = bus
+        self._link: Any | None = None
+        self._loop: asyncio.AbstractEventLoop | None = None
+        self._poll_task: asyncio.Task[None] | None = None
+        self._last_link_tempo: float | None = None
+        self._last_key: ParsedKey | None = None
+
+    def datapoints(self) -> list[DataPointSpec]:
+        return [
+            DataPointSpec(
+                id=DataPointId(SONG_MODULE, "link_tempo"),
+                value_type=ValueType.FLOAT,
+                direction=DataPointDirection.INPUT,
+                label="Ableton Link tempo",
+                value_min=self.master_clock.config.bpm_min,
+                value_max=self.master_clock.config.bpm_max,
+                protocol="ableton_link",
+                category="tempo",
+            ),
+            DataPointSpec(
+                id=DataPointId(SONG_MODULE, "link_peers"),
+                value_type=ValueType.INT,
+                direction=DataPointDirection.INPUT,
+                label="Ableton Link peer count",
+                value_min=0,
+                value_max=64,
+                protocol="ableton_link",
+                category="status",
+            ),
+            DataPointSpec(
+                id=DataPointId(SONG_MODULE, "key_root"),
+                value_type=ValueType.INT,
+                direction=DataPointDirection.INPUT,
+                label="Song key root (0=C .. 11=B)",
+                value_min=0,
+                value_max=11,
+                protocol="bandhelper",
+                category="key",
+            ),
+            DataPointSpec(
+                id=DataPointId(SONG_MODULE, "key_minor"),
+                value_type=ValueType.BOOL,
+                direction=DataPointDirection.INPUT,
+                label="Song key mode (true=minor)",
+                protocol="bandhelper",
+                category="key",
+            ),
+        ]
+
+    async def start(self) -> None:
+        await super().start()
+        self._loop = asyncio.get_running_loop()
+        self.bus.subscribe(OscMessageEvent, self._on_osc_message)
+        if self.config.link_enabled:
+            await self._start_link()
+
+    async def stop(self) -> None:
+        if self._poll_task is not None:
+            self._poll_task.cancel()
+            with contextlib.suppress(asyncio.CancelledError):
+                await self._poll_task
+            self._poll_task = None
+        if self._link is not None:
+            self._link.enabled = False
+            self._link = None
+        await super().stop()
+
+    def update_config(self, config: BandHelperConfig) -> None:
+        self.config = config
+
+    async def _start_link(self) -> None:
+        if AbletonLink is None:
+            LOGGER.error(
+                "bandhelper link_enabled requires aalink; install with: pip install 'midijuggler[ableton_link]'"
+            )
+            return
+
+        self._link = AbletonLink(self.config.start_bpm)
+        self._link.enabled = True
+        self._link.add_tempo_callback(self._on_link_tempo_callback)
+        self._poll_task = asyncio.create_task(self._link_poll_loop())
+        LOGGER.info("bandhelper Ableton Link session enabled")
+
+    def _on_link_tempo_callback(self, tempo: float) -> None:
+        if self._loop is None:
+            return
+
+        def schedule() -> None:
+            asyncio.create_task(self._handle_link_tempo(float(tempo)))
+
+        self._loop.call_soon_threadsafe(schedule)
+
+    async def _link_poll_loop(self) -> None:
+        interval = max(self.config.poll_interval_ms, 10) / 1000.0
+        while self.running and self._link is not None:
+            await self._publish_link_status(
+                tempo=float(self._link.tempo),
+                peers=int(self._link.num_peers),
+            )
+            await asyncio.sleep(interval)
+
+    async def _handle_link_tempo(self, tempo: float) -> None:
+        await self._publish_link_status(tempo=tempo, peers=None)
+        if not self._should_apply_link_tempo(tempo):
+            return
+        quantized = quantize_bpm(tempo, self.config.quantize_step)
+        await self.master_clock.set_bpm(quantized)
+        LOGGER.info("bandhelper applied Link tempo %.2f BPM", quantized)
+
+    def _should_apply_link_tempo(self, tempo: float) -> bool:
+        if tempo <= 0:
+            return False
+        if not self.config.follow_when_running and self.master_clock.running:
+            return False
+        if abs(self.master_clock.bpm - tempo) < self.config.min_bpm_delta:
+            return False
+        return True
+
+    async def _publish_link_status(
+        self,
+        *,
+        tempo: float,
+        peers: int | None,
+    ) -> None:
+        if (
+            self._last_link_tempo is None
+            or abs(self._last_link_tempo - tempo) > 1e-6
+        ):
+            self._last_link_tempo = tempo
+            await self.store.write(
+                DataPointValue(
+                    point_id=DataPointId(SONG_MODULE, "link_tempo"),
+                    value_type=ValueType.FLOAT,
+                    float_value=tempo,
+                )
+            )
+
+        if peers is not None:
+            await self.store.write(
+                DataPointValue(
+                    point_id=DataPointId(SONG_MODULE, "link_peers"),
+                    value_type=ValueType.INT,
+                    int_value=peers,
+                )
+            )
+
+    async def _on_osc_message(self, event: OscMessageEvent) -> None:
+        if event.direction != "input":
+            return
+
+        address = event.canonical_address or event.address
+        if address == self.config.key_osc_address:
+            await self._handle_key_message(event.arguments)
+            return
+        if (
+            self.config.key_root_osc_address
+            and address == self.config.key_root_osc_address
+        ):
+            await self._handle_key_root_message(event.arguments)
+            return
+        if (
+            self.config.key_mode_osc_address
+            and address == self.config.key_mode_osc_address
+        ):
+            await self._handle_key_mode_message(event.arguments)
+
+    async def _handle_key_message(self, arguments: tuple[Any, ...]) -> None:
+        if not arguments:
+            LOGGER.warning("ignored song key OSC message without arguments")
+            return
+        parsed = parse_key(str(arguments[0]))
+        if parsed is None:
+            LOGGER.warning("ignored unparseable song key: %s", arguments[0])
+            return
+        await self._publish_key(parsed)
+
+    async def _handle_key_root_message(self, arguments: tuple[Any, ...]) -> None:
+        if not arguments:
+            return
+        root = parse_key_root(arguments[0])
+        if root is None:
+            LOGGER.warning("ignored unparseable song key root: %s", arguments[0])
+            return
+        minor = self._last_key.minor if self._last_key is not None else False
+        await self._publish_key(
+            ParsedKey(root=root, minor=minor, raw=self._last_key.raw if self._last_key else "")
+        )
+
+    async def _handle_key_mode_message(self, arguments: tuple[Any, ...]) -> None:
+        if not arguments:
+            return
+        minor = parse_key_mode(arguments[0])
+        if minor is None:
+            LOGGER.warning("ignored unparseable song key mode: %s", arguments[0])
+            return
+        root = self._last_key.root if self._last_key is not None else 0
+        await self._publish_key(
+            ParsedKey(
+                root=root,
+                minor=minor,
+                raw=self._last_key.raw if self._last_key else "",
+            )
+        )
+
+    async def _publish_key(self, parsed: ParsedKey) -> None:
+        previous = self._last_key
+        self._last_key = parsed
+        force = (
+            previous is None
+            or previous.root != parsed.root
+            or previous.minor != parsed.minor
+        )
+        await self.store.write(
+            DataPointValue(
+                point_id=DataPointId(SONG_MODULE, "key_root"),
+                value_type=ValueType.INT,
+                int_value=parsed.root,
+                force_notify=force,
+            )
+        )
+        await self.store.write(
+            DataPointValue(
+                point_id=DataPointId(SONG_MODULE, "key_minor"),
+                value_type=ValueType.BOOL,
+                bool_value=parsed.minor,
+                force_notify=force,
+            )
+        )
+        LOGGER.info(
+            "bandhelper song key %s%s (%s)",
+            parsed.root_name,
+            "m" if parsed.minor else "",
+            parsed.raw or parsed.mode,
+        )

@@ -107,6 +107,20 @@ class RotaryDisplayConfig:
 
 
 @dataclass(frozen=True)
+class BandHelperConfig:
+    enabled: bool = False
+    link_enabled: bool = True
+    start_bpm: float = 120.0
+    min_bpm_delta: float = 0.5
+    follow_when_running: bool = False
+    quantize_step: float = 1.0
+    poll_interval_ms: int = 50
+    key_osc_address: str = "/midijuggler/song/key"
+    key_root_osc_address: str = "/midijuggler/song/key_root"
+    key_mode_osc_address: str = "/midijuggler/song/key_mode"
+
+
+@dataclass(frozen=True)
 class AppConfig:
     web: WebConfig = field(default_factory=WebConfig)
     runtime: RuntimeConfig = field(default_factory=RuntimeConfig)
@@ -114,6 +128,7 @@ class AppConfig:
     devices: dict[str, DeviceConfig] = field(default_factory=dict)
     master_clock: MasterClockConfig = field(default_factory=MasterClockConfig)
     rotary_display: RotaryDisplayConfig = field(default_factory=RotaryDisplayConfig)
+    bandhelper: BandHelperConfig = field(default_factory=BandHelperConfig)
     connections: list[ConnectionSpec] = field(default_factory=list)
     load_issues: tuple[str, ...] = ()
 
@@ -153,6 +168,7 @@ def load_config(path: str | Path) -> AppConfig:
         devices=config.devices,
         master_clock=config.master_clock,
         rotary_display=config.rotary_display,
+        bandhelper=config.bandhelper,
         connections=config.connections,
         load_issues=tuple(prefix_issues + list(config.load_issues)),
     )
@@ -816,6 +832,7 @@ def parse_config(raw: dict[str, Any], *, strict: bool = True) -> AppConfig:
     devices = normalize_device_libraries(devices, adapters)
     master_clock = _parse_master_clock(raw.get("master_clock", {}))
     rotary_display = _parse_rotary_display(raw.get("rotary_display", {}))
+    bandhelper = _parse_bandhelper(raw.get("bandhelper", {}))
     connections = _parse_connections(raw.get("connections", []), issues)
     connections = normalize_connections(connections, devices)
     devices, connections = _finalize_devices_and_connections(
@@ -832,6 +849,7 @@ def parse_config(raw: dict[str, Any], *, strict: bool = True) -> AppConfig:
         devices=devices,
         master_clock=master_clock,
         rotary_display=rotary_display,
+        bandhelper=bandhelper,
         connections=connections,
         load_issues=tuple(issues or ()),
     )
@@ -997,6 +1015,49 @@ def _parse_rotary_display_device(raw: Any) -> RotaryDisplayDeviceConfig:
         listen_port=listen_port,
         pulse_enabled=bool(raw.get("pulse_enabled", True)),
         bpm_step=bpm_step,
+    )
+
+
+def _parse_bandhelper(raw: Any) -> BandHelperConfig:
+    if raw is None:
+        raw = {}
+    if not isinstance(raw, dict):
+        raise ValueError("bandhelper must be a table")
+
+    start_bpm = _as_float(raw.get("start_bpm", 120.0), "bandhelper.start_bpm")
+    if start_bpm <= 0:
+        raise ValueError("bandhelper.start_bpm must be positive")
+
+    min_bpm_delta = _as_float(
+        raw.get("min_bpm_delta", 0.5),
+        "bandhelper.min_bpm_delta",
+    )
+    if min_bpm_delta < 0:
+        raise ValueError("bandhelper.min_bpm_delta must be >= 0")
+
+    quantize_step = _as_float(raw.get("quantize_step", 1.0), "bandhelper.quantize_step")
+    if quantize_step <= 0:
+        raise ValueError("bandhelper.quantize_step must be positive")
+
+    poll_interval_ms = _as_int(raw.get("poll_interval_ms", 50), "bandhelper.poll_interval_ms")
+    if poll_interval_ms <= 0:
+        raise ValueError("bandhelper.poll_interval_ms must be positive")
+
+    return BandHelperConfig(
+        enabled=bool(raw.get("enabled", False)),
+        link_enabled=bool(raw.get("link_enabled", True)),
+        start_bpm=start_bpm,
+        min_bpm_delta=min_bpm_delta,
+        follow_when_running=bool(raw.get("follow_when_running", False)),
+        quantize_step=quantize_step,
+        poll_interval_ms=poll_interval_ms,
+        key_osc_address=str(raw.get("key_osc_address", "/midijuggler/song/key")),
+        key_root_osc_address=str(
+            raw.get("key_root_osc_address", "/midijuggler/song/key_root")
+        ),
+        key_mode_osc_address=str(
+            raw.get("key_mode_osc_address", "/midijuggler/song/key_mode")
+        ),
     )
 
 
