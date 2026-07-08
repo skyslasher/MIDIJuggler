@@ -31,6 +31,32 @@ pip install 'midijuggler[ableton_link]'
 When you change songs, BandHelper updates the Link session tempo. MIDIJuggler
 joins as a Link peer and writes the BPM to the master clock (`clock.bpm`).
 
+BandHelper sends Link tempo when its **tempo function is running** (same as
+tapping the metronome button). There is no separate “push BPM only” Link mode.
+
+### Avoid hearing the BandHelper click
+
+If the metronome sound is distracting but Link BPM should still update:
+
+1. *Settings > Tempo & Pitch > Tempo Options* → set **click sound** to none/silent, or set **tempo volume** to `0`
+2. Optionally disable the **background flash** for tempo
+3. Keep the **Tempo** action on song selection so Link still receives the new BPM
+
+The tempo icon may still flash in BandHelper, but it will be silent.
+
+### BPM without starting BandHelper tempo at all
+
+Use **OSC** instead of Link for BPM-only updates:
+
+1. Create an OSC preset per song with address `/midijuggler/clock/bpm` and a
+   float argument matching that song’s tempo
+2. Attach the preset to the song
+3. *Settings > App Control* → **Song Selection** → **Send MIDI/OSC Presets**
+4. Leave Link enabled only if you still need it for other apps; MIDIJuggler will
+   accept the OSC BPM even when Link is unused
+
+This avoids running the BandHelper metronome entirely.
+
 ## BandHelper: key via OSC
 
 Ableton Link does **not** transport musical key. BandHelper OSC presets do not
