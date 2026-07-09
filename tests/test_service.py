@@ -308,6 +308,128 @@ def test_service_ignores_echo_suppressed_master_clock_osc() -> None:
     assert service.master_clock.bpm == pytest.approx(120.0)
 
 
+def _patch_adapters_noop_start(monkeypatch: pytest.MonkeyPatch, service: MIDIJugglerService) -> None:
+    async def fake_start(adapter) -> None:
+        adapter.running = True
+
+    async def fake_stop(adapter) -> None:
+        adapter.running = False
+
+    for adapter in service.adapters:
+        monkeypatch.setattr(adapter, "start", lambda adapter=adapter: fake_start(adapter))
+        monkeypatch.setattr(adapter, "stop", lambda adapter=adapter: fake_stop(adapter))
+
+
+async def _start_service_for_datapoint_tests(service: MIDIJugglerService) -> None:
+    await service.rtp_midi_manager.start()
+    await service.osc_desk_tracker.start()
+    await service.module_registry.start_all()
+    await service.web.refresh_all_device_datapoints()
+    if service.web.modifier_graph is not None:
+        await service.web.modifier_graph.replay_subscribed_sources_from_store()
+    service.event_bridge.attach()
+    await service.master_clock.start()
+
+
+def test_service_routes_master_clock_osc_to_store_with_datapoint_routing(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    async def scenario() -> MIDIJugglerService:
+        service = MIDIJugglerService(
+            parse_config(
+                {
+                    "runtime": {
+                        "datapoint_routing": True,
+                        "suppressed_inferred_device_adapters": ["osc"],
+                    },
+                    "master_clock": {"enabled": True, "bpm": 122.0},
+                    "adapters": {"osc": {"enabled": True, "type": "osc", "listen_port": 9000}},
+                    "devices": [],
+                    "rotary_display": {"enabled": True},
+                }
+            )
+        )
+        _patch_adapters_noop_start(monkeypatch, service)
+        await _start_service_for_datapoint_tests(service)
+        await service._handle_osc_message(
+            OscMessageEvent(
+                source="osc",
+                direction="input",
+                address="/midijuggler/clock/bpm",
+                arguments=(115.0,),
+            )
+        )
+        return service
+
+    service = asyncio.run(scenario())
+    assert service.master_clock.bpm == pytest.approx(115.0)
+    assert service.datapoint_store.float_value("clock.bpm_set") == pytest.approx(115.0)
+
+
+def test_service_routes_master_clock_osc_without_rotary_connection(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    async def scenario() -> MIDIJugglerService:
+        service = MIDIJugglerService(
+            parse_config(
+                {
+                    "runtime": {"datapoint_routing": True},
+                    "master_clock": {"enabled": True, "bpm": 122.0},
+                    "adapters": {"osc": {"enabled": True, "type": "osc", "listen_port": 9000}},
+                    "devices": [],
+                    "rotary_display": {"enabled": True},
+                }
+            )
+        )
+        _patch_adapters_noop_start(monkeypatch, service)
+        await _start_service_for_datapoint_tests(service)
+        await service._handle_osc_message(
+            OscMessageEvent(
+                source="osc",
+                direction="input",
+                address="/midijuggler/clock/bpm",
+                arguments=(115.0,),
+            )
+        )
+        return service
+
+    service = asyncio.run(scenario())
+    assert service.master_clock.bpm == pytest.approx(115.0)
+
+
+def test_service_routes_master_clock_osc_with_rotary_display_device(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from conftest import osc_device
+
+    async def scenario() -> MIDIJugglerService:
+        service = MIDIJugglerService(
+            parse_config(
+                {
+                    "runtime": {"datapoint_routing": True},
+                    "master_clock": {"enabled": True, "bpm": 122.0},
+                    "adapters": {"osc": {"enabled": True, "type": "osc", "listen_port": 9000}},
+                    "devices": [osc_device("rotary_encoder", "rotary_display", adapter="osc")],
+                    "rotary_display": {"enabled": True},
+                }
+            )
+        )
+        _patch_adapters_noop_start(monkeypatch, service)
+        await _start_service_for_datapoint_tests(service)
+        await service._handle_osc_message(
+            OscMessageEvent(
+                source="osc",
+                direction="input",
+                address="/midijuggler/clock/bpm",
+                arguments=(115.0,),
+            )
+        )
+        return service
+
+    service = asyncio.run(scenario())
+    assert service.master_clock.bpm == pytest.approx(115.0)
+
+
 def test_service_writes_master_clock_alsa_config(tmp_path) -> None:
     config_path = tmp_path / "config.toml"
     config_path.write_text(

@@ -34,7 +34,12 @@ from midijuggler.events import (
     MidiMessageEvent,
     OscMessageEvent,
 )
-from midijuggler.master_clock import MIDI_TIMING_CLOCK, MasterClock
+from midijuggler.datapoint.types import DataPointId, float_value, trigger_value
+from midijuggler.master_clock import (
+    MIDI_TIMING_CLOCK,
+    MasterClock,
+    click_interval_to_set_value,
+)
 from midijuggler.device.registry import DeviceRegistry
 from midijuggler.device.lookup import device_id_for_adapter
 from midijuggler.modules.build import build_module_registry
@@ -227,14 +232,55 @@ class MIDIJugglerService:
     async def _handle_osc_message(self, event: OscMessageEvent) -> None:
         if event.direction != "input" or event.echo_suppressed:
             return
-        if (
-            self.config.master_clock.enabled
-            and not self.config.runtime.datapoint_routing
-            and event.source in self._allowed_osc_input_sources()
-        ):
-            command = self.master_clock.remote.command_from_osc(event)
-            if command is not None:
-                await self.master_clock.handle_command(command)
+        if not self.config.master_clock.enabled:
+            return
+        if event.source not in self._allowed_osc_input_sources():
+            return
+        command = self.master_clock.remote.command_from_osc(event)
+        if command is None:
+            return
+        if self.config.runtime.datapoint_routing:
+            await self._route_master_clock_command_to_store(command)
+            return
+        await self.master_clock.handle_command(command)
+
+    async def _route_master_clock_command_to_store(
+        self,
+        command: MasterClockCommandEvent,
+    ) -> None:
+        """Publish master-clock OSC controls to clock.* data points."""
+
+        if command.command == "set_bpm":
+            await self.datapoint_store.write(
+                float_value(
+                    DataPointId("clock", "bpm_set"),
+                    float(command.value),
+                    force_notify=True,
+                )
+            )
+            return
+        if command.command == "set_click_interval":
+            await self.datapoint_store.write(
+                float_value(
+                    DataPointId("clock", "click_interval_set"),
+                    click_interval_to_set_value(str(command.value)),
+                    force_notify=True,
+                )
+            )
+            return
+        trigger_points = {
+            "start_stop": "start_stop",
+            "tap_tempo": "tap_tempo",
+            "toggle_click": "click_toggle",
+        }
+        point = trigger_points.get(command.command)
+        if point is not None:
+            await self._pulse_clock_trigger(point)
+
+    async def _pulse_clock_trigger(self, point: str) -> None:
+        point_id = DataPointId("clock", point)
+        await self.datapoint_store.write(trigger_value(point_id, True))
+        await self.datapoint_store.write(trigger_value(point_id, False))
 
     async def _handle_master_clock_command(self, event: MasterClockCommandEvent) -> None:
         if self.config.master_clock.enabled:

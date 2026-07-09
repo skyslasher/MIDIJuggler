@@ -116,9 +116,6 @@ def test_rotary_display_publishes_new_bpm_after_encoder_osc_when_clock_already_u
         await generator.start()
         await graph.start()
         await module.start()
-        await master_clock.handle_command(
-            MasterClockCommandEvent(source="osc", command="set_bpm", value=132.0)
-        )
         await bridge._on_osc_message(
             OscMessageEvent(
                 source="osc",
