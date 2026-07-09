@@ -3,11 +3,13 @@
 from __future__ import annotations
 
 import asyncio
+from collections import deque
 
 import pytest
 
 from midijuggler.config import parse_config
 from midijuggler.datapoint.store import DataPointStore
+from midijuggler.datapoint.types import DataPointId, DataPointValue, ValueType
 from midijuggler.eventbus import EventBus
 from midijuggler.master_clock import MasterClock
 from midijuggler.modules.generator.master_clock import MasterClockGenerator
@@ -182,6 +184,7 @@ def test_serial_beat_coalesces_catch_up_during_in_flight_send() -> None:
     module = RotaryDisplayModule(store, config.rotary_display, master_clock, bus)
     module.running = True
     module._serial_connected = True
+    master_clock.running = True
 
     class FakeSerial:
         def write(self, data: bytes) -> int:
@@ -194,7 +197,6 @@ def test_serial_beat_coalesces_catch_up_during_in_flight_send() -> None:
         module._beat_outbox.append(1.0)
         await module._drain_pending_beat_sends()
         module._pending_beat_value = 1.0
-        module._beats_received_during_send = 2
         await module._drain_pending_beat_sends()
 
     asyncio.run(scenario())
@@ -202,9 +204,47 @@ def test_serial_beat_coalesces_catch_up_during_in_flight_send() -> None:
     assert serial_payloads == ["beat 1.0\n", "beat 1.0\n"]
 
 
-def test_serial_beat_waits_before_sending_catch_up(monkeypatch: pytest.MonkeyPatch) -> None:
+def test_serial_beat_coalesces_backlog_to_latest() -> None:
     serial_payloads: list[str] = []
-    clock = {"now": 0.0}
+
+    config = parse_config(
+        {
+            "master_clock": {"enabled": True, "bpm": 170.0},
+            "rotary_display": {
+                "enabled": True,
+                "transport": "serial",
+                "serial_port": "/dev/ttyACM0",
+            },
+        }
+    )
+    store = DataPointStore()
+    bus = EventBus()
+    master_clock = MasterClock(config.master_clock, bus)
+    module = RotaryDisplayModule(store, config.rotary_display, master_clock, bus)
+    module.running = True
+    module._serial_connected = True
+    master_clock.running = True
+
+    class FakeSerial:
+        def write(self, data: bytes) -> int:
+            serial_payloads.append(data.decode())
+            return len(data)
+
+    module._serial_port = FakeSerial()
+
+    async def scenario() -> None:
+        module._beat_outbox.extend([1.0, 1.0, 1.0])
+        await module._drain_pending_beat_sends()
+
+    asyncio.run(scenario())
+
+    assert serial_payloads == ["beat 1.0\n"]
+
+
+def test_serial_beat_sends_immediately_without_gap_wait(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    serial_payloads: list[str] = []
     sleep_log: list[float] = []
 
     config = parse_config(
@@ -223,14 +263,10 @@ def test_serial_beat_waits_before_sending_catch_up(monkeypatch: pytest.MonkeyPat
     module = RotaryDisplayModule(store, config.rotary_display, master_clock, bus)
     module.running = True
     module._serial_connected = True
-    monkeypatch.setattr(
-        "midijuggler.modules.interface.rotary_display.module.time.monotonic",
-        lambda: clock["now"],
-    )
+    master_clock.running = True
 
     async def fake_sleep(duration: float) -> None:
         sleep_log.append(duration)
-        clock["now"] += duration
 
     monkeypatch.setattr(
         "midijuggler.modules.interface.rotary_display.module.asyncio.sleep",
@@ -247,23 +283,19 @@ def test_serial_beat_waits_before_sending_catch_up(monkeypatch: pytest.MonkeyPat
     async def scenario() -> None:
         module._beat_outbox.append(1.0)
         await module._drain_pending_beat_sends()
-        clock["now"] = 0.05
         module._pending_beat_value = 1.0
-        module._beats_received_during_send = 2
         await module._drain_pending_beat_sends()
 
     asyncio.run(scenario())
 
     assert serial_payloads == ["beat 1.0\n", "beat 1.0\n"]
-    assert sleep_log == [pytest.approx(0.15, abs=0.001)]
+    assert sleep_log == []
 
 
-def test_serial_beat_paces_backlog_without_dropping_at_170_bpm(
+def test_serial_beat_delivers_latest_when_backlogged_at_170_bpm(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     serial_payloads: list[str] = []
-    clock = {"now": 0.0}
-    sleep_log: list[float] = []
 
     config = parse_config(
         {
@@ -281,19 +313,7 @@ def test_serial_beat_paces_backlog_without_dropping_at_170_bpm(
     module = RotaryDisplayModule(store, config.rotary_display, master_clock, bus)
     module.running = True
     module._serial_connected = True
-    monkeypatch.setattr(
-        "midijuggler.modules.interface.rotary_display.module.time.monotonic",
-        lambda: clock["now"],
-    )
-
-    async def fake_sleep(duration: float) -> None:
-        sleep_log.append(duration)
-        clock["now"] += duration
-
-    monkeypatch.setattr(
-        "midijuggler.modules.interface.rotary_display.module.asyncio.sleep",
-        fake_sleep,
-    )
+    master_clock.running = True
 
     class FakeSerial:
         def write(self, data: bytes) -> int:
@@ -308,9 +328,92 @@ def test_serial_beat_paces_backlog_without_dropping_at_170_bpm(
 
     asyncio.run(scenario())
 
-    assert serial_payloads == ["beat 1.0\n", "beat 1.0\n", "beat 1.0\n"]
-    gap = (60.0 / 170.0) * 0.4
-    assert sleep_log == [pytest.approx(gap, abs=0.001), pytest.approx(gap, abs=0.001)]
+    assert serial_payloads == ["beat 1.0\n"]
+
+
+def test_beat_outbox_cleared_when_clock_stops() -> None:
+    serial_payloads: list[str] = []
+
+    config = parse_config(
+        {
+            "master_clock": {"enabled": True, "bpm": 170.0},
+            "rotary_display": {
+                "enabled": True,
+                "transport": "serial",
+                "serial_port": "/dev/ttyACM0",
+            },
+        }
+    )
+    store = DataPointStore()
+    bus = EventBus()
+    master_clock = MasterClock(config.master_clock, bus)
+    module = RotaryDisplayModule(store, config.rotary_display, master_clock, bus)
+    module.running = True
+    module._serial_connected = True
+    master_clock.running = True
+
+    class FakeSerial:
+        def write(self, data: bytes) -> int:
+            serial_payloads.append(data.decode())
+            return len(data)
+
+    module._serial_port = FakeSerial()
+
+    async def scenario() -> None:
+        module._beat_outbox.extend([1.0, 1.0, 1.0])
+        module._pending_beat_value = 1.0
+        master_clock.running = False
+        await module._cancel_beat_delivery(send_off=True)
+
+    asyncio.run(scenario())
+
+    assert module._beat_outbox == deque()
+    assert module._pending_beat_value is None
+    assert serial_payloads == ["beat 0.0\n"]
+
+
+def test_running_feedback_clears_pending_beats() -> None:
+    serial_payloads: list[str] = []
+
+    config = parse_config(
+        {
+            "master_clock": {"enabled": True, "bpm": 120.0},
+            "rotary_display": {
+                "enabled": True,
+                "transport": "serial",
+                "serial_port": "/dev/ttyACM0",
+            },
+        }
+    )
+    store = DataPointStore()
+    bus = EventBus()
+    master_clock = MasterClock(config.master_clock, bus)
+    module = RotaryDisplayModule(store, config.rotary_display, master_clock, bus)
+    module.running = True
+    module._serial_connected = True
+    master_clock.running = False
+
+    class FakeSerial:
+        def write(self, data: bytes) -> int:
+            serial_payloads.append(data.decode())
+            return len(data)
+
+    module._serial_port = FakeSerial()
+
+    async def scenario() -> None:
+        module._beat_outbox.extend([1.0, 1.0])
+        await module._on_feedback(
+            DataPointValue(
+                point_id=DataPointId("rotary_display", "running"),
+                value_type=ValueType.BOOL,
+                bool_value=False,
+            )
+        )
+
+    asyncio.run(scenario())
+
+    assert module._beat_outbox == deque()
+    assert serial_payloads == ["beat 0.0\n", "sync 120.0 0 0 quarter\n"]
 
 
 def test_serial_beat_delivers_nine_of_nine_at_170_bpm(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -333,6 +436,7 @@ def test_serial_beat_delivers_nine_of_nine_at_170_bpm(monkeypatch: pytest.Monkey
     module = RotaryDisplayModule(store, config.rotary_display, master_clock, bus)
     module.running = True
     module._serial_connected = True
+    master_clock.running = True
     monkeypatch.setattr(
         "midijuggler.modules.interface.rotary_display.module.time.monotonic",
         lambda: clock["now"],
@@ -476,6 +580,7 @@ def test_production_config_sends_beats_on_serial_without_feedback_host(
     module = RotaryDisplayModule(store, config.rotary_display, master_clock, bus)
     module.running = True
     module._serial_connected = True
+    master_clock.running = True
 
     class FakeSerial:
         def write(self, data: bytes) -> int:

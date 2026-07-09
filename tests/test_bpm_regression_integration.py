@@ -166,6 +166,7 @@ def test_beat_reaches_rotary_display_with_datapoint_routing(
             if m.__class__.__name__ == "RotaryDisplayModule"
         )
         service.master_clock.position_ticks = 0
+        service.master_clock.running = True
         for _ in range(48):
             await service.master_clock.emit_tick()
         if module._beat_send_task is not None:
@@ -199,12 +200,15 @@ def test_beat_rising_edge_survives_repeated_one_values(
         )
         module._beat_pulse_active = True
         module._last_beat = 1.0
+        service.master_clock.running = True
         await service.datapoint_store.write(float_value("clock.beat", 1.0, force_notify=True))
+        if module._beat_send_task is not None:
+            await module._beat_send_task
         await service.datapoint_store.write(float_value("clock.beat", 0.0, force_notify=True))
         await service.datapoint_store.write(float_value("clock.beat", 1.0, force_notify=True))
         if module._beat_send_task is not None:
             await module._beat_send_task
-        await asyncio.sleep(0.25)
+        await asyncio.sleep(0.05)
 
     asyncio.run(scenario())
 
@@ -265,11 +269,10 @@ def test_serial_encoder_bpm_with_bandhelper_disabled(
     assert sync[-1][1][0] == pytest.approx(140.0)
 
 
-def test_high_bpm_slow_serial_send_delivers_catch_up_beats(
+def test_high_bpm_slow_serial_send_delivers_live_beats(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     serial_payloads: list[str] = []
-    clock = {"now": 0.0}
 
     config = parse_config(
         {
@@ -287,18 +290,7 @@ def test_high_bpm_slow_serial_send_delivers_catch_up_beats(
     module = RotaryDisplayModule(store, config.rotary_display, master_clock, bus)
     module.running = True
     module._serial_connected = True
-    monkeypatch.setattr(
-        "midijuggler.modules.interface.rotary_display.module.time.monotonic",
-        lambda: clock["now"],
-    )
-
-    async def fake_sleep(duration: float) -> None:
-        clock["now"] += duration
-
-    monkeypatch.setattr(
-        "midijuggler.modules.interface.rotary_display.module.asyncio.sleep",
-        fake_sleep,
-    )
+    master_clock.running = True
 
     class FakeSerial:
         def write(self, data: bytes) -> int:
@@ -313,23 +305,54 @@ def test_high_bpm_slow_serial_send_delivers_catch_up_beats(
     original_send_serial = module._send_serial
 
     async def slow_send_serial(payload: str) -> None:
-        clock["now"] += 0.04
+        await asyncio.sleep(0.04)
         await original_send_serial(payload)
 
     module._send_serial = slow_send_serial
 
     async def scenario() -> None:
-        interval = 60.0 / 170.0
         for _ in range(9):
             module._schedule_beat_send(1.0)
             if module._beat_send_task is not None:
                 await module._beat_send_task
-            clock["now"] += interval
 
     asyncio.run(scenario())
 
     beat_lines = [line for line in serial_payloads if line.startswith("beat ")]
     assert len(beat_lines) == 9
+
+
+def test_clock_beat_publishes_nine_of_nine_at_170_bpm(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    config = _production_config()
+    config["master_clock"]["bpm"] = 170.0
+    service = MIDIJugglerService(parse_config(config))
+    _patch_adapters_noop_start(monkeypatch, service)
+    beat_ones: list[float] = []
+
+    async def capture_beat(value):
+        if value.float_value is not None and value.float_value > 0.5:
+            beat_ones.append(value.float_value)
+
+    async def scenario() -> None:
+        service.datapoint_store.subscribe("clock.beat", capture_beat)
+        await _start_service(service)
+        service.master_clock.running = True
+        beat_ticks = MIDI_CLOCK_TICKS_PER_QUARTER * 9
+        for _ in range(beat_ticks):
+            await service.master_clock.emit_tick()
+        module = next(
+            m
+            for m in service.module_registry.modules()
+            if isinstance(m, RotaryDisplayModule)
+        )
+        if module._beat_send_task is not None:
+            await module._beat_send_task
+
+    asyncio.run(scenario())
+
+    assert len(beat_ones) == 9
 
 
 def test_beat_send_serializes_concurrent_tasks(
@@ -361,6 +384,7 @@ def test_beat_send_serializes_concurrent_tasks(
 
     async def scenario() -> None:
         module.running = True
+        master_clock.running = True
         module._schedule_beat_send(1.0)
         while not module._beat_send_in_flight:
             await asyncio.sleep(0)

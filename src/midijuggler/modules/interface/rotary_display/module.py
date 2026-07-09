@@ -57,7 +57,6 @@ from midijuggler.rotary_mdns import (
 
 LOGGER = logging.getLogger(__name__)
 
-BEAT_SEND_GAP_RATIO = 0.4
 DEVICE_SET_BPM_TAP_TEMPO_COOLDOWN_S = 3.0
 
 
@@ -88,9 +87,7 @@ class RotaryDisplayModule(InterfaceModule):
         self._beat_send_task: asyncio.Task[None] | None = None
         self._beat_outbox: deque[float] = deque()
         self._pending_beat_value: float | None = None
-        self._beats_received_during_send = 0
         self._beat_send_in_flight = False
-        self._last_beat_serial_sent_at: float | None = None
         self._last_device_set_bpm_at: float | None = None
         self._last_pushed_fingerprint: str | None = None
         self._serial_lock = asyncio.Lock()
@@ -247,7 +244,9 @@ class RotaryDisplayModule(InterfaceModule):
             beat = float(value.float_value)
             active = beat > 0.5
             if active:
-                if value.force_notify or not self._beat_pulse_active:
+                if self.master_clock.running and (
+                    value.force_notify or not self._beat_pulse_active
+                ):
                     self._schedule_beat_send(beat)
                 self._beat_pulse_active = True
                 self._last_beat = beat
@@ -255,6 +254,8 @@ class RotaryDisplayModule(InterfaceModule):
                 self._beat_pulse_active = False
                 self._last_beat = beat
             return
+        if value.point_id.point == "running" and value.bool_value is False:
+            await self._cancel_beat_delivery(send_off=True)
         await self._send_sync(force=True)
 
     def _current_sync_state(self) -> RotarySyncState:
@@ -300,16 +301,25 @@ class RotaryDisplayModule(InterfaceModule):
             [state.bpm, 1 if state.running else 0, 1 if state.click_enabled else 0, state.click_interval],
         )
 
-    def _min_beat_send_gap(self) -> float:
-        bpm = max(float(self.master_clock.bpm), 1.0)
-        return (60.0 / bpm) * BEAT_SEND_GAP_RATIO
+    def _clear_pending_beats(self) -> None:
+        self._beat_outbox.clear()
+        self._pending_beat_value = None
+        self._beat_send_in_flight = False
+        if self._beat_send_task is not None and not self._beat_send_task.done():
+            self._beat_send_task.cancel()
+        self._beat_send_task = None
+
+    async def _cancel_beat_delivery(self, *, send_off: bool = False) -> None:
+        self._clear_pending_beats()
+        self._beat_pulse_active = False
+        if send_off:
+            await self._send_beat(0.0)
 
     def _schedule_beat_send(self, value: float) -> None:
-        if not self.running:
+        if not self.running or not self.master_clock.running or value <= 0.5:
             return
         if self._beat_send_in_flight:
             self._pending_beat_value = value
-            self._beats_received_during_send += 1
             return
         self._beat_outbox.append(value)
         if self._beat_send_task is None or self._beat_send_task.done():
@@ -318,28 +328,38 @@ class RotaryDisplayModule(InterfaceModule):
                 name="rotary-display-beat",
             )
 
+    def _dequeue_beat_send_value(self) -> float | None:
+        if self._pending_beat_value is not None:
+            value = self._pending_beat_value
+            self._pending_beat_value = None
+            self._beat_outbox.clear()
+            return value
+        if not self._beat_outbox:
+            return None
+        if len(self._beat_outbox) > 1:
+            value = self._beat_outbox[-1]
+            self._beat_outbox.clear()
+            return value
+        return self._beat_outbox.popleft()
+
     async def _drain_pending_beat_sends(self) -> None:
-        while self._beat_outbox or self._pending_beat_value is not None:
-            async with self._beat_send_lock:
-                if self._pending_beat_value is not None:
-                    value = self._pending_beat_value
-                    self._pending_beat_value = None
-                    self._beats_received_during_send = 0
-                elif self._beat_outbox:
-                    value = self._beat_outbox.popleft()
-                else:
+        try:
+            while self._beat_outbox or self._pending_beat_value is not None:
+                if not self.master_clock.running:
                     break
-                if self._last_beat_serial_sent_at is not None:
-                    gap = self._min_beat_send_gap()
-                    wait = gap - (time.monotonic() - self._last_beat_serial_sent_at)
-                    if wait > 0:
-                        await asyncio.sleep(wait)
-                self._beat_send_in_flight = True
-                try:
-                    await self._send_beat(value)
-                    self._last_beat_serial_sent_at = time.monotonic()
-                finally:
-                    self._beat_send_in_flight = False
+                async with self._beat_send_lock:
+                    if not self.master_clock.running:
+                        break
+                    value = self._dequeue_beat_send_value()
+                    if value is None:
+                        break
+                    self._beat_send_in_flight = True
+                    try:
+                        await self._send_beat(value)
+                    finally:
+                        self._beat_send_in_flight = False
+        finally:
+            self._beat_send_task = None
 
     async def _send_beat(self, value: float) -> None:
         # Beats are timing-critical: never duplicate on OSC and serial when both are enabled.
