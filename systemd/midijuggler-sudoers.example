@@ -9,3 +9,4 @@
 midijuggler ALL=(root) NOPASSWD: /opt/midijuggler/app/scripts/set-hostname.sh
 midijuggler ALL=(root) NOPASSWD: /opt/midijuggler/app/scripts/restart-midijuggler.sh
 midijuggler ALL=(root) NOPASSWD: /opt/midijuggler/app/scripts/gamepi-reboot.sh
+midijuggler ALL=(root) NOPASSWD: /opt/midijuggler/app/scripts/gamepi-disable-blanking.sh

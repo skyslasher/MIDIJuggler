@@ -89,7 +89,26 @@ def test_gamepi_keep_awake_rejects_non_localhost() -> None:
         request_display_keep_awake(request)
 
 
-def test_clock_gamepi_static_asset_exists() -> None:
+def test_gamepi_keep_awake_uses_sudo_wrapper(monkeypatch, tmp_path: Path) -> None:
+    from midijuggler.web import gamepi_system
+
+    script = tmp_path / "gamepi-disable-blanking.sh"
+    script.write_text("#!/bin/sh\n", encoding="utf-8")
+    monkeypatch.setattr(gamepi_system, "_blanking_script", lambda: script)
+
+    calls: list[list[str]] = []
+
+    def fake_run(command, **kwargs):
+        calls.append(command)
+        return SimpleNamespace(returncode=0, stdout="", stderr="")
+
+    monkeypatch.setattr(gamepi_system.subprocess, "run", fake_run)
+
+    payload = gamepi_system.request_display_keep_awake(SimpleNamespace(remote="127.0.0.1"))
+
+    assert payload == {"ok": True}
+    assert calls == [["sudo", "-n", str(script)]]
+
     from pathlib import Path
 
     path = Path(__file__).resolve().parents[1] / "src/midijuggler/web/static/clock-gamepi.html"
@@ -112,4 +131,5 @@ def test_clock_gamepi_static_asset_exists() -> None:
     assert "text-align: center" in text
     assert "brightnessTrack," not in text
     assert "/api/gamepi/keep-awake" in text
-    assert "updateDisplayKeepAwake" in text
+    assert "startDisplayKeepAwake" in text
+    assert "KEEP_AWAKE_INTERVAL_MS = 15000" in text

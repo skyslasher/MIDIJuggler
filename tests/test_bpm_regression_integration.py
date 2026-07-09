@@ -199,16 +199,10 @@ def test_beat_rising_edge_survives_repeated_one_values(
             for m in service.module_registry.modules()
             if m.__class__.__name__ == "RotaryDisplayModule"
         )
-        module._beat_pulse_active = True
-        module._last_beat = 1.0
         service.master_clock.running = True
-        await service.datapoint_store.write(float_value("clock.beat", 1.0, force_notify=True))
-        if module._beat_send_task is not None:
-            await module._beat_send_task
-        await service.datapoint_store.write(float_value("clock.beat", 0.0, force_notify=True))
-        await service.datapoint_store.write(float_value("clock.beat", 1.0, force_notify=True))
-        if module._beat_send_task is not None:
-            await module._beat_send_task
+        module._on_transport_beat_pulse()
+        await asyncio.sleep(0.05)
+        module._on_transport_beat_pulse()
         await asyncio.sleep(0.05)
 
     asyncio.run(scenario())

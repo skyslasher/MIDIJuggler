@@ -61,7 +61,7 @@ def request_display_keep_awake(request: web.Request) -> dict[str, bool | str]:
     env.setdefault("GAMEPI_ALLOW_SETTERM", "1")
     try:
         result = subprocess.run(
-            [str(script)],
+            ["sudo", "-n", str(script)],
             check=False,
             capture_output=True,
             text=True,

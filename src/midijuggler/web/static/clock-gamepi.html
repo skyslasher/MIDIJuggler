@@ -386,7 +386,7 @@
     let rebootHoldTimer = null;
     let displayWakeLock = null;
     let keepAwakeTimer = null;
-    const KEEP_AWAKE_INTERVAL_MS = 20000;
+    const KEEP_AWAKE_INTERVAL_MS = 15000;
 
     // GamePi13 gpio-key: physical Start → KEY_Q, Select → KEY_S (Chromium: q / s).
     function isStartKey(key) {
@@ -564,17 +564,19 @@
       displayWakeLock = null;
     }
 
-    function updateDisplayKeepAwake(running) {
+    function startDisplayKeepAwake() {
       if (keepAwakeTimer) {
-        clearInterval(keepAwakeTimer);
-        keepAwakeTimer = null;
+        return;
       }
-      if (running) {
+      requestDisplayKeepAwake();
+      keepAwakeTimer = setInterval(() => {
         requestDisplayKeepAwake();
+      }, KEEP_AWAKE_INTERVAL_MS);
+    }
+
+    function updateDisplayWakeLock(running) {
+      if (running) {
         acquireDisplayWakeLock();
-        keepAwakeTimer = setInterval(() => {
-          requestDisplayKeepAwake();
-        }, KEEP_AWAKE_INTERVAL_MS);
         return;
       }
       releaseDisplayWakeLock();
@@ -670,7 +672,7 @@
       }
       if (clock.running != null) {
         bpmCard.classList.toggle("running", Boolean(clock.running));
-        updateDisplayKeepAwake(Boolean(clock.running));
+        updateDisplayWakeLock(Boolean(clock.running));
       }
 
       if (clock.click_enabled != null) {
@@ -991,6 +993,7 @@
 
     updateFlashButton();
     setZone("bpm");
+    startDisplayKeepAwake();
 
     function connectMonitor() {
       const socket = new WebSocket(wsUrl());
@@ -1031,7 +1034,7 @@
             renderClock({ bpm: payload.payload.float_value });
           } else if (payload.payload.id === "clock.running" && payload.payload.bool_value != null) {
             renderClock({ running: payload.payload.bool_value });
-            updateDisplayKeepAwake(Boolean(payload.payload.bool_value));
+            updateDisplayWakeLock(Boolean(payload.payload.bool_value));
           }
           return;
         }
