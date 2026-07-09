@@ -6,6 +6,7 @@ import pytest
 
 from conftest import osc_device
 from midijuggler.config import parse_config
+from midijuggler.clock import MIDI_CLOCK_TICKS_PER_QUARTER
 from midijuggler.datapoint.types import float_value
 from midijuggler.events import OscMessageEvent
 from midijuggler.modules.interface.bandhelper.module import BandHelperModule
@@ -199,7 +200,7 @@ def test_beat_rising_edge_survives_repeated_one_values(
         for msg in batch
         if msg[0] == "/midijuggler/rotary/beat" and msg[1][0] == pytest.approx(1.0)
     ]
-    assert len(beats) == 1
+    assert len(beats) == 2
 
 
 def test_serial_encoder_bpm_with_bandhelper_disabled(
@@ -248,3 +249,37 @@ def test_serial_encoder_bpm_with_bandhelper_disabled(
     assert service.datapoint_store.float_value("clock.bpm_set") == pytest.approx(140.0)
     assert sync
     assert sync[-1][1][0] == pytest.approx(140.0)
+
+
+def test_high_bpm_beat_count_matches_transport(
+    monkeypatch: pytest.MonkeyPatch,
+    capture_sync: list,
+) -> None:
+    config = _production_config()
+    config["master_clock"]["bpm"] = 180.0
+    service = MIDIJugglerService(parse_config(config))
+    _patch_adapters_noop_start(monkeypatch, service)
+    original_send_beat = RotaryDisplayModule._send_beat
+
+    async def slow_send_beat(self, value: float) -> None:
+        await asyncio.sleep(0.04)
+        await original_send_beat(self, value)
+
+    monkeypatch.setattr(RotaryDisplayModule, "_send_beat", slow_send_beat)
+
+    async def scenario() -> None:
+        await _start_service(service)
+        beat_ticks = MIDI_CLOCK_TICKS_PER_QUARTER * 8
+        for _ in range(beat_ticks):
+            await service.master_clock.emit_tick()
+        await asyncio.sleep(0.5)
+
+    asyncio.run(scenario())
+
+    beats = [
+        msg
+        for batch in capture_sync
+        for msg in batch
+        if msg[0] == "/midijuggler/rotary/beat" and msg[1][0] == pytest.approx(1.0)
+    ]
+    assert len(beats) == 8

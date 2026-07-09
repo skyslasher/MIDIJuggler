@@ -33,7 +33,7 @@ from midijuggler.modules.base import GeneratorModule
 
 CLOCK_MODULE = "clock"
 BPM_EPSILON = 1e-6
-BEAT_FLASH_INTERVAL_RATIO = 0.9
+BEAT_FLASH_INTERVAL_RATIO = 0.45
 BEAT_INTERVAL_MS_KEYS = {
     "sixteenth": "sixteenth_ms",
     "eighth": "eighth_ms",
@@ -64,6 +64,7 @@ class MasterClockGenerator(GeneratorModule):
         self._click_toggle_pressed = False
         self._click_interval_cycle_pressed = False
         self._beat_off_task: asyncio.Task[None] | None = None
+        self._beat_publish_lock = asyncio.Lock()
 
     async def publish_outputs(self) -> None:
         await self._publish_outputs()
@@ -505,15 +506,16 @@ class MasterClockGenerator(GeneratorModule):
         )
 
     async def publish_beat(self) -> None:
-        await self._cancel_beat_off()
-        point = DataPointId(CLOCK_MODULE, "beat")
-        await self.store.write(float_value(point, 0.0, force_notify=True))
-        await self.store.write(float_value(point, 1.0, force_notify=True))
-        flash_seconds = self._effective_beat_flash_seconds()
-        self._beat_off_task = asyncio.create_task(
-            self._clear_beat_flash(flash_seconds),
-            name="clock-beat-off",
-        )
+        async with self._beat_publish_lock:
+            await self._cancel_beat_off()
+            point = DataPointId(CLOCK_MODULE, "beat")
+            await self.store.write(float_value(point, 0.0, force_notify=True))
+            await self.store.write(float_value(point, 1.0, force_notify=True))
+            flash_seconds = self._effective_beat_flash_seconds()
+            self._beat_off_task = asyncio.create_task(
+                self._clear_beat_flash(flash_seconds),
+                name="clock-beat-off",
+            )
 
     def _beat_interval_ms(self) -> float:
         key = BEAT_INTERVAL_MS_KEYS.get(
@@ -531,7 +533,9 @@ class MasterClockGenerator(GeneratorModule):
     async def _clear_beat_flash(self, duration_seconds: float) -> None:
         try:
             await asyncio.sleep(duration_seconds)
-            await self.store.write(float_value(DataPointId(CLOCK_MODULE, "beat"), 0.0))
+            await self.store.write(
+                float_value(DataPointId(CLOCK_MODULE, "beat"), 0.0, force_notify=True)
+            )
         finally:
             self._beat_off_task = None
 

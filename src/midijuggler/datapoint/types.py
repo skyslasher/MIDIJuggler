@@ -221,6 +221,7 @@ def relay_value(value: DataPointValue, target: DataPointId | str) -> DataPointVa
         osc_address=value.osc_address,
         osc_arguments=value.osc_arguments,
         emit_outputs=value.emit_outputs,
+        force_notify=value.force_notify,
     )
 
 

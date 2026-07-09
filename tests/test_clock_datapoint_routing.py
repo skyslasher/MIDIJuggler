@@ -705,6 +705,50 @@ def test_clock_beat_pulses_on_click_interval() -> None:
     assert received == [0.0, 1.0, 0.0]
 
 
+def test_beat_passthrough_preserves_force_notify() -> None:
+    store = DataPointStore()
+    received: list[float | None] = []
+
+    async def handler(value: DataPointValue) -> None:
+        received.append(value.float_value)
+
+    store.register(
+        DataPointSpec(
+            id=DataPointId("rotary_display", "beat"),
+            value_type=ValueType.FLOAT,
+            direction=DataPointDirection.OUTPUT,
+        )
+    )
+    store.subscribe("rotary_display.beat", handler)
+    graph = ModifierGraph(
+        store,
+        [
+            ConnectionSpec(
+                id="clock-beat-to-rotary-display",
+                source="clock.beat",
+                target="rotary_display.beat",
+                modifier=ModifierKind.PASSTHROUGH,
+            )
+        ],
+    )
+    store.register(
+        DataPointSpec(
+            id=DataPointId("clock", "beat"),
+            value_type=ValueType.FLOAT,
+            direction=DataPointDirection.OUTPUT,
+        )
+    )
+
+    async def scenario() -> None:
+        await graph.start()
+        await store.write(float_value("clock.beat", 1.0))
+        await store.write(float_value("clock.beat", 1.0, force_notify=True))
+
+    asyncio.run(scenario())
+
+    assert received == [1.0, 1.0]
+
+
 def test_clock_beat_flash_caps_to_click_interval() -> None:
     config = parse_config(
         {
@@ -720,8 +764,8 @@ def test_clock_beat_flash_caps_to_click_interval() -> None:
     master_clock = MasterClock(config.master_clock, EventBus())
     clock_gen = MasterClockGenerator(master_clock, store)
 
-    # Eighth note at 240 BPM is 125 ms; flash is capped to 90% of that interval.
-    assert clock_gen._effective_beat_flash_seconds() == pytest.approx(0.1125, abs=0.001)
+    # Eighth note at 240 BPM is 125 ms; flash is capped to 45% of that interval.
+    assert clock_gen._effective_beat_flash_seconds() == pytest.approx(0.05625, abs=0.001)
 
 
 def test_clock_beat_publishes_without_audio_click() -> None:

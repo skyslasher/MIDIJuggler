@@ -142,6 +142,9 @@ class RotaryDisplayModule(InterfaceModule):
     async def start(self) -> None:
         await super().start()
         for point in ROTARY_FEEDBACK_POINTS:
+            if point == "beat":
+                self.store.subscribe(DataPointId("clock", "beat"), self._on_feedback)
+                continue
             self.store.subscribe(DataPointId(ROTARY_MODULE, point), self._on_feedback)
         self.bus.subscribe(OscMessageEvent, self._on_osc_message)
         self._start_serial_loop_if_needed()
@@ -231,11 +234,12 @@ class RotaryDisplayModule(InterfaceModule):
                 return
             beat = float(value.float_value)
             active = beat > 0.5
-            if active and not self._beat_pulse_active:
+            if active:
+                if value.force_notify or not self._beat_pulse_active:
+                    self._schedule_beat_send(beat)
                 self._beat_pulse_active = True
                 self._last_beat = beat
-                await self._send_beat(beat)
-            elif not active:
+            else:
                 self._beat_pulse_active = False
                 self._last_beat = beat
             return
@@ -284,9 +288,14 @@ class RotaryDisplayModule(InterfaceModule):
             [state.bpm, 1 if state.running else 0, 1 if state.click_enabled else 0, state.click_interval],
         )
 
+    def _schedule_beat_send(self, value: float) -> None:
+        if not self.running:
+            return
+        asyncio.create_task(self._send_beat(value), name="rotary-display-beat")
+
     async def _send_beat(self, value: float) -> None:
-        await self._send_serial(format_beat_line(value) + "\n")
         await self._send_osc(self.config.beat_osc_address, [value])
+        await self._send_serial(format_beat_line(value) + "\n")
 
     async def _send_serial(self, payload: str) -> None:
         if not self._use_serial or not self._serial_connected or self._serial_port is None:
