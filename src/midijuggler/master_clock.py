@@ -7,7 +7,7 @@ import contextlib
 import logging
 import threading
 import time
-from collections.abc import Coroutine
+from collections.abc import Callable, Coroutine
 from dataclasses import dataclass, replace
 from pathlib import Path
 from typing import Any, Protocol
@@ -38,10 +38,15 @@ MIDI_CONTINUE = 0xFB
 MIDI_STOP = 0xFC
 
 
+BeatPulseListener = Callable[[], None]
+
+
 class ClockDatapointSink(Protocol):
     async def publish_midi_message(self, status: int) -> None: ...
 
     async def publish_beat(self) -> None: ...
+
+    def trigger_beat_pulse(self) -> None: ...
 
     async def publish_outputs(self) -> None: ...
 
@@ -293,6 +298,7 @@ class MasterClock:
         self._bpm_notify_task: asyncio.Task[None] | None = None
         self._click_tasks: set[asyncio.Task[None]] = set()
         self._datapoint_sink: ClockDatapointSink | None = None
+        self._beat_pulse_listeners: list[BeatPulseListener] = []
         self._tap_tempo = TapTempoTracker(
             min_taps=config.tap_tempo_min_taps,
             quantize_step=TAP_TEMPO_BPM_QUANTIZE_STEP,
@@ -300,6 +306,14 @@ class MasterClock:
 
     def bind_datapoint_sink(self, sink: ClockDatapointSink | None) -> None:
         self._datapoint_sink = sink
+
+    def register_beat_pulse_listener(self, listener: BeatPulseListener) -> None:
+        if listener not in self._beat_pulse_listeners:
+            self._beat_pulse_listeners.append(listener)
+
+    def unregister_beat_pulse_listener(self, listener: BeatPulseListener) -> None:
+        with contextlib.suppress(ValueError):
+            self._beat_pulse_listeners.remove(listener)
 
     @property
     def parameters(self) -> MasterClockParameters:
@@ -555,15 +569,26 @@ class MasterClock:
         if self._is_click_tick(self.position_ticks):
             if self.config.click_enabled:
                 self._trigger_click()
-            position_ticks = self.position_ticks
-            self._submit_coroutine(self._publish_beat_and_click_event(position_ticks))
+            self._trigger_beat_pulse(self.position_ticks)
         self._submit_coroutine(self._publish_midi_status(MIDI_TIMING_CLOCK))
         self.position_ticks += 1
 
-    async def _publish_beat_and_click_event(self, position_ticks: int) -> None:
-        if self._datapoint_sink is not None:
-            await self._datapoint_sink.publish_beat()
-        await self._publish_click_event(position_ticks)
+    def _trigger_beat_pulse(self, position_ticks: int) -> None:
+        """Emit beat outputs from the transport thread at the same instant as audio click."""
+
+        for listener in self._beat_pulse_listeners:
+            try:
+                listener()
+            except Exception:
+                LOGGER.exception("beat pulse listener failed")
+        sink = self._datapoint_sink
+        if sink is not None:
+            trigger = getattr(sink, "trigger_beat_pulse", None)
+            if callable(trigger):
+                trigger()
+            else:
+                self._submit_coroutine(sink.publish_beat())
+        self._submit_coroutine(self._publish_click_event(position_ticks))
 
     def _submit_coroutine(self, coroutine: Coroutine[Any, Any, Any]) -> None:
         loop = self._asyncio_loop
@@ -585,7 +610,14 @@ class MasterClock:
         if self._is_click_tick(self.position_ticks):
             if self.config.click_enabled:
                 self._trigger_click()
-            await self._publish_beat_and_click_event(self.position_ticks)
+            for listener in self._beat_pulse_listeners:
+                try:
+                    listener()
+                except Exception:
+                    LOGGER.exception("beat pulse listener failed")
+            if self._datapoint_sink is not None:
+                await self._datapoint_sink.publish_beat()
+            await self._publish_click_event(self.position_ticks)
         await self._publish_midi_status(MIDI_TIMING_CLOCK)
         self.position_ticks += 1
 

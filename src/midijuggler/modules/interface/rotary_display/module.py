@@ -6,6 +6,7 @@ import asyncio
 import contextlib
 import logging
 import socket
+import threading
 import time
 from collections import deque
 from collections.abc import Callable
@@ -91,6 +92,7 @@ class RotaryDisplayModule(InterfaceModule):
         self._last_device_set_bpm_at: float | None = None
         self._last_pushed_fingerprint: str | None = None
         self._serial_lock = asyncio.Lock()
+        self._transport_serial_lock = threading.Lock()
         self._use_osc = config.transport in {"osc", "both"}
         self._use_serial = config.transport in {"serial", "both"}
         self._feedback_registration_handler: Callable[[str, int], None] | None = None
@@ -156,6 +158,7 @@ class RotaryDisplayModule(InterfaceModule):
                 continue
             self.store.subscribe(DataPointId(ROTARY_MODULE, point), self._on_feedback)
         self.bus.subscribe(OscMessageEvent, self._on_osc_message)
+        self.master_clock.register_beat_pulse_listener(self._on_transport_beat_pulse)
         self._start_serial_loop_if_needed()
         self._apply_configured_feedback_target()
         if self._use_osc and self._feedback_host and self._feedback_port > 0:
@@ -207,6 +210,7 @@ class RotaryDisplayModule(InterfaceModule):
             )
 
     async def stop(self) -> None:
+        self.master_clock.unregister_beat_pulse_listener(self._on_transport_beat_pulse)
         await self._stop_serial()
         await super().stop()
 
@@ -237,6 +241,39 @@ class RotaryDisplayModule(InterfaceModule):
             )
         await self._send_sync(force=True)
 
+    def _on_transport_beat_pulse(self) -> None:
+        """Send encoder/OSC beat from the master-clock transport thread."""
+
+        if not self.running or not self.master_clock.running:
+            return
+        self._beat_pulse_active = True
+        self._last_beat = 1.0
+        if self._use_osc and self._feedback_host and self._feedback_port > 0:
+            loop = self.master_clock._asyncio_loop
+            if loop is not None and not loop.is_closed():
+                loop.call_soon_threadsafe(self._schedule_osc_beat_pulse)
+            return
+        if self._use_serial and self._serial_connected and self._serial_port is not None:
+            self._write_beat_serial_sync(1.0)
+
+    def _schedule_osc_beat_pulse(self) -> None:
+        asyncio.create_task(
+            self._send_osc(self.config.beat_osc_address, [1.0]),
+            name="rotary-display-beat-osc",
+        )
+
+    def _write_beat_serial_sync(self, value: float) -> None:
+        with self._transport_serial_lock:
+            try:
+                data = (format_beat_line(value) + "\n").encode("utf-8")
+                self._serial_port.write(data)
+                flush = getattr(self._serial_port, "flush", None)
+                if callable(flush):
+                    flush()
+            except OSError:
+                LOGGER.exception("rotary display serial beat write failed")
+                self._serial_connected = False
+
     async def _on_feedback(self, value: DataPointValue) -> None:
         if value.point_id.point == "beat":
             if value.float_value is None:
@@ -244,10 +281,6 @@ class RotaryDisplayModule(InterfaceModule):
             beat = float(value.float_value)
             active = beat > 0.5
             if active:
-                if self.master_clock.running and (
-                    value.force_notify or not self._beat_pulse_active
-                ):
-                    self._schedule_beat_send(beat)
                 self._beat_pulse_active = True
                 self._last_beat = beat
             else:
@@ -332,11 +365,15 @@ class RotaryDisplayModule(InterfaceModule):
         if self._pending_beat_value is not None:
             value = self._pending_beat_value
             self._pending_beat_value = None
-            self._beat_outbox.clear()
             return value
         if not self._beat_outbox:
             return None
-        if len(self._beat_outbox) > 1:
+        if (
+            self._use_osc
+            and self._feedback_host
+            and self._feedback_port > 0
+            and len(self._beat_outbox) > 1
+        ):
             value = self._beat_outbox[-1]
             self._beat_outbox.clear()
             return value

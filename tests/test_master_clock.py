@@ -265,6 +265,43 @@ def test_click_and_midi_tick_share_the_same_transport_frame() -> None:
     assert click_events[0].position_ticks == 0
 
 
+def test_beat_pulse_listener_fires_on_click_tick_before_async_publish() -> None:
+    class FakeClickPlayer:
+        def __init__(self) -> None:
+            self.triggers: list[int] = []
+
+        def trigger(self) -> None:
+            self.triggers.append(1)
+
+        async def play(self) -> None:
+            return
+
+        async def close(self) -> None:
+            return
+
+    async def scenario() -> tuple[list[int], list[int], FakeClickPlayer]:
+        bus = EventBus()
+        listener_order: list[int] = []
+        click_player = FakeClickPlayer()
+        clock = MasterClock(
+            MasterClockConfig(
+                enabled=True,
+                click_enabled=True,
+                click_interval="quarter",
+            ),
+            bus,
+            click_player=click_player,
+        )
+        clock.register_beat_pulse_listener(lambda: listener_order.append(2))
+        await clock.emit_tick()
+        return listener_order, click_player.triggers, click_player
+
+    listener_order, click_triggers, click_player = asyncio.run(scenario())
+
+    assert click_triggers == [1]
+    assert listener_order == [2]
+
+
 def test_set_bpm_schedules_notifications_without_blocking_transport() -> None:
     async def scenario() -> tuple[MasterClock, int, float]:
         bus = EventBus()

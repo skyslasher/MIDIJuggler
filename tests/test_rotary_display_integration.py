@@ -165,7 +165,9 @@ def test_beat_falls_back_to_serial_when_both_without_feedback_host(
     assert serial_payloads == ["beat 1.0\n"]
 
 
-def test_serial_beat_coalesces_catch_up_during_in_flight_send() -> None:
+def test_serial_beat_coalesces_catch_up_during_in_flight_send(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
     serial_payloads: list[str] = []
 
     config = parse_config(
@@ -192,19 +194,27 @@ def test_serial_beat_coalesces_catch_up_during_in_flight_send() -> None:
             return len(data)
 
     module._serial_port = FakeSerial()
+    original_send_beat = RotaryDisplayModule._send_beat
+
+    async def slow_send_beat(self, value: float) -> None:
+        await asyncio.sleep(0.02)
+        await original_send_beat(self, value)
+
+    monkeypatch.setattr(RotaryDisplayModule, "_send_beat", slow_send_beat)
 
     async def scenario() -> None:
-        module._beat_outbox.append(1.0)
-        await module._drain_pending_beat_sends()
-        module._pending_beat_value = 1.0
-        await module._drain_pending_beat_sends()
+        module._schedule_beat_send(1.0)
+        await asyncio.sleep(0.005)
+        module._schedule_beat_send(1.0)
+        if module._beat_send_task is not None:
+            await module._beat_send_task
 
     asyncio.run(scenario())
 
     assert serial_payloads == ["beat 1.0\n", "beat 1.0\n"]
 
 
-def test_serial_beat_coalesces_backlog_to_latest_edge() -> None:
+def test_serial_beat_sends_each_queued_edge_without_coalescing() -> None:
     serial_payloads: list[str] = []
 
     config = parse_config(
@@ -233,12 +243,64 @@ def test_serial_beat_coalesces_backlog_to_latest_edge() -> None:
     module._serial_port = FakeSerial()
 
     async def scenario() -> None:
-        module._beat_outbox.extend([1.0, 1.0, 1.0])
-        await module._drain_pending_beat_sends()
+        for _ in range(3):
+            module._schedule_beat_send(1.0)
+        if module._beat_send_task is not None:
+            await module._beat_send_task
 
     asyncio.run(scenario())
 
-    assert serial_payloads == ["beat 1.0\n"]
+    assert serial_payloads == ["beat 1.0\n", "beat 1.0\n", "beat 1.0\n"]
+
+
+def test_serial_beat_coalesces_only_while_in_flight(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    serial_payloads: list[str] = []
+
+    config = parse_config(
+        {
+            "master_clock": {"enabled": True, "bpm": 170.0},
+            "rotary_display": {
+                "enabled": True,
+                "transport": "serial",
+                "serial_port": "/dev/ttyACM0",
+            },
+        }
+    )
+    store = DataPointStore()
+    bus = EventBus()
+    master_clock = MasterClock(config.master_clock, bus)
+    module = RotaryDisplayModule(store, config.rotary_display, master_clock, bus)
+    module.running = True
+    module._serial_connected = True
+    master_clock.running = True
+
+    class FakeSerial:
+        def write(self, data: bytes) -> int:
+            serial_payloads.append(data.decode())
+            return len(data)
+
+    module._serial_port = FakeSerial()
+    original_send_beat = RotaryDisplayModule._send_beat
+
+    async def slow_send_beat(self, value: float) -> None:
+        await asyncio.sleep(0.02)
+        await original_send_beat(self, value)
+
+    monkeypatch.setattr(RotaryDisplayModule, "_send_beat", slow_send_beat)
+
+    async def scenario() -> None:
+        module._schedule_beat_send(1.0)
+        await asyncio.sleep(0.005)
+        module._schedule_beat_send(1.0)
+        module._schedule_beat_send(1.0)
+        if module._beat_send_task is not None:
+            await module._beat_send_task
+
+    asyncio.run(scenario())
+
+    assert serial_payloads == ["beat 1.0\n", "beat 1.0\n"]
 
 
 def test_serial_beat_sends_immediately_without_gap_wait(
@@ -281,10 +343,12 @@ def test_serial_beat_sends_immediately_without_gap_wait(
     module._serial_port = FakeSerial()
 
     async def scenario() -> None:
-        module._beat_outbox.append(1.0)
-        await module._drain_pending_beat_sends()
-        module._pending_beat_value = 1.0
-        await module._drain_pending_beat_sends()
+        module._schedule_beat_send(1.0)
+        if module._beat_send_task is not None:
+            await module._beat_send_task
+        module._schedule_beat_send(1.0)
+        if module._beat_send_task is not None:
+            await module._beat_send_task
 
     asyncio.run(scenario())
 
@@ -292,7 +356,7 @@ def test_serial_beat_sends_immediately_without_gap_wait(
     assert sleep_log == []
 
 
-def test_serial_beat_coalesces_queued_burst_to_single_send(
+def test_serial_beat_delivers_each_edge_when_task_is_idle_between_beats(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     serial_payloads: list[str] = []
@@ -323,15 +387,17 @@ def test_serial_beat_coalesces_queued_burst_to_single_send(
     module._serial_port = FakeSerial()
 
     async def scenario() -> None:
-        module._beat_outbox.extend([1.0, 1.0, 1.0])
-        await module._drain_pending_beat_sends()
+        for _ in range(3):
+            module._schedule_beat_send(1.0)
+            if module._beat_send_task is not None:
+                await module._beat_send_task
 
     asyncio.run(scenario())
 
-    assert serial_payloads == ["beat 1.0\n"]
+    assert serial_payloads == ["beat 1.0\n", "beat 1.0\n", "beat 1.0\n"]
 
 
-def test_same_tick_beat_coalesces_to_single_delivery() -> None:
+def test_same_tick_beat_delivers_each_queued_serial_edge() -> None:
     serial_payloads: list[str] = []
 
     config = parse_config(
@@ -367,7 +433,7 @@ def test_same_tick_beat_coalesces_to_single_delivery() -> None:
 
     asyncio.run(scenario())
 
-    assert serial_payloads == ["beat 1.0\n"]
+    assert serial_payloads == ["beat 1.0\n", "beat 1.0\n"]
 
 
 def test_serial_beat_delivers_steady_one_per_tick_at_170_bpm(
@@ -423,7 +489,7 @@ def test_serial_beat_delivers_steady_one_per_tick_at_170_bpm(
     assert all(gap == pytest.approx(beat_interval, abs=0.001) for gap in gaps)
 
 
-def test_beat_outbox_cleared_when_clock_stops() -> None:
+def test_pending_beats_cleared_when_clock_stops() -> None:
     serial_payloads: list[str] = []
 
     config = parse_config(
@@ -689,3 +755,61 @@ def test_production_config_sends_beats_on_serial_without_feedback_host(
     asyncio.run(scenario())
 
     assert serial_payloads == ["beat 1.0\n"]
+
+
+def test_transport_beat_listener_sends_serial_on_click_tick_at_170_bpm() -> None:
+    serial_payloads: list[str] = []
+
+    class FakeClickPlayer:
+        def trigger(self) -> None:
+            return
+
+        async def play(self) -> None:
+            return
+
+        async def close(self) -> None:
+            return
+
+    config = parse_config(
+        {
+            "master_clock": {
+                "enabled": True,
+                "bpm": 170.0,
+                "click_enabled": True,
+                "click_interval": "quarter",
+            },
+            "rotary_display": {
+                "enabled": True,
+                "transport": "serial",
+                "serial_port": "/dev/ttyACM0",
+            },
+        }
+    )
+    store = DataPointStore()
+    bus = EventBus()
+    master_clock = MasterClock(config.master_clock, bus, click_player=FakeClickPlayer())
+    clock_gen = MasterClockGenerator(master_clock, store)
+    store.register_many(clock_gen.datapoints())
+    module = RotaryDisplayModule(store, config.rotary_display, master_clock, bus)
+
+    class FakeSerial:
+        def write(self, data: bytes) -> int:
+            serial_payloads.append(data.decode())
+            return len(data)
+
+    async def scenario() -> None:
+        master_clock.bind_datapoint_sink(clock_gen)
+        await clock_gen.start()
+        master_clock.register_beat_pulse_listener(module._on_transport_beat_pulse)
+        module.running = True
+        module._serial_connected = True
+        module._serial_port = FakeSerial()
+        await master_clock.start_transport(reset_position=True)
+        await asyncio.sleep(3.2)
+        await master_clock.stop_transport(send_transport=False)
+        master_clock.unregister_beat_pulse_listener(module._on_transport_beat_pulse)
+
+    asyncio.run(scenario())
+
+    beat_lines = [line for line in serial_payloads if line.startswith("beat ")]
+    assert len(beat_lines) >= 9

@@ -527,6 +527,17 @@ class MasterClockGenerator(GeneratorModule):
                 name="clock-beat-off",
             )
 
+    def trigger_beat_pulse(self) -> None:
+        """Schedule clock.beat publish from the transport thread at click-tick time."""
+
+        loop = self.clock._asyncio_loop
+        if loop is None or loop.is_closed():
+            return
+        loop.call_soon_threadsafe(self._schedule_publish_beat)
+
+    def _schedule_publish_beat(self) -> None:
+        asyncio.create_task(self.publish_beat(), name="clock-beat-pulse")
+
     def _beat_interval_ms(self) -> float:
         key = BEAT_INTERVAL_MS_KEYS.get(
             self.clock.click_interval,
