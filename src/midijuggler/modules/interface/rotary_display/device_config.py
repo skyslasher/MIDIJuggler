@@ -36,6 +36,7 @@ def build_device_config_commands(device: RotaryDisplayDeviceConfig) -> list[str]
         commands.append(f"mdns_hostname {device.mdns_hostname}")
     else:
         commands.append("mdns_hostname clear")
+    commands.append(f"beat_led_color {device.beat_led_color}")
     return commands
 
 

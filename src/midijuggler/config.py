@@ -5,6 +5,7 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 import logging
 from pathlib import Path
+import re
 from typing import Any
 import tomllib
 
@@ -91,6 +92,7 @@ class RotaryDisplayDeviceConfig:
     mdns_hostname: str = ""
     pulse_enabled: bool = True
     bpm_step: float = 1.0
+    beat_led_color: str = "#1EFF78"
 
 
 @dataclass(frozen=True)
@@ -1045,6 +1047,10 @@ def _parse_rotary_display_device(raw: Any) -> RotaryDisplayDeviceConfig:
     from midijuggler.rotary_mdns import normalize_mdns_hostname
 
     mdns_hostname = normalize_mdns_hostname(str(raw.get("mdns_hostname", "")))
+    beat_led_color = _normalize_beat_led_color(
+        raw.get("beat_led_color", "#1EFF78"),
+        "rotary_display.device.beat_led_color",
+    )
 
     return RotaryDisplayDeviceConfig(
         transport=transport,
@@ -1057,6 +1063,7 @@ def _parse_rotary_display_device(raw: Any) -> RotaryDisplayDeviceConfig:
         mdns_hostname=mdns_hostname,
         pulse_enabled=bool(raw.get("pulse_enabled", True)),
         bpm_step=bpm_step,
+        beat_led_color=beat_led_color,
     )
 
 
@@ -1189,7 +1196,8 @@ def _format_rotary_display_device_section(device: RotaryDisplayDeviceConfig) -> 
         f"port = {device.port}\n"
         f"listen_port = {device.listen_port}\n"
         f"pulse_enabled = {_toml_bool(device.pulse_enabled)}\n"
-        f"bpm_step = {device.bpm_step}\n\n"
+        f"bpm_step = {device.bpm_step}\n"
+        f"beat_led_color = {_toml_string(device.beat_led_color)}\n\n"
     )
 
 
@@ -1942,6 +1950,15 @@ def _validate_bpm_step(value: Any, field_name: str) -> float:
     if parsed <= 0 or not parsed.is_integer():
         raise ValueError(f"{field_name} must be a positive integer")
     return parsed
+
+
+def _normalize_beat_led_color(value: Any, field_name: str) -> str:
+    raw = str(value).strip()
+    if not raw.startswith("#"):
+        raw = f"#{raw}"
+    if not re.fullmatch(r"#[0-9A-Fa-f]{6}", raw):
+        raise ValueError(f"{field_name} must be a #RRGGBB hex color")
+    return raw.upper()
 
 
 def _as_int(value: Any, field_name: str) -> int:

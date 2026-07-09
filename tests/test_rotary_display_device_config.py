@@ -6,6 +6,8 @@ from midijuggler.modules.interface.rotary_display.device_config import (
     read_config_response_lines,
 )
 
+import pytest
+
 
 def test_parse_rotary_display_device_section() -> None:
     config = parse_config(
@@ -22,6 +24,7 @@ def test_parse_rotary_display_device_section() -> None:
                     "listen_port": 9001,
                     "pulse_enabled": False,
                     "bpm_step": 2.0,
+                    "beat_led_color": "#FF0080",
                 },
             }
         }
@@ -33,6 +36,20 @@ def test_parse_rotary_display_device_section() -> None:
     assert device.host == "192.168.1.10"
     assert device.pulse_enabled is False
     assert device.bpm_step == 2.0
+    assert device.beat_led_color == "#FF0080"
+
+
+def test_parse_rotary_display_device_rejects_invalid_beat_led_color() -> None:
+    with pytest.raises(ValueError, match="beat_led_color"):
+        parse_config(
+            {
+                "rotary_display": {
+                    "device": {
+                        "beat_led_color": "not-a-color",
+                    },
+                },
+            }
+        )
 
 
 def test_build_device_config_commands() -> None:
@@ -54,7 +71,14 @@ def test_build_device_config_commands() -> None:
         "port 9000",
         "listen_port 9001",
         "mdns_hostname clear",
+        "beat_led_color #1EFF78",
     ]
+
+
+def test_build_device_config_commands_includes_custom_beat_led_color() -> None:
+    device = RotaryDisplayDeviceConfig(beat_led_color="#FF0080")
+    commands = build_device_config_commands(device)
+    assert "beat_led_color #FF0080" in commands
 
 
 def test_build_device_config_commands_wifi_clear() -> None:
@@ -88,6 +112,7 @@ def test_save_rotary_display_config_writes_device_section(tmp_path) -> None:
                     "transport": "both",
                     "host": "pi.local",
                     "wifi_pass": "secret",
+                    "beat_led_color": "#AABBCC",
                 },
             }
         }
@@ -96,6 +121,7 @@ def test_save_rotary_display_config_writes_device_section(tmp_path) -> None:
     saved = config_file.read_text(encoding="utf-8")
     assert "[rotary_display.device]" in saved
     assert 'wifi_pass = "secret"' in saved
+    assert 'beat_led_color = "#AABBCC"' in saved
     assert 'serial_port = "/dev/ttyACM0"' in saved
 
 

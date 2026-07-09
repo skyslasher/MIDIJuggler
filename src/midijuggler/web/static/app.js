@@ -46,6 +46,7 @@ const rotaryDevicePort = document.querySelector("#rotary-device-port");
 const rotaryDeviceListenPort = document.querySelector("#rotary-device-listen-port");
 const rotaryPulseEnabled = document.querySelector("#rotary-pulse-enabled");
 const rotaryBpmStep = document.querySelector("#rotary-bpm-step");
+const rotaryBeatLedColor = document.querySelector("#rotary-beat-led-color");
 const rotaryPushStatus = document.querySelector("#rotary-push-status");
 const rotaryPushButton = document.querySelector("#rotary-push-button");
 const rotaryDisplayMessage = document.querySelector("#rotary-display-message");
@@ -8120,6 +8121,9 @@ function renderRotaryDisplayConfig(config) {
   if (rotaryBpmStep) {
     rotaryBpmStep.value = device.bpm_step ?? 1.0;
   }
+  if (rotaryBeatLedColor) {
+    rotaryBeatLedColor.value = device.beat_led_color || "#1EFF78";
+  }
   if (rotaryPushStatus) {
     const push = config.push || {};
     const pending = push.push_pending ? "push pending" : "in sync";
@@ -8157,6 +8161,7 @@ function rotaryDisplayFormPayload() {
       listen_port: Number(rotaryDeviceListenPort?.value || 9001),
       pulse_enabled: Boolean(rotaryPulseEnabled?.checked),
       bpm_step: Number(rotaryBpmStep?.value || 1.0),
+      beat_led_color: rotaryBeatLedColor?.value || "#1EFF78",
     },
   };
 }

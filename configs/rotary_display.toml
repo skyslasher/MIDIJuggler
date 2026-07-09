@@ -50,6 +50,7 @@ port = 9000
 listen_port = 9001
 pulse_enabled = true
 bpm_step = 1.0
+beat_led_color = "#1EFF78"
 
 [web]
 host = "0.0.0.0"

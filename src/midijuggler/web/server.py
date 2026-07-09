@@ -44,6 +44,7 @@ from midijuggler.config import (
     _validate_adapter_instance_name,
     _validate_tap_tempo_min_taps,
     _validate_bpm_step,
+    _normalize_beat_led_color,
     _validate_beat_flash_ms,
     parse_config,
     save_devices,
@@ -3743,6 +3744,7 @@ class WebInterface:
                 "listen_port": device.listen_port,
                 "pulse_enabled": device.pulse_enabled,
                 "bpm_step": device.bpm_step,
+                "beat_led_color": device.beat_led_color,
             },
             "push": push_status,
         }
@@ -3843,6 +3845,11 @@ class WebInterface:
                 if bpm_step <= 0:
                     raise ValueError("device.bpm_step must be positive")
                 raw_device["bpm_step"] = bpm_step
+            if "beat_led_color" in device_payload:
+                raw_device["beat_led_color"] = _normalize_beat_led_color(
+                    device_payload["beat_led_color"],
+                    "device.beat_led_color",
+                )
 
         device = RotaryDisplayDeviceConfig(**raw_device)
 

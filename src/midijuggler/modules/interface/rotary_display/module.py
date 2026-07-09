@@ -7,6 +7,7 @@ import contextlib
 import logging
 import socket
 import time
+from collections import deque
 from collections.abc import Callable
 from typing import Any
 
@@ -56,6 +57,8 @@ from midijuggler.rotary_mdns import (
 
 LOGGER = logging.getLogger(__name__)
 
+BEAT_SEND_GAP_RATIO = 0.4
+
 
 class RotaryDisplayModule(InterfaceModule):
     """Push clock sync/beat to a rotary display over OSC and/or USB serial."""
@@ -80,6 +83,13 @@ class RotaryDisplayModule(InterfaceModule):
         self._last_sync: RotarySyncState | None = None
         self._last_beat: float | None = None
         self._beat_pulse_active = False
+        self._beat_send_lock = asyncio.Lock()
+        self._beat_send_task: asyncio.Task[None] | None = None
+        self._beat_outbox: deque[float] = deque()
+        self._pending_beat_value: float | None = None
+        self._beats_received_during_send = 0
+        self._beat_send_in_flight = False
+        self._last_beat_serial_sent_at: float | None = None
         self._last_pushed_fingerprint: str | None = None
         self._serial_lock = asyncio.Lock()
         self._use_osc = config.transport in {"osc", "both"}
@@ -288,13 +298,56 @@ class RotaryDisplayModule(InterfaceModule):
             [state.bpm, 1 if state.running else 0, 1 if state.click_enabled else 0, state.click_interval],
         )
 
+    def _min_beat_send_gap(self) -> float:
+        bpm = max(float(self.master_clock.bpm), 1.0)
+        return (60.0 / bpm) * BEAT_SEND_GAP_RATIO
+
     def _schedule_beat_send(self, value: float) -> None:
         if not self.running:
             return
-        asyncio.create_task(self._send_beat(value), name="rotary-display-beat")
+        if self._beat_send_in_flight:
+            self._pending_beat_value = value
+            self._beats_received_during_send += 1
+            return
+        self._beat_outbox.append(value)
+        if self._beat_send_task is None or self._beat_send_task.done():
+            self._beat_send_task = asyncio.create_task(
+                self._drain_pending_beat_sends(),
+                name="rotary-display-beat",
+            )
+
+    async def _drain_pending_beat_sends(self) -> None:
+        while self._beat_outbox or self._pending_beat_value is not None:
+            async with self._beat_send_lock:
+                if self._pending_beat_value is not None:
+                    value = self._pending_beat_value
+                    self._pending_beat_value = None
+                    coalesced_count = self._beats_received_during_send
+                    self._beats_received_during_send = 0
+                    if coalesced_count > 1:
+                        now = time.monotonic()
+                        gap = self._min_beat_send_gap()
+                        if (
+                            self._last_beat_serial_sent_at is not None
+                            and now - self._last_beat_serial_sent_at < gap
+                        ):
+                            continue
+                elif self._beat_outbox:
+                    value = self._beat_outbox.popleft()
+                else:
+                    break
+                self._beat_send_in_flight = True
+                try:
+                    await self._send_beat(value)
+                    self._last_beat_serial_sent_at = time.monotonic()
+                finally:
+                    self._beat_send_in_flight = False
 
     async def _send_beat(self, value: float) -> None:
-        await self._send_osc(self.config.beat_osc_address, [value])
+        # Beats are timing-critical: never duplicate on OSC and serial when both are enabled.
+        if self._use_osc and self._feedback_host and self._feedback_port > 0:
+            await self._send_osc(self.config.beat_osc_address, [value])
+            return
         await self._send_serial(format_beat_line(value) + "\n")
 
     async def _send_serial(self, payload: str) -> None:

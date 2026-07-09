@@ -23,6 +23,7 @@ def test_rotary_display_config_payload_includes_device_section() -> None:
                     "transport": "both",
                     "host": "midijuggler.local",
                     "wifi_pass": "secret",
+                    "beat_led_color": "#FF4400",
                 },
             }
         }
@@ -38,6 +39,7 @@ def test_rotary_display_config_payload_includes_device_section() -> None:
     assert payload["serial_port"] == "/dev/ttyACM0"
     assert payload["device"]["host"] == "midijuggler.local"
     assert payload["device"]["wifi_pass"] == "secret"
+    assert payload["device"]["beat_led_color"] == "#FF4400"
 
 
 def test_apply_rotary_display_config_persists_and_updates_module(

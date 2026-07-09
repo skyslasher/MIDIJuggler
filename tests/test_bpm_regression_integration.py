@@ -7,7 +7,10 @@ import pytest
 from conftest import osc_device
 from midijuggler.config import parse_config
 from midijuggler.clock import MIDI_CLOCK_TICKS_PER_QUARTER
+from midijuggler.datapoint.store import DataPointStore
 from midijuggler.datapoint.types import float_value
+from midijuggler.eventbus import EventBus
+from midijuggler.master_clock import MasterClock
 from midijuggler.events import OscMessageEvent
 from midijuggler.modules.interface.bandhelper.module import BandHelperModule
 from midijuggler.modules.interface.rotary_display.module import RotaryDisplayModule
@@ -157,9 +160,17 @@ def test_beat_reaches_rotary_display_with_datapoint_routing(
 
     async def scenario() -> None:
         await _start_service(service)
-        await service.master_clock.start_transport(reset_position=True)
+        module = next(
+            m
+            for m in service.module_registry.modules()
+            if m.__class__.__name__ == "RotaryDisplayModule"
+        )
+        service.master_clock.position_ticks = 0
         for _ in range(48):
             await service.master_clock.emit_tick()
+        if module._beat_send_task is not None:
+            await module._beat_send_task
+        await asyncio.sleep(0.05)
 
     asyncio.run(scenario())
 
@@ -191,6 +202,7 @@ def test_beat_rising_edge_survives_repeated_one_values(
         await service.datapoint_store.write(float_value("clock.beat", 1.0, force_notify=True))
         await service.datapoint_store.write(float_value("clock.beat", 0.0, force_notify=True))
         await service.datapoint_store.write(float_value("clock.beat", 1.0, force_notify=True))
+        await asyncio.sleep(0.05)
 
     asyncio.run(scenario())
 
@@ -251,7 +263,7 @@ def test_serial_encoder_bpm_with_bandhelper_disabled(
     assert sync[-1][1][0] == pytest.approx(140.0)
 
 
-def test_high_bpm_beat_count_matches_transport(
+def test_high_bpm_slow_send_drops_coalesced_catch_up(
     monkeypatch: pytest.MonkeyPatch,
     capture_sync: list,
 ) -> None:
@@ -282,4 +294,43 @@ def test_high_bpm_beat_count_matches_transport(
         for msg in batch
         if msg[0] == "/midijuggler/rotary/beat" and msg[1][0] == pytest.approx(1.0)
     ]
-    assert len(beats) == 8
+    assert len(beats) == 1
+
+
+def test_beat_send_serializes_concurrent_tasks(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    config = parse_config(
+        {
+            "master_clock": {"enabled": True, "bpm": 120.0},
+            "rotary_display": {
+                "enabled": True,
+                "transport": "osc",
+                "feedback_host": "192.168.1.70",
+                "feedback_port": 9001,
+            },
+        }
+    )
+    store = DataPointStore()
+    bus = EventBus()
+    master_clock = MasterClock(config.master_clock, bus)
+    module = RotaryDisplayModule(store, config.rotary_display, master_clock, bus)
+    order: list[str] = []
+
+    async def tracked_send_osc(self, address: str, arguments: list[object]) -> None:
+        order.append("start")
+        await asyncio.sleep(0.02)
+        order.append("end")
+
+    monkeypatch.setattr(RotaryDisplayModule, "_send_osc", tracked_send_osc)
+
+    async def scenario() -> None:
+        module.running = True
+        module._schedule_beat_send(1.0)
+        module._schedule_beat_send(1.0)
+        if module._beat_send_task is not None:
+            await module._beat_send_task
+
+    asyncio.run(scenario())
+
+    assert order == ["start", "end", "start", "end"]
