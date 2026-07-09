@@ -104,6 +104,38 @@ def test_monitor_event_filter_suppresses_repeat_rotary_hello() -> None:
     assert event_filter.suppress(changed) is False
 
 
+def test_monitor_event_filter_suppresses_rotary_hello_control_event() -> None:
+    """OSC adapter mirrors hello port as ControlEvent (= 9001 in monitor)."""
+    event_filter = MonitorEventFilter()
+    control = ControlEvent(
+        source="osc",
+        control="/midijuggler/rotary/hello",
+        value=9001.0,
+    )
+
+    assert event_filter.suppress(control) is True
+    assert event_filter.suppress(control.as_dict()) is True
+
+
+def test_monitor_event_filter_normalizes_hello_port_type() -> None:
+    event_filter = MonitorEventFilter()
+    hello_int = OscMessageEvent(
+        source="osc",
+        address="/midijuggler/rotary/hello",
+        arguments=("rotary-267248.local", 9001),
+        direction="input",
+    )
+    hello_float = OscMessageEvent(
+        source="osc",
+        address="/midijuggler/rotary/hello",
+        arguments=("rotary-267248.local", 9001.0),
+        direction="input",
+    )
+
+    assert event_filter.suppress(hello_int) is False
+    assert event_filter.suppress(hello_float) is True
+
+
 def test_monitor_event_filter_suppresses_repeat_registration_logs() -> None:
     event_filter = MonitorEventFilter()
     registered = LogEvent(

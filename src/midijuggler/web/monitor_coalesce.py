@@ -11,6 +11,16 @@ from typing import Any
 
 from midijuggler.events import ControlEvent, Event, LogEvent, MidiMessageEvent, OscMessageEvent
 
+
+def _normalize_hello_arguments(arguments: tuple[Any, ...] | list[Any]) -> tuple[Any, ...]:
+    if len(arguments) < 2:
+        return tuple(arguments)
+    host = str(arguments[0])
+    port = arguments[1]
+    if isinstance(port, (int, float)) and not isinstance(port, bool):
+        return (host, int(port))
+    return tuple(arguments)
+
 _MONITOR_INTERVAL_S = 0.1
 _FADER_MARKER = re.compile(r"(?:/fdr\b|_fader(?:_\d+)?$)", re.IGNORECASE)
 _ROTARY_REGISTERED_RE = re.compile(
@@ -54,6 +64,8 @@ class MonitorEventFilter:
         kind = event.kind if isinstance(event, Event) else str(event.get("kind", ""))
         if kind == "OscMessageEvent":
             return self._suppress_rotary_hello(event)
+        if kind == "ControlEvent":
+            return self._suppress_rotary_hello_control(event)
         if kind == "LogEvent":
             return self._suppress_rotary_registration_log(event)
         return False
@@ -75,11 +87,21 @@ class MonitorEventFilter:
             return False
         if address != self._hello_address and canonical_address != self._hello_address:
             return False
-        key = (canonical_address, arguments)
+        key = (canonical_address, _normalize_hello_arguments(arguments))
         if key == self._last_hello:
             return True
         self._last_hello = key
         return False
+
+    def _suppress_rotary_hello_control(self, event: Event | dict[str, Any]) -> bool:
+        """Suppress hello ControlEvents; OSC adapter mirrors port as numeric value."""
+        if isinstance(event, ControlEvent):
+            control = event.control
+        else:
+            control = str(event.get("control", ""))
+        if control != self._hello_address:
+            return False
+        return True
 
     def _suppress_rotary_registration_log(self, event: Event | dict[str, Any]) -> bool:
         if isinstance(event, LogEvent):
