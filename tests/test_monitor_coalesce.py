@@ -4,9 +4,10 @@ import asyncio
 
 import pytest
 
-from midijuggler.events import ControlEvent, MidiMessageEvent, OscMessageEvent
+from midijuggler.events import ControlEvent, LogEvent, MidiMessageEvent, OscMessageEvent
 from midijuggler.web.monitor_coalesce import (
     MonitorCoalescer,
+    MonitorEventFilter,
     monitor_datapoint_key,
     monitor_event_key,
 )
@@ -79,3 +80,46 @@ def test_monitor_coalescer_immediate_bypasses_delay() -> None:
 
     sent = asyncio.run(scenario())
     assert sent == [{"value": 0.5}]
+
+
+def test_monitor_event_filter_suppresses_repeat_rotary_hello() -> None:
+    event_filter = MonitorEventFilter()
+    hello = OscMessageEvent(
+        source="osc",
+        address="/midijuggler/rotary/hello",
+        arguments=("rotary-267248.local", 9001),
+        direction="input",
+    )
+
+    assert event_filter.suppress(hello) is False
+    assert event_filter.suppress(hello) is True
+    assert event_filter.suppress(hello.as_dict()) is True
+
+    changed = OscMessageEvent(
+        source="osc",
+        address="/midijuggler/rotary/hello",
+        arguments=("rotary-stage.local", 9001),
+        direction="input",
+    )
+    assert event_filter.suppress(changed) is False
+
+
+def test_monitor_event_filter_suppresses_repeat_registration_logs() -> None:
+    event_filter = MonitorEventFilter()
+    registered = LogEvent(
+        source="log",
+        level="INFO",
+        message="rotary display registered at rotary-267248.local:9001",
+        logger="midijuggler.modules.interface.rotary_display.module",
+    )
+    re_registered = LogEvent(
+        source="log",
+        level="DEBUG",
+        message="rotary display re-registered at rotary-267248.local:9001",
+        logger="midijuggler.modules.interface.rotary_display.module",
+    )
+
+    assert event_filter.suppress(registered) is False
+    assert event_filter.suppress(registered) is True
+    assert event_filter.suppress(re_registered) is True
+    assert event_filter.suppress(registered.as_dict()) is True

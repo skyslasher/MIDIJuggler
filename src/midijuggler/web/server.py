@@ -146,6 +146,7 @@ from midijuggler.datapoint.types import (
 from midijuggler.modules.modifier.graph import ModifierGraph
 from midijuggler.web.monitor_coalesce import (
     MonitorCoalescer,
+    MonitorEventFilter,
     monitor_datapoint_key,
     monitor_event_key,
 )
@@ -274,6 +275,9 @@ class WebInterface:
         self._hid_learn_instance: str | None = None
         self._adapter_runtime_status: dict[str, dict[str, str]] = {}
         self._monitor_coalescer = MonitorCoalescer()
+        self._monitor_event_filter = MonitorEventFilter(
+            hello_address=config.rotary_display.hello_osc_address,
+        )
         self._rotary_display_module: RotaryDisplayModule | None = None
         self._bandhelper_module: BandHelperModule | None = None
         self._gamepi_module: GamePiBrightnessModule | None = None
@@ -1172,6 +1176,8 @@ class WebInterface:
         self._websockets.add(ws)
         await ws.send_json({"type": "status", "payload": self._status_payload()})
         for event in self.bus.history_dicts():
+            if self._monitor_event_filter.suppress(event):
+                continue
             await ws.send_json({"type": "event", "payload": event})
         if self.datapoint_store is not None:
             for update in self.datapoint_store.history():
@@ -1442,6 +1448,8 @@ class WebInterface:
                 "detail": event.detail,
                 "connection_phase": event.connection_phase,
             }
+        if self._monitor_event_filter.suppress(event):
+            return
         payload = {"type": "event", "payload": event.as_dict()}
         if self._websockets:
             key = monitor_event_key(event)

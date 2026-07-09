@@ -9,10 +9,13 @@ import time
 from collections.abc import Awaitable, Callable
 from typing import Any
 
-from midijuggler.events import ControlEvent, Event, MidiMessageEvent, OscMessageEvent
+from midijuggler.events import ControlEvent, Event, LogEvent, MidiMessageEvent, OscMessageEvent
 
 _MONITOR_INTERVAL_S = 0.1
 _FADER_MARKER = re.compile(r"(?:/fdr\b|_fader(?:_\d+)?$)", re.IGNORECASE)
+_ROTARY_REGISTERED_RE = re.compile(
+    r"rotary display (?:re-)?registered at ([^:]+):(\d+)"
+)
 
 FlushCallback = Callable[[dict[str, Any]], Awaitable[None]]
 
@@ -37,6 +40,64 @@ def monitor_event_key(event: Event) -> str | None:
         channel = event.status & 0x0F
         return f"midi-out:{event.source}:{channel}:{event.data[0]}"
     return None
+
+
+class MonitorEventFilter:
+    """Suppress repetitive monitor payloads such as periodic rotary hello."""
+
+    def __init__(self, hello_address: str = "/midijuggler/rotary/hello") -> None:
+        self._hello_address = hello_address
+        self._last_hello: tuple[str, tuple[Any, ...]] | None = None
+        self._last_registered: tuple[str, int] | None = None
+
+    def suppress(self, event: Event | dict[str, Any]) -> bool:
+        kind = event.kind if isinstance(event, Event) else str(event.get("kind", ""))
+        if kind == "OscMessageEvent":
+            return self._suppress_rotary_hello(event)
+        if kind == "LogEvent":
+            return self._suppress_rotary_registration_log(event)
+        return False
+
+    def _suppress_rotary_hello(self, event: Event | dict[str, Any]) -> bool:
+        if isinstance(event, OscMessageEvent):
+            direction = event.direction
+            address = event.address
+            canonical_address = event.canonical_address or event.address
+            arguments = tuple(event.arguments)
+        else:
+            direction = str(event.get("direction", "input"))
+            address = str(event.get("address", ""))
+            canonical_address = str(
+                event.get("canonical_address", "") or event.get("address", "")
+            )
+            arguments = tuple(event.get("arguments") or [])
+        if direction != "input":
+            return False
+        if address != self._hello_address and canonical_address != self._hello_address:
+            return False
+        key = (canonical_address, arguments)
+        if key == self._last_hello:
+            return True
+        self._last_hello = key
+        return False
+
+    def _suppress_rotary_registration_log(self, event: Event | dict[str, Any]) -> bool:
+        if isinstance(event, LogEvent):
+            message = event.message
+        else:
+            message = str(event.get("message", ""))
+        match = _ROTARY_REGISTERED_RE.search(message)
+        if match is None:
+            return False
+        if "re-registered" in message:
+            return True
+        host = match.group(1)
+        port = int(match.group(2))
+        key = (host, port)
+        if key == self._last_registered:
+            return True
+        self._last_registered = key
+        return False
 
 
 def monitor_datapoint_key(payload: dict[str, Any]) -> str | None:
