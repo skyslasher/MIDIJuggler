@@ -4090,6 +4090,7 @@ class WebInterface:
             )
         else:
             await self._apply_clock_trigger_direct(point, timestamp=now)
+        await self.master_clock.flush_bpm_notifications()
         payload = self._status_payload()
         if point == "tap_tempo":
             payload["tap_count"] = self.master_clock.tap_count

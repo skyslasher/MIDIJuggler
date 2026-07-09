@@ -342,8 +342,11 @@ class MasterClock:
             await self.start_transport(reset_position=True)
         else:
             await self.bus.publish(BpmChangedEvent(source="master_clock", bpm=self.bpm))
-            await self._publish_state()
-            await self._publish_parameters()
+            if self._datapoint_sink is not None:
+                await self._datapoint_sink.publish_outputs()
+            else:
+                await self._publish_state()
+                await self._publish_parameters()
 
     async def handle_command(self, event: MasterClockCommandEvent) -> None:
         if event.command == "set_bpm":

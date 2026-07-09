@@ -240,6 +240,8 @@ class MIDIJugglerService:
         if command is None:
             return
         if self.config.runtime.datapoint_routing:
+            if self._bridge_routes_master_clock_osc(event):
+                return
             await self._route_master_clock_command_to_store(command)
             return
         await self.master_clock.handle_command(command)
@@ -281,6 +283,28 @@ class MIDIJugglerService:
         point_id = DataPointId("clock", point)
         await self.datapoint_store.write(trigger_value(point_id, True))
         await self.datapoint_store.write(trigger_value(point_id, False))
+
+    def _bridge_routes_master_clock_osc(self, event: OscMessageEvent) -> bool:
+        """True when modifier graph already maps this OSC input to clock.*."""
+
+        graph = self.web.modifier_graph
+        if graph is None:
+            return False
+        try:
+            module = self.event_bridge._module_for_adapter(event.source)
+        except ValueError:
+            return False
+        address = event.canonical_address or event.address
+        point_id = self.event_bridge._resolve_osc_point_id(module, address)
+        source_key = str(point_id)
+        clock_targets: list[str] = []
+        for connection in graph._passthrough_index.get(source_key, []):
+            clock_targets.append(connection.target)
+        for connection, _transform in graph._source_index.get(source_key, []):
+            clock_targets.append(connection.target)
+        for connection, _transform in graph._factor_index.get(source_key, []):
+            clock_targets.append(connection.target)
+        return any(target.startswith("clock.") for target in clock_targets)
 
     async def _handle_master_clock_command(self, event: MasterClockCommandEvent) -> None:
         if self.config.master_clock.enabled:
@@ -327,6 +351,8 @@ class MIDIJugglerService:
         enabled = self._enabled_adapter_names({"osc"})
         configured = self.config.master_clock.osc_input_targets
         if configured is None:
+            return enabled
+        if not configured and self.config.runtime.datapoint_routing:
             return enabled
         return enabled & set(configured)
 
