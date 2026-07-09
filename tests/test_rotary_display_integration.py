@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+import time
 from collections import deque
 
 import pytest
@@ -813,3 +814,80 @@ def test_transport_beat_listener_sends_serial_on_click_tick_at_170_bpm() -> None
 
     beat_lines = [line for line in serial_payloads if line.startswith("beat ")]
     assert len(beat_lines) >= 9
+
+
+def test_transport_beat_listener_sends_osc_sync_on_click_tick_at_170_bpm(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    osc_payloads: list[tuple[bytes, str, int]] = []
+    beat_times: list[float] = []
+
+    def capture_osc(payload: bytes, host: str, port: int, **kwargs: object) -> None:
+        osc_payloads.append((payload, host, port))
+        beat_times.append(time.monotonic())
+
+    monkeypatch.setattr(
+        "midijuggler.modules.interface.rotary_display.module._udp_send",
+        capture_osc,
+    )
+
+    class FakeClickPlayer:
+        def trigger(self) -> None:
+            return
+
+        async def play(self) -> None:
+            return
+
+        async def close(self) -> None:
+            return
+
+    config = parse_config(
+        {
+            "master_clock": {
+                "enabled": True,
+                "bpm": 170.0,
+                "click_enabled": True,
+                "click_interval": "quarter",
+            },
+            "rotary_display": {
+                "enabled": True,
+                "transport": "osc",
+                "feedback_host": "192.168.1.70",
+                "feedback_port": 9001,
+            },
+        }
+    )
+    store = DataPointStore()
+    bus = EventBus()
+    master_clock = MasterClock(config.master_clock, bus, click_player=FakeClickPlayer())
+    clock_gen = MasterClockGenerator(master_clock, store)
+    store.register_many(clock_gen.datapoints())
+    module = RotaryDisplayModule(store, config.rotary_display, master_clock, bus)
+
+    async def scenario() -> None:
+        master_clock.bind_datapoint_sink(clock_gen)
+        await clock_gen.start()
+        master_clock.register_beat_pulse_listener(module._on_transport_beat_pulse)
+        module.running = True
+        await master_clock.start_transport(reset_position=True)
+        await asyncio.sleep(3.2)
+        await master_clock.stop_transport(send_transport=False)
+        master_clock.unregister_beat_pulse_listener(module._on_transport_beat_pulse)
+
+    asyncio.run(scenario())
+
+    beat_messages = [
+        msg
+        for payload, _host, _port in osc_payloads
+        for msg in decode_messages(payload)
+        if msg[0] == "/midijuggler/rotary/beat" and msg[1][0] == pytest.approx(1.0)
+    ]
+    assert len(beat_messages) >= 9
+    if len(beat_times) >= 3:
+        intervals = [
+            beat_times[index + 1] - beat_times[index]
+            for index in range(min(8, len(beat_times) - 1))
+        ]
+        expected = 60.0 / 170.0
+        for interval in intervals:
+            assert interval == pytest.approx(expected, rel=0.15)

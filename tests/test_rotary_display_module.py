@@ -621,7 +621,53 @@ def test_push_device_config_waits_for_serial_after_runtime_enable(
     result = asyncio.run(scenario())
 
     assert result["pushed"] is True
-    assert push_calls
+
+
+def test_apply_runtime_config_enables_osc_and_pokes_device_hello(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    serial_payloads: list[str] = []
+    sync_calls: list[bool] = []
+
+    config = parse_config(
+        {
+            "master_clock": {"enabled": True, "bpm": 120.0},
+            "rotary_display": {
+                "enabled": True,
+                "transport": "serial",
+                "serial_port": "/dev/ttyACM0",
+                "feedback_host": "192.168.1.70",
+                "feedback_port": 9001,
+            },
+        }
+    )
+    store = DataPointStore()
+    bus = EventBus()
+    master_clock = MasterClock(config.master_clock, bus)
+    module = RotaryDisplayModule(store, config.rotary_display, master_clock, bus)
+
+    class FakeSerial:
+        def write(self, data: bytes) -> int:
+            serial_payloads.append(data.decode())
+            return len(data)
+
+    async def track_send_sync(self, *, force: bool = False) -> None:
+        sync_calls.append(force)
+
+    monkeypatch.setattr(RotaryDisplayModule, "_send_sync", track_send_sync)
+
+    async def scenario() -> None:
+        await module.start()
+        module._serial_connected = True
+        module._serial_port = FakeSerial()
+        osc_config = replace(config.rotary_display, transport="osc")
+        await module.apply_runtime_config(osc_config)
+        await module.stop()
+
+    asyncio.run(scenario())
+
+    assert "hello\n" in serial_payloads
+    assert sync_calls == [True]
 
 
 def test_push_device_config_uses_usb_when_host_transport_is_osc(

@@ -473,3 +473,44 @@ def test_beat_send_coalesces_concurrent_burst(
 
     assert order.count("start") == 1
     assert order.count("end") == 1
+
+
+def test_transport_clock_beat_reaches_websocket_subscribers(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    class FakeClickPlayer:
+        def trigger(self) -> None:
+            return
+
+        async def play(self) -> None:
+            return
+
+        async def close(self) -> None:
+            return
+
+    config = _production_config()
+    config["master_clock"]["bpm"] = 170.0
+    config["master_clock"]["click_enabled"] = False
+    service = MIDIJugglerService(parse_config(config))
+    _patch_adapters_noop_start(monkeypatch, service)
+    broadcasts: list[dict] = []
+
+    async def capture_broadcast(payload: dict) -> None:
+        if payload.get("id") == "clock.beat" and (payload.get("float_value") or 0) > 0.5:
+            broadcasts.append(payload)
+
+    async def scenario() -> None:
+        monkeypatch.setattr(
+            service.web,
+            "broadcast_datapoint_update",
+            capture_broadcast,
+        )
+        await _start_service(service)
+        service.master_clock.click_player = FakeClickPlayer()
+        await service.master_clock.start_transport(reset_position=True)
+        await asyncio.sleep(3.2)
+        await service.master_clock.stop_transport(send_transport=False)
+
+    asyncio.run(scenario())
+
+    assert len(broadcasts) >= 9

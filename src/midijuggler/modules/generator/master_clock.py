@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import asyncio
 import contextlib
+from typing import Any
 
 from midijuggler.datapoint.store import DataPointStore
 from midijuggler.datapoint.types import (
@@ -533,10 +534,13 @@ class MasterClockGenerator(GeneratorModule):
         loop = self.clock._asyncio_loop
         if loop is None or loop.is_closed():
             return
-        loop.call_soon_threadsafe(self._schedule_publish_beat)
+        future = asyncio.run_coroutine_threadsafe(self.publish_beat(), loop)
+        future.add_done_callback(self._log_scheduled_beat_result)
 
-    def _schedule_publish_beat(self) -> None:
-        asyncio.create_task(self.publish_beat(), name="clock-beat-pulse")
+    @staticmethod
+    def _log_scheduled_beat_result(future: asyncio.Future[Any]) -> None:
+        with contextlib.suppress(Exception):
+            future.result()
 
     def _beat_interval_ms(self) -> float:
         key = BEAT_INTERVAL_MS_KEYS.get(

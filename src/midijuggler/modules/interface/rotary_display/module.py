@@ -93,6 +93,7 @@ class RotaryDisplayModule(InterfaceModule):
         self._last_pushed_fingerprint: str | None = None
         self._serial_lock = asyncio.Lock()
         self._transport_serial_lock = threading.Lock()
+        self._transport_osc_lock = threading.Lock()
         self._use_osc = config.transport in {"osc", "both"}
         self._use_serial = config.transport in {"serial", "both"}
         self._feedback_registration_handler: Callable[[str, int], None] | None = None
@@ -249,31 +250,25 @@ class RotaryDisplayModule(InterfaceModule):
         self._beat_pulse_active = True
         self._last_beat = 1.0
         if self._use_osc and self._feedback_host and self._feedback_port > 0:
-            self._dispatch_osc_beat_pulse()
+            self._write_beat_osc_sync(1.0)
             return
         if self._use_serial and self._serial_connected and self._serial_port is not None:
             self._write_beat_serial_sync(1.0)
 
-    def _dispatch_osc_beat_pulse(self) -> None:
-        try:
-            loop = asyncio.get_running_loop()
-        except RuntimeError:
-            loop = self.master_clock._asyncio_loop
-        if loop is None or loop.is_closed():
+    def _write_beat_osc_sync(self, value: float) -> None:
+        if not self._use_osc or not self._feedback_host or self._feedback_port <= 0:
             return
-        try:
-            if asyncio.get_running_loop() is loop:
-                self._schedule_osc_beat_pulse()
-                return
-        except RuntimeError:
-            pass
-        loop.call_soon_threadsafe(self._schedule_osc_beat_pulse)
-
-    def _schedule_osc_beat_pulse(self) -> None:
-        asyncio.create_task(
-            self._send_osc(self.config.beat_osc_address, [1.0]),
-            name="rotary-display-beat-osc",
-        )
+        with self._transport_osc_lock:
+            try:
+                payload = encode_message(self.config.beat_osc_address, [value])
+                _udp_send(
+                    payload,
+                    self._feedback_host,
+                    self._feedback_port,
+                    fallback_ip=self._feedback_host_ip,
+                )
+            except OSError:
+                LOGGER.exception("rotary display OSC beat send failed")
 
     def _write_beat_serial_sync(self, value: float) -> None:
         with self._transport_serial_lock:
@@ -422,6 +417,20 @@ class RotaryDisplayModule(InterfaceModule):
             return
         await self._send_serial(format_beat_line(value) + "\n")
 
+    def _poke_device_hello_serial(self) -> None:
+        if not self._serial_connected or self._serial_port is None:
+            return
+        with self._transport_serial_lock:
+            try:
+                data = b"hello\n"
+                self._serial_port.write(data)
+                flush = getattr(self._serial_port, "flush", None)
+                if callable(flush):
+                    flush()
+            except OSError:
+                LOGGER.exception("rotary display hello poke failed")
+                self._serial_connected = False
+
     async def _send_serial(self, payload: str) -> None:
         if not self._use_serial or not self._serial_connected or self._serial_port is None:
             return
@@ -452,8 +461,15 @@ class RotaryDisplayModule(InterfaceModule):
         """Apply config at runtime and reconcile serial transport state."""
 
         previous_use_serial = self._use_serial
+        previous_use_osc = self._use_osc
         previous_serial_port = self.config.serial_port
         self.update_config(config)
+
+        if self._use_osc and not previous_use_osc:
+            if self._feedback_host and self._feedback_port > 0:
+                await self._prime_feedback_host_ip(self._feedback_host)
+            self._poke_device_hello_serial()
+            await self._send_sync(force=True)
 
         serial_needed = self._serial_transport_enabled()
         serial_was_needed = previous_use_serial and bool(previous_serial_port.strip())

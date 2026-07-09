@@ -581,13 +581,8 @@ class MasterClock:
                 listener()
             except Exception:
                 LOGGER.exception("beat pulse listener failed")
-        sink = self._datapoint_sink
-        if sink is not None:
-            trigger = getattr(sink, "trigger_beat_pulse", None)
-            if callable(trigger):
-                trigger()
-            else:
-                self._submit_coroutine(sink.publish_beat())
+        if self._datapoint_sink is not None:
+            self._submit_coroutine(self._datapoint_sink.publish_beat())
         self._submit_coroutine(self._publish_click_event(position_ticks))
 
     def _submit_coroutine(self, coroutine: Coroutine[Any, Any, Any]) -> None:
