@@ -324,20 +324,16 @@ class RotaryDisplayModule(InterfaceModule):
                 if self._pending_beat_value is not None:
                     value = self._pending_beat_value
                     self._pending_beat_value = None
-                    coalesced_count = self._beats_received_during_send
                     self._beats_received_during_send = 0
-                    if coalesced_count > 1:
-                        now = time.monotonic()
-                        gap = self._min_beat_send_gap()
-                        if (
-                            self._last_beat_serial_sent_at is not None
-                            and now - self._last_beat_serial_sent_at < gap
-                        ):
-                            continue
                 elif self._beat_outbox:
                     value = self._beat_outbox.popleft()
                 else:
                     break
+                if self._last_beat_serial_sent_at is not None:
+                    gap = self._min_beat_send_gap()
+                    wait = gap - (time.monotonic() - self._last_beat_serial_sent_at)
+                    if wait > 0:
+                        await asyncio.sleep(wait)
                 self._beat_send_in_flight = True
                 try:
                     await self._send_beat(value)

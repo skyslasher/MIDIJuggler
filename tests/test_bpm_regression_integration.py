@@ -202,7 +202,9 @@ def test_beat_rising_edge_survives_repeated_one_values(
         await service.datapoint_store.write(float_value("clock.beat", 1.0, force_notify=True))
         await service.datapoint_store.write(float_value("clock.beat", 0.0, force_notify=True))
         await service.datapoint_store.write(float_value("clock.beat", 1.0, force_notify=True))
-        await asyncio.sleep(0.05)
+        if module._beat_send_task is not None:
+            await module._beat_send_task
+        await asyncio.sleep(0.25)
 
     asyncio.run(scenario())
 
@@ -263,38 +265,71 @@ def test_serial_encoder_bpm_with_bandhelper_disabled(
     assert sync[-1][1][0] == pytest.approx(140.0)
 
 
-def test_high_bpm_slow_send_drops_coalesced_catch_up(
+def test_high_bpm_slow_serial_send_delivers_catch_up_beats(
     monkeypatch: pytest.MonkeyPatch,
-    capture_sync: list,
 ) -> None:
-    config = _production_config()
-    config["master_clock"]["bpm"] = 180.0
-    service = MIDIJugglerService(parse_config(config))
-    _patch_adapters_noop_start(monkeypatch, service)
-    original_send_beat = RotaryDisplayModule._send_beat
+    serial_payloads: list[str] = []
+    clock = {"now": 0.0}
 
-    async def slow_send_beat(self, value: float) -> None:
-        await asyncio.sleep(0.04)
-        await original_send_beat(self, value)
+    config = parse_config(
+        {
+            "master_clock": {"enabled": True, "bpm": 170.0},
+            "rotary_display": {
+                "enabled": True,
+                "transport": "serial",
+                "serial_port": "/dev/ttyACM0",
+            },
+        }
+    )
+    store = DataPointStore()
+    bus = EventBus()
+    master_clock = MasterClock(config.master_clock, bus)
+    module = RotaryDisplayModule(store, config.rotary_display, master_clock, bus)
+    module.running = True
+    module._serial_connected = True
+    monkeypatch.setattr(
+        "midijuggler.modules.interface.rotary_display.module.time.monotonic",
+        lambda: clock["now"],
+    )
 
-    monkeypatch.setattr(RotaryDisplayModule, "_send_beat", slow_send_beat)
+    async def fake_sleep(duration: float) -> None:
+        clock["now"] += duration
+
+    monkeypatch.setattr(
+        "midijuggler.modules.interface.rotary_display.module.asyncio.sleep",
+        fake_sleep,
+    )
+
+    class FakeSerial:
+        def write(self, data: bytes) -> int:
+            serial_payloads.append(data.decode())
+            return len(data)
+
+        def flush(self) -> None:
+            return None
+
+    module._serial_port = FakeSerial()
+
+    original_send_serial = module._send_serial
+
+    async def slow_send_serial(payload: str) -> None:
+        clock["now"] += 0.04
+        await original_send_serial(payload)
+
+    module._send_serial = slow_send_serial
 
     async def scenario() -> None:
-        await _start_service(service)
-        beat_ticks = MIDI_CLOCK_TICKS_PER_QUARTER * 8
-        for _ in range(beat_ticks):
-            await service.master_clock.emit_tick()
-        await asyncio.sleep(0.5)
+        interval = 60.0 / 170.0
+        for _ in range(9):
+            module._schedule_beat_send(1.0)
+            if module._beat_send_task is not None:
+                await module._beat_send_task
+            clock["now"] += interval
 
     asyncio.run(scenario())
 
-    beats = [
-        msg
-        for batch in capture_sync
-        for msg in batch
-        if msg[0] == "/midijuggler/rotary/beat" and msg[1][0] == pytest.approx(1.0)
-    ]
-    assert len(beats) == 1
+    beat_lines = [line for line in serial_payloads if line.startswith("beat ")]
+    assert len(beat_lines) == 9
 
 
 def test_beat_send_serializes_concurrent_tasks(
@@ -327,6 +362,8 @@ def test_beat_send_serializes_concurrent_tasks(
     async def scenario() -> None:
         module.running = True
         module._schedule_beat_send(1.0)
+        while not module._beat_send_in_flight:
+            await asyncio.sleep(0)
         module._schedule_beat_send(1.0)
         if module._beat_send_task is not None:
             await module._beat_send_task
