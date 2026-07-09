@@ -3768,9 +3768,8 @@ class WebInterface:
 
         push_result: dict[str, Any] = {"pushed": False, "reason": "module unavailable"}
         if self._rotary_display_module is not None:
-            self._rotary_display_module.update_config(config)
-            push_result = await self._rotary_display_module.push_device_config(force=True)
             await self._rotary_display_module.apply_runtime_config(config)
+            push_result = await self._rotary_display_module.push_device_config(force=True)
 
         persisted = False
         persist_error = ""

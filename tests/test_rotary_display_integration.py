@@ -819,16 +819,30 @@ def test_transport_beat_listener_sends_serial_on_click_tick_at_170_bpm() -> None
 def test_transport_beat_listener_sends_osc_sync_on_click_tick_at_170_bpm(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    osc_payloads: list[tuple[bytes, str, int]] = []
+    import socket as socket_module
+
+    osc_payloads: list[tuple[bytes, tuple[str, int]]] = []
     beat_times: list[float] = []
 
-    def capture_osc(payload: bytes, host: str, port: int, **kwargs: object) -> None:
-        osc_payloads.append((payload, host, port))
-        beat_times.append(time.monotonic())
+    class FakeSocket:
+        def sendto(self, payload: bytes, addr: tuple[str, int]) -> int:
+            osc_payloads.append((payload, addr))
+            beat_times.append(time.monotonic())
+            return len(payload)
+
+        def close(self) -> None:
+            return None
+
+    real_socket = socket_module.socket
+
+    def fake_socket(family: int, sock_type: int, *args: object, **kwargs: object):
+        if family == socket_module.AF_INET and sock_type == socket_module.SOCK_DGRAM:
+            return FakeSocket()
+        return real_socket(family, sock_type, *args, **kwargs)
 
     monkeypatch.setattr(
-        "midijuggler.modules.interface.rotary_display.module._udp_send_timing_critical",
-        capture_osc,
+        "midijuggler.modules.interface.rotary_display.module.socket.socket",
+        fake_socket,
     )
 
     class FakeClickPlayer:
@@ -878,7 +892,7 @@ def test_transport_beat_listener_sends_osc_sync_on_click_tick_at_170_bpm(
 
     beat_messages = [
         msg
-        for payload, _host, _port in osc_payloads
+        for payload, _addr in osc_payloads
         for msg in decode_messages(payload)
         if msg[0] == "/midijuggler/rotary/beat" and msg[1][0] == pytest.approx(1.0)
     ]

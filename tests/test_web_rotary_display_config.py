@@ -100,3 +100,60 @@ def test_apply_rotary_display_config_persists_and_updates_module(
     assert saved.rotary_display.device.wifi_pass == "new-pass"
     assert push_calls == [True]
     assert module.config.device.host == "192.168.1.20"
+
+
+def test_apply_rotary_display_config_host_transport_switch_enables_osc(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    config_file = tmp_path / "config.toml"
+    config_file.write_text(
+        """
+        [rotary_display]
+        enabled = true
+        transport = "serial"
+        serial_port = "/dev/ttyACM0"
+
+        [rotary_display.device]
+        transport = "both"
+        host = "midijuggler.local"
+        """,
+        encoding="utf-8",
+    )
+    config = load_config(config_file)
+    bus = EventBus()
+    store = DataPointStore()
+    master_clock = MasterClock(config.master_clock, bus)
+    module = RotaryDisplayModule(store, config.rotary_display, master_clock, bus)
+    module._serial_connected = True
+    enable_calls: list[bool] = []
+
+    async def fake_enable(self) -> None:
+        enable_calls.append(True)
+
+    async def fake_push(*, force: bool = False) -> dict:
+        return {"pushed": True}
+
+    monkeypatch.setattr(RotaryDisplayModule, "_enable_host_osc_transport", fake_enable)
+    monkeypatch.setattr(module, "push_device_config", fake_push)
+
+    interface = WebInterface(
+        config,
+        bus,
+        ClockBpmTracker(),
+        master_clock,
+        config_path=config_file,
+    )
+    interface.bind_rotary_display_module(module)
+
+    result = asyncio.run(
+        interface.apply_rotary_display_config(
+            {
+                "transport": "osc",
+            }
+        )
+    )
+
+    assert result["persisted"] is True
+    assert enable_calls == [True]
+    assert module.config.transport == "osc"

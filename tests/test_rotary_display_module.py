@@ -729,6 +729,8 @@ def test_push_device_config_uses_usb_when_host_transport_is_osc(
 def test_beat_osc_sync_uses_cached_ip_without_mdns_lookup(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
+    import socket as socket_module
+
     resolve_calls: list[str] = []
     sent_targets: list[tuple[str, int]] = []
 
@@ -736,23 +738,28 @@ def test_beat_osc_sync_uses_cached_ip_without_mdns_lookup(
         resolve_calls.append(host)
         return "192.168.1.99"
 
-    def capture_send(
-        payload: bytes,
-        host: str,
-        port: int,
-        *,
-        cached_ip: str | None = None,
-    ) -> None:
-        sent_targets.append((host, port))
-        assert cached_ip == "192.168.1.70"
+    class FakeSocket:
+        def sendto(self, payload: bytes, addr: tuple[str, int]) -> int:
+            sent_targets.append(addr)
+            return len(payload)
+
+        def close(self) -> None:
+            return None
+
+    real_socket = socket_module.socket
+
+    def fake_socket(family: int, sock_type: int, *args: object, **kwargs: object):
+        if family == socket_module.AF_INET and sock_type == socket_module.SOCK_DGRAM:
+            return FakeSocket()
+        return real_socket(family, sock_type, *args, **kwargs)
 
     monkeypatch.setattr(
         "midijuggler.modules.interface.rotary_display.module.resolve_udp_host",
         fake_resolve,
     )
     monkeypatch.setattr(
-        "midijuggler.modules.interface.rotary_display.module._udp_send_timing_critical",
-        capture_send,
+        "midijuggler.modules.interface.rotary_display.module.socket.socket",
+        fake_socket,
     )
 
     config = parse_config(
@@ -769,13 +776,89 @@ def test_beat_osc_sync_uses_cached_ip_without_mdns_lookup(
     bus = EventBus()
     master_clock = MasterClock(MasterClockConfig(enabled=True), bus)
     module = RotaryDisplayModule(store, config.rotary_display, master_clock, bus)
+    module._feedback_host = "rotary-stage.local"
     module._feedback_host_ip = "192.168.1.70"
+    module._feedback_port = 9001
     module.running = True
 
     module._write_beat_osc_sync(1.0)
 
-    assert sent_targets == [("rotary-stage.local", 9001)]
+    assert sent_targets == [("192.168.1.70", 9001)]
     assert resolve_calls == []
+
+
+def test_beat_osc_sync_skips_unresolved_mdns_host(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    import socket as socket_module
+
+    resolve_calls: list[str] = []
+    sent_targets: list[tuple[str, int]] = []
+
+    def fake_resolve(host: str, **kwargs: object) -> str:
+        resolve_calls.append(host)
+        return "192.168.1.99"
+
+    class FakeSocket:
+        def sendto(self, payload: bytes, addr: tuple[str, int]) -> int:
+            sent_targets.append(addr)
+            return len(payload)
+
+        def close(self) -> None:
+            return None
+
+    real_socket = socket_module.socket
+
+    def fake_socket(family: int, sock_type: int, *args: object, **kwargs: object):
+        if family == socket_module.AF_INET and sock_type == socket_module.SOCK_DGRAM:
+            return FakeSocket()
+        return real_socket(family, sock_type, *args, **kwargs)
+
+    monkeypatch.setattr(
+        "midijuggler.modules.interface.rotary_display.module.resolve_udp_host",
+        fake_resolve,
+    )
+    monkeypatch.setattr(
+        "midijuggler.modules.interface.rotary_display.module.socket.socket",
+        fake_socket,
+    )
+
+    config = parse_config(
+        {
+            "rotary_display": {
+                "enabled": True,
+                "transport": "osc",
+                "feedback_host": "rotary-stage.local",
+                "feedback_port": 9001,
+            }
+        }
+    )
+    store = DataPointStore()
+    bus = EventBus()
+    master_clock = MasterClock(MasterClockConfig(enabled=True), bus)
+    module = RotaryDisplayModule(store, config.rotary_display, master_clock, bus)
+    module._feedback_host = "rotary-stage.local"
+    module._feedback_port = 9001
+    module.running = True
+
+    module._write_beat_osc_sync(1.0)
+
+    assert sent_targets == []
+    assert resolve_calls == []
+
+
+def test_register_feedback_target_preserves_cached_ip_on_reregister() -> None:
+    config = parse_config({"rotary_display": {"enabled": True, "transport": "osc"}})
+    store = DataPointStore()
+    bus = EventBus()
+    master_clock = MasterClock(MasterClockConfig(enabled=True), bus)
+    module = RotaryDisplayModule(store, config.rotary_display, master_clock, bus)
+    module._feedback_host = "rotary-stage.local"
+    module._feedback_host_ip = "192.168.1.70"
+
+    module._register_feedback_target("rotary-stage.local", 9001)
+
+    assert module._feedback_host_ip == "192.168.1.70"
 
 
 def test_enable_host_osc_transport_aligns_serial_device_and_waits_for_hello(

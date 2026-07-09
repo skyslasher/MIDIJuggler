@@ -4,13 +4,6 @@ export FRAMEBUFFER=/dev/fb0
 xsession_pid=$$
 
 (
-  while [ ! -S /tmp/.X11-unix/X0 ]; do
-    sleep 0.1
-  done
-  /opt/midijuggler/app/scripts/gamepi-disable-blanking.sh
-) &
-
-(
   while sleep 2; do
     if [ -S /tmp/.X11-unix/X0 ]; then
       continue
@@ -19,6 +12,10 @@ xsession_pid=$$
     exit 0
   done
 ) &
+
+while [ ! -S /tmp/.X11-unix/X0 ]; do
+  sleep 0.1
+done
 
 /opt/midijuggler/app/scripts/gamepi-disable-blanking.sh
 
@@ -30,6 +27,7 @@ if command -v xset >/dev/null 2>&1; then
   xset s off
   xset -dpms
   xset s noblank
+  xset dpms force on
 fi
 
 CHROMIUM_USER_DATA_DIR="${GAMEPI_CHROMIUM_USER_DATA_DIR:-${HOME:-/home/dietpi}/.cache/midijuggler-kiosk}"

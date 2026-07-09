@@ -8,7 +8,6 @@ Type=simple
 Environment=GAMEPI_FB_DEVICE=/dev/fb0
 Environment=GAMEPI_BLANKING_INTERVAL=15
 Environment=GAMEPI_X_USER=dietpi
-Environment=GAMEPI_ALLOW_SETTERM=1
 ExecStart=/opt/midijuggler/app/scripts/gamepi-blanking-watch.sh
 Restart=always
 RestartSec=5

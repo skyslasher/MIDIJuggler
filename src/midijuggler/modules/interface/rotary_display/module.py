@@ -96,6 +96,8 @@ class RotaryDisplayModule(InterfaceModule):
         self._serial_lock = asyncio.Lock()
         self._transport_serial_lock = threading.Lock()
         self._transport_osc_lock = threading.Lock()
+        self._beat_udp_socket: socket.socket | None = None
+        self._beat_udp_target: tuple[str, int] | None = None
         self._use_osc = config.transport in {"osc", "both"}
         self._use_serial = config.transport in {"serial", "both"}
         self._feedback_registration_handler: Callable[[str, int], None] | None = None
@@ -187,13 +189,29 @@ class RotaryDisplayModule(InterfaceModule):
         )
 
     def _register_feedback_target(self, host: str, port: int) -> None:
+        previous_host = self._feedback_host
         self._feedback_host = host
         self._feedback_port = port
-        self._feedback_host_ip = None
+        if host != previous_host:
+            if is_ipv4_address(host):
+                self._feedback_host_ip = str(host).strip()
+            else:
+                self._feedback_host_ip = None
+            self._reset_beat_udp_socket()
         if self._feedback_registration_handler is not None:
             self._feedback_registration_handler(host, port)
 
+    def _reset_beat_udp_socket(self) -> None:
+        if self._beat_udp_socket is not None:
+            with contextlib.suppress(OSError):
+                self._beat_udp_socket.close()
+        self._beat_udp_socket = None
+        self._beat_udp_target = None
+
     async def _prime_feedback_host_ip(self, host: str) -> None:
+        if is_ipv4_address(host):
+            self._feedback_host_ip = str(host).strip()
+            return
         if not is_mdns_hostname(host):
             return
         try:
@@ -216,6 +234,7 @@ class RotaryDisplayModule(InterfaceModule):
     async def stop(self) -> None:
         self.master_clock.unregister_beat_pulse_listener(self._on_transport_beat_pulse)
         await self._stop_serial()
+        self._reset_beat_udp_socket()
         await super().stop()
 
     async def _on_osc_message(self, event: OscMessageEvent) -> None:
@@ -230,8 +249,8 @@ class RotaryDisplayModule(InterfaceModule):
         host, port = parsed
         changed = host != self._feedback_host or port != self._feedback_port
         self._register_feedback_target(host, port)
-        self._osc_hello_event.set()
         await self._prime_feedback_host_ip(host)
+        self._osc_hello_event.set()
         if changed:
             LOGGER.info(
                 "rotary display registered at %s:%s",
@@ -265,14 +284,23 @@ class RotaryDisplayModule(InterfaceModule):
         with self._transport_osc_lock:
             try:
                 payload = encode_message(self.config.beat_osc_address, [value])
-                _udp_send_timing_critical(
-                    payload,
+                target = _resolve_beat_udp_target(
                     self._feedback_host,
                     self._feedback_port,
                     cached_ip=self._feedback_host_ip,
                 )
+                if target is None:
+                    return
+                host, port = target
+                endpoint = (host, port)
+                if self._beat_udp_socket is None or self._beat_udp_target != endpoint:
+                    self._reset_beat_udp_socket()
+                    self._beat_udp_socket = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+                    self._beat_udp_target = endpoint
+                self._beat_udp_socket.sendto(payload, endpoint)
             except OSError:
                 LOGGER.exception("rotary display OSC beat send failed")
+                self._reset_beat_udp_socket()
 
     def _write_beat_serial_sync(self, value: float) -> None:
         with self._transport_serial_lock:
@@ -817,6 +845,31 @@ class RotaryDisplayModule(InterfaceModule):
         await self.master_clock.handle_command(event)
 
 
+def _resolve_beat_udp_target(
+    host: str,
+    port: int,
+    *,
+    cached_ip: str | None = None,
+) -> tuple[str, int] | None:
+    """Resolve beat UDP endpoint without blocking the transport thread on mDNS."""
+
+    if cached_ip and is_ipv4_address(cached_ip):
+        return str(cached_ip).strip(), port
+    if is_ipv4_address(host):
+        return str(host).strip(), port
+    if is_mdns_hostname(host):
+        LOGGER.debug(
+            "skipping rotary display OSC beat to unresolved mDNS host %s",
+            host,
+        )
+        return None
+    try:
+        return resolve_udp_host(host, fallback_ip=cached_ip), port
+    except OSError:
+        LOGGER.exception("rotary display OSC beat target resolution failed for %s", host)
+        return None
+
+
 def _udp_send_timing_critical(
     payload: bytes,
     host: str,
@@ -826,15 +879,12 @@ def _udp_send_timing_critical(
 ) -> None:
     """Send beat UDP without blocking the transport thread on mDNS."""
 
-    if cached_ip and is_ipv4_address(cached_ip):
-        target = str(cached_ip).strip()
-    elif is_ipv4_address(host):
-        target = str(host).strip()
-    else:
-        target = resolve_udp_host(host, fallback_ip=cached_ip)
+    target = _resolve_beat_udp_target(host, port, cached_ip=cached_ip)
+    if target is None:
+        return
 
     with socket.socket(socket.AF_INET, socket.SOCK_DGRAM) as sock:
-        sock.sendto(payload, (target, port))
+        sock.sendto(payload, target)
 
 
 def _udp_send(
