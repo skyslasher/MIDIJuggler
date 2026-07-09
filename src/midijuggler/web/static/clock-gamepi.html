@@ -384,6 +384,9 @@
     let rebootComboTriggered = false;
     let brightnessResetTriggered = false;
     let rebootHoldTimer = null;
+    let displayWakeLock = null;
+    let keepAwakeTimer = null;
+    const KEEP_AWAKE_INTERVAL_MS = 20000;
 
     // GamePi13 gpio-key: physical Start → KEY_Q, Select → KEY_S (Chromium: q / s).
     function isStartKey(key) {
@@ -517,8 +520,11 @@
         bpmCard.classList.add("beat-pulse");
         if (beatFlashTimer) {
           clearTimeout(beatFlashTimer);
-          beatFlashTimer = null;
         }
+        beatFlashTimer = setTimeout(() => {
+          setBeatPulse(false);
+          beatFlashTimer = null;
+        }, effectiveFlashMs(currentClock));
         return;
       }
       bpmCard.classList.remove("beat-pulse");
@@ -526,6 +532,62 @@
         clearTimeout(beatFlashTimer);
         beatFlashTimer = null;
       }
+    }
+
+    function handleBeatDatapoint(value) {
+      if (!isBeatActive(value)) {
+        return;
+      }
+      setBeatPulse(true);
+    }
+
+    async function requestDisplayKeepAwake() {
+      try {
+        await apiFetch("/api/gamepi/keep-awake", { method: "POST", body: "{}" });
+      } catch {
+        // Best-effort; blanking watch service is the primary guard.
+      }
+    }
+
+    async function acquireDisplayWakeLock() {
+      if (!("wakeLock" in navigator)) {
+        return;
+      }
+      try {
+        if (!displayWakeLock) {
+          displayWakeLock = await navigator.wakeLock.request("screen");
+        }
+      } catch {
+        displayWakeLock = null;
+      }
+    }
+
+    async function releaseDisplayWakeLock() {
+      if (!displayWakeLock) {
+        return;
+      }
+      try {
+        await displayWakeLock.release();
+      } catch {
+        // ignore
+      }
+      displayWakeLock = null;
+    }
+
+    function updateDisplayKeepAwake(running) {
+      if (keepAwakeTimer) {
+        clearInterval(keepAwakeTimer);
+        keepAwakeTimer = null;
+      }
+      if (running) {
+        requestDisplayKeepAwake();
+        acquireDisplayWakeLock();
+        keepAwakeTimer = setInterval(() => {
+          requestDisplayKeepAwake();
+        }, KEEP_AWAKE_INTERVAL_MS);
+        return;
+      }
+      releaseDisplayWakeLock();
     }
 
     function pulseBeatFallback() {
@@ -618,6 +680,7 @@
       }
       if (clock.running != null) {
         bpmCard.classList.toggle("running", Boolean(clock.running));
+        updateDisplayKeepAwake(Boolean(clock.running));
       }
 
       if (clock.click_enabled != null) {
@@ -964,7 +1027,7 @@
           return;
         }
         if (payload.type === "datapoint" && payload.payload?.id === "clock.beat") {
-          setBeatPulse(isBeatActive(payload.payload));
+          handleBeatDatapoint(payload.payload);
           return;
         }
         if (payload.type === "datapoint" && payload.payload?.id === "gamepi.brightness") {
@@ -978,6 +1041,7 @@
             renderClock({ bpm: payload.payload.float_value });
           } else if (payload.payload.id === "clock.running" && payload.payload.bool_value != null) {
             renderClock({ running: payload.payload.bool_value });
+            updateDisplayKeepAwake(Boolean(payload.payload.bool_value));
           }
           return;
         }

@@ -915,4 +915,4 @@ def test_clock_beat_routes_to_led_via_passthrough() -> None:
 
     asyncio.run(scenario())
 
-    assert received == [0.0, 1.0, 0.0]
+    assert received == [1.0, 0.0]

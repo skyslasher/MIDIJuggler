@@ -81,6 +81,14 @@ def test_gamepi_reboot_uses_sudo_wrapper(monkeypatch, tmp_path: Path) -> None:
     assert calls == [["sudo", "-n", str(script)]]
 
 
+def test_gamepi_keep_awake_rejects_non_localhost() -> None:
+    from midijuggler.web.gamepi_system import request_display_keep_awake
+
+    request = SimpleNamespace(remote="203.0.113.1")
+    with pytest.raises(PermissionError, match="localhost"):
+        request_display_keep_awake(request)
+
+
 def test_clock_gamepi_static_asset_exists() -> None:
     from pathlib import Path
 
@@ -103,3 +111,5 @@ def test_clock_gamepi_static_asset_exists() -> None:
     assert 'id="btn-flash">Puls</button>' in text
     assert "text-align: center" in text
     assert "brightnessTrack," not in text
+    assert "handleBeatDatapoint" in text
+    assert "/api/gamepi/keep-awake" in text

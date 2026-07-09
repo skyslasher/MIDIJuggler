@@ -204,7 +204,7 @@ def test_serial_beat_coalesces_catch_up_during_in_flight_send() -> None:
     assert serial_payloads == ["beat 1.0\n", "beat 1.0\n"]
 
 
-def test_serial_beat_delivers_all_backlog_when_not_in_flight() -> None:
+def test_serial_beat_coalesces_backlog_to_latest_edge() -> None:
     serial_payloads: list[str] = []
 
     config = parse_config(
@@ -238,10 +238,10 @@ def test_serial_beat_delivers_all_backlog_when_not_in_flight() -> None:
 
     asyncio.run(scenario())
 
-    assert serial_payloads == ["beat 1.0\n", "beat 1.0\n", "beat 1.0\n"]
+    assert serial_payloads == ["beat 1.0\n"]
 
 
-def test_serial_beat_sends_immediately_without_gap_wait(
+def test_serial_beat_waits_for_gap_between_paced_sends(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     serial_payloads: list[str] = []
@@ -289,10 +289,11 @@ def test_serial_beat_sends_immediately_without_gap_wait(
     asyncio.run(scenario())
 
     assert serial_payloads == ["beat 1.0\n", "beat 1.0\n"]
-    assert sleep_log == []
+    expected_gap = (60.0 / 120.0) * 0.4
+    assert sleep_log == [pytest.approx(expected_gap, abs=0.001)]
 
 
-def test_serial_beat_delivers_all_queued_when_not_in_flight(
+def test_serial_beat_coalesces_queued_burst_to_single_send(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     serial_payloads: list[str] = []
@@ -328,10 +329,10 @@ def test_serial_beat_delivers_all_queued_when_not_in_flight(
 
     asyncio.run(scenario())
 
-    assert serial_payloads == ["beat 1.0\n", "beat 1.0\n", "beat 1.0\n"]
+    assert serial_payloads == ["beat 1.0\n"]
 
 
-def test_same_tick_beat_schedules_deliver_all() -> None:
+def test_same_tick_beat_coalesces_to_single_delivery() -> None:
     serial_payloads: list[str] = []
 
     config = parse_config(
@@ -367,7 +368,64 @@ def test_same_tick_beat_schedules_deliver_all() -> None:
 
     asyncio.run(scenario())
 
-    assert serial_payloads == ["beat 1.0\n", "beat 1.0\n"]
+    assert serial_payloads == ["beat 1.0\n"]
+
+
+def test_serial_beat_delivery_spacing_at_170_bpm(monkeypatch: pytest.MonkeyPatch) -> None:
+    serial_payloads: list[str] = []
+    clock = {"now": 0.0}
+
+    config = parse_config(
+        {
+            "master_clock": {"enabled": True, "bpm": 170.0},
+            "rotary_display": {
+                "enabled": True,
+                "transport": "serial",
+                "serial_port": "/dev/ttyACM0",
+            },
+        }
+    )
+    store = DataPointStore()
+    bus = EventBus()
+    master_clock = MasterClock(config.master_clock, bus)
+    module = RotaryDisplayModule(store, config.rotary_display, master_clock, bus)
+    module.running = True
+    module._serial_connected = True
+    master_clock.running = True
+    monkeypatch.setattr(
+        "midijuggler.modules.interface.rotary_display.module.time.monotonic",
+        lambda: clock["now"],
+    )
+
+    async def fake_sleep(duration: float) -> None:
+        clock["now"] += duration
+
+    monkeypatch.setattr(
+        "midijuggler.modules.interface.rotary_display.module.asyncio.sleep",
+        fake_sleep,
+    )
+
+    class FakeSerial:
+        def write(self, data: bytes) -> int:
+            serial_payloads.append(data.decode())
+            return len(data)
+
+    module._serial_port = FakeSerial()
+
+    async def scenario() -> None:
+        module._beat_outbox.extend([1.0, 1.0, 1.0])
+        await module._drain_pending_beat_sends()
+        clock["now"] += 60.0 / 170.0
+        module._schedule_beat_send(1.0)
+        if module._beat_send_task is not None:
+            await module._beat_send_task
+
+    asyncio.run(scenario())
+
+    beat_lines = [line for line in serial_payloads if line.startswith("beat ")]
+    assert len(beat_lines) == 2
+    expected_gap = (60.0 / 170.0) * 0.4
+    assert clock["now"] >= expected_gap
 
 
 def test_beat_outbox_cleared_when_clock_stops() -> None:

@@ -394,7 +394,7 @@ def test_gamepi_style_subscriber_gets_nine_of_nine_at_170_bpm_transport(
     assert len(flashes) >= 9
 
 
-def test_osc_beat_send_does_not_block_drain_at_170_bpm(
+def test_osc_beat_burst_coalesces_and_drain_does_not_block(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     osc_starts: list[float] = []
@@ -425,18 +425,20 @@ def test_osc_beat_send_does_not_block_drain_at_170_bpm(
     monkeypatch.setattr(RotaryDisplayModule, "_send_osc", slow_send_osc)
 
     async def scenario() -> None:
+        started = time.monotonic()
         for _ in range(9):
             module._schedule_beat_send(1.0)
         if module._beat_send_task is not None:
             await module._beat_send_task
-        await asyncio.sleep(0.1)
+        elapsed = time.monotonic() - started
+        assert elapsed < 0.2
 
     asyncio.run(scenario())
 
-    assert len(osc_starts) == 9
+    assert len(osc_starts) == 1
 
 
-def test_beat_send_serializes_concurrent_tasks(
+def test_beat_send_coalesces_concurrent_burst(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     config = parse_config(
@@ -475,5 +477,5 @@ def test_beat_send_serializes_concurrent_tasks(
 
     asyncio.run(scenario())
 
-    assert order.count("start") == 2
-    assert order.count("end") == 2
+    assert order.count("start") == 1
+    assert order.count("end") == 1

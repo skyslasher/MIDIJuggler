@@ -333,6 +333,7 @@ class WebInterface:
         app.router.add_get("/api/gamepi/brightness", self.gamepi_brightness_status)
         app.router.add_post("/api/gamepi/brightness", self.gamepi_brightness_adjust)
         app.router.add_post("/api/gamepi/brightness/refresh", self.gamepi_brightness_refresh)
+        app.router.add_post("/api/gamepi/keep-awake", self.gamepi_keep_awake)
         app.router.add_post("/api/gamepi/reboot", self.gamepi_reboot)
         app.router.add_get("/api/rotary-display", self.rotary_display_config)
         app.router.add_post("/api/rotary-display", self.set_rotary_display_config)
@@ -1039,6 +1040,14 @@ class WebInterface:
             raise web.HTTPServiceUnavailable(text="datapoint store unavailable")
         await publish_brightness_to_store(self.datapoint_store)
         return web.json_response(brightness_status_payload(fresh=True))
+
+    async def gamepi_keep_awake(self, request: web.Request) -> web.Response:
+        from midijuggler.web.gamepi_system import request_display_keep_awake
+
+        try:
+            return web.json_response(request_display_keep_awake(request))
+        except PermissionError as exc:
+            raise web.HTTPForbidden(text=str(exc)) from exc
 
     async def gamepi_reboot(self, request: web.Request) -> web.Response:
         from midijuggler.web.gamepi_system import request_reboot
