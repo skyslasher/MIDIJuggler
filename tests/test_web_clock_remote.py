@@ -5,8 +5,10 @@ from aiohttp.test_utils import TestClient, TestServer
 
 from midijuggler.clock import ClockBpmTracker
 from midijuggler.config import parse_config
+from midijuggler.datapoint.store import DataPointStore
 from midijuggler.eventbus import EventBus
 from midijuggler.master_clock import MasterClock
+from midijuggler.modules.generator.master_clock import MasterClockGenerator
 from midijuggler.web.server import WebInterface
 
 
@@ -37,6 +39,44 @@ def test_apply_clock_trigger_bpm_up_increases_bpm_direct_fallback() -> None:
         await interface.master_clock.flush_bpm_notifications()
         assert result["master_clock"]["bpm"] == pytest.approx(121.0)
         assert interface.master_clock.config.bpm == pytest.approx(121.0)
+
+    asyncio.run(scenario())
+
+
+def test_apply_clock_trigger_bpm_up_with_datapoint_routing() -> None:
+    config = parse_config(
+        {
+            "runtime": {"datapoint_routing": True},
+            "master_clock": {
+                "enabled": True,
+                "bpm": 122.0,
+                "bpm_min": 40.0,
+                "bpm_max": 240.0,
+            },
+        }
+    )
+    store = DataPointStore()
+    bus = EventBus()
+    master_clock = MasterClock(config.master_clock, bus)
+    generator = MasterClockGenerator(master_clock, store)
+    master_clock.bind_datapoint_sink(generator)
+    store.register_many(generator.datapoints())
+    interface = WebInterface(
+        config,
+        bus,
+        ClockBpmTracker(),
+        master_clock,
+        datapoint_store=store,
+    )
+
+    async def scenario() -> None:
+        await generator.start()
+        result = await interface.apply_clock_trigger("bpm_up")
+        await master_clock.flush_bpm_notifications()
+        assert result["master_clock"]["bpm"] == pytest.approx(123.0)
+        assert master_clock.bpm == pytest.approx(123.0)
+        assert store.float_value("clock.bpm") == pytest.approx(123.0)
+        await generator.stop()
 
     asyncio.run(scenario())
 
