@@ -111,5 +111,5 @@ def test_clock_gamepi_static_asset_exists() -> None:
     assert 'id="btn-flash">Puls</button>' in text
     assert "text-align: center" in text
     assert "brightnessTrack," not in text
-    assert "handleBeatDatapoint" in text
     assert "/api/gamepi/keep-awake" in text
+    assert "updateDisplayKeepAwake" in text

@@ -241,7 +241,7 @@ def test_serial_beat_coalesces_backlog_to_latest_edge() -> None:
     assert serial_payloads == ["beat 1.0\n"]
 
 
-def test_serial_beat_waits_for_gap_between_paced_sends(
+def test_serial_beat_sends_immediately_without_gap_wait(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     serial_payloads: list[str] = []
@@ -289,8 +289,7 @@ def test_serial_beat_waits_for_gap_between_paced_sends(
     asyncio.run(scenario())
 
     assert serial_payloads == ["beat 1.0\n", "beat 1.0\n"]
-    expected_gap = (60.0 / 120.0) * 0.4
-    assert sleep_log == [pytest.approx(expected_gap, abs=0.001)]
+    assert sleep_log == []
 
 
 def test_serial_beat_coalesces_queued_burst_to_single_send(
@@ -371,8 +370,11 @@ def test_same_tick_beat_coalesces_to_single_delivery() -> None:
     assert serial_payloads == ["beat 1.0\n"]
 
 
-def test_serial_beat_delivery_spacing_at_170_bpm(monkeypatch: pytest.MonkeyPatch) -> None:
+def test_serial_beat_delivers_steady_one_per_tick_at_170_bpm(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
     serial_payloads: list[str] = []
+    send_times: list[float] = []
     clock = {"now": 0.0}
 
     config = parse_config(
@@ -397,35 +399,28 @@ def test_serial_beat_delivery_spacing_at_170_bpm(monkeypatch: pytest.MonkeyPatch
         lambda: clock["now"],
     )
 
-    async def fake_sleep(duration: float) -> None:
-        clock["now"] += duration
-
-    monkeypatch.setattr(
-        "midijuggler.modules.interface.rotary_display.module.asyncio.sleep",
-        fake_sleep,
-    )
-
     class FakeSerial:
         def write(self, data: bytes) -> int:
+            send_times.append(clock["now"])
             serial_payloads.append(data.decode())
             return len(data)
 
     module._serial_port = FakeSerial()
+    beat_interval = 60.0 / 170.0
 
     async def scenario() -> None:
-        module._beat_outbox.extend([1.0, 1.0, 1.0])
-        await module._drain_pending_beat_sends()
-        clock["now"] += 60.0 / 170.0
-        module._schedule_beat_send(1.0)
-        if module._beat_send_task is not None:
-            await module._beat_send_task
+        for _ in range(9):
+            module._schedule_beat_send(1.0)
+            if module._beat_send_task is not None:
+                await module._beat_send_task
+            clock["now"] += beat_interval
 
     asyncio.run(scenario())
 
     beat_lines = [line for line in serial_payloads if line.startswith("beat ")]
-    assert len(beat_lines) == 2
-    expected_gap = (60.0 / 170.0) * 0.4
-    assert clock["now"] >= expected_gap
+    assert len(beat_lines) == 9
+    gaps = [send_times[i + 1] - send_times[i] for i in range(len(send_times) - 1)]
+    assert all(gap == pytest.approx(beat_interval, abs=0.001) for gap in gaps)
 
 
 def test_beat_outbox_cleared_when_clock_stops() -> None:

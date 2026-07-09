@@ -520,11 +520,8 @@
         bpmCard.classList.add("beat-pulse");
         if (beatFlashTimer) {
           clearTimeout(beatFlashTimer);
-        }
-        beatFlashTimer = setTimeout(() => {
-          setBeatPulse(false);
           beatFlashTimer = null;
-        }, effectiveFlashMs(currentClock));
+        }
         return;
       }
       bpmCard.classList.remove("beat-pulse");
@@ -532,13 +529,6 @@
         clearTimeout(beatFlashTimer);
         beatFlashTimer = null;
       }
-    }
-
-    function handleBeatDatapoint(value) {
-      if (!isBeatActive(value)) {
-        return;
-      }
-      setBeatPulse(true);
     }
 
     async function requestDisplayKeepAwake() {
@@ -1027,7 +1017,7 @@
           return;
         }
         if (payload.type === "datapoint" && payload.payload?.id === "clock.beat") {
-          handleBeatDatapoint(payload.payload);
+          setBeatPulse(isBeatActive(payload.payload));
           return;
         }
         if (payload.type === "datapoint" && payload.payload?.id === "gamepi.brightness") {

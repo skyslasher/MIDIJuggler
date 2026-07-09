@@ -57,7 +57,6 @@ from midijuggler.rotary_mdns import (
 
 LOGGER = logging.getLogger(__name__)
 
-BEAT_SEND_GAP_RATIO = 0.4
 DEVICE_SET_BPM_TAP_TEMPO_COOLDOWN_S = 3.0
 
 
@@ -89,7 +88,6 @@ class RotaryDisplayModule(InterfaceModule):
         self._beat_outbox: deque[float] = deque()
         self._pending_beat_value: float | None = None
         self._beat_send_in_flight = False
-        self._last_beat_sent_at: float | None = None
         self._last_device_set_bpm_at: float | None = None
         self._last_pushed_fingerprint: str | None = None
         self._serial_lock = asyncio.Lock()
@@ -303,15 +301,10 @@ class RotaryDisplayModule(InterfaceModule):
             [state.bpm, 1 if state.running else 0, 1 if state.click_enabled else 0, state.click_interval],
         )
 
-    def _min_beat_send_gap(self) -> float:
-        bpm = max(float(self.master_clock.bpm), 1.0)
-        return (60.0 / bpm) * BEAT_SEND_GAP_RATIO
-
     def _clear_pending_beats(self) -> None:
         self._beat_outbox.clear()
         self._pending_beat_value = None
         self._beat_send_in_flight = False
-        self._last_beat_sent_at = None
         if self._beat_send_task is not None and not self._beat_send_task.done():
             self._beat_send_task.cancel()
         self._beat_send_task = None
@@ -360,17 +353,9 @@ class RotaryDisplayModule(InterfaceModule):
                     value = self._dequeue_beat_send_value()
                     if value is None:
                         break
-                    if self._last_beat_sent_at is not None:
-                        gap = self._min_beat_send_gap()
-                        wait = gap - (time.monotonic() - self._last_beat_sent_at)
-                        if wait > 0:
-                            await asyncio.sleep(wait)
-                            if not self.master_clock.running:
-                                break
                     self._beat_send_in_flight = True
                     try:
                         await self._send_beat(value)
-                        self._last_beat_sent_at = time.monotonic()
                     finally:
                         self._beat_send_in_flight = False
         finally:
