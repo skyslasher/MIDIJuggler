@@ -8,6 +8,8 @@ from conftest import osc_device
 from midijuggler.config import parse_config
 from midijuggler.datapoint.types import float_value
 from midijuggler.events import OscMessageEvent
+from midijuggler.modules.interface.bandhelper.module import BandHelperModule
+from midijuggler.modules.interface.rotary_display.module import RotaryDisplayModule
 from midijuggler.osc.protocol import decode_messages
 from midijuggler.service import MIDIJugglerService
 
@@ -198,3 +200,51 @@ def test_beat_rising_edge_survives_repeated_one_values(
         if msg[0] == "/midijuggler/rotary/beat" and msg[1][0] == pytest.approx(1.0)
     ]
     assert len(beats) == 1
+
+
+def test_serial_encoder_bpm_with_bandhelper_disabled(
+    monkeypatch: pytest.MonkeyPatch,
+    capture_sync: list,
+) -> None:
+    """Encoder serial BPM must update master clock and GamePi clock.bpm status."""
+
+    config = _production_config()
+    config["bandhelper"] = {"enabled": False, "link_enabled": False}
+    config["master_clock"] = {
+        "enabled": True,
+        "bpm": 122.0,
+        "auto_start": False,
+        "tap_tempo_min_taps": 3,
+    }
+    service = MIDIJugglerService(parse_config(config))
+    _patch_adapters_noop_start(monkeypatch, service)
+
+    async def scenario() -> RotaryDisplayModule:
+        await _start_service(service)
+        assert not any(
+            isinstance(module, BandHelperModule)
+            for module in service.module_registry.modules()
+        )
+        module = next(
+            m
+            for m in service.module_registry.modules()
+            if isinstance(m, RotaryDisplayModule)
+        )
+        module._serial_connected = True
+        await module._handle_serial_line("bpm 140.0\n")
+        await service.master_clock.flush_bpm_notifications()
+        return module
+
+    asyncio.run(scenario())
+
+    sync = [
+        msg
+        for batch in capture_sync
+        for msg in batch
+        if msg[0] == "/midijuggler/rotary/sync"
+    ]
+    assert service.master_clock.bpm == pytest.approx(140.0)
+    assert service.datapoint_store.float_value("clock.bpm") == pytest.approx(140.0)
+    assert service.datapoint_store.float_value("clock.bpm_set") == pytest.approx(140.0)
+    assert sync
+    assert sync[-1][1][0] == pytest.approx(140.0)

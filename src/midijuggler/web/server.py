@@ -3909,7 +3909,7 @@ class WebInterface:
         self.config = replace(self.config, bandhelper=config)
 
         if self._bandhelper_module is not None:
-            self._bandhelper_module.update_config(config)
+            await self._bandhelper_module.update_config(config)
 
         persisted = False
         persist_error = ""

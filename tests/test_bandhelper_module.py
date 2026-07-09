@@ -1,4 +1,5 @@
 import asyncio
+from dataclasses import replace
 
 import pytest
 
@@ -284,3 +285,51 @@ def test_bandhelper_module_registers_datapoints() -> None:
     specs = {str(spec.id): spec for spec in BandHelperModule(store, config.bandhelper, master_clock, bus).datapoints()}
     assert f"{SONG_MODULE}.key_root" in specs
     assert f"{SONG_MODULE}.link_tempo" in specs
+
+
+def test_bandhelper_update_config_stops_link_at_runtime(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    fake_link = None
+
+    class FakeLink:
+        def __init__(self, tempo: float) -> None:
+            nonlocal fake_link
+            self.tempo = tempo
+            self.enabled = False
+            self.num_peers = 0
+            fake_link = self
+
+        def add_tempo_callback(self, _callback: object) -> None:
+            return None
+
+    monkeypatch.setattr(
+        "midijuggler.modules.interface.bandhelper.module.AbletonLink",
+        FakeLink,
+    )
+
+    config = parse_config(
+        {
+            "bandhelper": {
+                "enabled": True,
+                "link_enabled": True,
+            }
+        }
+    )
+    store = DataPointStore()
+    bus = EventBus()
+    master_clock = MasterClock(config.master_clock, bus)
+    module = BandHelperModule(store, config.bandhelper, master_clock, bus)
+
+    async def scenario() -> None:
+        await module.start()
+        assert module._link is not None
+        await module.update_config(replace(config.bandhelper, link_enabled=False))
+        await module.stop()
+
+    asyncio.run(scenario())
+
+    assert module._link is None
+    assert module._poll_task is None
+    assert fake_link is not None
+    assert fake_link.enabled is False
