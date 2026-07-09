@@ -40,6 +40,7 @@ const rotaryDeviceTransport = document.querySelector("#rotary-device-transport")
 const rotaryWifiEnabled = document.querySelector("#rotary-wifi-enabled");
 const rotaryWifiSsid = document.querySelector("#rotary-wifi-ssid");
 const rotaryWifiPass = document.querySelector("#rotary-wifi-pass");
+const rotaryWifiPassToggle = document.querySelector("#rotary-wifi-pass-toggle");
 const rotaryDeviceHost = document.querySelector("#rotary-device-host");
 const rotaryDeviceMdnsHostname = document.querySelector("#rotary-device-mdns-hostname");
 const rotaryDevicePort = document.querySelector("#rotary-device-port");
@@ -8102,6 +8103,12 @@ function renderRotaryDisplayConfig(config) {
   }
   if (rotaryWifiPass) {
     rotaryWifiPass.value = device.wifi_pass || "";
+    rotaryWifiPass.type = "password";
+  }
+  if (rotaryWifiPassToggle) {
+    rotaryWifiPassToggle.textContent = "Show";
+    rotaryWifiPassToggle.setAttribute("aria-pressed", "false");
+    rotaryWifiPassToggle.setAttribute("aria-label", "Show password");
   }
   if (rotaryDeviceHost) {
     rotaryDeviceHost.value = device.host || "midijuggler.local";
@@ -8946,6 +8953,17 @@ masterClockForm.addEventListener("submit", (event) => {
         renderMasterClockConfig(masterClockConfig);
       }
     });
+});
+
+rotaryWifiPassToggle?.addEventListener("click", () => {
+  if (!rotaryWifiPass) {
+    return;
+  }
+  const show = rotaryWifiPass.type === "password";
+  rotaryWifiPass.type = show ? "text" : "password";
+  rotaryWifiPassToggle.textContent = show ? "Hide" : "Show";
+  rotaryWifiPassToggle.setAttribute("aria-pressed", show ? "true" : "false");
+  rotaryWifiPassToggle.setAttribute("aria-label", show ? "Hide password" : "Show password");
 });
 
 rotaryDisplayForm?.addEventListener("submit", (event) => {

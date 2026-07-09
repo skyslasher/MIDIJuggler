@@ -558,7 +558,23 @@
                 </label>
                 <label>
                   WiFi password
-                  <input id="rotary-wifi-pass" type="text" autocomplete="off" spellcheck="false" />
+                  <span class="password-field">
+                    <input
+                      id="rotary-wifi-pass"
+                      type="password"
+                      autocomplete="off"
+                      spellcheck="false"
+                    />
+                    <button
+                      type="button"
+                      id="rotary-wifi-pass-toggle"
+                      class="password-toggle"
+                      aria-pressed="false"
+                      aria-label="Show password"
+                    >
+                      Show
+                    </button>
+                  </span>
                 </label>
                 <label>
                   OSC host
