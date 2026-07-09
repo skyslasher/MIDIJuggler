@@ -397,7 +397,7 @@ def test_service_routes_master_clock_osc_without_rotary_connection(
     assert service.master_clock.bpm == pytest.approx(115.0)
 
 
-def test_service_skips_direct_osc_route_when_bridge_maps_to_clock(
+def test_service_routes_master_clock_osc_when_bridge_maps_to_clock(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     from conftest import osc_device
@@ -424,21 +424,13 @@ def test_service_skips_direct_osc_route_when_bridge_maps_to_clock(
                 arguments=(115.0,),
             )
         )
-        direct_only_bpm = service.master_clock.bpm
-        await service.bus.publish(
-            OscMessageEvent(
-                source="osc",
-                direction="input",
-                address="/midijuggler/clock/bpm",
-                arguments=(115.0,),
-            )
-        )
         await service.master_clock.flush_bpm_notifications()
-        return service, direct_only_bpm
+        direct_bpm = service.master_clock.bpm
+        return service, direct_bpm
 
-    service, direct_only_bpm = asyncio.run(scenario())
-    assert direct_only_bpm == pytest.approx(122.0)
-    assert service.master_clock.bpm == pytest.approx(115.0)
+    service, direct_bpm = asyncio.run(scenario())
+    assert direct_bpm == pytest.approx(115.0)
+    assert service.datapoint_store.float_value("clock.bpm") == pytest.approx(115.0)
 
 
 def test_service_routes_master_clock_osc_with_empty_input_targets(

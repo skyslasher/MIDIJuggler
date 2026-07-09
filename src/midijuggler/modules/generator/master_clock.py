@@ -313,7 +313,7 @@ class MasterClockGenerator(GeneratorModule):
                         value=value.float_value,
                     )
                 )
-            await self._publish_outputs()
+            await self._publish_outputs(force_bpm=True)
             return
         if point == "bpm_up":
             await self._handle_trigger_edge(
@@ -543,7 +543,7 @@ class MasterClockGenerator(GeneratorModule):
             await self._beat_off_task
         self._beat_off_task = None
 
-    async def _publish_outputs(self) -> None:
+    async def _publish_outputs(self, *, force_bpm: bool = False) -> None:
         await self.store.write(
             DataPointValue(
                 point_id=DataPointId(CLOCK_MODULE, "running"),
@@ -564,7 +564,13 @@ class MasterClockGenerator(GeneratorModule):
                 click_interval_to_set_value(self.clock.click_interval),
             )
         )
-        await self.store.write(float_value(DataPointId(CLOCK_MODULE, "bpm"), self.clock.bpm))
+        await self.store.write(
+            float_value(
+                DataPointId(CLOCK_MODULE, "bpm"),
+                self.clock.bpm,
+                force_notify=force_bpm,
+            )
+        )
         await self.store.write(
             float_value(
                 DataPointId(CLOCK_MODULE, "bpm_set"),
