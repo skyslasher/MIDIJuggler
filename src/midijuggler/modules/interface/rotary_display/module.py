@@ -336,10 +336,6 @@ class RotaryDisplayModule(InterfaceModule):
             return value
         if not self._beat_outbox:
             return None
-        if len(self._beat_outbox) > 1:
-            value = self._beat_outbox[-1]
-            self._beat_outbox.clear()
-            return value
         return self._beat_outbox.popleft()
 
     async def _drain_pending_beat_sends(self) -> None:
@@ -364,7 +360,11 @@ class RotaryDisplayModule(InterfaceModule):
     async def _send_beat(self, value: float) -> None:
         # Beats are timing-critical: never duplicate on OSC and serial when both are enabled.
         if self._use_osc and self._feedback_host and self._feedback_port > 0:
-            await self._send_osc(self.config.beat_osc_address, [value])
+            # UDP beats are fire-and-forget; awaiting thread-pool sends drops edges at high BPM.
+            asyncio.create_task(
+                self._send_osc(self.config.beat_osc_address, [value]),
+                name="rotary-display-beat-osc",
+            )
             return
         await self._send_serial(format_beat_line(value) + "\n")
 
@@ -535,6 +535,9 @@ class RotaryDisplayModule(InterfaceModule):
         if result.get("ok"):
             self._last_pushed_fingerprint = fingerprint
             LOGGER.info("rotary display device config pushed (%d commands)", len(commands))
+            if self._use_osc:
+                # Device re-sends hello after transport changes; prime sync once registered.
+                await self._send_sync(force=True)
             return {
                 "pushed": True,
                 "fingerprint": fingerprint,

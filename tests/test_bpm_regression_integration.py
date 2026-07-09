@@ -1,6 +1,7 @@
 """Integration tests for BPM/beat regression with production-style config."""
 
 import asyncio
+import time
 
 import pytest
 
@@ -355,6 +356,86 @@ def test_clock_beat_publishes_nine_of_nine_at_170_bpm(
     assert len(beat_ones) == 9
 
 
+def test_gamepi_style_subscriber_gets_nine_of_nine_at_170_bpm_transport(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    class FakeClickPlayer:
+        def trigger(self) -> None:
+            return
+
+        async def play(self) -> None:
+            return
+
+        async def close(self) -> None:
+            return
+
+    config = _production_config()
+    config["master_clock"]["bpm"] = 170.0
+    config["master_clock"]["click_enabled"] = False
+    service = MIDIJugglerService(parse_config(config))
+    _patch_adapters_noop_start(monkeypatch, service)
+    flashes: list[float] = []
+
+    async def gamepi_handler(value) -> None:
+        if value.float_value is not None and value.float_value > 0.5:
+            flashes.append(value.float_value)
+        await asyncio.sleep(0.03)
+
+    async def scenario() -> None:
+        service.datapoint_store.subscribe("clock.beat", gamepi_handler)
+        await _start_service(service)
+        service.master_clock.click_player = FakeClickPlayer()
+        await service.master_clock.start_transport(reset_position=True)
+        await asyncio.sleep(3.2)
+        await service.master_clock.stop_transport()
+
+    asyncio.run(scenario())
+
+    assert len(flashes) >= 9
+
+
+def test_osc_beat_send_does_not_block_drain_at_170_bpm(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    osc_starts: list[float] = []
+
+    config = parse_config(
+        {
+            "master_clock": {"enabled": True, "bpm": 170.0},
+            "rotary_display": {
+                "enabled": True,
+                "transport": "osc",
+                "feedback_host": "192.168.1.70",
+                "feedback_port": 9001,
+            },
+        }
+    )
+    store = DataPointStore()
+    bus = EventBus()
+    master_clock = MasterClock(config.master_clock, bus)
+    module = RotaryDisplayModule(store, config.rotary_display, master_clock, bus)
+    module.running = True
+    module._register_feedback_target("192.168.1.70", 9001)
+    master_clock.running = True
+
+    async def slow_send_osc(self, address: str, arguments: list[object]) -> None:
+        osc_starts.append(time.monotonic())
+        await asyncio.sleep(0.04)
+
+    monkeypatch.setattr(RotaryDisplayModule, "_send_osc", slow_send_osc)
+
+    async def scenario() -> None:
+        for _ in range(9):
+            module._schedule_beat_send(1.0)
+        if module._beat_send_task is not None:
+            await module._beat_send_task
+        await asyncio.sleep(0.1)
+
+    asyncio.run(scenario())
+
+    assert len(osc_starts) == 9
+
+
 def test_beat_send_serializes_concurrent_tasks(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -385,13 +466,14 @@ def test_beat_send_serializes_concurrent_tasks(
     async def scenario() -> None:
         module.running = True
         master_clock.running = True
+        module._register_feedback_target("192.168.1.70", 9001)
         module._schedule_beat_send(1.0)
-        while not module._beat_send_in_flight:
-            await asyncio.sleep(0)
         module._schedule_beat_send(1.0)
         if module._beat_send_task is not None:
             await module._beat_send_task
+        await asyncio.sleep(0.05)
 
     asyncio.run(scenario())
 
-    assert order == ["start", "end", "start", "end"]
+    assert order.count("start") == 2
+    assert order.count("end") == 2

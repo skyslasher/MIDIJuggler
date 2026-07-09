@@ -702,7 +702,90 @@ def test_clock_beat_pulses_on_click_interval() -> None:
 
     asyncio.run(scenario())
 
-    assert received == [0.0, 1.0, 0.0]
+    assert received == [1.0, 0.0]
+
+
+def test_stale_beat_off_ignored_after_next_pulse() -> None:
+    config = parse_config(
+        {
+            "master_clock": {
+                "enabled": True,
+                "bpm": 170.0,
+                "click_enabled": False,
+                "beat_flash_ms": 120.0,
+            }
+        }
+    )
+    store = DataPointStore()
+    master_clock = MasterClock(config.master_clock, EventBus())
+    clock_gen = MasterClockGenerator(master_clock, store)
+    store.register_many(clock_gen.datapoints())
+    received: list[float | None] = []
+
+    async def slow_handler(value: DataPointValue) -> None:
+        received.append(value.float_value)
+        if value.float_value == 0.0:
+            await asyncio.sleep(0.2)
+
+    store.subscribe("clock.beat", slow_handler)
+
+    async def scenario() -> None:
+        master_clock.bind_datapoint_sink(clock_gen)
+        await clock_gen.start()
+        await clock_gen.publish_beat()
+        await clock_gen.publish_beat()
+        await asyncio.sleep(clock_gen._effective_beat_flash_seconds() + 0.25)
+
+    asyncio.run(scenario())
+
+    ones = [value for value in received if value is not None and value > 0.5]
+    assert len(ones) == 2
+    assert store.float_value("clock.beat") == 0.0
+
+
+def test_transport_thread_publishes_nine_of_nine_beats_at_170_bpm() -> None:
+    class FakeClickPlayer:
+        def trigger(self) -> None:
+            return
+
+        async def play(self) -> None:
+            return
+
+        async def close(self) -> None:
+            return
+
+    config = parse_config(
+        {
+            "master_clock": {
+                "enabled": True,
+                "bpm": 170.0,
+                "click_enabled": False,
+                "beat_flash_ms": 120.0,
+            }
+        }
+    )
+    store = DataPointStore()
+    master_clock = MasterClock(config.master_clock, EventBus(), click_player=FakeClickPlayer())
+    clock_gen = MasterClockGenerator(master_clock, store)
+    store.register_many(clock_gen.datapoints())
+    beat_ones: list[float] = []
+
+    async def capture_beat(value: DataPointValue) -> None:
+        if value.float_value is not None and value.float_value > 0.5:
+            beat_ones.append(value.float_value)
+
+    store.subscribe("clock.beat", capture_beat)
+
+    async def scenario() -> None:
+        master_clock.bind_datapoint_sink(clock_gen)
+        await clock_gen.start()
+        await master_clock.start_transport(reset_position=True)
+        await asyncio.sleep(3.2)
+        await master_clock.stop_transport(send_transport=False)
+
+    asyncio.run(scenario())
+
+    assert len(beat_ones) >= 9
 
 
 def test_beat_passthrough_preserves_force_notify() -> None:

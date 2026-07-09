@@ -65,6 +65,7 @@ class MasterClockGenerator(GeneratorModule):
         self._click_interval_cycle_pressed = False
         self._beat_off_task: asyncio.Task[None] | None = None
         self._beat_publish_lock = asyncio.Lock()
+        self._beat_pulse_generation = 0
 
     async def publish_outputs(self) -> None:
         await self._publish_outputs()
@@ -508,12 +509,21 @@ class MasterClockGenerator(GeneratorModule):
     async def publish_beat(self) -> None:
         async with self._beat_publish_lock:
             await self._cancel_beat_off()
-            point = DataPointId(CLOCK_MODULE, "beat")
-            await self.store.write(float_value(point, 0.0, force_notify=True))
-            await self.store.write(float_value(point, 1.0, force_notify=True))
+            self._beat_pulse_generation += 1
+            generation = self._beat_pulse_generation
             flash_seconds = self._effective_beat_flash_seconds()
+
+        point = DataPointId(CLOCK_MODULE, "beat")
+        current = self.store.float_value(point)
+        if current is not None and current > 0.5:
+            await self.store.write(float_value(point, 0.0, force_notify=True))
+        await self.store.write(float_value(point, 1.0, force_notify=True))
+
+        async with self._beat_publish_lock:
+            if generation != self._beat_pulse_generation:
+                return
             self._beat_off_task = asyncio.create_task(
-                self._clear_beat_flash(flash_seconds),
+                self._clear_beat_flash(generation, flash_seconds),
                 name="clock-beat-off",
             )
 
@@ -530,14 +540,20 @@ class MasterClockGenerator(GeneratorModule):
         effective_ms = min(configured_ms, interval_ms * BEAT_FLASH_INTERVAL_RATIO)
         return max(effective_ms, 1.0) / 1000.0
 
-    async def _clear_beat_flash(self, duration_seconds: float) -> None:
+    async def _clear_beat_flash(self, generation: int, duration_seconds: float) -> None:
+        current_task = asyncio.current_task()
         try:
             await asyncio.sleep(duration_seconds)
+            async with self._beat_publish_lock:
+                if generation != self._beat_pulse_generation:
+                    return
             await self.store.write(
                 float_value(DataPointId(CLOCK_MODULE, "beat"), 0.0, force_notify=True)
             )
         finally:
-            self._beat_off_task = None
+            async with self._beat_publish_lock:
+                if self._beat_off_task is current_task:
+                    self._beat_off_task = None
 
     async def _cancel_beat_off(self) -> None:
         if self._beat_off_task is None:
