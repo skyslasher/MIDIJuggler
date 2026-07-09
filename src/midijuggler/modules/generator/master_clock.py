@@ -305,15 +305,14 @@ class MasterClockGenerator(GeneratorModule):
     async def _on_input(self, value: DataPointValue) -> None:
         point = value.point_id.point
         if point == "bpm_set" and value.float_value is not None:
-            if abs(value.float_value - self.clock.bpm) <= BPM_EPSILON:
-                return
-            await self.clock.handle_command(
-                MasterClockCommandEvent(
-                    source=CLOCK_MODULE,
-                    command="set_bpm",
-                    value=value.float_value,
+            if abs(value.float_value - self.clock.bpm) > BPM_EPSILON:
+                await self.clock.handle_command(
+                    MasterClockCommandEvent(
+                        source=CLOCK_MODULE,
+                        command="set_bpm",
+                        value=value.float_value,
+                    )
                 )
-            )
             await self._publish_outputs()
             return
         if point == "bpm_up":

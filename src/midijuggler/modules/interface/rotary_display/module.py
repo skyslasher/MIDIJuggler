@@ -231,7 +231,9 @@ class RotaryDisplayModule(InterfaceModule):
 
         bpm = self.master_clock.bpm
         if bpm_value is not None and bpm_value.get("float_value") is not None:
-            bpm = float(bpm_value["float_value"])
+            store_bpm = float(bpm_value["float_value"])
+            if abs(store_bpm - bpm) <= 1e-3:
+                bpm = store_bpm
 
         running = self.master_clock.running
         if running_value is not None and running_value.get("bool_value") is not None:

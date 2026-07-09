@@ -4,16 +4,144 @@ from dataclasses import replace
 import pytest
 
 from midijuggler.config import MasterClockConfig, parse_config
+from midijuggler.datapoint.bridge import EventToDataPointBridge
 from midijuggler.datapoint.migrate import effective_connections
 from midijuggler.datapoint.store import DataPointStore
 from midijuggler.datapoint.types import DataPointId, float_value
+from midijuggler.device.points import build_device_datapoints
+from midijuggler.device.registry import DeviceRegistry
 from midijuggler.eventbus import EventBus
-from midijuggler.events import OscMessageEvent
+from midijuggler.events import MasterClockCommandEvent, OscMessageEvent
 from midijuggler.master_clock import MasterClock, click_interval_to_set_value
 from midijuggler.modules.generator.master_clock import MasterClockGenerator
 from midijuggler.modules.interface.rotary_display.module import RotaryDisplayModule
 from midijuggler.modules.modifier.graph import ModifierGraph
 from midijuggler.osc.protocol import decode_messages
+
+from conftest import osc_device
+
+
+def test_rotary_display_sync_uses_master_clock_bpm_when_store_is_stale(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    sent: list[tuple[bytes, str, int]] = []
+
+    def fake_udp(payload: bytes, host: str, port: int, **kwargs: object) -> None:
+        sent.append((payload, host, port))
+
+    monkeypatch.setattr(
+        "midijuggler.modules.interface.rotary_display.module._udp_send",
+        fake_udp,
+    )
+
+    config = parse_config(
+        {
+            "master_clock": {"enabled": True, "bpm": 120.0},
+            "rotary_display": {
+                "enabled": True,
+                "transport": "osc",
+                "feedback_host": "192.168.1.70",
+                "feedback_port": 9001,
+            },
+        }
+    )
+    store = DataPointStore()
+    bus = EventBus()
+    master_clock = MasterClock(config.master_clock, bus)
+    module = RotaryDisplayModule(store, config.rotary_display, master_clock, bus)
+    module._last_sync = None
+
+    async def scenario() -> None:
+        await module.start()
+        master_clock.bpm = 132.0
+        await store.write(float_value(DataPointId("rotary_display", "bpm"), 120.0))
+        await store.write(float_value(DataPointId("rotary_display", "running"), 0.0))
+        await module.stop()
+
+    asyncio.run(scenario())
+
+    sync_messages = [
+        decode_messages(payload)[0]
+        for payload, _, _ in sent
+        if decode_messages(payload)[0][0] == "/midijuggler/rotary/sync"
+    ]
+    assert sync_messages
+    assert sync_messages[-1][1][0] == pytest.approx(132.0)
+
+
+def test_rotary_display_publishes_new_bpm_after_encoder_osc_when_clock_already_updated(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    sent: list[tuple[bytes, str, int]] = []
+
+    def fake_udp(payload: bytes, host: str, port: int, **kwargs: object) -> None:
+        sent.append((payload, host, port))
+
+    monkeypatch.setattr(
+        "midijuggler.modules.interface.rotary_display.module._udp_send",
+        fake_udp,
+    )
+
+    config = parse_config(
+        {
+            "runtime": {"datapoint_routing": True},
+            "master_clock": {"enabled": True, "bpm": 120.0},
+            "adapters": {"osc": {"enabled": True, "type": "osc"}},
+            "devices": [osc_device("rotary_encoder", "rotary_display", adapter="osc")],
+            "rotary_display": {
+                "enabled": True,
+                "transport": "osc",
+                "feedback_host": "192.168.1.70",
+                "feedback_port": 9001,
+            },
+        }
+    )
+    store = DataPointStore()
+    bus = EventBus()
+    registry = DeviceRegistry.from_config(config)
+    device = registry.require_device_for_adapter("osc")
+    specs, _ = build_device_datapoints(device, config.adapters["osc"])
+    store.register_many(specs)
+
+    master_clock = MasterClock(config.master_clock, bus)
+    generator = MasterClockGenerator(master_clock, store)
+    master_clock.bind_datapoint_sink(generator)
+    store.register_many(generator.datapoints())
+    module = RotaryDisplayModule(store, config.rotary_display, master_clock, bus)
+    graph = ModifierGraph(store, effective_connections(config))
+    bridge = EventToDataPointBridge(store, bus, registry)
+
+    async def scenario() -> None:
+        await generator.start()
+        await graph.start()
+        await module.start()
+        await master_clock.handle_command(
+            MasterClockCommandEvent(source="osc", command="set_bpm", value=132.0)
+        )
+        await bridge._on_osc_message(
+            OscMessageEvent(
+                source="osc",
+                address="/midijuggler/clock/bpm",
+                arguments=(132.0,),
+                direction="input",
+            )
+        )
+        await asyncio.sleep(0)
+        await module.stop()
+        await graph.stop()
+        await generator.stop()
+
+    asyncio.run(scenario())
+
+    assert master_clock.bpm == pytest.approx(132.0)
+    assert store.float_value("clock.bpm") == pytest.approx(132.0)
+    sync_messages = [
+        decode_messages(payload)[0]
+        for payload, _, _ in sent
+        if decode_messages(payload)[0][0] == "/midijuggler/rotary/sync"
+    ]
+    assert sync_messages
+    assert sync_messages[-1][1][0] == pytest.approx(132.0)
 
 
 def test_parse_rotary_display_config() -> None:

@@ -229,6 +229,7 @@ class MIDIJugglerService:
             return
         if (
             self.config.master_clock.enabled
+            and not self.config.runtime.datapoint_routing
             and event.source in self._allowed_osc_input_sources()
         ):
             command = self.master_clock.remote.command_from_osc(event)
