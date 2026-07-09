@@ -1,4 +1,5 @@
 import asyncio
+import logging
 from dataclasses import replace
 
 import pytest
@@ -248,6 +249,46 @@ def test_rotary_display_hello_registers_feedback_handler() -> None:
     asyncio.run(scenario())
 
     assert registered == [("192.168.1.60", 9001)]
+
+
+def test_rotary_display_duplicate_hello_logs_debug_not_info(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    config = parse_config(
+        {
+            "master_clock": {"enabled": True, "bpm": 120.0},
+            "rotary_display": {"enabled": True, "transport": "osc"},
+        }
+    )
+    store = DataPointStore()
+    bus = EventBus()
+    master_clock = MasterClock(config.master_clock, bus)
+    module = RotaryDisplayModule(store, config.rotary_display, master_clock, bus)
+
+    hello = OscMessageEvent(
+        source="osc",
+        address="/midijuggler/rotary/hello",
+        arguments=("rotary-267248.local", 9001),
+        direction="input",
+    )
+
+    async def scenario() -> None:
+        await module.start()
+        with caplog.at_level(logging.DEBUG, logger="midijuggler.modules.interface.rotary_display.module"):
+            await module._on_osc_message(hello)
+            await module._on_osc_message(hello)
+        await module.stop()
+
+    asyncio.run(scenario())
+
+    registration_logs = [
+        record
+        for record in caplog.records
+        if "rotary display" in record.message and "registered" in record.message
+    ]
+    assert len(registration_logs) == 2
+    assert registration_logs[0].levelno == logging.INFO
+    assert registration_logs[1].levelno == logging.DEBUG
 
 
 def test_rotary_display_pushes_initial_sync_on_start_with_feedback_host(

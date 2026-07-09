@@ -201,13 +201,21 @@ class RotaryDisplayModule(InterfaceModule):
             LOGGER.warning("ignored rotary hello with invalid arguments: %s", event.arguments)
             return
         host, port = parsed
+        changed = host != self._feedback_host or port != self._feedback_port
         self._register_feedback_target(host, port)
         await self._prime_feedback_host_ip(host)
-        LOGGER.info(
-            "rotary display registered at %s:%s",
-            self._feedback_host,
-            self._feedback_port,
-        )
+        if changed:
+            LOGGER.info(
+                "rotary display registered at %s:%s",
+                self._feedback_host,
+                self._feedback_port,
+            )
+        else:
+            LOGGER.debug(
+                "rotary display re-registered at %s:%s",
+                self._feedback_host,
+                self._feedback_port,
+            )
         await self._send_sync(force=True)
 
     async def _on_feedback(self, value: DataPointValue) -> None:

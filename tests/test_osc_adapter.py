@@ -1,4 +1,5 @@
 import asyncio
+import logging
 import socket
 from typing import Any
 
@@ -391,3 +392,42 @@ def test_osc_adapter_prefixes_wing_outbound_address() -> None:
     assert output_event.address.endswith("/ch/1/fdr")
     assert output_event.canonical_address == "/ch/1/fdr"
     assert output_event.arguments == (pytest.approx(0.5),)
+
+
+def test_osc_adapter_logs_rotary_hello_at_debug(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    async def scenario() -> None:
+        bus = EventBus()
+        adapter = OscAdapter(
+            name="osc",
+            config=AdapterConfig(
+                enabled=True,
+                kind="osc",
+                options={
+                    "listen_host": "127.0.0.1",
+                    "listen_port": 0,
+                    "remote_host": "",
+                    "remote_port": 0,
+                },
+            ),
+            bus=bus,
+        )
+        await adapter.start()
+        payload = encode_message(
+            "/midijuggler/rotary/hello",
+            ["rotary-267248.local", 9001],
+        )
+        with caplog.at_level(logging.DEBUG, logger="midijuggler.adapters.osc"):
+            await adapter._handle_input_messages(payload)
+        await adapter.stop()
+
+    asyncio.run(scenario())
+
+    hello_logs = [
+        record
+        for record in caplog.records
+        if record.message.startswith("OSC adapter osc input /midijuggler/rotary/hello")
+    ]
+    assert len(hello_logs) == 1
+    assert hello_logs[0].levelno == logging.DEBUG

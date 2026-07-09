@@ -231,13 +231,22 @@ class OscAdapter(Adapter):
             )
             if is_echo:
                 continue
-            LOGGER.info(
-                "OSC adapter %s input %s %s -> %s",
-                self.name,
-                address,
-                arguments,
-                canonical_address,
-            )
+            if address == "/midijuggler/rotary/hello":
+                LOGGER.debug(
+                    "OSC adapter %s input %s %s -> %s",
+                    self.name,
+                    address,
+                    arguments,
+                    canonical_address,
+                )
+            else:
+                LOGGER.info(
+                    "OSC adapter %s input %s %s -> %s",
+                    self.name,
+                    address,
+                    arguments,
+                    canonical_address,
+                )
             if numeric_value is not None:
                 await self.bus.publish(
                     ControlEvent(
