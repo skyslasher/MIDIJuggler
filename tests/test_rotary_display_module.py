@@ -34,12 +34,16 @@ def test_parse_rotary_display_config() -> None:
 def test_rotary_display_registers_feedback_from_hello(monkeypatch: pytest.MonkeyPatch) -> None:
     sent: list[tuple[bytes, str, int]] = []
 
-    def fake_udp(payload: bytes, host: str, port: int) -> None:
+    def fake_udp(payload: bytes, host: str, port: int, **kwargs: object) -> None:
         sent.append((payload, host, port))
 
     monkeypatch.setattr(
         "midijuggler.modules.interface.rotary_display.module._udp_send",
         fake_udp,
+    )
+    monkeypatch.setattr(
+        "midijuggler.modules.interface.rotary_display.module.resolve_mdns_ipv4",
+        lambda host, force=False: None,
     )
 
     config = parse_config(
@@ -123,7 +127,7 @@ def test_rotary_display_pushes_initial_sync_on_start_with_feedback_host(
 ) -> None:
     sent: list[tuple[bytes, str, int]] = []
 
-    def fake_udp(payload: bytes, host: str, port: int) -> None:
+    def fake_udp(payload: bytes, host: str, port: int, **kwargs: object) -> None:
         sent.append((payload, host, port))
 
     monkeypatch.setattr(
@@ -159,6 +163,44 @@ def test_rotary_display_pushes_initial_sync_on_start_with_feedback_host(
     assert address == "/midijuggler/rotary/sync"
     assert args[0] == pytest.approx(132.0)
     assert sent[0][1:] == ("192.168.1.70", 9001)
+
+
+def test_rotary_display_hello_resolves_mdns_feedback_ip(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(
+        "midijuggler.modules.interface.rotary_display.module.resolve_mdns_ipv4",
+        lambda host, force=False: "192.168.0.42",
+    )
+
+    config = parse_config(
+        {
+            "master_clock": {"enabled": True, "bpm": 120.0},
+            "rotary_display": {"enabled": True, "transport": "osc"},
+        }
+    )
+    store = DataPointStore()
+    bus = EventBus()
+    master_clock = MasterClock(config.master_clock, bus)
+    module = RotaryDisplayModule(store, config.rotary_display, master_clock, bus)
+
+    async def scenario() -> None:
+        await module.start()
+        await bus.publish(
+            OscMessageEvent(
+                source="osc",
+                address="/midijuggler/rotary/hello",
+                arguments=("rotary-267248.local", 9001),
+                direction="input",
+            )
+        )
+        await asyncio.sleep(0)
+        await module.stop()
+
+    asyncio.run(scenario())
+
+    assert module._feedback_host == "rotary-267248.local"
+    assert module._feedback_host_ip == "192.168.0.42"
 
 
 def test_rotary_display_pushes_config_on_serial_hello(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -368,6 +410,8 @@ def test_apply_runtime_config_starts_serial_when_enabling_host_transport() -> No
 def test_push_device_config_waits_for_serial_after_runtime_enable(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
+    push_calls: list[list[str]] = []
+
     async def scenario() -> dict:
         config = parse_config(
             {
@@ -392,8 +436,6 @@ def test_push_device_config_waits_for_serial_after_runtime_enable(
 
         module._serial_loop = fake_serial_loop  # type: ignore[method-assign]
 
-        push_calls: list[list[str]] = []
-
         def fake_push_sync(port: object, commands: list[str], *, timeout_s: float = 3.0) -> dict:
             push_calls.append(commands)
             return {"ok": True, "responses": ["ok"]}
@@ -409,6 +451,12 @@ def test_push_device_config_waits_for_serial_after_runtime_enable(
         result = await module.push_device_config(force=True)
         await module.stop()
         return result
+
+    result = asyncio.run(scenario())
+
+    assert result["pushed"] is True
+    assert push_calls
+
 
 def test_push_device_config_uses_usb_when_host_transport_is_osc(
     monkeypatch: pytest.MonkeyPatch,

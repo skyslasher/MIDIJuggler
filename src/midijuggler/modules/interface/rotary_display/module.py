@@ -41,6 +41,12 @@ from midijuggler.modules.interface.rotary_display.protocol import (
     serial_command_to_clock_event,
 )
 from midijuggler.osc.protocol import encode_message
+from midijuggler.rotary_mdns import (
+    invalidate_mdns_cache,
+    is_mdns_hostname,
+    resolve_mdns_ipv4,
+    resolve_udp_host,
+)
 
 LOGGER = logging.getLogger(__name__)
 
@@ -61,6 +67,7 @@ class RotaryDisplayModule(InterfaceModule):
         self.bus = bus
         self._feedback_host = config.feedback_host
         self._feedback_port = config.feedback_port
+        self._feedback_host_ip: str | None = None
         self._serial_connected = False
         self._serial_port: Any | None = None
         self._serial_task: asyncio.Task[None] | None = None
@@ -133,6 +140,7 @@ class RotaryDisplayModule(InterfaceModule):
         self._start_serial_loop_if_needed()
         self._apply_configured_feedback_target()
         if self._use_osc and self._feedback_host and self._feedback_port > 0:
+            await self._prime_feedback_host_ip(self._feedback_host)
             await self._send_sync(force=True)
 
     def set_feedback_registration_handler(
@@ -155,8 +163,29 @@ class RotaryDisplayModule(InterfaceModule):
     def _register_feedback_target(self, host: str, port: int) -> None:
         self._feedback_host = host
         self._feedback_port = port
+        self._feedback_host_ip = None
         if self._feedback_registration_handler is not None:
             self._feedback_registration_handler(host, port)
+
+    async def _prime_feedback_host_ip(self, host: str) -> None:
+        if not is_mdns_hostname(host):
+            return
+        try:
+            resolved = await asyncio.to_thread(resolve_mdns_ipv4, host)
+        except OSError as exc:
+            LOGGER.warning(
+                "could not pre-resolve rotary display feedback target %s: %s",
+                host,
+                exc,
+            )
+            return
+        if resolved is not None:
+            self._feedback_host_ip = resolved
+            LOGGER.debug(
+                "resolved rotary display feedback target %s -> %s",
+                host,
+                resolved,
+            )
 
     async def stop(self) -> None:
         await self._stop_serial()
@@ -173,6 +202,7 @@ class RotaryDisplayModule(InterfaceModule):
             return
         host, port = parsed
         self._register_feedback_target(host, port)
+        await self._prime_feedback_host_ip(host)
         LOGGER.info(
             "rotary display registered at %s:%s",
             self._feedback_host,
@@ -433,13 +463,15 @@ class RotaryDisplayModule(InterfaceModule):
                 payload,
                 self._feedback_host,
                 self._feedback_port,
+                fallback_ip=self._feedback_host_ip,
             )
-        except OSError:
-            LOGGER.exception(
-                "rotary display OSC send failed for %s -> %s:%s",
+        except OSError as exc:
+            LOGGER.error(
+                "rotary display OSC send failed for %s -> %s:%s: %s",
                 address,
                 self._feedback_host,
                 self._feedback_port,
+                exc,
             )
 
     def _open_serial_port(self, port_name: str) -> Any:
@@ -523,18 +555,29 @@ class RotaryDisplayModule(InterfaceModule):
         await self._send_sync(force=True)
 
 
-def _udp_send(payload: bytes, host: str, port: int) -> None:
+def _udp_send(
+    payload: bytes,
+    host: str,
+    port: int,
+    *,
+    fallback_ip: str | None = None,
+) -> None:
     target = host.strip()
-    with socket.socket(socket.AF_INET, socket.SOCK_DGRAM) as sock:
-        try:
-            sock.sendto(payload, (target, port))
-        except OSError:
-            addresses = socket.getaddrinfo(
+
+    def send_to(resolved_host: str) -> None:
+        with socket.socket(socket.AF_INET, socket.SOCK_DGRAM) as sock:
+            sock.sendto(payload, (resolved_host, port))
+
+    try:
+        send_to(resolve_udp_host(target, fallback_ip=fallback_ip))
+    except OSError:
+        if not is_mdns_hostname(target):
+            raise
+        invalidate_mdns_cache(target)
+        send_to(
+            resolve_udp_host(
                 target,
-                port,
-                family=socket.AF_INET,
-                type=socket.SOCK_DGRAM,
+                fallback_ip=fallback_ip,
+                force=True,
             )
-            if not addresses:
-                raise
-            sock.sendto(payload, addresses[0][4])
+        )
