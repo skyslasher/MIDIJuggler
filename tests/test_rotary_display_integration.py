@@ -827,7 +827,7 @@ def test_transport_beat_listener_sends_osc_sync_on_click_tick_at_170_bpm(
         beat_times.append(time.monotonic())
 
     monkeypatch.setattr(
-        "midijuggler.modules.interface.rotary_display.module._udp_send",
+        "midijuggler.modules.interface.rotary_display.module._udp_send_timing_critical",
         capture_osc,
     )
 

@@ -44,7 +44,9 @@ if [ -x "$WAIT_SCRIPT" ]; then
 fi
 
 exec chromium --kiosk --noerrdialogs --disable-infobars \
-  --disable-features=Translate \
+  --disable-features=Translate,IdleDetection \
+  --disable-background-timer-throttling \
+  --disable-renderer-backgrounding \
   --user-data-dir="$CHROMIUM_USER_DATA_DIR" \
   --disk-cache-size=1 \
   --lang=de \

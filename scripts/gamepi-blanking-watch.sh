@@ -3,18 +3,16 @@
 
 set -eu
 
-interval="${GAMEPI_BLANKING_INTERVAL:-30}"
+interval="${GAMEPI_BLANKING_INTERVAL:-15}"
 disable_script="${GAMEPI_BLANKING_SCRIPT:-/opt/midijuggler/app/scripts/gamepi-disable-blanking.sh}"
 
 while true; do
   if [ -x "$disable_script" ]; then
-    GAMEPI_FB_DEVICE="${GAMEPI_FB_DEVICE:-/dev/fb0}" "$disable_script"
-  fi
-
-  if [ -S /tmp/.X11-unix/X0 ] && command -v xset >/dev/null 2>&1; then
-    DISPLAY=:0 xset s off 2>/dev/null || true
-    DISPLAY=:0 xset -dpms 2>/dev/null || true
-    DISPLAY=:0 xset s noblank 2>/dev/null || true
+    GAMEPI_FB_DEVICE="${GAMEPI_FB_DEVICE:-/dev/fb0}" \
+    GAMEPI_X_DISPLAY="${GAMEPI_X_DISPLAY:-:0}" \
+    GAMEPI_X_USER="${GAMEPI_X_USER:-dietpi}" \
+    GAMEPI_ALLOW_SETTERM="${GAMEPI_ALLOW_SETTERM:-1}" \
+      "$disable_script"
   fi
 
   sleep "$interval"

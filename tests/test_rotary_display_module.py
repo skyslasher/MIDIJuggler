@@ -656,6 +656,11 @@ def test_apply_runtime_config_enables_osc_and_pokes_device_hello(
 
     monkeypatch.setattr(RotaryDisplayModule, "_send_sync", track_send_sync)
 
+    async def noop_wait(self, *, timeout_s: float) -> None:
+        return None
+
+    monkeypatch.setattr(RotaryDisplayModule, "_wait_for_osc_hello", noop_wait)
+
     async def scenario() -> None:
         await module.start()
         module._serial_connected = True
@@ -705,6 +710,12 @@ def test_push_device_config_uses_usb_when_host_transport_is_osc(
         await module.start()
         osc_config = replace(config.rotary_display, transport="osc")
         module.update_config(osc_config)
+
+        async def noop_wait(self, *, timeout_s: float) -> None:
+            return None
+
+        monkeypatch.setattr(RotaryDisplayModule, "_wait_for_osc_hello", noop_wait)
+
         result = await module.push_device_config(force=True)
         await module.apply_runtime_config(osc_config)
         await module.stop()
@@ -713,3 +724,109 @@ def test_push_device_config_uses_usb_when_host_transport_is_osc(
     result = asyncio.run(scenario())
 
     assert result["pushed"] is True
+
+
+def test_beat_osc_sync_uses_cached_ip_without_mdns_lookup(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    resolve_calls: list[str] = []
+    sent_targets: list[tuple[str, int]] = []
+
+    def fake_resolve(host: str, **kwargs: object) -> str:
+        resolve_calls.append(host)
+        return "192.168.1.99"
+
+    def capture_send(
+        payload: bytes,
+        host: str,
+        port: int,
+        *,
+        cached_ip: str | None = None,
+    ) -> None:
+        sent_targets.append((host, port))
+        assert cached_ip == "192.168.1.70"
+
+    monkeypatch.setattr(
+        "midijuggler.modules.interface.rotary_display.module.resolve_udp_host",
+        fake_resolve,
+    )
+    monkeypatch.setattr(
+        "midijuggler.modules.interface.rotary_display.module._udp_send_timing_critical",
+        capture_send,
+    )
+
+    config = parse_config(
+        {
+            "rotary_display": {
+                "enabled": True,
+                "transport": "osc",
+                "feedback_host": "rotary-stage.local",
+                "feedback_port": 9001,
+            }
+        }
+    )
+    store = DataPointStore()
+    bus = EventBus()
+    master_clock = MasterClock(MasterClockConfig(enabled=True), bus)
+    module = RotaryDisplayModule(store, config.rotary_display, master_clock, bus)
+    module._feedback_host_ip = "192.168.1.70"
+    module.running = True
+
+    module._write_beat_osc_sync(1.0)
+
+    assert sent_targets == [("rotary-stage.local", 9001)]
+    assert resolve_calls == []
+
+
+def test_enable_host_osc_transport_aligns_serial_device_and_waits_for_hello(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    push_calls: list[bool] = []
+    wait_timeouts: list[float] = []
+
+    config = parse_config(
+        {
+            "rotary_display": {
+                "enabled": True,
+                "transport": "serial",
+                "serial_port": "/dev/ttyACM0",
+                "device": {"transport": "serial", "wifi_enabled": True},
+            }
+        }
+    )
+    store = DataPointStore()
+    bus = EventBus()
+    master_clock = MasterClock(MasterClockConfig(enabled=True), bus)
+    module = RotaryDisplayModule(store, config.rotary_display, master_clock, bus)
+
+    class FakeSerial:
+        def write(self, data: bytes) -> int:
+            return len(data)
+
+    module._serial_connected = True
+    module._serial_port = FakeSerial()
+
+    async def fake_push(self, *, force: bool = False) -> dict[str, object]:
+        push_calls.append(force)
+        assert self.config.device.transport == "wifi"
+        return {"pushed": True}
+
+    async def fake_wait(self, *, timeout_s: float) -> None:
+        wait_timeouts.append(timeout_s)
+        self._osc_hello_event.set()
+
+    monkeypatch.setattr(RotaryDisplayModule, "push_device_config", fake_push)
+    monkeypatch.setattr(RotaryDisplayModule, "_wait_for_osc_hello", fake_wait)
+    monkeypatch.setattr(RotaryDisplayModule, "_send_sync", lambda self, **kwargs: asyncio.sleep(0))
+
+    async def scenario() -> None:
+        await module.start()
+        osc_config = replace(config.rotary_display, transport="osc")
+        await module.apply_runtime_config(osc_config)
+        await module.stop()
+
+    asyncio.run(scenario())
+
+    assert push_calls == [True]
+    assert wait_timeouts == [12.0]
+    assert module.config.device.transport == "wifi"

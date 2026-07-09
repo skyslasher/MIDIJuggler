@@ -569,8 +569,10 @@
         return;
       }
       requestDisplayKeepAwake();
+      acquireDisplayWakeLock();
       keepAwakeTimer = setInterval(() => {
         requestDisplayKeepAwake();
+        acquireDisplayWakeLock();
       }, KEEP_AWAKE_INTERVAL_MS);
     }
 
@@ -579,7 +581,8 @@
         acquireDisplayWakeLock();
         return;
       }
-      releaseDisplayWakeLock();
+      // Kiosk clock UI should stay awake even when transport is stopped.
+      acquireDisplayWakeLock();
     }
 
     function pulseBeatFallback() {

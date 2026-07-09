@@ -10,6 +10,7 @@ import threading
 import time
 from collections import deque
 from collections.abc import Callable
+from dataclasses import replace
 from typing import Any
 
 from midijuggler.config import RotaryDisplayConfig
@@ -51,6 +52,7 @@ from midijuggler.modules.interface.rotary_display.protocol import (
 from midijuggler.osc.protocol import encode_message
 from midijuggler.rotary_mdns import (
     invalidate_mdns_cache,
+    is_ipv4_address,
     is_mdns_hostname,
     resolve_mdns_ipv4,
     resolve_udp_host,
@@ -97,6 +99,7 @@ class RotaryDisplayModule(InterfaceModule):
         self._use_osc = config.transport in {"osc", "both"}
         self._use_serial = config.transport in {"serial", "both"}
         self._feedback_registration_handler: Callable[[str, int], None] | None = None
+        self._osc_hello_event = asyncio.Event()
 
     def datapoints(self) -> list[DataPointSpec]:
         bpm_min = self.master_clock.config.bpm_min
@@ -227,6 +230,7 @@ class RotaryDisplayModule(InterfaceModule):
         host, port = parsed
         changed = host != self._feedback_host or port != self._feedback_port
         self._register_feedback_target(host, port)
+        self._osc_hello_event.set()
         await self._prime_feedback_host_ip(host)
         if changed:
             LOGGER.info(
@@ -261,11 +265,11 @@ class RotaryDisplayModule(InterfaceModule):
         with self._transport_osc_lock:
             try:
                 payload = encode_message(self.config.beat_osc_address, [value])
-                _udp_send(
+                _udp_send_timing_critical(
                     payload,
                     self._feedback_host,
                     self._feedback_port,
-                    fallback_ip=self._feedback_host_ip,
+                    cached_ip=self._feedback_host_ip,
                 )
             except OSError:
                 LOGGER.exception("rotary display OSC beat send failed")
@@ -466,10 +470,7 @@ class RotaryDisplayModule(InterfaceModule):
         self.update_config(config)
 
         if self._use_osc and not previous_use_osc:
-            if self._feedback_host and self._feedback_port > 0:
-                await self._prime_feedback_host_ip(self._feedback_host)
-            self._poke_device_hello_serial()
-            await self._send_sync(force=True)
+            await self._enable_host_osc_transport()
 
         serial_needed = self._serial_transport_enabled()
         serial_was_needed = previous_use_serial and bool(previous_serial_port.strip())
@@ -487,6 +488,42 @@ class RotaryDisplayModule(InterfaceModule):
         ):
             await self._stop_serial()
             self._start_serial_loop_if_needed()
+
+    async def _enable_host_osc_transport(self) -> None:
+        """Switch host feedback to OSC and wait for device registration."""
+
+        await self._ensure_serial_push_ready()
+        device = self.config.device
+        if device.transport == "serial" and device.wifi_enabled:
+            aligned = replace(device, transport="wifi")
+            self.config = replace(self.config, device=aligned)
+            self._last_pushed_fingerprint = None
+            push_result = await self.push_device_config(force=True)
+            if not push_result.get("pushed"):
+                LOGGER.warning(
+                    "rotary display device config push before OSC switch failed: %s",
+                    push_result.get("reason") or push_result.get("error") or "unknown",
+                )
+
+        if self._feedback_host and self._feedback_port > 0:
+            await self._prime_feedback_host_ip(self._feedback_host)
+
+        self._osc_hello_event.clear()
+        self._poke_device_hello_serial()
+        await self._wait_for_osc_hello(timeout_s=12.0)
+        await self._send_sync(force=True)
+
+    async def _wait_for_osc_hello(self, *, timeout_s: float) -> None:
+        if not self._use_osc:
+            return
+        if self._osc_hello_event.is_set():
+            return
+        try:
+            await asyncio.wait_for(self._osc_hello_event.wait(), timeout=timeout_s)
+        except TimeoutError:
+            LOGGER.warning(
+                "timed out waiting for rotary display OSC hello after transport switch"
+            )
 
     def _serial_transport_enabled(self) -> bool:
         return self._use_serial and bool(self.config.serial_port.strip())
@@ -778,6 +815,26 @@ class RotaryDisplayModule(InterfaceModule):
             await self.store.write(trigger_value(point_id, False))
             return
         await self.master_clock.handle_command(event)
+
+
+def _udp_send_timing_critical(
+    payload: bytes,
+    host: str,
+    port: int,
+    *,
+    cached_ip: str | None = None,
+) -> None:
+    """Send beat UDP without blocking the transport thread on mDNS."""
+
+    if cached_ip and is_ipv4_address(cached_ip):
+        target = str(cached_ip).strip()
+    elif is_ipv4_address(host):
+        target = str(host).strip()
+    else:
+        target = resolve_udp_host(host, fallback_ip=cached_ip)
+
+    with socket.socket(socket.AF_INET, socket.SOCK_DGRAM) as sock:
+        sock.sendto(payload, (target, port))
 
 
 def _udp_send(
