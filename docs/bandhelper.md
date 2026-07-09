@@ -29,7 +29,11 @@ pip install 'midijuggler[ableton_link]'
 4. *Settings > App Control* → **Song Selection** → **Tempo** action
 
 When you change songs, BandHelper updates the Link session tempo. MIDIJuggler
-joins as a Link peer and writes the BPM to the master clock (`clock.bpm`).
+joins as a Link peer and writes the BPM to the master clock (`clock.bpm`) when
+the **Link session tempo changes** (for example after a song change).
+
+Local BPM changes from the rotary encoder, GamePi, tap tempo, or Web UI are
+pushed to the Link session and are **not** overwritten by unchanged Link polls.
 
 BandHelper sends Link tempo when its **tempo function is running** (same as
 tapping the metronome button). There is no separate “push BPM only” Link mode.
@@ -95,6 +99,7 @@ to target devices.
 
 - iPad and Pi must be on the same Wi‑Fi; allow multicast for Link
 - `follow_when_running = false` (default): local transport keeps BPM priority while running
+- `min_bpm_delta`: minimum change before a new Link session tempo is applied to the master clock
 - Beat/phase over Link is intentionally not wired yet
 - `song.link_peers` counts **other** Link apps in the session (not including MIDIJuggler). A value of `2` means three Link-enabled apps total, for example BandHelper on the iPad, MIDIJuggler on the Pi, and one more app on the LAN (another iPad, DAW, metronome app, etc.)
 
@@ -112,6 +117,6 @@ Check all of the following:
 2. **`[bandhelper] enabled = true`** in TOML and restart MIDIJuggler after enabling.
 3. **`pip install 'midijuggler[ableton_link]'`** on the Pi.
 4. **Master clock transport stopped** unless `follow_when_running = true`.
-5. **Song tempo differs** from the current master clock BPM by at least `min_bpm_delta`.
+5. **Link session tempo changed** by at least `min_bpm_delta` (typical on song change).
 
-After a song change you should see journal lines such as `bandhelper Link session tempo …` and `bandhelper applied Link tempo …`, and monitor updates on `song.link_tempo` and `clock.bpm`.
+After a song change you should see journal lines such as `bandhelper Link session tempo …` and `bandhelper applied Link tempo …`, and monitor updates on `song.link_tempo` and `clock.bpm`. Local BPM edits should log `bandhelper pushed local tempo … to Ableton Link` instead of being reset by `bandhelper applied Link tempo` at the old value.

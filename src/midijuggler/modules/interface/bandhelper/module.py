@@ -17,7 +17,7 @@ from midijuggler.datapoint.types import (
     ValueType,
 )
 from midijuggler.eventbus import EventBus
-from midijuggler.events import OscMessageEvent
+from midijuggler.events import BpmChangedEvent, OscMessageEvent
 from midijuggler.master_clock import MasterClock, quantize_bpm
 from midijuggler.modules.base import InterfaceModule
 from midijuggler.modules.interface.bandhelper.key import (
@@ -28,6 +28,8 @@ from midijuggler.modules.interface.bandhelper.key import (
 )
 
 LOGGER = logging.getLogger(__name__)
+
+BANDHELPER_SOURCE = "bandhelper"
 
 SONG_MODULE = "song"
 
@@ -55,9 +57,11 @@ class BandHelperModule(InterfaceModule):
         self._loop: asyncio.AbstractEventLoop | None = None
         self._poll_task: asyncio.Task[None] | None = None
         self._last_link_tempo: float | None = None
+        self._last_applied_link_tempo: float | None = None
         self._last_link_peers: int | None = None
         self._last_skip_reason: str | None = None
         self._last_key: ParsedKey | None = None
+        self._applying_from_link = False
 
     def datapoints(self) -> list[DataPointSpec]:
         return [
@@ -105,10 +109,25 @@ class BandHelperModule(InterfaceModule):
         await super().start()
         self._loop = asyncio.get_running_loop()
         self.bus.subscribe(OscMessageEvent, self._on_osc_message)
+        self.bus.subscribe(BpmChangedEvent, self._on_bpm_changed)
         if self.config.link_enabled:
             await self._start_link()
 
     async def stop(self) -> None:
+        await self._stop_link()
+        await super().stop()
+
+    async def update_config(self, config: BandHelperConfig) -> None:
+        previous_link = self.config.link_enabled
+        self.config = config
+        if not self.running:
+            return
+        if config.link_enabled and not previous_link:
+            await self._start_link()
+        elif not config.link_enabled and previous_link:
+            await self._stop_link()
+
+    async def _stop_link(self) -> None:
         if self._poll_task is not None:
             self._poll_task.cancel()
             with contextlib.suppress(asyncio.CancelledError):
@@ -117,10 +136,9 @@ class BandHelperModule(InterfaceModule):
         if self._link is not None:
             self._link.enabled = False
             self._link = None
-        await super().stop()
-
-    def update_config(self, config: BandHelperConfig) -> None:
-        self.config = config
+        self._last_link_tempo = None
+        self._last_applied_link_tempo = None
+        self._last_link_peers = None
 
     async def _start_link(self) -> None:
         if AbletonLink is None:
@@ -160,16 +178,37 @@ class BandHelperModule(InterfaceModule):
             await asyncio.sleep(interval)
 
     async def _sync_link_tempo(self, tempo: float, peers: int | None) -> None:
-        await self._publish_link_status(tempo=tempo, peers=peers)
+        session_tempo_changed = await self._publish_link_status(tempo=tempo, peers=peers)
+        if not session_tempo_changed:
+            return
         if not self._should_apply_link_tempo(tempo):
             return
         quantized = quantize_bpm(tempo, self.config.quantize_step)
-        await self.master_clock.set_bpm(quantized)
-        await self.master_clock.flush_bpm_notifications()
+        self._applying_from_link = True
+        try:
+            await self.master_clock.set_bpm(quantized, source=BANDHELPER_SOURCE)
+            await self.master_clock.flush_bpm_notifications()
+        finally:
+            self._applying_from_link = False
+        self._last_applied_link_tempo = quantized
         LOGGER.info(
             "bandhelper applied Link tempo %.2f BPM (raw %.2f)",
             quantized,
             tempo,
+        )
+
+    async def _on_bpm_changed(self, event: BpmChangedEvent) -> None:
+        if self._applying_from_link or self._link is None or not self.config.link_enabled:
+            return
+        quantized = quantize_bpm(event.bpm, self.config.quantize_step)
+        if abs(float(self._link.tempo) - quantized) < self.config.min_bpm_delta:
+            self._last_applied_link_tempo = quantized
+            return
+        self._link.tempo = quantized
+        self._last_applied_link_tempo = quantized
+        LOGGER.info(
+            "bandhelper pushed local tempo %.2f BPM to Ableton Link",
+            quantized,
         )
 
     def _should_apply_link_tempo(self, tempo: float) -> bool:
@@ -179,9 +218,12 @@ class BandHelperModule(InterfaceModule):
         if not self.config.follow_when_running and self.master_clock.running:
             self._log_skip("transport running and follow_when_running=false", tempo)
             return False
-        if abs(self.master_clock.bpm - tempo) < self.config.min_bpm_delta:
+        if (
+            self._last_applied_link_tempo is not None
+            and abs(tempo - self._last_applied_link_tempo) < self.config.min_bpm_delta
+        ):
             self._log_skip(
-                f"delta below min_bpm_delta ({self.config.min_bpm_delta})",
+                f"link tempo unchanged since last apply ({self._last_applied_link_tempo:.2f})",
                 tempo,
             )
             return False
@@ -200,10 +242,10 @@ class BandHelperModule(InterfaceModule):
         *,
         tempo: float,
         peers: int | None,
-    ) -> None:
+    ) -> bool:
         tempo_changed = (
             self._last_link_tempo is None
-            or abs(self._last_link_tempo - tempo) > 1e-6
+            or abs(self._last_link_tempo - tempo) >= self.config.min_bpm_delta
         )
         if tempo_changed:
             self._last_link_tempo = tempo
@@ -231,6 +273,7 @@ class BandHelperModule(InterfaceModule):
                 "bandhelper Link reports %d other peer(s) in session",
                 peers,
             )
+        return tempo_changed
 
     async def _on_osc_message(self, event: OscMessageEvent) -> None:
         if event.direction != "input":
