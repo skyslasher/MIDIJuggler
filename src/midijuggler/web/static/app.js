@@ -118,6 +118,9 @@ const hidInstances = document.querySelector("#hid-instances");
 const hidAddButton = document.querySelector("#hid-add");
 const hidMessage = document.querySelector("#hid-message");
 const mappings = document.querySelector("#mappings");
+const implicitMappings = document.querySelector("#implicit-mappings");
+const implicitConnectionsSection = document.querySelector("#implicit-connections-section");
+const implicitConnectionsHint = document.querySelector("#implicit-connections-hint");
 const connectionsTableHeader = document.querySelector("#connections-table-header");
 const feedbackSuppressMs = document.querySelector("#feedback-suppress-ms");
 const routingSettingsSave = document.querySelector("#routing-settings-save");
@@ -239,6 +242,8 @@ let discoveredOscDesks = [];
 let monitorDisplayMode = monitorDisplayModeSelect?.value || "library";
 let adapterLibraryConfig = {};
 let storedConnections = [];
+let implicitConnections = [];
+const ROTARY_DISPLAY_LIBRARY = "rotary_display";
 let pendingConnectionImportBundle = null;
 let pendingConnectionImportPreview = null;
 let editingConnectionId = "";
@@ -460,6 +465,10 @@ function renderStatus(status) {
     if (!editingConnectionId) {
       renderMappingsList(storedConnections);
     }
+  }
+  if (Array.isArray(status.implicit_connections)) {
+    implicitConnections = status.implicit_connections;
+    renderImplicitConnectionsList(implicitConnections);
   }
   if (feedbackSuppressMs && status.feedback_suppress_ms != null) {
     feedbackSuppressMs.value = String(status.feedback_suppress_ms);
@@ -2402,6 +2411,122 @@ function renderMappingsList(connections) {
   }
 }
 
+function managedByLabel(managedBy) {
+  if (!managedBy) {
+    return "System";
+  }
+  if (managedBy === "rotary_display") {
+    return "Rotary Display";
+  }
+  if (managedBy === "rotary_display:module") {
+    return "Rotary Display module";
+  }
+  return managedBy;
+}
+
+function createImplicitConnectionListItem(connection) {
+  const item = document.createElement("li");
+  item.className = "mapping-item implicit-mapping-item";
+
+  const card = document.createElement("section");
+  card.className = "midi-adapter-card connection-card connection-card-implicit";
+  card.dataset.connectionId = connection.id;
+
+  const accordion = createAdapterInstanceAccordion("");
+  const { body, title } = accordion;
+  setConnectionRouteSummary(title, connection);
+
+  const badge = document.createElement("span");
+  badge.className = "connection-managed-badge";
+  badge.textContent = managedByLabel(connection.managed_by);
+
+  const meta = document.createElement("div");
+  meta.className = "mapping-meta";
+  meta.textContent = `${connectionMeta(connection)} · automatic`;
+
+  const actions = document.createElement("div");
+  actions.className = "midi-adapter-card-actions connection-implicit-actions";
+  actions.append(badge);
+  prependAdapterBodySections(body, [actions]);
+  body.appendChild(meta);
+
+  mountAdapterInstanceCard(card, accordion);
+  item.appendChild(card);
+  return item;
+}
+
+function renderImplicitConnectionsList(connections) {
+  if (!implicitMappings || !implicitConnectionsSection) {
+    return;
+  }
+  implicitMappings.replaceChildren();
+  if (!connections.length) {
+    implicitConnectionsSection.hidden = true;
+    return;
+  }
+  implicitConnectionsSection.hidden = false;
+  if (implicitConnectionsHint) {
+    implicitConnectionsHint.textContent =
+      "Bundled library defaults are applied automatically. With the rotary display module enabled, feedback uses the module path instead of device OSC targets.";
+  }
+  for (const connection of sortedConnections(connections)) {
+    implicitMappings.appendChild(createImplicitConnectionListItem(connection));
+  }
+}
+
+function refreshConnectionsPanel() {
+  if (!editingConnectionId) {
+    renderMappingsList(storedConnections);
+  }
+  renderImplicitConnectionsList(implicitConnections);
+}
+
+function oscLibraryMeta(libraryId) {
+  return cachedOscLibraryList.find((entry) => (entry.id || entry.name) === libraryId) || null;
+}
+
+function applyRotaryDisplayDeviceDefaults(card) {
+  const library = card.querySelector('[data-field="library"]')?.value.trim() || card.dataset.deviceLibrary || "";
+  let hint = card.querySelector(".device-bundled-library-hint");
+  if (library !== ROTARY_DISPLAY_LIBRARY) {
+    hint?.remove();
+    return;
+  }
+
+  const kindSelect = card.querySelector('[data-field="library_kind"]');
+  if (kindSelect && !kindSelect.value) {
+    kindSelect.value = "osc";
+  }
+
+  const adapterSelect = card.querySelector('[data-field="adapter"]');
+  if (adapterSelect && !adapterSelect.value) {
+    const oscAdapter = deviceAdapterOptions.find(
+      (adapter) => (adapter.library_kind || adapter.kind || adapter.type) === "osc",
+    );
+    if (oscAdapter) {
+      adapterSelect.value = oscAdapter.uid || oscAdapter.name;
+    }
+  }
+
+  const nameField = card.querySelector('[data-field="name"]');
+  if (nameField && !nameField.value.trim()) {
+    nameField.value = "Rotary Display";
+    nameField.dispatchEvent(new Event("input", { bubbles: true }));
+  }
+
+  if (!hint) {
+    hint = document.createElement("p");
+    hint.className = "hint device-bundled-library-hint";
+    const fields = card.querySelector(".device-fields");
+    fields?.appendChild(hint);
+  }
+  const libraryMeta = oscLibraryMeta(ROTARY_DISPLAY_LIBRARY);
+  const bundledCount = libraryMeta?.bundled_connection_count || 9;
+  hint.textContent =
+    `Library "${ROTARY_DISPLAY_LIBRARY}" bundles ${bundledCount} standard connections automatically. ` +
+    "Save the device to activate them; no manual Connections wiring is required when the rotary display module is enabled.";
+}
+
 function openMappingEditor(connection) {
   editingConnectionId = connection.id;
   replaceConnectionListItem(connection.id);
@@ -2516,9 +2641,8 @@ async function saveStoredConnections(connections) {
   }
   const payload = await response.json();
   storedConnections = payload.stored_connections || connections;
-  if (!editingConnectionId) {
-    renderMappingsList(storedConnections);
-  }
+  implicitConnections = payload.implicit_connections || implicitConnections;
+  refreshConnectionsPanel();
   try {
     const statusResponse = await fetch("/api/status");
     if (statusResponse.ok) {
@@ -2798,7 +2922,8 @@ async function submitConnectionImport() {
     }
     const payload = await response.json();
     storedConnections = payload.stored_connections || storedConnections;
-    renderMappingsList(storedConnections);
+    implicitConnections = payload.implicit_connections || implicitConnections;
+    refreshConnectionsPanel();
     if ((payload.updated_devices || []).length > 0) {
       await refreshDeviceConfigCache();
     }
@@ -2871,7 +2996,8 @@ async function createReverseMapping(connectionId) {
     }
     const payload = await response.json();
     storedConnections = payload.stored_connections || storedConnections;
-    renderMappingsList(storedConnections);
+    implicitConnections = payload.implicit_connections || implicitConnections;
+    refreshConnectionsPanel();
     try {
       const statusResponse = await fetch("/api/status");
       if (statusResponse.ok) {
@@ -3903,6 +4029,7 @@ function applyAdapterDefaultsToDeviceCard(card) {
   }
   card.dataset.deviceLibrary = libraryField.value.trim();
   applyXtouchChannelDefaults(card, libraryField.value.trim());
+  applyRotaryDisplayDeviceDefaults(card);
   syncDeviceTestSendSection(card);
 }
 
@@ -4349,6 +4476,7 @@ function createDeviceCard(device = {}, options = {}) {
     card.dataset.deviceLibrary = library;
     updateXtouchFieldsVisibility();
     applyXtouchChannelDefaults(card, library);
+    applyRotaryDisplayDeviceDefaults(card);
     syncDeviceTestSendSection(card);
     markDirty();
   });
@@ -4359,6 +4487,7 @@ function createDeviceCard(device = {}, options = {}) {
   adapterSelect.addEventListener("change", () => {
     applyAdapterDefaultsToDeviceCard(card);
     updateXtouchFieldsVisibility();
+    applyRotaryDisplayDeviceDefaults(card);
     markDirty();
   });
   kindSelect.addEventListener("change", () => {
@@ -4373,6 +4502,7 @@ function createDeviceCard(device = {}, options = {}) {
       card,
       fields.querySelector('[data-field="library"]')?.value.trim() || "",
     );
+    applyRotaryDisplayDeviceDefaults(card);
     syncDeviceTestSendSection(card);
     markDirty();
   });
@@ -4390,6 +4520,7 @@ function createDeviceCard(device = {}, options = {}) {
   mountAdapterInstanceCard(card, accordion);
   attachDeviceCardControls(card);
   syncDeviceTestSendSection(card);
+  applyRotaryDisplayDeviceDefaults(card);
   return card;
 }
 

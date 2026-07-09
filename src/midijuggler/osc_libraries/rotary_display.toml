@@ -3,7 +3,98 @@ id = "rotary_display"
 name = "MIDIJuggler Rotary Display"
 vendor = "MIDIJuggler"
 model = "Elecrow Rotary Encoder"
-notes = "OSC protocol for the Elecrow 1.28 inch rotary display. Encoder commands use /midijuggler/clock/* on the host listen port; feedback to the device uses /midijuggler/rotary/* on the device listen port."
+bundled = true
+notes = "OSC protocol for the Elecrow 1.28 inch rotary display. Encoder commands use /midijuggler/clock/* on the host listen port; feedback to the device uses /midijuggler/rotary/* on the device listen port. Creating a device with this library auto-wires the bundled connections below."
+
+[[bundled_connections]]
+id = "bpm-to-clock"
+label = "Encoder BPM → clock"
+connection_id = "{device_id}-bpm-to-clock"
+source_suffix = "./midijuggler/clock/bpm"
+target = "clock.bpm_set"
+modifier = "passthrough"
+managed_by = "rotary_display"
+direction = "encoder_to_host"
+
+[[bundled_connections]]
+id = "start-stop-to-clock"
+label = "Encoder start/stop → clock"
+connection_id = "{device_id}-start-stop-to-clock"
+source_suffix = "./midijuggler/clock/start_stop"
+target = "clock.start_stop"
+modifier = "passthrough"
+managed_by = "rotary_display"
+direction = "encoder_to_host"
+
+[[bundled_connections]]
+id = "click-toggle-to-clock"
+label = "Encoder click toggle → clock"
+connection_id = "{device_id}-click-toggle-to-clock"
+source_suffix = "./midijuggler/clock/click_toggle"
+target = "clock.click_toggle"
+modifier = "passthrough"
+managed_by = "rotary_display"
+direction = "encoder_to_host"
+
+[[bundled_connections]]
+id = "tap-tempo-to-clock"
+label = "Encoder tap tempo → clock"
+connection_id = "{device_id}-tap-tempo-to-clock"
+source_suffix = "./midijuggler/clock/tap_tempo"
+target = "clock.tap_tempo"
+modifier = "passthrough"
+managed_by = "rotary_display"
+direction = "encoder_to_host"
+
+[[bundled_connections]]
+id = "clock-bpm-to-device"
+label = "Clock BPM → display"
+connection_id = "clock-bpm-to-{device_id}"
+source = "clock.bpm"
+target_suffix = "./midijuggler/rotary/bpm"
+modifier = "passthrough"
+managed_by = "rotary_display"
+direction = "host_to_encoder"
+
+[[bundled_connections]]
+id = "clock-running-to-device"
+label = "Clock running → display"
+connection_id = "clock-running-to-{device_id}"
+source = "clock.running"
+target_suffix = "./midijuggler/rotary/running"
+modifier = "passthrough"
+managed_by = "rotary_display"
+direction = "host_to_encoder"
+
+[[bundled_connections]]
+id = "clock-click-enabled-to-device"
+label = "Clock click enabled → display"
+connection_id = "clock-click-enabled-to-{device_id}"
+source = "clock.click_enabled"
+target_suffix = "./midijuggler/rotary/click_enabled"
+modifier = "passthrough"
+managed_by = "rotary_display"
+direction = "host_to_encoder"
+
+[[bundled_connections]]
+id = "clock-click-interval-to-device"
+label = "Clock click interval → display"
+connection_id = "clock-click-interval-to-{device_id}"
+source = "clock.click_interval"
+target_suffix = "./midijuggler/rotary/click_interval"
+modifier = "passthrough"
+managed_by = "rotary_display"
+direction = "host_to_encoder"
+
+[[bundled_connections]]
+id = "clock-beat-to-device"
+label = "Clock beat → display"
+connection_id = "clock-beat-to-{device_id}"
+source = "clock.beat"
+target_suffix = "./midijuggler/rotary/beat"
+modifier = "passthrough"
+managed_by = "rotary_display"
+direction = "host_to_encoder"
 
 # Device -> host (encoder commands)
 [[parameters]]

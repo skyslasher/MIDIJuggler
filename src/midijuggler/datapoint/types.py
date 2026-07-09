@@ -140,6 +140,7 @@ class ConnectionSpec:
     scale_curve: str = "linear"
     factor: float = 1.0
     enabled: bool = True
+    managed_by: str | None = None
 
     def as_dict(self) -> dict[str, Any]:
         payload = {
@@ -158,6 +159,9 @@ class ConnectionSpec:
             payload["factor"] = self.factor
         if self.scale_curve != "linear":
             payload["scale_curve"] = self.scale_curve
+        if self.managed_by:
+            payload["managed_by"] = self.managed_by
+            payload["implicit"] = True
         return payload
 
 

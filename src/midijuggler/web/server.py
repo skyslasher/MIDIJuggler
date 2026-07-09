@@ -132,7 +132,7 @@ from midijuggler.connection.bundle import (
     preview_connection_bundle_import,
 )
 from midijuggler.datapoint.bridge import adapter_control_to_datapoint
-from midijuggler.datapoint.migrate import effective_connections, stored_connections
+from midijuggler.datapoint.migrate import effective_connections, implicit_connections, stored_connections
 from midijuggler.datapoint.store import DataPointStore
 from midijuggler.datapoint.types import (
     ConnectionSpec,
@@ -538,9 +538,18 @@ class WebInterface:
         return {
             "connections": [connection.as_dict() for connection in self._effective_connections()],
             "stored_connections": [connection.as_dict() for connection in stored],
+            "implicit_connections": [
+                connection.as_dict() for connection in self._implicit_connections()
+            ],
             "datapoint_routing": self.config.runtime.datapoint_routing,
             "feedback_suppress_ms": self.config.runtime.feedback_suppress_ms,
         }
+
+    def _implicit_connections(self) -> list[ConnectionSpec]:
+        return implicit_connections(
+            self.config,
+            datapoint_routing=self.config.runtime.datapoint_routing,
+        )
 
     def _effective_connections(self) -> list[ConnectionSpec]:
         return effective_connections(
@@ -1116,6 +1125,8 @@ class WebInterface:
                     "vendor": library.vendor,
                     "model": library.model,
                     "notes": library.notes,
+                    "bundled": library.bundled,
+                    "bundled_connection_count": len(library.bundled_connections),
                     "parameter_count": len(library.parameters),
                 }
                 for library in libraries
@@ -1491,6 +1502,9 @@ class WebInterface:
             "devices": [device.as_dict() for device in self.config.devices.values()],
             "stored_connections": [
                 connection.as_dict() for connection in self._stored_connections()
+            ],
+            "implicit_connections": [
+                connection.as_dict() for connection in self._implicit_connections()
             ],
             "connections": [
                 connection.as_dict() for connection in self._effective_connections()

@@ -132,6 +132,8 @@ class RotaryDisplayModule(InterfaceModule):
         self.bus.subscribe(OscMessageEvent, self._on_osc_message)
         self._start_serial_loop_if_needed()
         self._apply_configured_feedback_target()
+        if self._use_osc and self._feedback_host and self._feedback_port > 0:
+            await self._send_sync(force=True)
 
     def set_feedback_registration_handler(
         self,

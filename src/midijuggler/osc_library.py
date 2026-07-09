@@ -38,6 +38,42 @@ class OscParameter:
 
 
 @dataclass(frozen=True)
+class BundledConnection:
+    """Default routing bundled with a packaged OSC library."""
+
+    id: str
+    label: str
+    connection_id: str
+    source: str
+    target: str
+    source_suffix: str
+    target_suffix: str
+    modifier: str
+    managed_by: str
+    direction: str
+
+    def resolve(self, device_id: str) -> tuple[str, str, str]:
+        resolved_id = self.connection_id.format(device_id=device_id)
+        source = self.source or f"{device_id}{self.source_suffix}"
+        target = self.target or f"{device_id}{self.target_suffix}"
+        return resolved_id, source, target
+
+    def as_dict(self) -> dict[str, Any]:
+        return {
+            "id": self.id,
+            "label": self.label,
+            "connection_id": self.connection_id,
+            "source": self.source,
+            "target": self.target,
+            "source_suffix": self.source_suffix,
+            "target_suffix": self.target_suffix,
+            "modifier": self.modifier,
+            "managed_by": self.managed_by,
+            "direction": self.direction,
+        }
+
+
+@dataclass(frozen=True)
 class OscLibrary:
     """Collection of OSC parameters for one device family."""
 
@@ -47,16 +83,24 @@ class OscLibrary:
     model: str
     notes: str
     parameters: tuple[OscParameter, ...]
+    bundled: bool = False
+    bundled_connections: tuple[BundledConnection, ...] = ()
 
     def as_dict(self) -> dict[str, Any]:
-        return {
+        payload = {
             "id": self.id,
             "name": self.name,
             "vendor": self.vendor,
             "model": self.model,
             "notes": self.notes,
+            "bundled": self.bundled,
             "parameters": [parameter.as_dict() for parameter in self.parameters],
         }
+        if self.bundled_connections:
+            payload["bundled_connections"] = [
+                connection.as_dict() for connection in self.bundled_connections
+            ]
+        return payload
 
 
 def list_osc_libraries() -> list[OscLibrary]:
@@ -97,6 +141,11 @@ def _parse_library(raw: dict[str, Any]) -> OscLibrary:
     for index, template_raw in enumerate(raw.get("templates", []), start=1):
         parameters.extend(_expand_template(template_raw, f"templates[{index}]"))
 
+    bundled_connections = [
+        _parse_bundled_connection(connection_raw, f"bundled_connections[{index}]")
+        for index, connection_raw in enumerate(raw.get("bundled_connections", []), start=1)
+    ]
+
     return OscLibrary(
         id=library_id,
         name=_required_str(library_raw, "name", "library.name"),
@@ -104,6 +153,35 @@ def _parse_library(raw: dict[str, Any]) -> OscLibrary:
         model=str(library_raw.get("model", "")),
         notes=str(library_raw.get("notes", "")),
         parameters=tuple(parameters),
+        bundled=bool(library_raw.get("bundled", False)),
+        bundled_connections=tuple(bundled_connections),
+    )
+
+
+def _parse_bundled_connection(raw: dict[str, Any], field_name: str) -> BundledConnection:
+    if not isinstance(raw, dict):
+        raise ValueError(f"{field_name} must be a table")
+
+    source = str(raw.get("source", "")).strip()
+    target = str(raw.get("target", "")).strip()
+    source_suffix = str(raw.get("source_suffix", "")).strip()
+    target_suffix = str(raw.get("target_suffix", "")).strip()
+    if not source and not source_suffix:
+        raise ValueError(f"{field_name} requires source or source_suffix")
+    if not target and not target_suffix:
+        raise ValueError(f"{field_name} requires target or target_suffix")
+
+    return BundledConnection(
+        id=_required_str(raw, "id", f"{field_name}.id"),
+        label=_required_str(raw, "label", f"{field_name}.label"),
+        connection_id=_required_str(raw, "connection_id", f"{field_name}.connection_id"),
+        source=source,
+        target=target,
+        source_suffix=source_suffix,
+        target_suffix=target_suffix,
+        modifier=str(raw.get("modifier", "passthrough")),
+        managed_by=_required_str(raw, "managed_by", f"{field_name}.managed_by"),
+        direction=str(raw.get("direction", "")),
     )
 
 

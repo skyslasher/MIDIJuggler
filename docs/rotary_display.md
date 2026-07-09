@@ -107,6 +107,11 @@ change.
 
 Packaged OSC library id: `rotary_display` (see [`osc_mapping_libraries.md`](osc_mapping_libraries.md)).
 
+The library is **bundled**: creating a device with `library = "rotary_display"`
+auto-wires encoder→clock and clock→display connections at runtime. They appear in
+the Connections UI under **System connections** (read-only) and are not stored in
+`[[connections]]`.
+
 To wire the encoder through the Connections page, add a device bound to your OSC
 adapter:
 
@@ -120,10 +125,9 @@ library = "rotary_display"
 library_kind = "osc"
 ```
 
-The library exposes all `/midijuggler/clock/*` command addresses and
-`/midijuggler/rotary/*` feedback targets for connection bundles and monitoring.
-When `[rotary_display] enabled = false`, MIDIJuggler also adds default
-encoder→clock and beat→display connections for such a device.
+When `[rotary_display] enabled = true`, outbound feedback uses the interface
+module instead of device OSC targets. Encoder→clock bundles still apply for
+monitoring; manual feedback connections are not required.
 
 ## Troubleshooting
 

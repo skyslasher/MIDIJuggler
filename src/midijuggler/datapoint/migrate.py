@@ -55,3 +55,27 @@ def effective_connections(
     else:
         merged = merge_rotary_display_connections(merged, config.devices)
     return merged
+
+
+def implicit_connections(
+    config: AppConfig,
+    *,
+    datapoint_routing: bool = True,
+) -> list[ConnectionSpec]:
+    """Return effective system-managed connections not stored in user config."""
+
+    if not datapoint_routing:
+        return []
+
+    effective = effective_connections(config, datapoint_routing=datapoint_routing)
+    stored_pairs = {
+        (connection.source, connection.target) for connection in stored_connections(config.connections)
+    }
+    implicit: list[ConnectionSpec] = []
+    for connection in effective:
+        if not connection.managed_by:
+            continue
+        if (connection.source, connection.target) in stored_pairs:
+            continue
+        implicit.append(connection)
+    return implicit

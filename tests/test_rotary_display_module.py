@@ -118,6 +118,49 @@ def test_rotary_display_hello_registers_feedback_handler() -> None:
     assert registered == [("192.168.1.60", 9001)]
 
 
+def test_rotary_display_pushes_initial_sync_on_start_with_feedback_host(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    sent: list[tuple[bytes, str, int]] = []
+
+    def fake_udp(payload: bytes, host: str, port: int) -> None:
+        sent.append((payload, host, port))
+
+    monkeypatch.setattr(
+        "midijuggler.modules.interface.rotary_display.module._udp_send",
+        fake_udp,
+    )
+
+    config = parse_config(
+        {
+            "master_clock": {"enabled": True, "bpm": 132.0},
+            "rotary_display": {
+                "enabled": True,
+                "transport": "osc",
+                "feedback_host": "192.168.1.70",
+                "feedback_port": 9001,
+            },
+        }
+    )
+    store = DataPointStore()
+    bus = EventBus()
+    master_clock = MasterClock(config.master_clock, bus)
+    module = RotaryDisplayModule(store, config.rotary_display, master_clock, bus)
+
+    async def scenario() -> None:
+        await module.start()
+        await asyncio.sleep(0)
+        await module.stop()
+
+    asyncio.run(scenario())
+
+    assert len(sent) == 1
+    address, args = decode_messages(sent[0][0])[0]
+    assert address == "/midijuggler/rotary/sync"
+    assert args[0] == pytest.approx(132.0)
+    assert sent[0][1:] == ("192.168.1.70", 9001)
+
+
 def test_rotary_display_pushes_config_on_serial_hello(monkeypatch: pytest.MonkeyPatch) -> None:
     push_calls: list[bool] = []
 

@@ -736,6 +736,42 @@ legend {
   display: none;
 }
 
+.implicit-connections-section {
+  margin-top: 1.5rem;
+}
+
+.connections-subheading {
+  margin: 0 0 0.35rem;
+  font-size: 0.95rem;
+}
+
+.connection-card-implicit {
+  border-style: dashed;
+  opacity: 0.92;
+}
+
+.connection-card-implicit .connection-route-summary,
+.connection-card-implicit .mapping-meta {
+  color: var(--muted-text, #8a8f98);
+}
+
+.connection-managed-badge {
+  display: inline-block;
+  padding: 0.15rem 0.5rem;
+  border-radius: 999px;
+  font-size: 0.75rem;
+  background: rgba(120, 130, 150, 0.18);
+  color: var(--muted-text, #8a8f98);
+}
+
+.connection-implicit-actions {
+  justify-content: flex-end;
+}
+
+.device-bundled-library-hint {
+  margin-top: 0.75rem;
+}
+
 .mapping-summary {
   color: #dbe6f8;
   font-family: ui-monospace, SFMono-Regular, Menlo, monospace;

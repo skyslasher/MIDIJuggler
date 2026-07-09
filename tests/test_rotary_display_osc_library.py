@@ -1,5 +1,5 @@
 from midijuggler.config import parse_config
-from midijuggler.datapoint.migrate import effective_connections
+from midijuggler.datapoint.migrate import effective_connections, implicit_connections
 from midijuggler.datapoint.rotary_connections import (
     merge_rotary_display_connections,
     rotary_encoder_to_clock_connections,
@@ -33,6 +33,8 @@ def test_rotary_display_library_contains_clock_and_feedback_points() -> None:
     library = get_osc_library("rotary_display")
     parameters = {parameter.id: parameter for parameter in library.parameters}
 
+    assert library.bundled is True
+    assert len(library.bundled_connections) == 9
     assert parameters["clock_bpm"].address == "/midijuggler/clock/bpm"
     assert parameters["clock_bpm"].direction == "source"
     assert parameters["clock_start_stop"].address == "/midijuggler/clock/start_stop"
@@ -124,3 +126,38 @@ def test_effective_connections_adds_module_feedback_when_module_enabled() -> Non
     expected = {(connection.source, connection.target) for connection in rotary_module_feedback_connections()}
     actual = {(connection.source, connection.target) for connection in connections}
     assert expected.issubset(actual)
+
+
+def test_implicit_connections_exposes_managed_rotary_bundles() -> None:
+    config = parse_config(_config_with_rotary_device(rotary_module_enabled=True))
+    implicit = implicit_connections(config)
+    assert implicit
+    assert all(connection.managed_by for connection in implicit)
+    assert any(connection.managed_by == "rotary_display" for connection in implicit)
+    assert any(connection.managed_by == "rotary_display:module" for connection in implicit)
+    assert not any(
+        connection.target == "rotary_encoder./midijuggler/rotary/bpm"
+        for connection in implicit
+    )
+
+
+def test_implicit_connections_omit_user_stored_duplicates() -> None:
+    config = parse_config(
+        {
+            **_config_with_rotary_device(rotary_module_enabled=False),
+            "connections": [
+                {
+                    "id": "manual-bpm",
+                    "source": "rotary_encoder./midijuggler/clock/bpm",
+                    "target": "clock.bpm_set",
+                    "modifier": "passthrough",
+                }
+            ],
+        }
+    )
+    implicit = implicit_connections(config)
+    assert not any(
+        connection.source == "rotary_encoder./midijuggler/clock/bpm"
+        and connection.target == "clock.bpm_set"
+        for connection in implicit
+    )

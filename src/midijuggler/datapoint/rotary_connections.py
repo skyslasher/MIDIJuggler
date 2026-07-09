@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from midijuggler.datapoint.types import ConnectionSpec, ModifierKind
 from midijuggler.device.types import DeviceConfig
+from midijuggler.osc_library import get_osc_library
 
 ROTARY_DISPLAY_LIBRARY = "rotary_display"
 
@@ -16,72 +17,68 @@ def rotary_display_device_ids(devices: dict[str, DeviceConfig]) -> list[str]:
     ]
 
 
+def _modifier_kind(value: str) -> ModifierKind:
+    try:
+        return ModifierKind(value)
+    except ValueError:
+        return ModifierKind.PASSTHROUGH
+
+
+def bundled_connections_for_device(
+    library_id: str,
+    device_id: str,
+    *,
+    include_feedback: bool = True,
+) -> list[ConnectionSpec]:
+    """Build bundled library connections for one device instance."""
+
+    library = get_osc_library(library_id)
+    connections: list[ConnectionSpec] = []
+    for bundled in library.bundled_connections:
+        if bundled.direction == "host_to_encoder" and not include_feedback:
+            continue
+        connection_id, source, target = bundled.resolve(device_id)
+        connections.append(
+            ConnectionSpec(
+                id=connection_id,
+                source=source,
+                target=target,
+                modifier=_modifier_kind(bundled.modifier),
+                managed_by=bundled.managed_by,
+            )
+        )
+    return connections
+
+
 def rotary_encoder_to_clock_connections(device_id: str) -> list[ConnectionSpec]:
     """Map encoder OSC commands on a rotary_display device to clock inputs."""
 
-    return [
-        ConnectionSpec(
-            id=f"{device_id}-bpm-to-clock",
-            source=f"{device_id}./midijuggler/clock/bpm",
-            target="clock.bpm_set",
-            modifier=ModifierKind.PASSTHROUGH,
-        ),
-        ConnectionSpec(
-            id=f"{device_id}-start-stop-to-clock",
-            source=f"{device_id}./midijuggler/clock/start_stop",
-            target="clock.start_stop",
-            modifier=ModifierKind.PASSTHROUGH,
-        ),
-        ConnectionSpec(
-            id=f"{device_id}-click-toggle-to-clock",
-            source=f"{device_id}./midijuggler/clock/click_toggle",
-            target="clock.click_toggle",
-            modifier=ModifierKind.PASSTHROUGH,
-        ),
-        ConnectionSpec(
-            id=f"{device_id}-tap-tempo-to-clock",
-            source=f"{device_id}./midijuggler/clock/tap_tempo",
-            target="clock.tap_tempo",
-            modifier=ModifierKind.PASSTHROUGH,
-        ),
-    ]
+    return bundled_connections_for_device(
+        ROTARY_DISPLAY_LIBRARY,
+        device_id,
+        include_feedback=False,
+    )
 
 
 def rotary_clock_feedback_connections(device_id: str) -> list[ConnectionSpec]:
     """Map master clock feedback to the rotary display OSC targets."""
 
-    return [
-        ConnectionSpec(
-            id=f"clock-bpm-to-{device_id}",
-            source="clock.bpm",
-            target=f"{device_id}./midijuggler/rotary/bpm",
-            modifier=ModifierKind.PASSTHROUGH,
-        ),
-        ConnectionSpec(
-            id=f"clock-running-to-{device_id}",
-            source="clock.running",
-            target=f"{device_id}./midijuggler/rotary/running",
-            modifier=ModifierKind.PASSTHROUGH,
-        ),
-        ConnectionSpec(
-            id=f"clock-click-enabled-to-{device_id}",
-            source="clock.click_enabled",
-            target=f"{device_id}./midijuggler/rotary/click_enabled",
-            modifier=ModifierKind.PASSTHROUGH,
-        ),
-        ConnectionSpec(
-            id=f"clock-click-interval-to-{device_id}",
-            source="clock.click_interval",
-            target=f"{device_id}./midijuggler/rotary/click_interval",
-            modifier=ModifierKind.PASSTHROUGH,
-        ),
-        ConnectionSpec(
-            id=f"clock-beat-to-{device_id}",
-            source="clock.beat",
-            target=f"{device_id}./midijuggler/rotary/beat",
-            modifier=ModifierKind.PASSTHROUGH,
-        ),
-    ]
+    library = get_osc_library(ROTARY_DISPLAY_LIBRARY)
+    connections: list[ConnectionSpec] = []
+    for bundled in library.bundled_connections:
+        if bundled.direction != "host_to_encoder":
+            continue
+        connection_id, source, target = bundled.resolve(device_id)
+        connections.append(
+            ConnectionSpec(
+                id=connection_id,
+                source=source,
+                target=target,
+                modifier=_modifier_kind(bundled.modifier),
+                managed_by=bundled.managed_by,
+            )
+        )
+    return connections
 
 
 def merge_rotary_display_connections(
@@ -95,9 +92,11 @@ def merge_rotary_display_connections(
     existing_pairs = {(connection.source, connection.target) for connection in connections}
     merged = list(connections)
     for device_id in rotary_display_device_ids(devices):
-        defaults = rotary_encoder_to_clock_connections(device_id)
-        if include_feedback:
-            defaults.extend(rotary_clock_feedback_connections(device_id))
+        defaults = bundled_connections_for_device(
+            ROTARY_DISPLAY_LIBRARY,
+            device_id,
+            include_feedback=include_feedback,
+        )
         for connection in defaults:
             key = (connection.source, connection.target)
             if key in existing_pairs:
