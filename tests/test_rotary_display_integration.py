@@ -253,3 +253,124 @@ def test_protocol_matches_documentation_example() -> None:
         RotarySyncState(bpm=120.0, running=True, click_enabled=False, click_interval="quarter")
     )
     assert line == "sync 120.0 1 0 quarter"
+
+
+def test_tap_tempo_ignored_within_cooldown_after_device_set_bpm(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    clock = {"now": 100.0}
+    monkeypatch.setattr(
+        "midijuggler.modules.interface.rotary_display.module.time.monotonic",
+        lambda: clock["now"],
+    )
+
+    config = parse_config(
+        {
+            "master_clock": {"enabled": True, "bpm": 120.0, "tap_tempo_min_taps": 3},
+            "rotary_display": {
+                "enabled": True,
+                "transport": "serial",
+                "serial_port": "/dev/ttyACM0",
+            },
+        }
+    )
+    store = DataPointStore()
+    bus = EventBus()
+    master_clock = MasterClock(config.master_clock, bus)
+    module = RotaryDisplayModule(store, config.rotary_display, master_clock, bus)
+    module._serial_connected = True
+
+    async def scenario() -> None:
+        await module._handle_serial_line("bpm 141.0\n")
+        clock["now"] = 100.231
+        await module._handle_serial_line("tap_tempo\n")
+
+    asyncio.run(scenario())
+
+    assert master_clock.bpm == pytest.approx(141.0)
+
+
+def test_tap_tempo_allowed_after_device_set_bpm_cooldown(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    clock = {"now": 100.0}
+    monkeypatch.setattr(
+        "midijuggler.modules.interface.rotary_display.module.time.monotonic",
+        lambda: clock["now"],
+    )
+
+    config = parse_config(
+        {
+            "master_clock": {"enabled": True, "bpm": 120.0, "tap_tempo_min_taps": 3},
+            "rotary_display": {
+                "enabled": True,
+                "transport": "serial",
+                "serial_port": "/dev/ttyACM0",
+            },
+        }
+    )
+    store = DataPointStore()
+    bus = EventBus()
+    master_clock = MasterClock(config.master_clock, bus)
+    module = RotaryDisplayModule(store, config.rotary_display, master_clock, bus)
+    module._serial_connected = True
+    handled: list[str] = []
+    original_handle = master_clock.handle_command
+
+    async def track_handle(event):
+        handled.append(event.command)
+        return await original_handle(event)
+
+    master_clock.handle_command = track_handle  # type: ignore[method-assign]
+
+    async def scenario() -> None:
+        await module._handle_serial_line("bpm 141.0\n")
+        clock["now"] = 100.231
+        await module._handle_serial_line("tap_tempo\n")
+        clock["now"] = 103.5
+        await module._handle_serial_line("tap_tempo\n")
+
+    asyncio.run(scenario())
+
+    assert handled == ["set_bpm", "tap_tempo"]
+
+
+def test_production_config_sends_beats_on_serial_without_feedback_host(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    serial_payloads: list[str] = []
+
+    config = parse_config(
+        {
+            "master_clock": {"enabled": True, "bpm": 120.0},
+            "rotary_display": {
+                "enabled": True,
+                "transport": "both",
+                "feedback_host": "",
+                "feedback_port": 9001,
+                "serial_port": "/dev/ttyACM0",
+            },
+        }
+    )
+    store = DataPointStore()
+    bus = EventBus()
+    master_clock = MasterClock(config.master_clock, bus)
+    module = RotaryDisplayModule(store, config.rotary_display, master_clock, bus)
+    module.running = True
+    module._serial_connected = True
+
+    class FakeSerial:
+        def write(self, data: bytes) -> int:
+            serial_payloads.append(data.decode())
+            return len(data)
+
+    module._serial_port = FakeSerial()
+
+    async def scenario() -> None:
+        module._schedule_beat_send(1.0)
+        if module._beat_send_task is not None:
+            await module._beat_send_task
+
+    asyncio.run(scenario())
+
+    assert serial_payloads == ["beat 1.0\n"]

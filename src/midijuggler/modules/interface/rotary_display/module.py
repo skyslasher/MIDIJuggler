@@ -58,6 +58,7 @@ from midijuggler.rotary_mdns import (
 LOGGER = logging.getLogger(__name__)
 
 BEAT_SEND_GAP_RATIO = 0.4
+DEVICE_SET_BPM_TAP_TEMPO_COOLDOWN_S = 3.0
 
 
 class RotaryDisplayModule(InterfaceModule):
@@ -90,6 +91,7 @@ class RotaryDisplayModule(InterfaceModule):
         self._beats_received_during_send = 0
         self._beat_send_in_flight = False
         self._last_beat_serial_sent_at: float | None = None
+        self._last_device_set_bpm_at: float | None = None
         self._last_pushed_fingerprint: str | None = None
         self._serial_lock = asyncio.Lock()
         self._use_osc = config.transport in {"osc", "both"}
@@ -630,6 +632,19 @@ class RotaryDisplayModule(InterfaceModule):
         event = serial_command_to_clock_event(command, args)
         if event is None:
             LOGGER.debug("ignored rotary serial line: %s", line.strip())
+            return
+        if event.command == "set_bpm":
+            self._last_device_set_bpm_at = time.monotonic()
+        elif (
+            event.command == "tap_tempo"
+            and self._last_device_set_bpm_at is not None
+            and time.monotonic() - self._last_device_set_bpm_at
+            < DEVICE_SET_BPM_TAP_TEMPO_COOLDOWN_S
+        ):
+            LOGGER.debug(
+                "ignored rotary tap_tempo within %.1fs of device set_bpm",
+                DEVICE_SET_BPM_TAP_TEMPO_COOLDOWN_S,
+            )
             return
         LOGGER.info("rotary display serial command: %s", line.strip())
         if self.master_clock._datapoint_sink is not None:
