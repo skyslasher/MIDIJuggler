@@ -21,6 +21,31 @@ def test_encode_decode_mixed_arguments_roundtrip() -> None:
     assert arguments == (1, pytest.approx(2.5), "hello", True, False)
 
 
+def test_decode_rotary_hello_si_message() -> None:
+    payload = encode_message(
+        "/midijuggler/rotary/hello",
+        ["rotary-267248.local", 9001],
+    )
+    address, arguments = decode_messages(payload)[0]
+
+    assert address == "/midijuggler/rotary/hello"
+    assert arguments == ("rotary-267248.local", 9001)
+
+
+def test_decode_rotary_hello_si_rejects_truncated_port() -> None:
+    """Firmware once sent two bytes short after the hostname (uint16 offset bug)."""
+
+    payload = encode_message(
+        "/midijuggler/rotary/hello",
+        ["rotary-267248.local", 9001],
+    )
+    truncated = payload[:-2]
+    address, arguments = decode_messages(truncated)[0]
+
+    assert address == "/midijuggler/rotary/hello"
+    assert arguments == ("rotary-267248.local",)
+
+
 def test_decode_bundle_extracts_nested_messages() -> None:
     first = encode_message("/one", [1.0])
     second = encode_message("/two", [2.0])

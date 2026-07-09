@@ -55,6 +55,49 @@ def test_control_bridge_maps_clock_parameters_without_device() -> None:
     assert values["clock.quarter_ms"] == pytest.approx(500.0)
 
 
+def test_osc_bridge_skips_unbound_adapter_without_crash() -> None:
+    import asyncio
+
+    from midijuggler.config import parse_config
+    from midijuggler.datapoint.bridge import EventToDataPointBridge
+    from midijuggler.datapoint.store import DataPointStore
+    from midijuggler.eventbus import EventBus
+    from midijuggler.events import OscMessageEvent
+
+    config = parse_config(
+        {
+            "adapters": {
+                "osc": {"enabled": True, "type": "osc", "host": "127.0.0.1", "port": 9000},
+            },
+        }
+    )
+    store = DataPointStore()
+    # Pi rotary setups often use the osc adapter without a bound device entry.
+    registry = DeviceRegistry({}, config.adapters)
+    bridge = EventToDataPointBridge(store, EventBus(), registry)
+
+    async def scenario() -> None:
+        await bridge._on_osc_message(
+            OscMessageEvent(
+                source="osc",
+                address="/midijuggler/rotary/hello",
+                arguments=("rotary-267248.local", 9001),
+                direction="input",
+            )
+        )
+        await bridge._on_osc_message(
+            OscMessageEvent(
+                source="osc",
+                address="/midijuggler/clock/bpm",
+                arguments=(128.0,),
+                direction="input",
+            )
+        )
+
+    asyncio.run(scenario())
+    assert store.history() == []
+
+
 def test_osc_bridge_maps_wing_feedback_to_canonical_datapoint() -> None:
     import asyncio
 

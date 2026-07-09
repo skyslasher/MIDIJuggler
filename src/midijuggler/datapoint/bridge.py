@@ -140,7 +140,12 @@ class EventToDataPointBridge:
         if event.direction != "input" or event.echo_suppressed:
             return
         address = event.canonical_address or event.address
-        module = self._module_for_adapter(event.source)
+        try:
+            module = self._module_for_adapter(event.source)
+        except ValueError:
+            # Rotary hello, master-clock OSC, and other module-handled traffic
+            # may arrive on adapters that are not bound to a device.
+            return
         point_id = self._resolve_osc_point_id(module, address)
         value = DataPointValue(
             point_id=point_id,
