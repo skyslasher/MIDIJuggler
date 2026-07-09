@@ -524,5 +524,17 @@ class RotaryDisplayModule(InterfaceModule):
 
 
 def _udp_send(payload: bytes, host: str, port: int) -> None:
+    target = host.strip()
     with socket.socket(socket.AF_INET, socket.SOCK_DGRAM) as sock:
-        sock.sendto(payload, (host, port))
+        try:
+            sock.sendto(payload, (target, port))
+        except OSError:
+            addresses = socket.getaddrinfo(
+                target,
+                port,
+                family=socket.AF_INET,
+                type=socket.SOCK_DGRAM,
+            )
+            if not addresses:
+                raise
+            sock.sendto(payload, addresses[0][4])

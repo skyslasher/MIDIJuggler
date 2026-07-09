@@ -52,8 +52,21 @@ serial_baud = 115200
 ```
 
 When `feedback_host` is empty, the device registers itself at boot via
-`/midijuggler/rotary/hello` (OSC) or the `hello` serial line (USB). The device
-also repeats `hello` every few seconds so MIDIJuggler can connect after boot.
+`/midijuggler/rotary/hello` (OSC) or the `hello` serial line (USB). The hello
+message advertises the encoder's unique mDNS name (for example
+`rotary-stage-left.local`) so the host can send feedback without a fixed IP.
+The device also repeats `hello` every few seconds so MIDIJuggler can connect
+after boot.
+
+Set a unique name per encoder in `[rotary_display.device]`:
+
+```toml
+[rotary_display.device]
+mdns_hostname = "rotary-stage-left"
+```
+
+Leave `mdns_hostname` empty to auto-generate from the WiFi MAC
+(`rotary-a1b2c3.local`).
 
 ## Device → MIDIJuggler commands
 

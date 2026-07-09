@@ -67,7 +67,7 @@ def test_rotary_display_registers_feedback_from_hello(monkeypatch: pytest.Monkey
             OscMessageEvent(
                 source="osc",
                 address="/midijuggler/rotary/hello",
-                arguments=("192.168.1.50", 9001),
+                arguments=("rotary-stage-left.local", 9001),
                 direction="input",
             )
         )
@@ -80,7 +80,7 @@ def test_rotary_display_registers_feedback_from_hello(monkeypatch: pytest.Monkey
     assert sent
     address, _args = decode_messages(sent[0][0])[0]
     assert address == "/midijuggler/rotary/sync"
-    assert sent[0][1:] == ("192.168.1.50", 9001)
+    assert sent[0][1:] == ("rotary-stage-left.local", 9001)
 
 
 def test_rotary_display_hello_registers_feedback_handler() -> None:

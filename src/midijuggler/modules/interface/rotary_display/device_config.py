@@ -32,6 +32,10 @@ def build_device_config_commands(device: RotaryDisplayDeviceConfig) -> list[str]
             f"listen_port {device.listen_port}",
         ]
     )
+    if device.mdns_hostname:
+        commands.append(f"mdns_hostname {device.mdns_hostname}")
+    else:
+        commands.append("mdns_hostname clear")
     return commands
 
 

@@ -41,6 +41,7 @@ const rotaryWifiEnabled = document.querySelector("#rotary-wifi-enabled");
 const rotaryWifiSsid = document.querySelector("#rotary-wifi-ssid");
 const rotaryWifiPass = document.querySelector("#rotary-wifi-pass");
 const rotaryDeviceHost = document.querySelector("#rotary-device-host");
+const rotaryDeviceMdnsHostname = document.querySelector("#rotary-device-mdns-hostname");
 const rotaryDevicePort = document.querySelector("#rotary-device-port");
 const rotaryDeviceListenPort = document.querySelector("#rotary-device-listen-port");
 const rotaryPulseEnabled = document.querySelector("#rotary-pulse-enabled");
@@ -8104,6 +8105,9 @@ function renderRotaryDisplayConfig(config) {
   if (rotaryDeviceHost) {
     rotaryDeviceHost.value = device.host || "midijuggler.local";
   }
+  if (rotaryDeviceMdnsHostname) {
+    rotaryDeviceMdnsHostname.value = device.mdns_hostname || "";
+  }
   if (rotaryDevicePort) {
     rotaryDevicePort.value = device.port ?? 9000;
   }
@@ -8148,6 +8152,7 @@ function rotaryDisplayFormPayload() {
       wifi_ssid: rotaryWifiSsid?.value.trim() || "",
       wifi_pass: rotaryWifiPass?.value || "",
       host: rotaryDeviceHost?.value.trim() || "midijuggler.local",
+      mdns_hostname: rotaryDeviceMdnsHostname?.value.trim() || "",
       port: Number(rotaryDevicePort?.value || 9000),
       listen_port: Number(rotaryDeviceListenPort?.value || 9001),
       pulse_enabled: Boolean(rotaryPulseEnabled?.checked),

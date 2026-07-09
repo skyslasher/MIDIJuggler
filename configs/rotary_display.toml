@@ -45,6 +45,7 @@ wifi_enabled = true
 wifi_ssid = ""
 wifi_pass = ""
 host = "midijuggler.local"
+mdns_hostname = "rotary-stage"
 port = 9000
 listen_port = 9001
 pulse_enabled = true

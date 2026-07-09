@@ -6,6 +6,18 @@ from dataclasses import dataclass
 
 from midijuggler.clock import CLICK_INTERVALS
 from midijuggler.events import MasterClockCommandEvent
+from midijuggler.rotary_mdns import format_mdns_hostname, normalize_mdns_hostname
+
+__all__ = [
+    "RotarySyncState",
+    "format_beat_line",
+    "format_mdns_hostname",
+    "format_sync_line",
+    "normalize_mdns_hostname",
+    "parse_hello_osc",
+    "parse_serial_line",
+    "serial_command_to_clock_event",
+]
 
 
 @dataclass(frozen=True)

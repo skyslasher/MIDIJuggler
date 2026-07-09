@@ -88,6 +88,7 @@ class RotaryDisplayDeviceConfig:
     host: str = "midijuggler.local"
     port: int = 9000
     listen_port: int = 9001
+    mdns_hostname: str = ""
     pulse_enabled: bool = True
     bpm_step: float = 1.0
 
@@ -1041,6 +1042,10 @@ def _parse_rotary_display_device(raw: Any) -> RotaryDisplayDeviceConfig:
     if not host:
         raise ValueError("rotary_display.device.host must not be empty")
 
+    from midijuggler.rotary_mdns import normalize_mdns_hostname
+
+    mdns_hostname = normalize_mdns_hostname(str(raw.get("mdns_hostname", "")))
+
     return RotaryDisplayDeviceConfig(
         transport=transport,
         wifi_enabled=bool(raw.get("wifi_enabled", True)),
@@ -1049,6 +1054,7 @@ def _parse_rotary_display_device(raw: Any) -> RotaryDisplayDeviceConfig:
         host=host,
         port=port,
         listen_port=listen_port,
+        mdns_hostname=mdns_hostname,
         pulse_enabled=bool(raw.get("pulse_enabled", True)),
         bpm_step=bpm_step,
     )
@@ -1179,6 +1185,7 @@ def _format_rotary_display_device_section(device: RotaryDisplayDeviceConfig) -> 
         f"wifi_ssid = {_toml_string(device.wifi_ssid)}\n"
         f"wifi_pass = {_toml_string(device.wifi_pass)}\n"
         f"host = {_toml_string(device.host)}\n"
+        f"mdns_hostname = {_toml_string(device.mdns_hostname)}\n"
         f"port = {device.port}\n"
         f"listen_port = {device.listen_port}\n"
         f"pulse_enabled = {_toml_bool(device.pulse_enabled)}\n"

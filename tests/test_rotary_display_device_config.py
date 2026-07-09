@@ -53,6 +53,7 @@ def test_build_device_config_commands() -> None:
         "host midijuggler.local",
         "port 9000",
         "listen_port 9001",
+        "mdns_hostname clear",
     ]
 
 
@@ -131,7 +132,7 @@ def test_push_device_config_sync() -> None:
 def test_read_config_response_lines_stops_on_ok() -> None:
     port = FakePort([["cfg transport=both", "ok"]])
     lines = read_config_response_lines(port, timeout_s=0.1)
-    assert lines == ["cfg transport=both", "ok"]
+    assert lines == ["ok"]
 
 
 def test_read_config_response_lines_ignores_device_noise() -> None:

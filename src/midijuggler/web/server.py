@@ -3730,6 +3730,7 @@ class WebInterface:
                 "wifi_ssid": device.wifi_ssid,
                 "wifi_pass": device.wifi_pass,
                 "host": device.host,
+                "mdns_hostname": device.mdns_hostname,
                 "port": device.port,
                 "listen_port": device.listen_port,
                 "pulse_enabled": device.pulse_enabled,
@@ -3811,6 +3812,12 @@ class WebInterface:
                 if not host:
                     raise ValueError("device.host must not be empty")
                 raw_device["host"] = host
+            if "mdns_hostname" in device_payload:
+                from midijuggler.rotary_mdns import normalize_mdns_hostname
+
+                raw_device["mdns_hostname"] = normalize_mdns_hostname(
+                    str(device_payload["mdns_hostname"])
+                )
             if "port" in device_payload:
                 port = int(device_payload["port"])
                 if port <= 0 or port > 65535:
