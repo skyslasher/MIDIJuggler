@@ -18,10 +18,16 @@ from midijuggler.datapoint.types import (
     DataPointSpec,
     DataPointValue,
     ValueType,
+    float_value,
+    trigger_value,
 )
 from midijuggler.eventbus import EventBus
 from midijuggler.events import MasterClockCommandEvent, OscMessageEvent
-from midijuggler.master_clock import MasterClock, click_interval_from_set_value
+from midijuggler.master_clock import (
+    MasterClock,
+    click_interval_from_set_value,
+    click_interval_to_set_value,
+)
 from midijuggler.modules.base import InterfaceModule
 from midijuggler.modules.interface.rotary_display.device_config import (
     build_device_config_commands,
@@ -73,6 +79,7 @@ class RotaryDisplayModule(InterfaceModule):
         self._serial_task: asyncio.Task[None] | None = None
         self._last_sync: RotarySyncState | None = None
         self._last_beat: float | None = None
+        self._beat_pulse_active = False
         self._last_pushed_fingerprint: str | None = None
         self._serial_lock = asyncio.Lock()
         self._use_osc = config.transport in {"osc", "both"}
@@ -223,10 +230,14 @@ class RotaryDisplayModule(InterfaceModule):
             if value.float_value is None:
                 return
             beat = float(value.float_value)
-            if self._last_beat is not None and abs(self._last_beat - beat) <= 1e-6:
-                return
-            self._last_beat = beat
-            await self._send_beat(beat)
+            active = beat > 0.5
+            if active and not self._beat_pulse_active:
+                self._beat_pulse_active = True
+                self._last_beat = beat
+                await self._send_beat(beat)
+            elif not active:
+                self._beat_pulse_active = False
+                self._last_beat = beat
             return
         await self._send_sync(force=True)
 
@@ -559,10 +570,48 @@ class RotaryDisplayModule(InterfaceModule):
             LOGGER.debug("ignored rotary serial line: %s", line.strip())
             return
         LOGGER.info("rotary display serial command: %s", line.strip())
-        await self.master_clock.handle_command(event)
+        if self.master_clock._datapoint_sink is not None:
+            await self._route_clock_command_to_store(event)
+        else:
+            await self.master_clock.handle_command(event)
         if event.command in {"set_bpm", "tap_tempo"}:
             await self.master_clock.flush_bpm_notifications()
         await self._send_sync(force=True)
+
+    async def _route_clock_command_to_store(
+        self,
+        event: MasterClockCommandEvent,
+    ) -> None:
+        if event.command == "set_bpm":
+            await self.store.write(
+                float_value(
+                    DataPointId("clock", "bpm_set"),
+                    float(event.value),
+                    force_notify=True,
+                )
+            )
+            return
+        if event.command == "set_click_interval":
+            await self.store.write(
+                float_value(
+                    DataPointId("clock", "click_interval_set"),
+                    click_interval_to_set_value(str(event.value)),
+                    force_notify=True,
+                )
+            )
+            return
+        trigger_points = {
+            "start_stop": "start_stop",
+            "tap_tempo": "tap_tempo",
+            "toggle_click": "click_toggle",
+        }
+        point = trigger_points.get(event.command)
+        if point is not None:
+            point_id = DataPointId("clock", point)
+            await self.store.write(trigger_value(point_id, True))
+            await self.store.write(trigger_value(point_id, False))
+            return
+        await self.master_clock.handle_command(event)
 
 
 def _udp_send(

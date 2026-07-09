@@ -507,8 +507,8 @@ class MasterClockGenerator(GeneratorModule):
     async def publish_beat(self) -> None:
         await self._cancel_beat_off()
         point = DataPointId(CLOCK_MODULE, "beat")
-        await self.store.write(float_value(point, 0.0))
-        await self.store.write(float_value(point, 1.0))
+        await self.store.write(float_value(point, 0.0, force_notify=True))
+        await self.store.write(float_value(point, 1.0, force_notify=True))
         flash_seconds = self._effective_beat_flash_seconds()
         self._beat_off_task = asyncio.create_task(
             self._clear_beat_flash(flash_seconds),

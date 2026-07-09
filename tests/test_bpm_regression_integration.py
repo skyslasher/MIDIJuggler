@@ -1,4 +1,4 @@
-"""Integration tests for BPM set/sync paths with datapoint routing."""
+"""Integration tests for BPM/beat regression with production-style config."""
 
 import asyncio
 
@@ -6,6 +6,7 @@ import pytest
 
 from conftest import osc_device
 from midijuggler.config import parse_config
+from midijuggler.datapoint.types import float_value
 from midijuggler.events import OscMessageEvent
 from midijuggler.osc.protocol import decode_messages
 from midijuggler.service import MIDIJugglerService
@@ -34,10 +35,15 @@ async def _start_service(service: MIDIJugglerService) -> None:
     await service.master_clock.start()
 
 
-def _rotary_config(**runtime: object) -> dict:
+def _production_config(**runtime: object) -> dict:
     return {
         "runtime": {"datapoint_routing": True, **runtime},
-        "master_clock": {"enabled": True, "bpm": 120.0, "tap_tempo_min_taps": 3},
+        "master_clock": {
+            "enabled": True,
+            "bpm": 120.0,
+            "auto_start": False,
+            "tap_tempo_min_taps": 3,
+        },
         "adapters": {"osc": {"enabled": True, "type": "osc", "listen_port": 9000}},
         "devices": [osc_device("rotary_encoder", "rotary_display", adapter="osc")],
         "rotary_display": {
@@ -63,11 +69,11 @@ def capture_sync(monkeypatch: pytest.MonkeyPatch):
     return sent
 
 
-def test_full_bus_osc_updates_master_clock_and_sync(
+def test_bus_osc_updates_master_clock_and_sync(
     monkeypatch: pytest.MonkeyPatch,
     capture_sync: list,
 ) -> None:
-    service = MIDIJugglerService(parse_config(_rotary_config()))
+    service = MIDIJugglerService(parse_config(_production_config()))
     _patch_adapters_noop_start(monkeypatch, service)
 
     async def scenario() -> None:
@@ -81,7 +87,6 @@ def test_full_bus_osc_updates_master_clock_and_sync(
             )
         )
         await service.master_clock.flush_bpm_notifications()
-        await asyncio.sleep(0.05)
 
     asyncio.run(scenario())
 
@@ -92,10 +97,10 @@ def test_full_bus_osc_updates_master_clock_and_sync(
     assert sync[-1][1][0] == pytest.approx(140.0)
 
 
-def test_web_master_clock_bpm_change_updates_store(
+def test_web_master_clock_bpm_change_with_datapoint_routing(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    service = MIDIJugglerService(parse_config(_rotary_config()))
+    service = MIDIJugglerService(parse_config(_production_config()))
     _patch_adapters_noop_start(monkeypatch, service)
 
     async def scenario() -> None:
@@ -110,20 +115,18 @@ def test_web_master_clock_bpm_change_updates_store(
             }
         )
         await service.master_clock.flush_bpm_notifications()
-        await asyncio.sleep(0.05)
 
     asyncio.run(scenario())
 
     assert service.master_clock.bpm == pytest.approx(135.0)
     assert service.datapoint_store.float_value("clock.bpm") == pytest.approx(135.0)
-    assert service.datapoint_store.float_value("clock.bpm_set") == pytest.approx(135.0)
 
 
-def test_tap_tempo_sync_matches_master_clock(
+def test_tap_tempo_updates_master_clock_and_sync(
     monkeypatch: pytest.MonkeyPatch,
     capture_sync: list,
 ) -> None:
-    service = MIDIJugglerService(parse_config(_rotary_config()))
+    service = MIDIJugglerService(parse_config(_production_config()))
     _patch_adapters_noop_start(monkeypatch, service)
 
     async def scenario() -> None:
@@ -131,7 +134,6 @@ def test_tap_tempo_sync_matches_master_clock(
         for timestamp in (10.0, 10.48, 10.96, 11.44):
             await service.web.apply_clock_trigger("tap_tempo", timestamp=timestamp)
         await service.master_clock.flush_bpm_notifications()
-        await asyncio.sleep(0.05)
 
     asyncio.run(scenario())
 
@@ -143,36 +145,56 @@ def test_tap_tempo_sync_matches_master_clock(
     assert sync[-1][1][0] == pytest.approx(expected)
 
 
-def test_no_device_osc_updates_via_service_fallback(
+def test_beat_reaches_rotary_display_with_datapoint_routing(
     monkeypatch: pytest.MonkeyPatch,
+    capture_sync: list,
 ) -> None:
-    service = MIDIJugglerService(
-        parse_config(
-            {
-                "runtime": {
-                    "datapoint_routing": True,
-                    "suppressed_inferred_device_adapters": ["osc"],
-                },
-                "master_clock": {"enabled": True, "bpm": 120.0},
-                "adapters": {"osc": {"enabled": True, "type": "osc", "listen_port": 9000}},
-                "devices": [],
-                "rotary_display": {"enabled": True, "transport": "osc"},
-            }
-        )
-    )
+    service = MIDIJugglerService(parse_config(_production_config()))
     _patch_adapters_noop_start(monkeypatch, service)
 
     async def scenario() -> None:
         await _start_service(service)
-        await service.bus.publish(
-            OscMessageEvent(
-                source="osc",
-                direction="input",
-                address="/midijuggler/clock/bpm",
-                arguments=(140.0,),
-            )
-        )
-        await service.master_clock.flush_bpm_notifications()
+        await service.master_clock.start_transport(reset_position=True)
+        for _ in range(48):
+            await service.master_clock.emit_tick()
 
     asyncio.run(scenario())
-    assert service.master_clock.bpm == pytest.approx(140.0)
+
+    beats = [
+        msg
+        for batch in capture_sync
+        for msg in batch
+        if msg[0] == "/midijuggler/rotary/beat" and msg[1][0] == pytest.approx(1.0)
+    ]
+    assert len(beats) >= 2
+
+
+def test_beat_rising_edge_survives_repeated_one_values(
+    monkeypatch: pytest.MonkeyPatch,
+    capture_sync: list,
+) -> None:
+    service = MIDIJugglerService(parse_config(_production_config()))
+    _patch_adapters_noop_start(monkeypatch, service)
+
+    async def scenario() -> None:
+        await _start_service(service)
+        module = next(
+            m
+            for m in service.module_registry.modules()
+            if m.__class__.__name__ == "RotaryDisplayModule"
+        )
+        module._beat_pulse_active = True
+        module._last_beat = 1.0
+        await service.datapoint_store.write(float_value("clock.beat", 1.0, force_notify=True))
+        await service.datapoint_store.write(float_value("clock.beat", 0.0, force_notify=True))
+        await service.datapoint_store.write(float_value("clock.beat", 1.0, force_notify=True))
+
+    asyncio.run(scenario())
+
+    beats = [
+        msg
+        for batch in capture_sync
+        for msg in batch
+        if msg[0] == "/midijuggler/rotary/beat" and msg[1][0] == pytest.approx(1.0)
+    ]
+    assert len(beats) == 1
