@@ -249,12 +249,25 @@ class RotaryDisplayModule(InterfaceModule):
         self._beat_pulse_active = True
         self._last_beat = 1.0
         if self._use_osc and self._feedback_host and self._feedback_port > 0:
-            loop = self.master_clock._asyncio_loop
-            if loop is not None and not loop.is_closed():
-                loop.call_soon_threadsafe(self._schedule_osc_beat_pulse)
+            self._dispatch_osc_beat_pulse()
             return
         if self._use_serial and self._serial_connected and self._serial_port is not None:
             self._write_beat_serial_sync(1.0)
+
+    def _dispatch_osc_beat_pulse(self) -> None:
+        try:
+            loop = asyncio.get_running_loop()
+        except RuntimeError:
+            loop = self.master_clock._asyncio_loop
+        if loop is None or loop.is_closed():
+            return
+        try:
+            if asyncio.get_running_loop() is loop:
+                self._schedule_osc_beat_pulse()
+                return
+        except RuntimeError:
+            pass
+        loop.call_soon_threadsafe(self._schedule_osc_beat_pulse)
 
     def _schedule_osc_beat_pulse(self) -> None:
         asyncio.create_task(
