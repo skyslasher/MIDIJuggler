@@ -20,13 +20,14 @@ from midijuggler.osc.protocol import decode_messages
 
 
 def test_serial_and_osc_feedback_both_enabled(monkeypatch: pytest.MonkeyPatch) -> None:
-    sent: list[tuple[bytes, str, int]] = []
+    sync_states: list[RotarySyncState] = []
     serial_payloads: list[str] = []
 
-    monkeypatch.setattr(
-        "midijuggler.modules.interface.rotary_display.module._udp_send",
-        lambda payload, host, port, **kwargs: sent.append((payload, host, port)),
-    )
+    def track_sync(self, state: RotarySyncState) -> bool:
+        sync_states.append(state)
+        return True
+
+    monkeypatch.setattr(RotaryDisplayModule, "_write_sync_osc_sync", track_sync)
 
     config = parse_config(
         {
@@ -36,7 +37,7 @@ def test_serial_and_osc_feedback_both_enabled(monkeypatch: pytest.MonkeyPatch) -
                 "transport": "both",
                 "feedback_host": "192.168.1.50",
                 "feedback_port": 9001,
-                "serial_port": "",
+                "serial_port": "/dev/ttyACM0",
             },
         }
     )
@@ -63,10 +64,8 @@ def test_serial_and_osc_feedback_both_enabled(monkeypatch: pytest.MonkeyPatch) -
 
     asyncio.run(scenario())
 
-    assert sent
-    address, args = decode_messages(sent[0][0])[0]
-    assert address == "/midijuggler/rotary/sync"
-    assert args[0] == pytest.approx(120.0)
+    assert sync_states
+    assert sync_states[0].bpm == pytest.approx(120.0)
     assert serial_payloads
     assert serial_payloads[0].startswith("sync ")
 
@@ -74,13 +73,14 @@ def test_serial_and_osc_feedback_both_enabled(monkeypatch: pytest.MonkeyPatch) -
 def test_beat_uses_osc_only_when_both_transports_configured(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    sent: list[tuple[bytes, str, int]] = []
+    beat_calls: list[float] = []
     serial_payloads: list[str] = []
 
-    monkeypatch.setattr(
-        "midijuggler.modules.interface.rotary_display.module._udp_send",
-        lambda payload, host, port, **kwargs: sent.append((payload, host, port)),
-    )
+    def track_beat_osc(self, value: float) -> bool:
+        beat_calls.append(value)
+        return True
+
+    monkeypatch.setattr(RotaryDisplayModule, "_write_beat_osc_sync", track_beat_osc)
 
     config = parse_config(
         {
@@ -113,10 +113,7 @@ def test_beat_uses_osc_only_when_both_transports_configured(
 
     asyncio.run(scenario())
 
-    assert len(sent) == 1
-    address, args = decode_messages(sent[0][0])[0]
-    assert address == "/midijuggler/rotary/beat"
-    assert args[0] == pytest.approx(1.0)
+    assert beat_calls == [1.0]
     assert not serial_payloads
 
 
@@ -762,12 +759,13 @@ def test_tap_tempo_not_blocked_after_device_start_stop(
 def test_sync_uses_master_clock_running_when_feedback_store_is_stale(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    sent: list[tuple[bytes, str, int]] = []
+    sync_running: list[bool] = []
 
-    monkeypatch.setattr(
-        "midijuggler.modules.interface.rotary_display.module._udp_send",
-        lambda payload, host, port, **kwargs: sent.append((payload, host, port)),
-    )
+    def track_sync(self, state: RotarySyncState) -> bool:
+        sync_running.append(state.running)
+        return True
+
+    monkeypatch.setattr(RotaryDisplayModule, "_write_sync_osc_sync", track_sync)
 
     config = parse_config(
         {
@@ -799,32 +797,25 @@ def test_sync_uses_master_clock_running_when_feedback_store_is_stale(
 
     asyncio.run(scenario())
 
-    sync_messages = [
-        decode_messages(payload)[0]
-        for payload, _, _ in sent
-        if decode_messages(payload)[0][0] == "/midijuggler/rotary/sync"
-    ]
-    assert sync_messages
-    assert sync_messages[-1][1][1] == 1
+    assert sync_running
+    assert sync_running[-1] is True
 
 
 def test_running_sync_sent_before_first_beat_from_transport_thread(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    sent: list[tuple[bytes, str, int]] = []
+    sync_running: list[bool] = []
     beat_values: list[float] = []
 
-    def fake_udp(payload: bytes, host: str, port: int, **kwargs: object) -> None:
-        sent.append((payload, host, port))
+    def track_sync(self, state: RotarySyncState) -> bool:
+        sync_running.append(state.running)
+        return True
 
     def track_beat_osc(self, value: float) -> bool:
         beat_values.append(value)
         return True
 
-    monkeypatch.setattr(
-        "midijuggler.modules.interface.rotary_display.module._udp_send_timing_critical",
-        fake_udp,
-    )
+    monkeypatch.setattr(RotaryDisplayModule, "_write_sync_osc_sync", track_sync)
     monkeypatch.setattr(RotaryDisplayModule, "_write_beat_osc_sync", track_beat_osc)
 
     config = parse_config(
@@ -854,10 +845,7 @@ def test_running_sync_sent_before_first_beat_from_transport_thread(
 
     module._on_transport_beat_pulse()
 
-    assert len(sent) == 1
-    sync_address, sync_args = decode_messages(sent[0][0])[0]
-    assert sync_address == "/midijuggler/rotary/sync"
-    assert sync_args[1] == 1
+    assert sync_running == [True]
     assert beat_values == [1.0]
 
 
@@ -1050,3 +1038,99 @@ def test_transport_beat_listener_sends_osc_sync_on_click_tick_at_170_bpm(
         expected = 60.0 / 170.0
         for interval in intervals:
             assert interval == pytest.approx(expected, rel=0.15)
+
+
+def test_osc_transport_falls_back_to_serial_sync_after_start_stop(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    serial_payloads: list[str] = []
+
+    monkeypatch.setattr(
+        RotaryDisplayModule,
+        "_write_sync_osc_sync",
+        lambda self, state: False,
+    )
+
+    config = parse_config(
+        {
+            "master_clock": {"enabled": True, "bpm": 120.0},
+            "rotary_display": {
+                "enabled": True,
+                "transport": "osc",
+                "feedback_host": "rotary-stage.local",
+                "feedback_port": 9001,
+                "serial_port": "/dev/ttyACM0",
+            },
+        }
+    )
+    store = DataPointStore()
+    bus = EventBus()
+    master_clock = MasterClock(config.master_clock, bus)
+    generator = MasterClockGenerator(master_clock, store)
+    store.register_many(generator.datapoints())
+    module = RotaryDisplayModule(store, config.rotary_display, master_clock, bus)
+    module._serial_connected = True
+    master_clock.bind_datapoint_sink(generator)
+
+    class FakeSerial:
+        def write(self, data: bytes) -> int:
+            serial_payloads.append(data.decode())
+            return len(data)
+
+    module._serial_port = FakeSerial()
+
+    async def scenario() -> None:
+        await generator.start()
+        await module._handle_serial_line("start_stop\n")
+        await generator.stop()
+
+    asyncio.run(scenario())
+
+    assert master_clock.running is True
+    assert serial_payloads
+    assert "sync 120.0 1" in serial_payloads[-1]
+
+
+def test_osc_beats_fall_back_to_serial_when_udp_target_unresolved(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    serial_payloads: list[str] = []
+
+    monkeypatch.setattr(
+        RotaryDisplayModule,
+        "_write_beat_osc_sync",
+        lambda self, value: False,
+    )
+
+    config = parse_config(
+        {
+            "master_clock": {"enabled": True, "bpm": 120.0},
+            "rotary_display": {
+                "enabled": True,
+                "transport": "osc",
+                "feedback_host": "rotary-stage.local",
+                "feedback_port": 9001,
+                "serial_port": "/dev/ttyACM0",
+            },
+        }
+    )
+    store = DataPointStore()
+    bus = EventBus()
+    master_clock = MasterClock(config.master_clock, bus)
+    module = RotaryDisplayModule(store, config.rotary_display, master_clock, bus)
+    module._serial_connected = True
+    module.running = True
+
+    class FakeSerial:
+        def write(self, data: bytes) -> int:
+            serial_payloads.append(data.decode())
+            return len(data)
+
+    module._serial_port = FakeSerial()
+
+    async def scenario() -> None:
+        await module._send_beat(1.0)
+
+    asyncio.run(scenario())
+
+    assert serial_payloads == ["beat 1.0\n"]

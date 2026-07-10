@@ -82,6 +82,9 @@ def test_resolve_udp_host_mdns_failure_raises_oserror(
 def test_resolve_mdns_ipv4_uses_cache(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
+    import sys
+    import types
+
     invalidate_mdns_cache("rotary-cache.local")
     request_calls: list[str] = []
 
@@ -101,10 +104,8 @@ def test_resolve_mdns_ipv4_uses_cache(
         def parsed_addresses(self) -> list[str]:
             return ["192.168.1.10"]
 
-    monkeypatch.setattr(
-        "zeroconf.AddressResolverIPv4",
-        FakeResolver,
-    )
+    fake_zeroconf = types.SimpleNamespace(AddressResolverIPv4=FakeResolver)
+    monkeypatch.setitem(sys.modules, "zeroconf", fake_zeroconf)
     monkeypatch.setattr(
         "midijuggler.rotary_mdns._get_zeroconf",
         lambda: object(),
@@ -189,8 +190,20 @@ def test_udp_send_re_resolves_local_host_on_failure(
     ]
 
 
+def test_resolve_mdns_ipv4_without_zeroconf_uses_avahi(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr("midijuggler.rotary_mdns.zeroconf_available", lambda: False)
+    monkeypatch.setattr(
+        "midijuggler.rotary_mdns._resolve_mdns_via_avahi",
+        lambda host: "192.168.1.88" if host == "rotary-stage.local" else None,
+    )
+    assert resolve_mdns_ipv4("rotary-stage.local") == "192.168.1.88"
+
+
 def test_resolve_mdns_ipv4_without_zeroconf_returns_none(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     monkeypatch.setattr("midijuggler.rotary_mdns.zeroconf_available", lambda: False)
+    monkeypatch.setattr("midijuggler.rotary_mdns._resolve_mdns_via_avahi", lambda host: None)
     assert resolve_mdns_ipv4("rotary-267248.local") is None

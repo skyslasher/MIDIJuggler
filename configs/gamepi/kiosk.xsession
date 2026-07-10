@@ -38,6 +38,11 @@ fi
   done
 ) &
 
+diag_script="${GAMEPI_KIOSK_DIAG_SCRIPT:-/opt/midijuggler/app/scripts/gamepi-kiosk-diagnostics.sh}"
+if [ -x "$diag_script" ]; then
+  "$diag_script"
+fi
+
 CHROMIUM_USER_DATA_DIR="${GAMEPI_CHROMIUM_USER_DATA_DIR:-${HOME:-/home/dietpi}/.cache/midijuggler-kiosk}"
 CLEAR_SCRIPT="${GAMEPI_CLEAR_CHROMIUM_SCRIPT:-/opt/midijuggler/app/scripts/gamepi-clear-chromium-cache.sh}"
 if [ -x "$CLEAR_SCRIPT" ]; then

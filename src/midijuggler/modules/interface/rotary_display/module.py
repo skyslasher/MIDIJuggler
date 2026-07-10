@@ -274,10 +274,15 @@ class RotaryDisplayModule(InterfaceModule):
         self._beat_pulse_active = True
         self._last_beat = 1.0
         if self._use_osc and self._feedback_host and self._feedback_port > 0:
-            if not self._write_beat_osc_sync(1.0):
-                self._schedule_beat_send_from_transport_thread(1.0)
+            osc_sent = self._write_beat_osc_sync(1.0)
+            if osc_sent:
+                return
+            if self._should_mirror_serial_beats(osc_sent=False):
+                self._write_beat_serial_sync(1.0)
+                return
+            self._schedule_beat_send_from_transport_thread(1.0)
             return
-        if self._use_serial and self._serial_connected and self._serial_port is not None:
+        if self._serial_feedback_available():
             self._write_beat_serial_sync(1.0)
 
     def _schedule_beat_send_from_transport_thread(self, value: float) -> None:
@@ -295,11 +300,33 @@ class RotaryDisplayModule(InterfaceModule):
             return
         state = self._current_sync_state()
         self._last_sync = state
-        self._write_sync_serial_sync(state)
-        self._write_sync_osc_sync(state)
+        osc_sent = self._write_sync_osc_sync(state)
+        if self._should_mirror_serial_feedback(osc_sent=osc_sent):
+            self._write_sync_serial_sync(state)
+
+    def _serial_feedback_available(self) -> bool:
+        return bool(
+            self.config.serial_port.strip()
+            and self._serial_connected
+            and self._serial_port is not None
+        )
+
+    def _should_mirror_serial_feedback(self, *, osc_sent: bool) -> bool:
+        if not self._serial_feedback_available():
+            return False
+        if self._use_serial:
+            return True
+        return not osc_sent
+
+    def _should_mirror_serial_beats(self, *, osc_sent: bool) -> bool:
+        if not self._serial_feedback_available():
+            return False
+        if self._use_serial and not self._use_osc:
+            return True
+        return not osc_sent
 
     def _write_sync_serial_sync(self, state: RotarySyncState) -> None:
-        if not self._use_serial or not self._serial_connected or self._serial_port is None:
+        if not self._serial_feedback_available():
             return
         with self._transport_serial_lock:
             try:
@@ -312,9 +339,9 @@ class RotaryDisplayModule(InterfaceModule):
                 LOGGER.exception("rotary display serial sync write failed")
                 self._serial_connected = False
 
-    def _write_sync_osc_sync(self, state: RotarySyncState) -> None:
+    def _write_sync_osc_sync(self, state: RotarySyncState) -> bool:
         if not self._use_osc or not self._feedback_host or self._feedback_port <= 0:
-            return
+            return False
         with self._transport_osc_lock:
             try:
                 payload = encode_message(
@@ -326,14 +353,25 @@ class RotaryDisplayModule(InterfaceModule):
                         state.click_interval,
                     ],
                 )
-                _udp_send_timing_critical(
-                    payload,
+                target = _resolve_beat_udp_target(
                     self._feedback_host,
                     self._feedback_port,
                     cached_ip=self._feedback_host_ip,
                 )
+                if target is None:
+                    LOGGER.warning(
+                        "rotary display OSC sync skipped; unresolved feedback target %s:%s",
+                        self._feedback_host,
+                        self._feedback_port,
+                    )
+                    return False
+                host, port = target
+                with socket.socket(socket.AF_INET, socket.SOCK_DGRAM) as sock:
+                    sock.sendto(payload, (host, port))
+                return True
             except OSError:
                 LOGGER.exception("rotary display OSC sync write failed")
+                return False
 
     def _write_beat_osc_sync(self, value: float) -> bool:
         if not self._use_osc or not self._feedback_host or self._feedback_port <= 0:
@@ -421,11 +459,11 @@ class RotaryDisplayModule(InterfaceModule):
         if not force and self._last_sync == state:
             return
         self._last_sync = state
-        await self._send_serial(format_sync_line(state) + "\n")
-        await self._send_osc(
-            self.config.sync_osc_address,
-            [state.bpm, 1 if state.running else 0, 1 if state.click_enabled else 0, state.click_interval],
-        )
+        osc_sent = False
+        if self._use_osc and self._feedback_host and self._feedback_port > 0:
+            osc_sent = await asyncio.to_thread(self._write_sync_osc_sync, state)
+        if self._should_mirror_serial_feedback(osc_sent=osc_sent):
+            await self._send_serial(format_sync_line(state) + "\n")
 
     def _clear_pending_beats(self) -> None:
         self._beat_outbox.clear()
@@ -492,15 +530,11 @@ class RotaryDisplayModule(InterfaceModule):
             self._beat_send_task = None
 
     async def _send_beat(self, value: float) -> None:
-        # Beats are timing-critical: never duplicate on OSC and serial when both are enabled.
+        osc_sent = False
         if self._use_osc and self._feedback_host and self._feedback_port > 0:
-            # UDP beats are fire-and-forget; awaiting thread-pool sends drops edges at high BPM.
-            asyncio.create_task(
-                self._send_osc(self.config.beat_osc_address, [value]),
-                name="rotary-display-beat-osc",
-            )
-            return
-        await self._send_serial(format_beat_line(value) + "\n")
+            osc_sent = await asyncio.to_thread(self._write_beat_osc_sync, value)
+        if self._should_mirror_serial_beats(osc_sent=osc_sent):
+            await self._send_serial(format_beat_line(value) + "\n")
 
     def _poke_device_hello_serial(self) -> None:
         if not self._serial_connected or self._serial_port is None:
@@ -517,7 +551,7 @@ class RotaryDisplayModule(InterfaceModule):
                 self._serial_connected = False
 
     async def _send_serial(self, payload: str) -> None:
-        if not self._use_serial or not self._serial_connected or self._serial_port is None:
+        if not self._serial_feedback_available():
             return
         try:
             data = payload.encode("utf-8")

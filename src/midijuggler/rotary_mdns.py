@@ -5,7 +5,9 @@ from __future__ import annotations
 import ipaddress
 import logging
 import re
+import shutil
 import socket
+import subprocess
 import threading
 import time
 from dataclasses import dataclass
@@ -128,6 +130,32 @@ def _get_zeroconf() -> Any:
         return _zeroconf
 
 
+def _resolve_mdns_via_avahi(host: str) -> str | None:
+    """Resolve a .local hostname using avahi-resolve-host-name when available."""
+
+    avahi = shutil.which("avahi-resolve-host-name")
+    if avahi is None:
+        return None
+
+    try:
+        result = subprocess.run(
+            [avahi, "-4", host],
+            capture_output=True,
+            text=True,
+            timeout=4,
+            check=False,
+        )
+    except (OSError, subprocess.TimeoutExpired) as exc:
+        LOGGER.debug("avahi-resolve failed for %s: %s", host, exc)
+        return None
+
+    for line in result.stdout.splitlines():
+        parts = line.split()
+        if len(parts) >= 2 and is_ipv4_address(parts[1]):
+            return str(parts[1]).strip()
+    return None
+
+
 def resolve_mdns_ipv4(host: str, *, force: bool = False) -> str | None:
     """Resolve a .local hostname to an IPv4 address via mDNS."""
 
@@ -140,42 +168,49 @@ def resolve_mdns_ipv4(host: str, *, force: bool = False) -> str | None:
         if cached is not None:
             return cached
 
-    if not zeroconf_available():
-        LOGGER.warning(
-            "python-zeroconf is not installed; cannot resolve %s via mDNS",
+    if zeroconf_available():
+        try:
+            from zeroconf import AddressResolverIPv4
+        except ImportError:
+            LOGGER.warning(
+                "python-zeroconf AddressResolverIPv4 is unavailable; cannot resolve %s",
+                target,
+            )
+        else:
+            resolver = AddressResolverIPv4(mdns_fqdn(target))
+            try:
+                zeroconf = _get_zeroconf()
+                resolved = resolver.request(
+                    zeroconf,
+                    timeout=_MDNS_RESOLVE_TIMEOUT_MS,
+                )
+            except OSError as exc:
+                LOGGER.warning("mDNS lookup failed for %s: %s", target, exc)
+                resolved = False
+
+            if resolved:
+                addresses = resolver.parsed_addresses()
+                for address in addresses:
+                    if is_ipv4_address(address):
+                        ip = str(address).strip()
+                        _store_cached_ip(target, ip)
+                        return ip
+    else:
+        LOGGER.debug(
+            "python-zeroconf is not installed; trying avahi-resolve for %s",
             target,
         )
-        return None
 
-    try:
-        from zeroconf import AddressResolverIPv4
-    except ImportError:
-        LOGGER.warning(
-            "python-zeroconf AddressResolverIPv4 is unavailable; cannot resolve %s",
-            target,
-        )
-        return None
+    ip = _resolve_mdns_via_avahi(target)
+    if ip is not None:
+        _store_cached_ip(target, ip)
+        return ip
 
-    resolver = AddressResolverIPv4(mdns_fqdn(target))
-    zeroconf = _get_zeroconf()
-    try:
-        resolved = resolver.request(
-            zeroconf,
-            timeout=_MDNS_RESOLVE_TIMEOUT_MS,
-        )
-    except OSError as exc:
-        LOGGER.warning("mDNS lookup failed for %s: %s", target, exc)
-        return None
-
-    if not resolved:
-        return None
-
-    addresses = resolver.parsed_addresses()
-    for address in addresses:
-        if is_ipv4_address(address):
-            ip = str(address).strip()
-            _store_cached_ip(target, ip)
-            return ip
+    LOGGER.warning(
+        "could not resolve rotary display feedback target %s via mDNS "
+        "(install python-zeroconf with pip install midijuggler[rotary] or avahi-utils)",
+        target,
+    )
     return None
 
 
