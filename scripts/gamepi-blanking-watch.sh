@@ -11,7 +11,7 @@ while true; do
     GAMEPI_FB_DEVICE="${GAMEPI_FB_DEVICE:-/dev/fb0}" \
     GAMEPI_X_DISPLAY="${GAMEPI_X_DISPLAY:-:0}" \
     GAMEPI_X_USER="${GAMEPI_X_USER:-dietpi}" \
-    GAMEPI_ALLOW_SETTERM="${GAMEPI_ALLOW_SETTERM:-1}" \
+    GAMEPI_ALLOW_SETTERM="${GAMEPI_ALLOW_SETTERM:-0}" \
       "$disable_script"
   fi
 

@@ -61,6 +61,7 @@ from midijuggler.rotary_mdns import (
 LOGGER = logging.getLogger(__name__)
 
 DEVICE_SET_BPM_TAP_TEMPO_COOLDOWN_S = 3.0
+DEVICE_START_STOP_TAP_TEMPO_COOLDOWN_S = 3.0
 
 
 class RotaryDisplayModule(InterfaceModule):
@@ -92,6 +93,7 @@ class RotaryDisplayModule(InterfaceModule):
         self._pending_beat_value: float | None = None
         self._beat_send_in_flight = False
         self._last_device_set_bpm_at: float | None = None
+        self._last_device_start_stop_at: float | None = None
         self._last_pushed_fingerprint: str | None = None
         self._serial_lock = asyncio.Lock()
         self._transport_serial_lock = threading.Lock()
@@ -270,6 +272,7 @@ class RotaryDisplayModule(InterfaceModule):
 
         if not self.running or not self.master_clock.running:
             return
+        self._flush_running_sync_before_beat()
         self._beat_pulse_active = True
         self._last_beat = 1.0
         if self._use_osc and self._feedback_host and self._feedback_port > 0:
@@ -277,6 +280,57 @@ class RotaryDisplayModule(InterfaceModule):
             return
         if self._use_serial and self._serial_connected and self._serial_port is not None:
             self._write_beat_serial_sync(1.0)
+
+    def _flush_running_sync_before_beat(self) -> None:
+        """Push running=true sync before the first beat when started remotely."""
+
+        if not self.master_clock.running:
+            return
+        state = self._current_sync_state()
+        if not state.running:
+            return
+        if self._last_sync is not None and self._last_sync.running:
+            return
+        self._last_sync = state
+        self._write_sync_serial_sync(state)
+        self._write_sync_osc_sync(state)
+
+    def _write_sync_serial_sync(self, state: RotarySyncState) -> None:
+        if not self._use_serial or not self._serial_connected or self._serial_port is None:
+            return
+        with self._transport_serial_lock:
+            try:
+                data = (format_sync_line(state) + "\n").encode("utf-8")
+                self._serial_port.write(data)
+                flush = getattr(self._serial_port, "flush", None)
+                if callable(flush):
+                    flush()
+            except OSError:
+                LOGGER.exception("rotary display serial sync write failed")
+                self._serial_connected = False
+
+    def _write_sync_osc_sync(self, state: RotarySyncState) -> None:
+        if not self._use_osc or not self._feedback_host or self._feedback_port <= 0:
+            return
+        with self._transport_osc_lock:
+            try:
+                payload = encode_message(
+                    self.config.sync_osc_address,
+                    [
+                        state.bpm,
+                        1 if state.running else 0,
+                        1 if state.click_enabled else 0,
+                        state.click_interval,
+                    ],
+                )
+                _udp_send_timing_critical(
+                    payload,
+                    self._feedback_host,
+                    self._feedback_port,
+                    cached_ip=self._feedback_host_ip,
+                )
+            except OSError:
+                LOGGER.exception("rotary display OSC sync write failed")
 
     def _write_beat_osc_sync(self, value: float) -> None:
         if not self._use_osc or not self._feedback_host or self._feedback_port <= 0:
@@ -789,17 +843,29 @@ class RotaryDisplayModule(InterfaceModule):
             return
         if event.command == "set_bpm":
             self._last_device_set_bpm_at = time.monotonic()
-        elif (
-            event.command == "tap_tempo"
-            and self._last_device_set_bpm_at is not None
-            and time.monotonic() - self._last_device_set_bpm_at
-            < DEVICE_SET_BPM_TAP_TEMPO_COOLDOWN_S
-        ):
-            LOGGER.debug(
-                "ignored rotary tap_tempo within %.1fs of device set_bpm",
-                DEVICE_SET_BPM_TAP_TEMPO_COOLDOWN_S,
-            )
-            return
+        elif event.command == "start_stop":
+            self._last_device_start_stop_at = time.monotonic()
+        elif event.command == "tap_tempo":
+            now = time.monotonic()
+            if (
+                self._last_device_set_bpm_at is not None
+                and now - self._last_device_set_bpm_at < DEVICE_SET_BPM_TAP_TEMPO_COOLDOWN_S
+            ):
+                LOGGER.debug(
+                    "ignored rotary tap_tempo within %.1fs of device set_bpm",
+                    DEVICE_SET_BPM_TAP_TEMPO_COOLDOWN_S,
+                )
+                return
+            if (
+                self._last_device_start_stop_at is not None
+                and now - self._last_device_start_stop_at
+                < DEVICE_START_STOP_TAP_TEMPO_COOLDOWN_S
+            ):
+                LOGGER.debug(
+                    "ignored rotary tap_tempo within %.1fs of device start_stop",
+                    DEVICE_START_STOP_TAP_TEMPO_COOLDOWN_S,
+                )
+                return
         LOGGER.info("rotary display serial command: %s", line.strip())
         if self.master_clock._datapoint_sink is not None:
             await self._route_clock_command_to_store(event)

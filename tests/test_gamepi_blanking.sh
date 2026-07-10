@@ -82,5 +82,30 @@ PATH="$mock_bin:$PATH" \
 assert "blanking script runs xset as kiosk user" grep -q 'xset s off' "$xset_log"
 assert "blanking script forces dpms on" grep -q 'xset dpms force on' "$xset_log"
 
+setterm_log="$tmp/setterm.log"
+: >"$setterm_log"
+cat >"$mock_bin/setterm" <<EOF
+#!/bin/sh
+echo "setterm \$*" >>"$setterm_log"
+exit 0
+EOF
+chmod +x "$mock_bin/setterm"
+
+PATH="$mock_bin:$PATH" \
+  GAMEPI_X_USER=dietpi \
+  GAMEPI_X_HOME="$tmp/home/dietpi" \
+  GAMEPI_XAUTHORITY="$tmp/home/dietpi/.Xauthority" \
+  GAMEPI_X_DISPLAY=:0 \
+  GAMEPI_ALLOW_SETTERM=1 \
+  sh "$repo_root/scripts/gamepi-disable-blanking.sh"
+
+if grep -q setterm "$setterm_log"; then
+  fail=$((fail + 1))
+  printf 'FAIL: blanking script skips setterm when X is running\n' >&2
+else
+  pass=$((pass + 1))
+  printf 'ok: blanking script skips setterm when X is running\n'
+fi
+
 printf '\n%d passed, %d failed\n' "$pass" "$fail"
 [ "$fail" -eq 0 ]
