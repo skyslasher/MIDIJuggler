@@ -308,7 +308,13 @@ cat /sys/module/kernel/parameters/consoleblank
 sudo journalctl -u gamepi-blanking-watch.service -b --no-pager | tail -20
 ```
 
-After `git pull`, redeploy services:
+After `git pull`, run the full deploy script (recommended):
+
+```bash
+sudo /opt/midijuggler/app/scripts/deploy-gamepi.sh
+```
+
+See [`gamepi-deploy.md`](gamepi-deploy.md) for details. Manual redeploy services:
 
 ```bash
 sudo cp systemd/gamepi-splash.service systemd/gamepi-kiosk-ready.service systemd/gamepi-kiosk.service systemd/gamepi-blanking-watch.service /etc/systemd/system/

@@ -1,5 +1,8 @@
 #!/bin/sh
 # Safe post-deploy reload: pull app, restart midijuggler without tearing down X by default.
+#
+# For a full deploy (pip, systemd units, Xorg, sudoers, kiosk restart) use:
+#   sudo /opt/midijuggler/app/scripts/deploy-gamepi.sh
 
 set -eu
 

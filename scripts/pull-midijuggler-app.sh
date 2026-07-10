@@ -34,7 +34,8 @@ run_git git checkout "origin/${branch}" -- scripts configs/gamepi
 echo "Fast-forwarding to origin/${branch}..." >&2
 run_git git merge --ff-only "origin/${branch}"
 
-for script in scripts/gamepi-*.sh scripts/pull-midijuggler-app.sh scripts/wait-for-*.sh; do
+for script in scripts/gamepi-*.sh scripts/pull-midijuggler-app.sh scripts/wait-for-*.sh \
+  scripts/deploy-gamepi.sh scripts/install-gamepi13-*.sh; do
   [ -f "$script" ] || continue
   chmod +x "$script"
 done
