@@ -253,6 +253,77 @@ def test_rotary_display_registers_feedback_from_hello(monkeypatch: pytest.Monkey
     assert sent[0][1:] == ("rotary-stage-left.local", 9001)
 
 
+def test_rotary_display_registers_feedback_from_mdns_on_start(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    import socket as socket_module
+
+    sent: list[tuple[bytes, tuple[str, int]]] = []
+    from midijuggler.rotary_mdns import RotaryMdnsService
+
+    class FakeSocket:
+        def __enter__(self) -> "FakeSocket":
+            return self
+
+        def __exit__(self, *args: object) -> bool:
+            return False
+
+        def sendto(self, payload: bytes, addr: tuple[str, int]) -> int:
+            sent.append((payload, addr))
+            return len(payload)
+
+    real_socket = socket_module.socket
+
+    def fake_socket(
+        family: int,
+        sock_type: int,
+        *args: object,
+        **kwargs: object,
+    ) -> object:
+        if family == socket_module.AF_INET and sock_type == socket_module.SOCK_DGRAM:
+            return FakeSocket()
+        return real_socket(family, sock_type, *args, **kwargs)
+
+    monkeypatch.setattr(
+        "midijuggler.modules.interface.rotary_display.module.socket.socket",
+        fake_socket,
+    )
+    monkeypatch.setattr(
+        "midijuggler.modules.interface.rotary_display.module.browse_rotary_feedback_targets",
+        lambda timeout_s=4.0: [RotaryMdnsService("rotary-stage.local", 9001)],
+    )
+    monkeypatch.setattr(
+        "midijuggler.modules.interface.rotary_display.module.resolve_mdns_ipv4",
+        lambda host, force=False: "192.168.1.42",
+    )
+
+    config = parse_config(
+        {
+            "master_clock": {"enabled": True, "bpm": 128.0},
+            "rotary_display": {"enabled": True, "transport": "osc"},
+        }
+    )
+    store = DataPointStore()
+    bus = EventBus()
+    master_clock = MasterClock(config.master_clock, bus)
+    module = RotaryDisplayModule(store, config.rotary_display, master_clock, bus)
+
+    async def scenario() -> None:
+        await module.start()
+        await asyncio.sleep(0)
+        await module.stop()
+
+    asyncio.run(scenario())
+
+    assert module._feedback_host == "rotary-stage.local"
+    assert module._feedback_port == 9001
+    assert len(sent) == 1
+    address, args = decode_messages(sent[0][0])[0]
+    assert address == "/midijuggler/rotary/sync"
+    assert args[0] == pytest.approx(128.0)
+    assert sent[0][1] == ("192.168.1.42", 9001)
+
+
 def test_rotary_display_hello_registers_feedback_handler() -> None:
     registered: list[tuple[str, int]] = []
 

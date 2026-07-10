@@ -51,6 +51,7 @@ from midijuggler.modules.interface.rotary_display.protocol import (
 )
 from midijuggler.osc.protocol import encode_message
 from midijuggler.rotary_mdns import (
+    browse_rotary_feedback_targets,
     invalidate_mdns_cache,
     is_ipv4_address,
     is_mdns_hostname,
@@ -169,9 +170,45 @@ class RotaryDisplayModule(InterfaceModule):
         self.master_clock.register_beat_pulse_listener(self._on_transport_beat_pulse)
         self._start_serial_loop_if_needed()
         self._apply_configured_feedback_target()
+        if self._use_osc and not self.config.feedback_host.strip():
+            await self._discover_rotary_feedback_via_mdns()
         if self._use_osc and self._feedback_host and self._feedback_port > 0:
             await self._prime_feedback_host_ip(self._feedback_host)
             await self._send_sync(force=True)
+
+    async def _discover_rotary_feedback_via_mdns(self) -> None:
+        """Register a rotary display that booted before MIDIJuggler was listening."""
+
+        if not self._use_osc or self.config.feedback_host.strip():
+            return
+        try:
+            services = await asyncio.to_thread(
+                browse_rotary_feedback_targets,
+                timeout_s=4.0,
+            )
+        except OSError as exc:
+            LOGGER.warning("rotary display mDNS browse failed: %s", exc)
+            return
+        if not services:
+            LOGGER.info(
+                "no rotary display found via mDNS yet; waiting for OSC hello"
+            )
+            return
+        if len(services) > 1:
+            LOGGER.info(
+                "multiple rotary displays on LAN; registering %s:%s",
+                services[0].hostname,
+                services[0].port,
+            )
+        service = services[0]
+        self._register_feedback_target(service.hostname, service.port)
+        self._osc_hello_event.set()
+        await self._prime_feedback_host_ip(service.hostname)
+        LOGGER.info(
+            "rotary display discovered via mDNS at %s:%s",
+            service.hostname,
+            service.port,
+        )
 
     def set_feedback_registration_handler(
         self,

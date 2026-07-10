@@ -164,13 +164,13 @@ class MIDIJugglerService:
             "OSC desk discovery active; %s desk(s) on LAN",
             len(self.osc_desk_tracker.discovered_desks),
         )
+        for adapter in self.adapters:
+            await adapter.start()
         await self.module_registry.start_all()
         await self.web.refresh_all_device_datapoints()
         if self.web.modifier_graph is not None:
             await self.web.modifier_graph.replay_subscribed_sources_from_store()
         self.event_bridge.attach()
-        for adapter in self.adapters:
-            await adapter.start()
         await self.master_clock.start()
         self._runner = await run_web_server(self.web)
         LOGGER.info(

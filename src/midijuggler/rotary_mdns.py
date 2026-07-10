@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import contextlib
 import ipaddress
 import logging
 import re
@@ -18,6 +19,17 @@ LOGGER = logging.getLogger(__name__)
 _MDNS_HOSTNAME_RE = re.compile(r"^[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?$")
 _MDNS_CACHE_TTL_S = 30.0
 _MDNS_RESOLVE_TIMEOUT_MS = 3000
+ROTARY_MDNS_SERVICE_TYPE = "_midijuggler-rotary._udp.local."
+_AVAHI_ROTARY_SERVICE_TYPE = "_midijuggler-rotary._udp"
+_BROWSE_CANDIDATES = ("avahi-browse", "/usr/bin/avahi-browse")
+
+
+@dataclass(frozen=True)
+class RotaryMdnsService:
+    """A rotary display advertised via mDNS."""
+
+    hostname: str
+    port: int
 
 
 def zeroconf_available() -> bool:
@@ -255,3 +267,138 @@ def resolve_udp_host(
         raise OSError(f"DNS resolution failed for {target}")
 
     return str(addresses[0][4][0])
+
+
+def _format_rotary_mdns_hostname(server: str) -> str:
+    hostname = str(server or "").strip().rstrip(".")
+    if not hostname:
+        return ""
+    if hostname.endswith(".local"):
+        return hostname
+    return f"{hostname}.local"
+
+
+def parse_avahi_rotary_browse_line(line: str) -> RotaryMdnsService | None:
+    """Parse one `avahi-browse -rpt` line for a rotary display service."""
+
+    if not line.startswith("="):
+        return None
+
+    parts = line.split(";")
+    if len(parts) < 10:
+        return None
+
+    service_type = parts[4].strip()
+    if service_type != _AVAHI_ROTARY_SERVICE_TYPE:
+        return None
+
+    hostname = _format_rotary_mdns_hostname(parts[6].strip())
+    if not hostname:
+        return None
+
+    try:
+        port = int(parts[8].strip())
+    except ValueError:
+        return None
+    if port <= 0 or port > 65535:
+        return None
+
+    return RotaryMdnsService(hostname=hostname, port=port)
+
+
+def _browse_rotary_via_avahi(*, timeout_s: float) -> list[RotaryMdnsService]:
+    browse_path = None
+    for candidate in _BROWSE_CANDIDATES:
+        if candidate.startswith("/"):
+            path = candidate
+        else:
+            path = shutil.which(candidate)
+        if path:
+            browse_path = path
+            break
+    if browse_path is None:
+        return []
+
+    try:
+        result = subprocess.run(
+            [browse_path, "-r", "-p", "-t", _AVAHI_ROTARY_SERVICE_TYPE],
+            capture_output=True,
+            text=True,
+            timeout=max(timeout_s, 1.0),
+            check=False,
+        )
+    except (OSError, subprocess.TimeoutExpired) as exc:
+        LOGGER.debug("avahi-browse failed for rotary display services: %s", exc)
+        return []
+
+    services: dict[tuple[str, int], RotaryMdnsService] = {}
+    for line in result.stdout.splitlines():
+        parsed = parse_avahi_rotary_browse_line(line.strip())
+        if parsed is None:
+            continue
+        services[(parsed.hostname, parsed.port)] = parsed
+    return list(services.values())
+
+
+class _RotaryServiceListener:
+    def __init__(self) -> None:
+        self._services: dict[tuple[str, int], RotaryMdnsService] = {}
+        self._lock = threading.Lock()
+
+    def add_service(self, zc: Any, type_: str, name: str) -> None:
+        info = zc.get_service_info(type_, name, timeout=2000)
+        if info is None:
+            return
+        server = info.server
+        if isinstance(server, bytes):
+            server = server.decode("utf-8", errors="ignore")
+        hostname = _format_rotary_mdns_hostname(str(server))
+        if not hostname:
+            return
+        service = RotaryMdnsService(hostname=hostname, port=int(info.port))
+        with self._lock:
+            self._services[(service.hostname, service.port)] = service
+
+    def remove_service(self, zc: Any, type_: str, name: str) -> None:
+        return
+
+    def update_service(self, zc: Any, type_: str, name: str) -> None:
+        self.add_service(zc, type_, name)
+
+    def services(self) -> list[RotaryMdnsService]:
+        with self._lock:
+            return list(self._services.values())
+
+
+def _browse_rotary_via_zeroconf(*, timeout_s: float) -> list[RotaryMdnsService]:
+    from zeroconf import ServiceBrowser
+
+    listener = _RotaryServiceListener()
+    zeroconf = _get_zeroconf()
+    browser = ServiceBrowser(zeroconf, ROTARY_MDNS_SERVICE_TYPE, listener)
+    try:
+        time.sleep(max(timeout_s, 0.5))
+    finally:
+        with contextlib.suppress(Exception):
+            browser.cancel()
+    return listener.services()
+
+
+def browse_rotary_feedback_targets(*, timeout_s: float = 4.0) -> list[RotaryMdnsService]:
+    """Discover rotary display feedback endpoints advertised on the LAN."""
+
+    if zeroconf_available():
+        try:
+            services = _browse_rotary_via_zeroconf(timeout_s=timeout_s)
+        except OSError as exc:
+            LOGGER.warning("zeroconf browse failed for rotary display services: %s", exc)
+            services = []
+        if services:
+            return sorted(services, key=lambda item: item.hostname)
+    else:
+        services = []
+
+    avahi_services = _browse_rotary_via_avahi(timeout_s=timeout_s)
+    if avahi_services:
+        return sorted(avahi_services, key=lambda item: item.hostname)
+    return services
