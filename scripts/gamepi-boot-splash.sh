@@ -52,6 +52,7 @@ console_boot_requested() {
   fi
 
   if [ -x "$python_bin" ] && [ -f "$start_held_script" ]; then
+    # Start-not-held (or evdev errors) must not abort splash / kiosk handoff.
     if "$python_bin" "$start_held_script" "$hold_ms"; then
       return 0
     fi
