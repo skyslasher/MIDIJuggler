@@ -1,5 +1,7 @@
 #!/bin/sh
 export FRAMEBUFFER=/dev/fb0
+export DISPLAY="${DISPLAY:-:0}"
+export XAUTHORITY="${XAUTHORITY:-${HOME}/.Xauthority}"
 
 xsession_pid=$$
 
@@ -29,6 +31,12 @@ if command -v xset >/dev/null 2>&1; then
   xset s noblank
   xset dpms force on
 fi
+
+(
+  while sleep 3; do
+    /opt/midijuggler/app/scripts/gamepi-disable-blanking.sh
+  done
+) &
 
 CHROMIUM_USER_DATA_DIR="${GAMEPI_CHROMIUM_USER_DATA_DIR:-${HOME:-/home/dietpi}/.cache/midijuggler-kiosk}"
 CLEAR_SCRIPT="${GAMEPI_CLEAR_CHROMIUM_SCRIPT:-/opt/midijuggler/app/scripts/gamepi-clear-chromium-cache.sh}"
