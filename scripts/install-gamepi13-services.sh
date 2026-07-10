@@ -2,7 +2,9 @@
 # Install GamePi13 systemd units and helper scripts from the app checkout.
 set -eu
 
-app_root="${MIDIJUGGLER_APP_ROOT:-/opt/midijuggler/app}"
+repo_root="$(CDPATH= cd -- "$(dirname "$0")/.." && pwd)"
+app_root="${MIDIJUGGLER_APP_ROOT:-$repo_root}"
+unit_src_dir="${repo_root}/systemd"
 unit_dir="${GAMEPI_SYSTEMD_DIR:-/etc/systemd/system}"
 
 units="
@@ -32,7 +34,12 @@ scripts="
 
 echo "Installing GamePi13 units to ${unit_dir}" >&2
 for unit in $units; do
-  install -m 0644 "${app_root}/${unit}" "${unit_dir}/${unit}"
+  src="${unit_src_dir}/${unit}"
+  if [ ! -f "$src" ]; then
+    echo "missing unit: ${src}" >&2
+    exit 1
+  fi
+  install -m 0644 "$src" "${unit_dir}/${unit}"
 done
 
 echo "Installing executable GamePi13 scripts" >&2
