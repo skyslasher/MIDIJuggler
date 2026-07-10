@@ -1,7 +1,6 @@
 [Unit]
 Description=GamePi13 MIDIJuggler Kiosk on tty1
-Wants=gamepi-kiosk-ready.service midijuggler.service
-Requires=midijuggler.service
+Wants=gamepi-kiosk-ready.service
 After=gamepi-kiosk-ready.service gamepi-splash.service network-online.target midijuggler.service
 Conflicts=getty@tty1.service
 ConditionPathExists=!/run/gamepi-console-boot
@@ -17,8 +16,6 @@ KillSignal=SIGTERM
 FinalKillSignal=SIGKILL
 Environment=HOME=/home/dietpi
 Environment=FRAMEBUFFER=/dev/fb0
-Environment=GAMEPI_SPLASH_COMPLETED_FLAG=/run/gamepi/splash-completed
-RuntimeDirectory=gamepi
 WorkingDirectory=/home/dietpi
 TTYPath=/dev/tty1
 TTYReset=no
@@ -26,7 +23,7 @@ TTYVHangup=no
 StandardInput=tty
 StandardOutput=journal
 StandardError=journal
-ExecStart=/opt/midijuggler/app/scripts/gamepi-launch-kiosk.sh
+ExecStart=/opt/midijuggler/app/scripts/gamepi-start-kiosk.sh
 Restart=on-failure
 RestartSec=5
 

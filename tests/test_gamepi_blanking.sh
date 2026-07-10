@@ -22,7 +22,7 @@ assert() {
 }
 
 mock_bin="$tmp/bin"
-mkdir -p "$mock_bin" "$tmp/home/dietpi"
+mkdir -p "$mock_bin"
 xset_log="$tmp/xset.log"
 : >"$xset_log"
 
@@ -33,26 +33,6 @@ exit 0
 EOF
 chmod +x "$mock_bin/xset"
 
-cat >"$mock_bin/runuser" <<'EOF'
-#!/bin/sh
-shift
-shift
-exec "$@"
-EOF
-chmod +x "$mock_bin/runuser"
-
-cat >"$mock_bin/id" <<'EOF'
-#!/bin/sh
-case "$1" in
-  -u) echo 0 ;;
-  -un) echo root ;;
-  dietpi) exit 0 ;;
-  *) exit 1 ;;
-esac
-EOF
-chmod +x "$mock_bin/id"
-
-touch "$tmp/home/dietpi/.Xauthority"
 mkdir -p /tmp/.X11-unix
 x_socket="/tmp/.X11-unix/X0"
 if [ -e "$x_socket" ] && [ ! -S "$x_socket" ]; then
@@ -73,14 +53,10 @@ PY
 fi
 
 PATH="$mock_bin:$PATH" \
-  GAMEPI_X_USER=dietpi \
-  GAMEPI_X_HOME="$tmp/home/dietpi" \
-  GAMEPI_XAUTHORITY="$tmp/home/dietpi/.Xauthority" \
-  GAMEPI_X_DISPLAY=:0 \
   sh "$repo_root/scripts/gamepi-disable-blanking.sh"
 
-assert "blanking script runs xset as kiosk user" grep -q 'xset s off' "$xset_log"
-assert "blanking script forces dpms on" grep -q 'xset dpms force on' "$xset_log"
+assert "blanking script runs xset when X socket exists" grep -q 'xset s off' "$xset_log"
+assert "blanking script disables dpms via xset" grep -q 'xset -dpms' "$xset_log"
 
 setterm_log="$tmp/setterm.log"
 : >"$setterm_log"
@@ -92,10 +68,6 @@ EOF
 chmod +x "$mock_bin/setterm"
 
 PATH="$mock_bin:$PATH" \
-  GAMEPI_X_USER=dietpi \
-  GAMEPI_X_HOME="$tmp/home/dietpi" \
-  GAMEPI_XAUTHORITY="$tmp/home/dietpi/.Xauthority" \
-  GAMEPI_X_DISPLAY=:0 \
   GAMEPI_ALLOW_SETTERM=1 \
   sh "$repo_root/scripts/gamepi-disable-blanking.sh"
 

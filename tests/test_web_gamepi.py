@@ -89,17 +89,17 @@ def test_gamepi_keep_awake_rejects_non_localhost() -> None:
         request_display_keep_awake(request)
 
 
-def test_gamepi_keep_awake_uses_sudo_wrapper(monkeypatch, tmp_path: Path) -> None:
+def test_gamepi_keep_awake_runs_blanking_script(monkeypatch, tmp_path: Path) -> None:
     from midijuggler.web import gamepi_system
 
     script = tmp_path / "gamepi-disable-blanking.sh"
     script.write_text("#!/bin/sh\n", encoding="utf-8")
     monkeypatch.setattr(gamepi_system, "_blanking_script", lambda: script)
 
-    calls: list[list[str]] = []
+    calls: list[tuple[list[str], dict]] = []
 
     def fake_run(command, **kwargs):
-        calls.append(command)
+        calls.append((command, kwargs))
         return SimpleNamespace(returncode=0, stdout="", stderr="")
 
     monkeypatch.setattr(gamepi_system.subprocess, "run", fake_run)
@@ -107,7 +107,8 @@ def test_gamepi_keep_awake_uses_sudo_wrapper(monkeypatch, tmp_path: Path) -> Non
     payload = gamepi_system.request_display_keep_awake(SimpleNamespace(remote="127.0.0.1"))
 
     assert payload == {"ok": True}
-    assert calls == [["sudo", "-n", str(script)]]
+    assert calls[0][0] == [str(script)]
+    assert calls[0][1]["env"]["GAMEPI_ALLOW_SETTERM"] == "1"
 
     from pathlib import Path
 

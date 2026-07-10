@@ -34,27 +34,9 @@ assert_contains() {
   fi
 }
 
-assert_not_contains() {
-  desc="$1"
-  haystack="$2"
-  needle="$3"
-  if echo "$haystack" | grep -q "$needle"; then
-    fail=$((fail + 1))
-    printf 'FAIL: %s\n' "$desc" >&2
-  else
-    pass=$((pass + 1))
-    printf 'ok: %s\n' "$desc"
-  fi
-}
-
-# start-held.py must not call removed evdev InputDevice.setblocking().
-assert_not_contains "start-held avoids setblocking()" \
-  "$(sed -n '1,120p' "$repo_root/scripts/gamepi-start-held.py")" \
-  'setblocking'
-
-assert_contains "gpio_keys provides ensure_device_nonblocking()" \
-  "$(sed -n '240,280p' "$repo_root/scripts/gamepi_gpio_keys.py")" \
-  'ensure_device_nonblocking'
+assert_contains "start-held uses evdev setblocking(False)" \
+  "$(sed -n '1,80p' "$repo_root/scripts/gamepi-start-held.py")" \
+  'setblocking(False)'
 
 # Mock helpers for boot-splash integration.
 mock_pressed="$tmp/mock-start-pressed.sh"
@@ -132,7 +114,7 @@ else
   printf 'ok: boot-splash crash test skipped (no /run write access)\n'
 fi
 
-# Handoff chain: launch-kiosk stops splash when hold flag still present.
+# Handoff chain: splash-stop removes hold flag when present.
 hold_flag_path="/run/gamepi-splash-hold"
 if touch "$hold_flag_path" 2>/dev/null; then
   splash_stop_out="$(GAMEPI_SPLASH_COMPLETED_FLAG="$tmp/splash-completed" \

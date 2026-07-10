@@ -1,7 +1,7 @@
 #!/bin/sh
 set -eu
 
-. "$(dirname "$0")/gamepi-paths.sh"
+completed_flag="${GAMEPI_SPLASH_COMPLETED_FLAG:-/run/gamepi-splash-completed}"
 
 had_splash=false
 if [ -f /run/gamepi-splash-hold ] || pgrep -x fbi >/dev/null 2>&1; then
@@ -38,6 +38,6 @@ if [ "$had_splash" = true ]; then
   fi
 fi
 
-gamepi_mark_splash_completed
+: >"$completed_flag"
 
 rm -f /run/gamepi-splash.pid

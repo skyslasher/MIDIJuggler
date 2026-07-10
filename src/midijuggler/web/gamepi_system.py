@@ -57,13 +57,16 @@ def request_display_keep_awake(request: web.Request) -> dict[str, bool | str]:
     if not script.is_file():
         return {"ok": False, "error": "blanking script missing"}
 
+    env = dict(os.environ)
+    env.setdefault("GAMEPI_ALLOW_SETTERM", "1")
     try:
         result = subprocess.run(
-            ["sudo", "-n", str(script)],
+            [str(script)],
             check=False,
             capture_output=True,
             text=True,
             timeout=5,
+            env=env,
         )
     except (OSError, subprocess.TimeoutExpired) as exc:
         return {"ok": False, "error": str(exc)}

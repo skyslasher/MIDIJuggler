@@ -250,20 +250,6 @@ def brightness_button_names() -> tuple[str, str, set[str], set[str]]:
     return gpio_button_name(l_gpio), gpio_button_name(r_gpio), down_names, up_names
 
 
-def ensure_device_nonblocking(device) -> None:
-    """Ensure idle reads on an evdev device raise BlockingIOError."""
-    setter = getattr(device, "setblocking", None)
-    if callable(setter):
-        setter(False)
-        return
-
-    import fcntl
-    import os
-
-    flags = fcntl.fcntl(device.fd, fcntl.F_GETFL)
-    fcntl.fcntl(device.fd, fcntl.F_SETFL, flags | os.O_NONBLOCK)
-
-
 def find_start_device():
     """Return the evdev device for the Start button, or None."""
     from evdev import InputDevice, ecodes, list_devices

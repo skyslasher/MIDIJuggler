@@ -28,10 +28,16 @@ check_contains "pip install extras" 'pip install -e'
 check_contains "install-gamepi13-services" 'install-gamepi13-services.sh'
 check_contains "midijuggler sudoers" 'midijuggler-sudoers.example'
 check_contains "display health" 'gamepi-display-health.sh'
-check_contains "kiosk diagnostics" 'gamepi-kiosk-diagnostics.sh'
-check_contains "recover display" 'gamepi-recover-display.sh'
+check_contains "reload after pull" 'gamepi-reload-after-pull.sh'
 check_contains "rotary extra default" 'alsa,midi,hid,rotary'
-check_contains "systemd-tmpfiles create" 'systemd-tmpfiles'
+check_contains "kiosk restart opt-in" 'GAMEPI_RESTART_KIOSK:-0'
+
+if grep -q 'gamepi-kiosk-diagnostics.sh' "$script"; then
+  echo "FAIL: deploy-gamepi must not reference kiosk diagnostics" >&2
+  fail=1
+else
+  echo "ok: deploy-gamepi has no kiosk diagnostics"
+fi
 
 if [ "$fail" -ne 0 ]; then
   exit 1

@@ -1,9 +1,14 @@
 #!/bin/sh
 export FRAMEBUFFER=/dev/fb0
-export DISPLAY="${DISPLAY:-:0}"
-export XAUTHORITY="${XAUTHORITY:-${HOME}/.Xauthority}"
 
 xsession_pid=$$
+
+(
+  while [ ! -S /tmp/.X11-unix/X0 ]; do
+    sleep 0.1
+  done
+  /opt/midijuggler/app/scripts/gamepi-disable-blanking.sh
+) &
 
 (
   while sleep 2; do
@@ -15,16 +20,6 @@ xsession_pid=$$
   done
 ) &
 
-while [ ! -S /tmp/.X11-unix/X0 ]; do
-  sleep 0.1
-done
-
-handoff_script="${GAMEPI_FB_HANDOFF_SCRIPT:-/opt/midijuggler/app/scripts/gamepi-fb-handoff.sh}"
-if [ -x "$handoff_script" ]; then
-  GAMEPI_FB_DEVICE="${FRAMEBUFFER:-/dev/fb0}" GAMEPI_FB_HANDOFF_DELAY="${GAMEPI_FB_HANDOFF_DELAY:-0.2}" \
-    "$handoff_script"
-fi
-
 /opt/midijuggler/app/scripts/gamepi-disable-blanking.sh
 
 if command -v unclutter >/dev/null 2>&1; then
@@ -35,18 +30,6 @@ if command -v xset >/dev/null 2>&1; then
   xset s off
   xset -dpms
   xset s noblank
-  xset dpms force on
-fi
-
-(
-  while sleep 3; do
-    /opt/midijuggler/app/scripts/gamepi-disable-blanking.sh
-  done
-) &
-
-diag_script="${GAMEPI_KIOSK_DIAG_SCRIPT:-/opt/midijuggler/app/scripts/gamepi-kiosk-diagnostics.sh}"
-if [ -x "$diag_script" ]; then
-  "$diag_script"
 fi
 
 CHROMIUM_USER_DATA_DIR="${GAMEPI_CHROMIUM_USER_DATA_DIR:-${HOME:-/home/dietpi}/.cache/midijuggler-kiosk}"
@@ -61,10 +44,7 @@ if [ -x "$WAIT_SCRIPT" ]; then
 fi
 
 exec chromium --kiosk --noerrdialogs --disable-infobars \
-  --disable-gpu --disable-gpu-compositing \
-  --disable-features=Translate,IdleDetection \
-  --disable-background-timer-throttling \
-  --disable-renderer-backgrounding \
+  --disable-features=Translate \
   --user-data-dir="$CHROMIUM_USER_DATA_DIR" \
   --disk-cache-size=1 \
   --lang=de \

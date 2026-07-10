@@ -1,8 +1,7 @@
 #!/bin/sh
 set -eu
 
-. "$(dirname "$0")/gamepi-paths.sh"
-completed_flag="$(gamepi_splash_completed_flag)"
+completed_flag="${GAMEPI_SPLASH_COMPLETED_FLAG:-/run/gamepi-splash-completed}"
 image="${GAMEPI_SPLASH_IMAGE:-/etc/midijuggler/splash.png}"
 gpio="${GAMEPI_START_GPIO:-26}"
 chip="${GAMEPI_START_GPIO_CHIP:-gpiochip0}"
@@ -52,7 +51,6 @@ console_boot_requested() {
   fi
 
   if [ -x "$python_bin" ] && [ -f "$start_held_script" ]; then
-    # Start-not-held (or evdev errors) must not abort splash / kiosk handoff.
     if "$python_bin" "$start_held_script" "$hold_ms"; then
       return 0
     fi
@@ -82,7 +80,7 @@ if ! command -v fbi >/dev/null 2>&1; then
 fi
 
 if [ -x "$blanking_script" ]; then
-  GAMEPI_FB_DEVICE="$fb_device" "$blanking_script"
+  GAMEPI_FB_DEVICE="$fb_device" GAMEPI_ALLOW_SETTERM=1 "$blanking_script"
 fi
 
 systemctl stop getty@tty1.service 2>/dev/null || true
