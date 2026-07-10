@@ -17,6 +17,8 @@ KillSignal=SIGTERM
 FinalKillSignal=SIGKILL
 Environment=HOME=/home/dietpi
 Environment=FRAMEBUFFER=/dev/fb0
+Environment=GAMEPI_SPLASH_COMPLETED_FLAG=/run/gamepi/splash-completed
+RuntimeDirectory=gamepi
 WorkingDirectory=/home/dietpi
 TTYPath=/dev/tty1
 TTYReset=no

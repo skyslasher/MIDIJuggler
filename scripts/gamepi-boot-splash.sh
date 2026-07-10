@@ -1,7 +1,8 @@
 #!/bin/sh
 set -eu
 
-completed_flag="${GAMEPI_SPLASH_COMPLETED_FLAG:-/run/gamepi-splash-completed}"
+. "$(dirname "$0")/gamepi-paths.sh"
+completed_flag="$(gamepi_splash_completed_flag)"
 image="${GAMEPI_SPLASH_IMAGE:-/etc/midijuggler/splash.png}"
 gpio="${GAMEPI_START_GPIO:-26}"
 chip="${GAMEPI_START_GPIO_CHIP:-gpiochip0}"

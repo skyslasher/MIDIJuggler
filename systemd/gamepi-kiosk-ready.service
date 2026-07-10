@@ -10,6 +10,8 @@ Type=oneshot
 RemainAfterExit=yes
 User=dietpi
 Environment=MIDIJUGGLER_SCRIPTS_DIR=/opt/midijuggler/app/scripts
+Environment=GAMEPI_SPLASH_COMPLETED_FLAG=/run/gamepi/splash-completed
+RuntimeDirectory=gamepi
 StandardOutput=journal
 StandardError=journal
 ExecStartPre=+/opt/midijuggler/app/scripts/gamepi-disable-blanking.sh

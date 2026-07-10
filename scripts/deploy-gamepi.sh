@@ -146,6 +146,9 @@ install_gamepi_services() {
     fail "Skript fehlt: ${services_script}"
   fi
   MIDIJUGGLER_APP_ROOT="$app_root" "$services_script"
+  if [ -f /etc/tmpfiles.d/gamepi.conf ] && command -v systemd-tmpfiles >/dev/null 2>&1; then
+    systemd-tmpfiles --create /etc/tmpfiles.d/gamepi.conf
+  fi
 }
 
 ensure_avahi() {

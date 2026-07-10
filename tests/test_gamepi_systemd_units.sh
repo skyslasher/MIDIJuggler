@@ -32,6 +32,21 @@ else
   echo "ok: gamepi-kiosk.service requires midijuggler.service"
 fi
 
+if ! grep -q 'RuntimeDirectory=gamepi' "$repo_root/systemd/gamepi-kiosk.service"; then
+  echo "FAIL: gamepi-kiosk.service must provide RuntimeDirectory=gamepi" >&2
+  fail=1
+else
+  echo "ok: gamepi-kiosk.service provides /run/gamepi runtime dir"
+fi
+
+if ! grep -q 'GAMEPI_SPLASH_COMPLETED_FLAG=/run/gamepi/splash-completed' \
+  "$repo_root/systemd/gamepi-kiosk.service"; then
+  echo "FAIL: gamepi-kiosk.service must set splash completed flag path" >&2
+  fail=1
+else
+  echo "ok: gamepi-kiosk.service sets splash completed flag path"
+fi
+
 if grep -q 'GAMEPI_ALLOW_SETTERM=1' "$repo_root/scripts/gamepi-boot-splash.sh"; then
   echo "FAIL: gamepi-boot-splash.sh still enables setterm" >&2
   fail=1

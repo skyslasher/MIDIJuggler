@@ -15,7 +15,11 @@ units="
   gamepi-brightness-keys.service
 "
 
+tmpfiles_src="${repo_root}/systemd/gamepi-tmpfiles.conf"
+tmpfiles_dest="/etc/tmpfiles.d/gamepi.conf"
+
 scripts="
+  scripts/gamepi-paths.sh
   scripts/gamepi-disable-blanking.sh
   scripts/gamepi-blanking-watch.sh
   scripts/gamepi-kiosk-diagnostics.sh
@@ -41,6 +45,14 @@ for unit in $units; do
   fi
   install -m 0644 "$src" "${unit_dir}/${unit}"
 done
+
+if [ -f "$tmpfiles_src" ]; then
+  echo "Installing tmpfiles.d for /run/gamepi" >&2
+  install -m 0644 "$tmpfiles_src" "$tmpfiles_dest"
+  if command -v systemd-tmpfiles >/dev/null 2>&1; then
+    systemd-tmpfiles --create "$tmpfiles_dest"
+  fi
+fi
 
 echo "Installing executable GamePi13 scripts" >&2
 for script in $scripts; do

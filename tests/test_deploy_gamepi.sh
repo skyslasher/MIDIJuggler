@@ -31,7 +31,7 @@ check_contains "display health" 'gamepi-display-health.sh'
 check_contains "kiosk diagnostics" 'gamepi-kiosk-diagnostics.sh'
 check_contains "recover display" 'gamepi-recover-display.sh'
 check_contains "rotary extra default" 'alsa,midi,hid,rotary'
-check_contains "avahi check" 'avahi'
+check_contains "systemd-tmpfiles create" 'systemd-tmpfiles'
 
 if [ "$fail" -ne 0 ]; then
   exit 1

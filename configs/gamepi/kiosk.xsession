@@ -61,6 +61,7 @@ if [ -x "$WAIT_SCRIPT" ]; then
 fi
 
 exec chromium --kiosk --noerrdialogs --disable-infobars \
+  --disable-gpu --disable-gpu-compositing \
   --disable-features=Translate,IdleDetection \
   --disable-background-timer-throttling \
   --disable-renderer-backgrounding \
