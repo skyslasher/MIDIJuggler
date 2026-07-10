@@ -25,7 +25,7 @@ from midijuggler.datapoint.types import (
     trigger_value,
 )
 from midijuggler.eventbus import EventBus
-from midijuggler.events import MasterClockCommandEvent, OscMessageEvent
+from midijuggler.events import BpmChangedEvent, MasterClockCommandEvent, OscMessageEvent
 from midijuggler.master_clock import (
     MasterClock,
     click_interval_from_set_value,
@@ -163,6 +163,8 @@ class RotaryDisplayModule(InterfaceModule):
                 self.store.subscribe(DataPointId("clock", "beat"), self._on_feedback)
                 continue
             self.store.subscribe(DataPointId(ROTARY_MODULE, point), self._on_feedback)
+        self.store.subscribe(DataPointId("clock", "bpm"), self._on_clock_bpm)
+        self.bus.subscribe(BpmChangedEvent, self._on_bpm_changed)
         self.bus.subscribe(OscMessageEvent, self._on_osc_message)
         self.master_clock.register_beat_pulse_listener(self._on_transport_beat_pulse)
         self._start_serial_loop_if_needed()
@@ -410,6 +412,14 @@ class RotaryDisplayModule(InterfaceModule):
             except OSError:
                 LOGGER.exception("rotary display serial beat write failed")
                 self._serial_connected = False
+
+    async def _on_clock_bpm(self, value: DataPointValue) -> None:
+        if value.float_value is None:
+            return
+        await self._send_sync(force=True)
+
+    async def _on_bpm_changed(self, event: BpmChangedEvent) -> None:
+        await self._send_sync(force=True)
 
     async def _on_feedback(self, value: DataPointValue) -> None:
         if value.point_id.point == "beat":

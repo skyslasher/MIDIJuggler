@@ -1,6 +1,7 @@
 [Unit]
 Description=GamePi13 MIDIJuggler Kiosk on tty1
-Wants=gamepi-kiosk-ready.service
+Wants=gamepi-kiosk-ready.service midijuggler.service
+Requires=midijuggler.service
 After=gamepi-kiosk-ready.service gamepi-splash.service network-online.target midijuggler.service
 Conflicts=getty@tty1.service
 ConditionPathExists=!/run/gamepi-console-boot
@@ -23,7 +24,7 @@ TTYVHangup=no
 StandardInput=tty
 StandardOutput=journal
 StandardError=journal
-ExecStart=/opt/midijuggler/app/scripts/gamepi-start-kiosk.sh
+ExecStart=/opt/midijuggler/app/scripts/gamepi-launch-kiosk.sh
 Restart=on-failure
 RestartSec=5
 

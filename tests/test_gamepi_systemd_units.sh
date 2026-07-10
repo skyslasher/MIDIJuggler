@@ -18,6 +18,20 @@ check_no_setterm() {
 check_no_setterm "$repo_root/systemd/gamepi-kiosk-ready.service"
 check_no_setterm "$repo_root/systemd/gamepi-splash.service"
 
+if ! grep -q 'gamepi-launch-kiosk.sh' "$repo_root/systemd/gamepi-kiosk.service"; then
+  echo "FAIL: gamepi-kiosk.service must use gamepi-launch-kiosk.sh" >&2
+  fail=1
+else
+  echo "ok: gamepi-kiosk.service uses launch script with fb handoff"
+fi
+
+if ! grep -q 'Requires=midijuggler.service' "$repo_root/systemd/gamepi-kiosk.service"; then
+  echo "FAIL: gamepi-kiosk.service must require midijuggler.service" >&2
+  fail=1
+else
+  echo "ok: gamepi-kiosk.service requires midijuggler.service"
+fi
+
 if grep -q 'GAMEPI_ALLOW_SETTERM=1' "$repo_root/scripts/gamepi-boot-splash.sh"; then
   echo "FAIL: gamepi-boot-splash.sh still enables setterm" >&2
   fail=1

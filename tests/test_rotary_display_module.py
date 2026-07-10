@@ -70,6 +70,46 @@ def test_rotary_display_sync_uses_master_clock_bpm_when_store_is_stale(
     assert sync_messages[-1][1][0] == pytest.approx(132.0)
 
 
+def test_rotary_display_sync_on_clock_bpm_datapoint_change(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    sync_bpms: list[float] = []
+
+    def track_sync(self, state) -> bool:
+        sync_bpms.append(state.bpm)
+        return True
+
+    monkeypatch.setattr(RotaryDisplayModule, "_write_sync_osc_sync", track_sync)
+
+    config = parse_config(
+        {
+            "master_clock": {"enabled": True, "bpm": 120.0},
+            "rotary_display": {
+                "enabled": True,
+                "transport": "osc",
+                "feedback_host": "192.168.1.70",
+                "feedback_port": 9001,
+            },
+        }
+    )
+    store = DataPointStore()
+    bus = EventBus()
+    master_clock = MasterClock(config.master_clock, bus)
+    module = RotaryDisplayModule(store, config.rotary_display, master_clock, bus)
+    module._last_sync = None
+
+    async def scenario() -> None:
+        await module.start()
+        master_clock.bpm = 145.0
+        await store.write(float_value(DataPointId("clock", "bpm"), 145.0))
+        await module.stop()
+
+    asyncio.run(scenario())
+
+    assert sync_bpms
+    assert sync_bpms[-1] == pytest.approx(145.0)
+
+
 def test_rotary_display_publishes_new_bpm_after_encoder_osc_when_clock_already_updated(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:

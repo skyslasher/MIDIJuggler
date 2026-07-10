@@ -19,6 +19,12 @@ while [ ! -S /tmp/.X11-unix/X0 ]; do
   sleep 0.1
 done
 
+handoff_script="${GAMEPI_FB_HANDOFF_SCRIPT:-/opt/midijuggler/app/scripts/gamepi-fb-handoff.sh}"
+if [ -x "$handoff_script" ]; then
+  GAMEPI_FB_DEVICE="${FRAMEBUFFER:-/dev/fb0}" GAMEPI_FB_HANDOFF_DELAY="${GAMEPI_FB_HANDOFF_DELAY:-0.2}" \
+    "$handoff_script"
+fi
+
 /opt/midijuggler/app/scripts/gamepi-disable-blanking.sh
 
 if command -v unclutter >/dev/null 2>&1; then

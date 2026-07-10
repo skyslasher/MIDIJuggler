@@ -202,7 +202,15 @@ restart_services() {
       systemctl start gamepi-kiosk.service
     fi
     if [ -x "$recover_script" ]; then
-      sleep 2
+      recover_deadline=$(($(date +%s) + 30))
+      while [ "$(date +%s)" -lt "$recover_deadline" ]; do
+        if systemctl is-active --quiet gamepi-kiosk.service && \
+           systemctl is-active --quiet midijuggler.service; then
+          break
+        fi
+        sleep 1
+      done
+      sleep 3
       GAMEPI_RECOVER_FORCE=1 "$recover_script" || warn "Display-Recovery meldet Probleme"
     fi
   else
