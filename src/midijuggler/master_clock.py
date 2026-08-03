@@ -101,17 +101,32 @@ class TapTempoTracker:
         reset_timeout: float = TAP_TEMPO_RESET_TIMEOUT_SECONDS,
         max_taps: int = TAP_TEMPO_MAX_TAPS,
         min_taps: int = 4,
+        bpm_min: float = 20.0,
+        bpm_max: float = 300.0,
         quantize_step: float = TAP_TEMPO_BPM_QUANTIZE_STEP,
     ) -> None:
         self.reset_timeout = reset_timeout
         self.max_taps = max_taps
         self.min_taps = min_taps
+        self.bpm_min = bpm_min
+        self.bpm_max = bpm_max
         self.quantize_step = quantize_step
         self._tap_times: list[float] = []
 
     @property
     def tap_count(self) -> int:
         return len(self._tap_times)
+
+    def _valid_interval_bounds(self) -> tuple[float, float]:
+        return (60.0 / self.bpm_max, 60.0 / self.bpm_min)
+
+    def _intervals(self) -> list[float]:
+        min_interval, max_interval = self._valid_interval_bounds()
+        return [
+            later - earlier
+            for earlier, later in zip(self._tap_times, self._tap_times[1:], strict=False)
+            if later > earlier and min_interval <= (later - earlier) <= max_interval
+        ]
 
     def register_tap(self, timestamp: float) -> float | None:
         if self._tap_times and timestamp - self._tap_times[-1] > self.reset_timeout:
@@ -120,11 +135,7 @@ class TapTempoTracker:
         self._tap_times = self._tap_times[-self.max_taps :]
         if len(self._tap_times) < self.min_taps:
             return None
-        intervals = [
-            later - earlier
-            for earlier, later in zip(self._tap_times, self._tap_times[1:], strict=False)
-            if later > earlier
-        ]
+        intervals = self._intervals()
         if not intervals:
             return None
         return quantize_bpm(
@@ -301,6 +312,8 @@ class MasterClock:
         self._beat_pulse_listeners: list[BeatPulseListener] = []
         self._tap_tempo = TapTempoTracker(
             min_taps=config.tap_tempo_min_taps,
+            bpm_min=config.bpm_min,
+            bpm_max=config.bpm_max,
             quantize_step=TAP_TEMPO_BPM_QUANTIZE_STEP,
         )
 
@@ -348,6 +361,8 @@ class MasterClock:
         self.config = config
         self.remote = MasterClockRemote(config)
         self._tap_tempo.min_taps = config.tap_tempo_min_taps
+        self._tap_tempo.bpm_min = config.bpm_min
+        self._tap_tempo.bpm_max = config.bpm_max
         await self._replace_click_player(config)
         self.bpm = config.bpm
         self.click_interval = config.click_interval

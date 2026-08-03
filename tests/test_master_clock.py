@@ -14,6 +14,7 @@ from midijuggler.master_clock import (
     MIDI_STOP,
     MIDI_TIMING_CLOCK,
     MasterClock,
+    TapTempoTracker,
     bpm_to_parameters,
     click_interval_from_set_value,
     click_interval_to_set_value,
@@ -658,3 +659,21 @@ def test_master_clock_can_be_reconfigured_at_runtime() -> None:
     assert clock.bpm == pytest.approx(96.0)
     assert clock.click_interval == "eighth"
     assert clock.config.click_enabled is True
+
+
+def test_tap_tempo_tracker_rejects_outlier_intervals() -> None:
+    tracker = TapTempoTracker(min_taps=3, bpm_min=40.0, bpm_max=240.0)
+
+    assert tracker.register_tap(0.0) is None
+    assert tracker.register_tap(0.5) is None
+    # Without outlier rejection the 20 ms interval would skew BPM wildly high.
+    assert tracker.register_tap(0.52) == pytest.approx(120.0)
+
+
+def test_tap_tempo_tracker_steady_rhythm() -> None:
+    tracker = TapTempoTracker(min_taps=4, bpm_min=40.0, bpm_max=240.0)
+
+    assert tracker.register_tap(10.0) is None
+    assert tracker.register_tap(10.497) is None
+    assert tracker.register_tap(10.994) is None
+    assert tracker.register_tap(11.491) == pytest.approx(121.0)
