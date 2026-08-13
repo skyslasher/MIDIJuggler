@@ -113,6 +113,7 @@ class MIDIJugglerService:
             self.bus,
             self.device_registry,
         )
+        self.web.set_rotary_display_wire_handler(self._wire_rotary_display_module)
         self.module_registry, self.io_modules = build_module_registry(
             config,
             self.datapoint_store,

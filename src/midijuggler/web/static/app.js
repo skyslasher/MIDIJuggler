@@ -8164,15 +8164,29 @@ function createRotaryDisplayCard(instance, config, options = {}) {
   pushButton.className = "rotary-display-push";
   pushButton.textContent = "Push config now";
   pushButton.addEventListener("click", () => {
-    const payload = collectRotaryDisplayInstanceFrom(card, config);
+    const instancePayload = collectRotaryDisplayInstanceFrom(card, config);
     if (rotaryDisplayMessage) {
-      rotaryDisplayMessage.textContent = `pushing ${payload.name}...`;
+      rotaryDisplayMessage.textContent = `saving and pushing ${instancePayload.name}...`;
     }
-    fetch("/api/rotary-display/push", {
+    fetch("/api/rotary-display", {
       method: "POST",
       headers: { "content-type": "application/json" },
-      body: JSON.stringify({ name: payload.name }),
+      body: JSON.stringify(rotaryDisplayFormPayload()),
     })
+      .then(async (response) => {
+        if (!response.ok) {
+          throw new Error(await response.text());
+        }
+        return response.json();
+      })
+      .then((saved) => {
+        renderRotaryDisplayConfig(saved);
+        return fetch("/api/rotary-display/push", {
+          method: "POST",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify({ name: instancePayload.name }),
+        });
+      })
       .then(async (response) => {
         if (!response.ok) {
           throw new Error(await response.text());

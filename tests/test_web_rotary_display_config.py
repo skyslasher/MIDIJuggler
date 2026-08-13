@@ -83,7 +83,9 @@ def test_apply_rotary_display_config_persists_and_updates_module(
         ClockBpmTracker(),
         master_clock,
         config_path=config_file,
+        datapoint_store=store,
     )
+    asyncio.run(module.start())
     interface.bind_rotary_display_module(module)
 
     result = asyncio.run(
@@ -154,7 +156,9 @@ def test_apply_rotary_display_config_host_transport_switch_enables_osc(
         ClockBpmTracker(),
         master_clock,
         config_path=config_file,
+        datapoint_store=store,
     )
+    asyncio.run(module.start())
     interface.bind_rotary_display_module(module)
 
     result = asyncio.run(
@@ -163,6 +167,7 @@ def test_apply_rotary_display_config_host_transport_switch_enables_osc(
                 "instances": [
                     {
                         "name": "default",
+                        "enabled": True,
                         "transport": "osc",
                         "serial_port": "/dev/ttyACM0",
                     }
@@ -174,6 +179,84 @@ def test_apply_rotary_display_config_host_transport_switch_enables_osc(
     assert result["persisted"] is True
     assert enable_calls == [True]
     assert module.config.transport == "osc"
+
+
+def test_apply_rotary_display_config_starts_new_enabled_instance_at_runtime() -> None:
+    config = parse_config({"master_clock": {"enabled": True}})
+    bus = EventBus()
+    store = DataPointStore()
+    master_clock = MasterClock(config.master_clock, bus)
+    interface = WebInterface(
+        config,
+        bus,
+        ClockBpmTracker(),
+        master_clock,
+        datapoint_store=store,
+    )
+
+    async def scenario() -> None:
+        result = await interface.apply_rotary_display_config(
+            {
+                "instances": [
+                    {
+                        "name": "Rotary Rack",
+                        "enabled": True,
+                        "transport": "serial",
+                        "serial_port": "/dev/ttyACM0",
+                    }
+                ]
+            }
+        )
+        assert result["restart_required"] is False
+        assert "rotary_display:Rotary Rack" in interface._rotary_display_modules
+        module = interface._rotary_display_modules["rotary_display:Rotary Rack"]
+        assert module.config.name == "Rotary Rack"
+        assert module.running is True
+        await module.stop()
+
+    asyncio.run(scenario())
+
+
+def test_apply_rotary_display_push_activates_saved_instance() -> None:
+    config = parse_config(
+        {
+            "master_clock": {"enabled": True},
+            "rotary_displays": [
+                {
+                    "name": "Rotary Rack",
+                    "enabled": True,
+                    "transport": "serial",
+                    "serial_port": "/dev/ttyACM0",
+                }
+            ],
+        }
+    )
+    bus = EventBus()
+    store = DataPointStore()
+    master_clock = MasterClock(config.master_clock, bus)
+    interface = WebInterface(
+        config,
+        bus,
+        ClockBpmTracker(),
+        master_clock,
+        datapoint_store=store,
+    )
+    push_calls: list[str] = []
+
+    async def fake_push(*, force: bool = False) -> dict:
+        push_calls.append("push")
+        return {"pushed": False, "reason": "serial not connected"}
+
+    async def scenario() -> None:
+        await interface.reconcile_rotary_display_modules(config.rotary_displays)
+        module = interface._rotary_display_modules["rotary_display:Rotary Rack"]
+        module.push_device_config = fake_push  # type: ignore[method-assign]
+        response = await interface.apply_rotary_display_push({"name": "Rotary Rack"})
+        assert response["push_result"]["reason"] == "serial not connected"
+        assert push_calls == ["push"]
+        await module.stop()
+
+    asyncio.run(scenario())
 
 
 def test_parse_multiple_rotary_displays() -> None:

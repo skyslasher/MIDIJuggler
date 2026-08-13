@@ -12,7 +12,7 @@ import tomllib
 from dataclasses import replace
 from importlib import resources
 from pathlib import Path
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, Callable
 
 from aiohttp import WSMsgType, web
 
@@ -157,7 +157,8 @@ from midijuggler.web.monitor_coalesce import (
 if TYPE_CHECKING:
     from midijuggler.modules.interface.bandhelper.module import BandHelperModule
     from midijuggler.modules.interface.gamepi_brightness import GamePiBrightnessModule
-    from midijuggler.modules.interface.rotary_display.module import RotaryDisplayModule
+
+from midijuggler.modules.interface.rotary_display.module import RotaryDisplayModule
 from midijuggler.system_hostname import (
     apply_hostname,
     can_restart_service,
@@ -283,12 +284,64 @@ class WebInterface:
             hello_address=config.rotary_display.hello_osc_address,
         )
         self._rotary_display_modules: dict[str, RotaryDisplayModule] = {}
+        self._rotary_display_wire_handler: Callable[[RotaryDisplayModule], None] | None = None
         self._bandhelper_module: BandHelperModule | None = None
         self._gamepi_module: GamePiBrightnessModule | None = None
         self.bus.subscribe("*", self._broadcast_event)
 
     def bind_rotary_display_module(self, module: RotaryDisplayModule) -> None:
         self._rotary_display_modules[rotary_display_instance_id(module.config)] = module
+
+    def set_rotary_display_wire_handler(
+        self,
+        handler: Callable[[RotaryDisplayModule], None] | None,
+    ) -> None:
+        self._rotary_display_wire_handler = handler
+
+    async def reconcile_rotary_display_modules(
+        self,
+        displays: tuple[RotaryDisplayConfig, ...],
+    ) -> None:
+        if self.datapoint_store is None:
+            return
+
+        desired = {
+            rotary_display_instance_id(display): display
+            for display in displays
+            if display.enabled
+        }
+
+        for instance_id in list(self._rotary_display_modules):
+            if instance_id in desired:
+                continue
+            module = self._rotary_display_modules.pop(instance_id)
+            if module.running:
+                await module.stop()
+
+        for instance_id, display in desired.items():
+            module = self._rotary_display_modules.get(instance_id)
+            if module is None:
+                for old_id, candidate in list(self._rotary_display_modules.items()):
+                    if candidate.config.name == display.name:
+                        self._rotary_display_modules.pop(old_id)
+                        module = candidate
+                        self._rotary_display_modules[instance_id] = module
+                        break
+
+            if module is None:
+                module = RotaryDisplayModule(
+                    self.datapoint_store,
+                    display,
+                    self.master_clock,
+                    self.bus,
+                )
+                if self._rotary_display_wire_handler is not None:
+                    self._rotary_display_wire_handler(module)
+                await module.start()
+                self._rotary_display_modules[instance_id] = module
+                continue
+
+            await module.apply_runtime_config(display)
 
     def bind_bandhelper_module(self, module: BandHelperModule) -> None:
         self._bandhelper_module = module
@@ -3783,17 +3836,19 @@ class WebInterface:
         if not isinstance(payload, dict):
             raise ValueError("rotary display config payload must be an object")
 
-        previous = self.config.rotary_displays
-        displays, deleted = self._normalized_rotary_displays_config(payload)
+        displays, _deleted = self._normalized_rotary_displays_config(payload)
         self.config = replace(self.config, rotary_displays=displays)
+
+        await self.reconcile_rotary_display_modules(displays)
 
         push_results: dict[str, Any] = {}
         for config in displays:
+            if not config.enabled:
+                continue
             instance_id = rotary_display_instance_id(config)
             module = self._rotary_display_modules.get(instance_id)
             if module is None:
                 continue
-            await module.apply_runtime_config(config)
             push_results[instance_id] = await module.push_device_config(force=True)
 
         persisted = False
@@ -3812,17 +3867,10 @@ class WebInterface:
         else:
             persist_error = "no config path available"
 
-        previous_ids = {rotary_display_instance_id(item) for item in previous}
-        current_ids = {rotary_display_instance_id(item) for item in displays}
-        previous_ports = {rotary_display_instance_id(item): item.serial_port for item in previous}
-        restart_required = (
-            previous_ids != current_ids
-            or bool(deleted)
-            or any(
-                previous_ports.get(rotary_display_instance_id(item)) != item.serial_port
-                for item in displays
-                if rotary_display_instance_id(item) in previous_ports
-            )
+        enabled_displays = [item for item in displays if item.enabled]
+        restart_required = bool(enabled_displays) and not any(
+            rotary_display_instance_id(item) in self._rotary_display_modules
+            for item in enabled_displays
         )
 
         response = self.rotary_display_config_payload()
@@ -3837,8 +3885,15 @@ class WebInterface:
         return response
 
     async def apply_rotary_display_push(self, payload: dict[str, Any] | None = None) -> dict[str, Any]:
+        await self.reconcile_rotary_display_modules(self.config.rotary_displays)
+
         if not self._rotary_display_modules:
-            raise ValueError("rotary display module is not enabled")
+            enabled = [display for display in self.config.rotary_displays if display.enabled]
+            if not enabled:
+                raise ValueError("no rotary display instances are enabled")
+            raise ValueError(
+                "rotary display modules could not be started; check serial ports and service logs"
+            )
 
         target_name = ""
         if isinstance(payload, dict):
@@ -3851,6 +3906,18 @@ class WebInterface:
             push_results[instance_id] = await module.push_device_config(force=True)
 
         if target_name and not push_results:
+            display = next(
+                (item for item in self.config.rotary_displays if item.name == target_name),
+                None,
+            )
+            if display is None:
+                raise ValueError(
+                    f"rotary display instance {target_name!r} was not found; save config first"
+                )
+            if not display.enabled:
+                raise ValueError(
+                    f"rotary display instance {target_name!r} is disabled; enable it and save"
+                )
             raise ValueError(f"rotary display instance {target_name!r} is not active")
 
         response = self.rotary_display_config_payload()
@@ -3871,8 +3938,15 @@ class WebInterface:
             if deleted is not None and not isinstance(deleted, list):
                 raise ValueError("deleted must be an array")
             deleted_names = [str(name).strip() for name in deleted if str(name).strip()]
+            current_by_name = {display.name: display for display in self.config.rotary_displays}
             displays = tuple(
-                self._normalized_rotary_display_config(item, current=None)
+                self._normalized_rotary_display_config(
+                    item,
+                    current=current_by_name.get(
+                        str(item.get("name", "default")).strip(),
+                        RotaryDisplayConfig(),
+                    ),
+                )
                 for item in raw_instances
                 if isinstance(item, dict)
             )
