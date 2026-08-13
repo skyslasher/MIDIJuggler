@@ -157,8 +157,7 @@ from midijuggler.web.monitor_coalesce import (
 if TYPE_CHECKING:
     from midijuggler.modules.interface.bandhelper.module import BandHelperModule
     from midijuggler.modules.interface.gamepi_brightness import GamePiBrightnessModule
-
-from midijuggler.modules.interface.rotary_display.module import RotaryDisplayModule
+    from midijuggler.modules.interface.rotary_display.module import RotaryDisplayModule
 from midijuggler.system_hostname import (
     apply_hostname,
     can_restart_service,
@@ -329,6 +328,8 @@ class WebInterface:
                         break
 
             if module is None:
+                from midijuggler.modules.interface.rotary_display.module import RotaryDisplayModule
+
                 module = RotaryDisplayModule(
                     self.datapoint_store,
                     display,
@@ -3569,10 +3570,22 @@ class WebInterface:
 
         for name, updated in updates.items():
             await self._apply_osc_runtime_adapter(name, updated)
-            if updated.enabled:
-                await self._refresh_osc_datapoints(name)
-            else:
-                await self._clear_osc_datapoints(name)
+
+        previous_device_uids = set(self.config.devices.keys())
+        object.__setattr__(
+            self.config,
+            "devices",
+            normalize_device_libraries(
+                supplement_devices(
+                    dict(self.config.devices),
+                    self.config.adapters,
+                    suppressed_adapters=self.config.runtime.suppressed_inferred_device_adapters,
+                ),
+                self.config.adapters,
+            ),
+        )
+        self.device_registry.reload_from_config(self.config)
+        await self._refresh_device_datapoints_after_config_change(previous_device_uids)
 
         response = self.osc_adapters_config_payload()
         response.update({"persisted": persisted, "persist_error": persist_error})

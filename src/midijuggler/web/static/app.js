@@ -203,6 +203,10 @@ const LEARN_STREAM_POINT_SUFFIXES = new Set([
 ]);
 const CLOCK_MONITOR_CONTROLS = new Set(["bpm", "quarter_ms", "eighth_ms"]);
 let socket;
+let reconnectTimer = null;
+let connectTimeout = null;
+const RECONNECT_DELAY_MS = 2000;
+const CONNECT_TIMEOUT_MS = 10000;
 let gpioConfig = null;
 let devicesConfig = null;
 let statusDevices = [];
@@ -673,6 +677,10 @@ function deviceSupportsConnectionSource(device) {
 }
 
 function deviceSupportsConnectionTarget(device) {
+  const kind = (device.library_kind || "").trim();
+  if (kind === "osc" || kind === "wing") {
+    return true;
+  }
   return Boolean((device.library || "").trim());
 }
 
@@ -8694,16 +8702,98 @@ function replaceSelectOptions(select, options, valueKey, labelKey, selectedValue
   }
 }
 
+function clearReconnectTimer() {
+  if (reconnectTimer !== null) {
+    clearTimeout(reconnectTimer);
+    reconnectTimer = null;
+  }
+}
+
+function clearConnectTimeout() {
+  if (connectTimeout !== null) {
+    clearTimeout(connectTimeout);
+    connectTimeout = null;
+  }
+}
+
+function cleanupSocket(existing) {
+  if (!existing) {
+    return;
+  }
+  if (existing.readyState === WebSocket.OPEN || existing.readyState === WebSocket.CONNECTING) {
+    existing.close();
+  }
+}
+
+function scheduleReconnect() {
+  clearReconnectTimer();
+  reconnectTimer = setTimeout(() => {
+    reconnectTimer = null;
+    connect();
+  }, RECONNECT_DELAY_MS);
+}
+
+function reconnectMonitor() {
+  clearReconnectTimer();
+  clearConnectTimeout();
+  cleanupSocket(socket);
+  socket = null;
+  connect();
+}
+
+async function waitForServiceRestart() {
+  const delays = [500, 1000, 2000, 2000, 3000, 3000, 5000];
+  for (const delay of delays) {
+    await new Promise((resolve) => setTimeout(resolve, delay));
+    try {
+      const response = await fetch("/api/status");
+      if (response.ok) {
+        renderStatus(await response.json());
+        return true;
+      }
+    } catch {
+      // service still restarting
+    }
+  }
+  return false;
+}
+
 function connect() {
-  socket = new WebSocket(`${location.protocol === "https:" ? "wss" : "ws"}://${location.host}/ws/monitor`);
-  socket.addEventListener("open", () => {
+  clearReconnectTimer();
+  clearConnectTimeout();
+  const previousSocket = socket;
+  socket = null;
+  cleanupSocket(previousSocket);
+
+  const ws = new WebSocket(`${location.protocol === "https:" ? "wss" : "ws"}://${location.host}/ws/monitor`);
+  socket = ws;
+
+  connectTimeout = setTimeout(() => {
+    connectTimeout = null;
+    if (socket === ws && ws.readyState === WebSocket.CONNECTING) {
+      ws.close();
+    }
+  }, CONNECT_TIMEOUT_MS);
+
+  ws.addEventListener("open", () => {
+    if (socket !== ws) {
+      return;
+    }
+    clearConnectTimeout();
     connectionState.textContent = "connected";
   });
-  socket.addEventListener("close", () => {
+  ws.addEventListener("close", () => {
+    if (socket !== ws) {
+      return;
+    }
+    clearConnectTimeout();
     connectionState.textContent = "disconnected, retrying...";
-    setTimeout(connect, 2000);
+    scheduleReconnect();
   });
-  socket.addEventListener("message", (message) => {
+  ws.addEventListener("message", (message) => {
+    if (socket !== ws) {
+      return;
+    }
     const data = JSON.parse(message.data);
     if (data.type === "status") {
       renderStatus(data.payload);
@@ -9001,9 +9091,16 @@ systemRestartButton?.addEventListener("click", () => {
       }
       return response.json();
     })
-    .then(() => {
+    .then(async () => {
       systemRestartMessage.textContent = "restart requested; reconnecting...";
       connectionState.textContent = "restarting service...";
+      const ready = await waitForServiceRestart();
+      if (ready) {
+        systemRestartMessage.textContent = "service restarted";
+      } else {
+        systemRestartMessage.textContent = "restart requested; still waiting for service...";
+      }
+      reconnectMonitor();
     })
     .catch((error) => {
       systemRestartMessage.textContent = `error: ${error.message}`;

@@ -350,6 +350,46 @@ def test_apply_osc_adapters_config_starts_new_enabled_instance() -> None:
     assert len(runtime_adapters) == 1
 
 
+def test_apply_osc_adapters_config_supplements_inferred_device_without_library() -> None:
+    listen_port = _free_udp_port()
+    store = DataPointStore()
+    runtime_adapters = []
+    config = parse_config({"adapters": {}})
+    interface = WebInterface(
+        config,
+        EventBus(),
+        ClockBpmTracker(),
+        MasterClock(config.master_clock, EventBus()),
+        runtime_adapters=runtime_adapters,
+        datapoint_store=store,
+    )
+    io_modules: dict[str, object] = {}
+    interface.bind_osc_io_modules(io_modules)  # type: ignore[arg-type]
+
+    asyncio.run(
+        interface.apply_osc_adapters_config(
+            {
+                "instances": [
+                    {
+                        "name": "generic_osc",
+                        "enabled": True,
+                        "listen_host": "127.0.0.1",
+                        "listen_port": listen_port,
+                    }
+                ]
+            }
+        )
+    )
+
+    device = interface.device_registry.device_for_adapter("generic_osc")
+    assert device is not None
+    assert device.uid == "generic_osc"
+    assert device.library_kind == "osc"
+    assert device.library == ""
+    assert "generic_osc" in interface.config.devices
+    assert "generic_osc" in io_modules
+
+
 def test_apply_osc_adapters_config_registers_datapoints_for_enabled_instance() -> None:
     listen_port = _free_udp_port()
     store = DataPointStore()
