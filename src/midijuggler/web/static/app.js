@@ -29,27 +29,9 @@ const masterClickEnabled = document.querySelector("#master-click-enabled");
 const masterClickWav = document.querySelector("#master-click-wav");
 const masterClickDevice = document.querySelector("#master-click-device");
 const masterClockMessage = document.querySelector("#master-clock-message");
-const rotaryDisplayForm = document.querySelector("#rotary-display-form");
-const rotaryEnabled = document.querySelector("#rotary-enabled");
-const rotaryHostTransport = document.querySelector("#rotary-host-transport");
-const rotarySerialPort = document.querySelector("#rotary-serial-port");
-const rotarySerialBaud = document.querySelector("#rotary-serial-baud");
-const rotaryFeedbackHost = document.querySelector("#rotary-feedback-host");
-const rotaryFeedbackPort = document.querySelector("#rotary-feedback-port");
-const rotaryDeviceTransport = document.querySelector("#rotary-device-transport");
-const rotaryWifiEnabled = document.querySelector("#rotary-wifi-enabled");
-const rotaryWifiSsid = document.querySelector("#rotary-wifi-ssid");
-const rotaryWifiPass = document.querySelector("#rotary-wifi-pass");
-const rotaryWifiPassToggle = document.querySelector("#rotary-wifi-pass-toggle");
-const rotaryDeviceHost = document.querySelector("#rotary-device-host");
-const rotaryDeviceMdnsHostname = document.querySelector("#rotary-device-mdns-hostname");
-const rotaryDevicePort = document.querySelector("#rotary-device-port");
-const rotaryDeviceListenPort = document.querySelector("#rotary-device-listen-port");
-const rotaryPulseEnabled = document.querySelector("#rotary-pulse-enabled");
-const rotaryBpmStep = document.querySelector("#rotary-bpm-step");
-const rotaryBeatLedColor = document.querySelector("#rotary-beat-led-color");
-const rotaryPushStatus = document.querySelector("#rotary-push-status");
-const rotaryPushButton = document.querySelector("#rotary-push-button");
+const rotaryDisplayInstances = document.querySelector("#rotary-display-instances");
+const rotaryDisplayAdd = document.querySelector("#rotary-display-add");
+const rotaryDisplaySave = document.querySelector("#rotary-display-save");
 const rotaryDisplayMessage = document.querySelector("#rotary-display-message");
 const bandhelperForm = document.querySelector("#bandhelper-form");
 const bandhelperEnabled = document.querySelector("#bandhelper-enabled");
@@ -8068,109 +8050,314 @@ function renderMasterClockConfig(config) {
   renderAdapterTargetList(masterOutputTargets, config.available_output_targets || []);
 }
 
-function renderRotaryDisplayConfig(config) {
-  rotaryDisplayConfig = config;
-  if (!rotaryDisplayForm) {
+function defaultRotaryDisplayInstance(config) {
+  return {
+    name: "default",
+    enabled: false,
+    transport: "osc",
+    serial_port: "",
+    serial_baud: 115200,
+    feedback_host: "",
+    feedback_port: 9001,
+    device: {
+      transport: "both",
+      wifi_enabled: true,
+      wifi_ssid: "",
+      wifi_pass: "",
+      host: "midijuggler.local",
+      mdns_hostname: "",
+      port: 9000,
+      listen_port: 9001,
+      pulse_enabled: true,
+      bpm_step: 1.0,
+      beat_led_color: "#1EFF78",
+    },
+    available_serial_ports: config?.available_serial_ports || [],
+  };
+}
+
+function rotarySerialPortChoices(config, selectedValue) {
+  const ports = config?.available_serial_ports || [];
+  const choices = ports.map((port) => ({
+    id: port.id,
+    label: port.label || port.id,
+  }));
+  if (selectedValue && !choices.some((port) => port.id === selectedValue)) {
+    choices.unshift({ id: selectedValue, label: `${selectedValue} (saved)` });
+  }
+  return choices;
+}
+
+function updateRotaryDisplayPushStatus(card, instance) {
+  const status = card.querySelector('[data-role="push-status"]');
+  if (!status) {
     return;
   }
-  const device = config.device || {};
-  if (rotaryEnabled) {
-    rotaryEnabled.checked = Boolean(config.enabled);
+  const push = instance.push || {};
+  const pending = push.push_pending ? "push pending" : "in sync";
+  const hostUsesSerial =
+    push.host_uses_serial ??
+    (instance.transport === "serial" || instance.transport === "both");
+  if (hostUsesSerial) {
+    const connected = push.serial_connected ? "connected" : "not connected";
+    status.textContent = `Serial ${connected}; ${pending}`;
+  } else if (push.push_pending) {
+    const usb = push.serial_connected ? "USB connected" : "USB not connected";
+    status.textContent = `Host OSC; ${usb}; ${pending}`;
+  } else {
+    status.textContent = `Host OSC; ${pending}`;
   }
-  if (rotaryHostTransport) {
-    rotaryHostTransport.value = config.transport || "osc";
+}
+
+function collectRotaryDisplayInstanceFrom(card, config) {
+  const readValue = (field) => card.querySelector(`[data-field="${field}"]`);
+  const readText = (field) => readValue(field)?.value.trim() || "";
+  const readNumber = (field, fallback) => {
+    const value = Number(readValue(field)?.value);
+    return Number.isFinite(value) ? value : fallback;
+  };
+  const readChecked = (field) => Boolean(readValue(field)?.checked);
+  return {
+    name: readText("name") || "default",
+    enabled: readChecked("enabled"),
+    transport: readValue("transport")?.value || "osc",
+    serial_port: readValue("serial_port")?.value || "",
+    serial_baud: readNumber("serial_baud", 115200),
+    feedback_host: readText("feedback_host"),
+    feedback_port: readNumber("feedback_port", 9001),
+    device: {
+      transport: readValue("device_transport")?.value || "both",
+      wifi_enabled: readChecked("device_wifi_enabled"),
+      wifi_ssid: readText("device_wifi_ssid"),
+      wifi_pass: readValue("device_wifi_pass")?.value || "",
+      host: readText("device_host") || "midijuggler.local",
+      mdns_hostname: readText("device_mdns_hostname"),
+      port: readNumber("device_port", 9000),
+      listen_port: readNumber("device_listen_port", 9001),
+      pulse_enabled: readChecked("device_pulse_enabled"),
+      bpm_step: readNumber("device_bpm_step", 1.0),
+      beat_led_color: readValue("device_beat_led_color")?.value || "#1EFF78",
+    },
+    available_serial_ports: config?.available_serial_ports || [],
+  };
+}
+
+function createRotaryDisplayCard(instance, config, options = {}) {
+  const isNew = Boolean(options.isNew);
+  const card = document.createElement("section");
+  card.className = "midi-adapter-card rotary-display-card";
+  card.dataset.instanceName = instance.name || "";
+  if (isNew) {
+    card.dataset.isNew = "true";
   }
-  if (rotarySerialPort) {
-    rotarySerialPort.value = config.serial_port || "";
-  }
-  if (rotarySerialBaud) {
-    rotarySerialBaud.value = config.serial_baud ?? 115200;
-  }
-  if (rotaryFeedbackHost) {
-    rotaryFeedbackHost.value = config.feedback_host || "";
-  }
-  if (rotaryFeedbackPort) {
-    rotaryFeedbackPort.value = config.feedback_port ?? 9001;
-  }
-  if (rotaryDeviceTransport) {
-    rotaryDeviceTransport.value = device.transport || "both";
-  }
-  if (rotaryWifiEnabled) {
-    rotaryWifiEnabled.checked = Boolean(device.wifi_enabled);
-  }
-  if (rotaryWifiSsid) {
-    rotaryWifiSsid.value = device.wifi_ssid || "";
-  }
-  if (rotaryWifiPass) {
-    rotaryWifiPass.value = device.wifi_pass || "";
-    rotaryWifiPass.type = "password";
-  }
-  if (rotaryWifiPassToggle) {
-    rotaryWifiPassToggle.textContent = "Show";
-    rotaryWifiPassToggle.setAttribute("aria-pressed", "false");
-    rotaryWifiPassToggle.setAttribute("aria-label", "Show password");
-  }
-  if (rotaryDeviceHost) {
-    rotaryDeviceHost.value = device.host || "midijuggler.local";
-  }
-  if (rotaryDeviceMdnsHostname) {
-    rotaryDeviceMdnsHostname.value = device.mdns_hostname || "";
-  }
-  if (rotaryDevicePort) {
-    rotaryDevicePort.value = device.port ?? 9000;
-  }
-  if (rotaryDeviceListenPort) {
-    rotaryDeviceListenPort.value = device.listen_port ?? 9001;
-  }
-  if (rotaryPulseEnabled) {
-    rotaryPulseEnabled.checked = Boolean(device.pulse_enabled);
-  }
-  if (rotaryBpmStep) {
-    rotaryBpmStep.value = device.bpm_step ?? 1.0;
-  }
-  if (rotaryBeatLedColor) {
-    rotaryBeatLedColor.value = device.beat_led_color || "#1EFF78";
-  }
-  if (rotaryPushStatus) {
-    const push = config.push || {};
-    const pending = push.push_pending ? "push pending" : "in sync";
-    const hostUsesSerial =
-      push.host_uses_serial ??
-      (config.transport === "serial" || config.transport === "both");
-    if (hostUsesSerial) {
-      const connected = push.serial_connected ? "connected" : "not connected";
-      rotaryPushStatus.textContent = `Serial ${connected}; ${pending}`;
-    } else if (push.push_pending) {
-      const usb = push.serial_connected ? "USB connected" : "USB not connected";
-      rotaryPushStatus.textContent = `Host OSC; ${usb}; ${pending}`;
-    } else {
-      rotaryPushStatus.textContent = `Host OSC; ${pending}`;
+
+  const accordion = createAdapterInstanceAccordion(
+    instance.name ? `Encoder ${instance.name}` : isNew ? "New encoder" : "Encoder",
+  );
+  const { body, title } = accordion;
+
+  const actions = document.createElement("div");
+  actions.className = "midi-adapter-card-actions";
+
+  const pushButton = document.createElement("button");
+  pushButton.type = "button";
+  pushButton.className = "rotary-display-push";
+  pushButton.textContent = "Push config now";
+  pushButton.addEventListener("click", () => {
+    const payload = collectRotaryDisplayInstanceFrom(card, config);
+    if (rotaryDisplayMessage) {
+      rotaryDisplayMessage.textContent = `pushing ${payload.name}...`;
     }
+    fetch("/api/rotary-display/push", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ name: payload.name }),
+    })
+      .then(async (response) => {
+        if (!response.ok) {
+          throw new Error(await response.text());
+        }
+        return response.json();
+      })
+      .then((updated) => {
+        renderRotaryDisplayConfig(updated);
+        const push = updated.push_result || Object.values(updated.push_results || {})[0];
+        if (push?.pushed) {
+          showRotaryDisplayMessage(updated, "config pushed to device");
+        } else if (push?.reason) {
+          const detail = push.failed_command ? ` (${push.failed_command})` : "";
+          rotaryDisplayMessage.textContent = `push failed: ${push.reason}${detail}`;
+        } else {
+          rotaryDisplayMessage.textContent = "push failed";
+        }
+      })
+      .catch((error) => {
+        if (rotaryDisplayMessage) {
+          rotaryDisplayMessage.textContent = `error: ${error.message}`;
+        }
+      });
+  });
+  actions.appendChild(pushButton);
+
+  const deleteButton = document.createElement("button");
+  deleteButton.type = "button";
+  deleteButton.className = "midi-adapter-delete";
+  deleteButton.textContent = "Delete";
+  deleteButton.addEventListener("click", () => {
+    card.remove();
+  });
+  actions.appendChild(deleteButton);
+  accordion.summary.appendChild(actions);
+
+  const nameField = createTextField("Instance name", "name", instance.name || "");
+  bindAdapterInstanceTitle(title, nameField.querySelector("input"), { isNew });
+  body.appendChild(nameField);
+
+  const enabledLabel = document.createElement("label");
+  enabledLabel.className = "inline-field";
+  const enabledInput = document.createElement("input");
+  enabledInput.type = "checkbox";
+  enabledInput.dataset.field = "enabled";
+  enabledInput.checked = Boolean(instance.enabled);
+  enabledLabel.append(enabledInput, document.createTextNode(" Enabled"));
+  body.appendChild(enabledLabel);
+
+  const hostGrid = document.createElement("div");
+  hostGrid.className = "form-grid";
+  const transportField = document.createElement("label");
+  transportField.textContent = "Host transport ";
+  const transportSelect = document.createElement("select");
+  transportSelect.dataset.field = "transport";
+  for (const value of ["osc", "serial", "both"]) {
+    const option = document.createElement("option");
+    option.value = value;
+    option.textContent = value.toUpperCase();
+    option.selected = (instance.transport || "osc") === value;
+    transportSelect.appendChild(option);
+  }
+  transportField.appendChild(transportSelect);
+  hostGrid.appendChild(transportField);
+  hostGrid.appendChild(
+    createSelectField(
+      "USB serial port",
+      "serial_port",
+      rotarySerialPortChoices(config, instance.serial_port || ""),
+      "id",
+      "label",
+      instance.serial_port || "",
+      "Select USB port",
+    ),
+  );
+  hostGrid.appendChild(
+    createNumberField("Serial baud", "serial_baud", instance.serial_baud ?? 115200, 1, null, 1),
+  );
+  hostGrid.appendChild(createTextField("Feedback host", "feedback_host", instance.feedback_host || ""));
+  hostGrid.appendChild(
+    createNumberField("Feedback port", "feedback_port", instance.feedback_port ?? 9001, 1, 65535, 1),
+  );
+  body.appendChild(hostGrid);
+
+  const deviceFieldset = document.createElement("fieldset");
+  const legend = document.createElement("legend");
+  legend.textContent = "Device config (pushed over serial)";
+  deviceFieldset.appendChild(legend);
+  const deviceGrid = document.createElement("div");
+  deviceGrid.className = "form-grid";
+  const device = instance.device || {};
+  const deviceTransportField = document.createElement("label");
+  deviceTransportField.textContent = "Device transport ";
+  const deviceTransportSelect = document.createElement("select");
+  deviceTransportSelect.dataset.field = "device_transport";
+  for (const value of ["both", "serial", "wifi"]) {
+    const option = document.createElement("option");
+    option.value = value;
+    option.textContent = value.charAt(0).toUpperCase() + value.slice(1);
+    option.selected = (device.transport || "both") === value;
+    deviceTransportSelect.appendChild(option);
+  }
+  deviceTransportField.appendChild(deviceTransportSelect);
+  deviceGrid.appendChild(deviceTransportField);
+
+  const wifiEnabledLabel = document.createElement("label");
+  wifiEnabledLabel.className = "inline-field";
+  const wifiEnabledInput = document.createElement("input");
+  wifiEnabledInput.type = "checkbox";
+  wifiEnabledInput.dataset.field = "device_wifi_enabled";
+  wifiEnabledInput.checked = Boolean(device.wifi_enabled);
+  wifiEnabledLabel.append(wifiEnabledInput, document.createTextNode(" WiFi enabled"));
+  deviceGrid.appendChild(wifiEnabledLabel);
+  deviceGrid.appendChild(createTextField("WiFi SSID", "device_wifi_ssid", device.wifi_ssid || ""));
+
+  const wifiPassField = createTextField("WiFi password", "device_wifi_pass", device.wifi_pass || "");
+  const wifiPassInput = wifiPassField.querySelector("input");
+  if (wifiPassInput) {
+    wifiPassInput.type = "password";
+  }
+  deviceGrid.appendChild(wifiPassField);
+  deviceGrid.appendChild(createTextField("OSC host", "device_host", device.host || "midijuggler.local"));
+  deviceGrid.appendChild(
+    createTextField("mDNS hostname", "device_mdns_hostname", device.mdns_hostname || ""),
+  );
+  deviceGrid.appendChild(createNumberField("OSC port", "device_port", device.port ?? 9000, 1, 65535, 1));
+  deviceGrid.appendChild(
+    createNumberField("Listen port", "device_listen_port", device.listen_port ?? 9001, 1, 65535, 1),
+  );
+
+  const pulseEnabledLabel = document.createElement("label");
+  pulseEnabledLabel.className = "inline-field";
+  const pulseEnabledInput = document.createElement("input");
+  pulseEnabledInput.type = "checkbox";
+  pulseEnabledInput.dataset.field = "device_pulse_enabled";
+  pulseEnabledInput.checked = Boolean(device.pulse_enabled);
+  pulseEnabledLabel.append(pulseEnabledInput, document.createTextNode(" Pulse enabled (TOML only)"));
+  deviceGrid.appendChild(pulseEnabledLabel);
+  deviceGrid.appendChild(
+    createNumberField("BPM step (TOML only)", "device_bpm_step", device.bpm_step ?? 1.0, 0.1, null, 0.1),
+  );
+
+  const colorField = document.createElement("label");
+  colorField.textContent = "Beat LED color ";
+  const colorInput = document.createElement("input");
+  colorInput.type = "color";
+  colorInput.dataset.field = "device_beat_led_color";
+  colorInput.value = device.beat_led_color || "#1EFF78";
+  colorField.appendChild(colorInput);
+  deviceGrid.appendChild(colorField);
+  deviceFieldset.appendChild(deviceGrid);
+  body.appendChild(deviceFieldset);
+
+  const pushStatus = document.createElement("p");
+  pushStatus.className = "hint";
+  pushStatus.dataset.role = "push-status";
+  body.appendChild(pushStatus);
+  updateRotaryDisplayPushStatus(card, instance);
+
+  mountAdapterInstanceCard(card, accordion);
+  return card;
+}
+
+function renderRotaryDisplayConfig(config) {
+  rotaryDisplayConfig = config;
+  if (!rotaryDisplayInstances) {
+    return;
+  }
+  rotaryDisplayInstances.replaceChildren();
+  const instances = Array.isArray(config.instances) && config.instances.length
+    ? config.instances
+    : [defaultRotaryDisplayInstance(config)];
+  for (const instance of instances) {
+    rotaryDisplayInstances.appendChild(createRotaryDisplayCard(instance, config));
   }
 }
 
 function rotaryDisplayFormPayload() {
-  return {
-    enabled: Boolean(rotaryEnabled?.checked),
-    transport: rotaryHostTransport?.value || "osc",
-    serial_port: rotarySerialPort?.value.trim() || "",
-    serial_baud: Number(rotarySerialBaud?.value || 115200),
-    feedback_host: rotaryFeedbackHost?.value.trim() || "",
-    feedback_port: Number(rotaryFeedbackPort?.value || 9001),
-    device: {
-      transport: rotaryDeviceTransport?.value || "both",
-      wifi_enabled: Boolean(rotaryWifiEnabled?.checked),
-      wifi_ssid: rotaryWifiSsid?.value.trim() || "",
-      wifi_pass: rotaryWifiPass?.value || "",
-      host: rotaryDeviceHost?.value.trim() || "midijuggler.local",
-      mdns_hostname: rotaryDeviceMdnsHostname?.value.trim() || "",
-      port: Number(rotaryDevicePort?.value || 9000),
-      listen_port: Number(rotaryDeviceListenPort?.value || 9001),
-      pulse_enabled: Boolean(rotaryPulseEnabled?.checked),
-      bpm_step: Number(rotaryBpmStep?.value || 1.0),
-      beat_led_color: rotaryBeatLedColor?.value || "#1EFF78",
-    },
-  };
+  const deleted = [...(rotaryDisplayConfig?.deleted || [])];
+  const instances = rotaryDisplayInstances
+    ? [...rotaryDisplayInstances.querySelectorAll(".rotary-display-card")].map((card) =>
+        collectRotaryDisplayInstanceFrom(card, rotaryDisplayConfig || {}),
+      )
+    : [];
+  return { instances, deleted };
 }
 
 function showRotaryDisplayMessage(config, fallbackMessage) {
@@ -8178,16 +8365,20 @@ function showRotaryDisplayMessage(config, fallbackMessage) {
     return;
   }
   if (config?.restart_required) {
-    rotaryDisplayMessage.textContent = "saved; restart service to apply serial port changes";
+    rotaryDisplayMessage.textContent =
+      "saved; restart service to apply encoder instance or serial port changes";
     return;
   }
   if (config?.persisted === false) {
     rotaryDisplayMessage.textContent = `saved for runtime only: ${config.persist_error || fallbackMessage}`;
     return;
   }
-  const push = config?.push_result;
+  const pushResults = config?.push_results || {};
+  const pushValues = Object.values(pushResults);
+  const push = config?.push_result || pushValues[0];
   if (push?.pushed) {
-    rotaryDisplayMessage.textContent = "saved and config pushed to device";
+    rotaryDisplayMessage.textContent =
+      pushValues.length > 1 ? "saved and config pushed to devices" : "saved and config pushed to device";
     return;
   }
   if (push?.reason === "serial not connected") {
@@ -8955,19 +9146,19 @@ masterClockForm.addEventListener("submit", (event) => {
     });
 });
 
-rotaryWifiPassToggle?.addEventListener("click", () => {
-  if (!rotaryWifiPass) {
+rotaryDisplayAdd?.addEventListener("click", () => {
+  if (!rotaryDisplayInstances || !rotaryDisplayConfig) {
     return;
   }
-  const show = rotaryWifiPass.type === "password";
-  rotaryWifiPass.type = show ? "text" : "password";
-  rotaryWifiPassToggle.textContent = show ? "Hide" : "Show";
-  rotaryWifiPassToggle.setAttribute("aria-pressed", show ? "true" : "false");
-  rotaryWifiPassToggle.setAttribute("aria-label", show ? "Hide password" : "Show password");
+  const suffix = rotaryDisplayInstances.querySelectorAll(".rotary-display-card").length + 1;
+  const instance = defaultRotaryDisplayInstance(rotaryDisplayConfig);
+  instance.name = `encoder${suffix}`;
+  rotaryDisplayInstances.appendChild(
+    createRotaryDisplayCard(instance, rotaryDisplayConfig, { isNew: true }),
+  );
 });
 
-rotaryDisplayForm?.addEventListener("submit", (event) => {
-  event.preventDefault();
+rotaryDisplaySave?.addEventListener("click", () => {
   if (rotaryDisplayMessage) {
     rotaryDisplayMessage.textContent = "saving...";
   }
@@ -8992,36 +9183,6 @@ rotaryDisplayForm?.addEventListener("submit", (event) => {
       }
       if (rotaryDisplayConfig) {
         renderRotaryDisplayConfig(rotaryDisplayConfig);
-      }
-    });
-});
-
-rotaryPushButton?.addEventListener("click", () => {
-  if (rotaryDisplayMessage) {
-    rotaryDisplayMessage.textContent = "pushing...";
-  }
-  fetch("/api/rotary-display/push", { method: "POST", body: "{}" })
-    .then(async (response) => {
-      if (!response.ok) {
-        throw new Error(await response.text());
-      }
-      return response.json();
-    })
-    .then((config) => {
-      renderRotaryDisplayConfig(config);
-      const push = config.push_result;
-      if (push?.pushed) {
-        showRotaryDisplayMessage(config, "config pushed to device");
-      } else if (push?.reason) {
-        const detail = push.failed_command ? ` (${push.failed_command})` : "";
-        rotaryDisplayMessage.textContent = `push failed: ${push.reason}${detail}`;
-      } else {
-        rotaryDisplayMessage.textContent = "push failed";
-      }
-    })
-    .catch((error) => {
-      if (rotaryDisplayMessage) {
-        rotaryDisplayMessage.textContent = `error: ${error.message}`;
       }
     });
 });

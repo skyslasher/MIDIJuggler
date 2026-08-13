@@ -97,6 +97,7 @@ class RotaryDisplayDeviceConfig:
 
 @dataclass(frozen=True)
 class RotaryDisplayConfig:
+    name: str = "default"
     enabled: bool = False
     transport: str = "osc"
     feedback_host: str = ""
@@ -138,14 +139,32 @@ class AppConfig:
     adapters: dict[str, AdapterConfig] = field(default_factory=dict)
     devices: dict[str, DeviceConfig] = field(default_factory=dict)
     master_clock: MasterClockConfig = field(default_factory=MasterClockConfig)
-    rotary_display: RotaryDisplayConfig = field(default_factory=RotaryDisplayConfig)
+    rotary_displays: tuple[RotaryDisplayConfig, ...] = field(
+        default_factory=lambda: (RotaryDisplayConfig(),)
+    )
     bandhelper: BandHelperConfig = field(default_factory=BandHelperConfig)
     gamepi: GamePiConfig = field(default_factory=GamePiConfig)
     connections: list[ConnectionSpec] = field(default_factory=list)
     load_issues: tuple[str, ...] = ()
 
+    @property
+    def rotary_display(self) -> RotaryDisplayConfig:
+        if self.rotary_displays:
+            return self.rotary_displays[0]
+        return RotaryDisplayConfig()
+
 
 DEFAULT_ADAPTERS = ("osc", "midi", "rtp_midi", "gpio", "hid", "wing_native")
+ROTARY_DISPLAY_MODULE = "rotary_display"
+
+
+def rotary_display_instance_id(config: RotaryDisplayConfig) -> str:
+    name = config.name.strip()
+    if not name or name == "default":
+        return ROTARY_DISPLAY_MODULE
+    return f"{ROTARY_DISPLAY_MODULE}:{name}"
+
+
 MULTI_INSTANCE_ADAPTERS = ("osc", "midi", "rtp_midi", "hid", "wing_native")
 LEGACY_USB_MIDI_KIND = "usb_midi"
 
@@ -179,7 +198,7 @@ def load_config(path: str | Path) -> AppConfig:
         adapters=config.adapters,
         devices=config.devices,
         master_clock=config.master_clock,
-        rotary_display=config.rotary_display,
+        rotary_displays=config.rotary_displays,
         bandhelper=config.bandhelper,
         gamepi=config.gamepi,
         connections=config.connections,
@@ -384,21 +403,27 @@ def save_runtime_config(path: str | Path, runtime: RuntimeConfig) -> None:
     temp_path.replace(config_path)
 
 
-def save_rotary_display_config(path: str | Path, config: RotaryDisplayConfig) -> None:
-    """Persist rotary display host and device config in a TOML config file."""
+def save_rotary_displays_config(
+    path: str | Path,
+    displays: tuple[RotaryDisplayConfig, ...] | list[RotaryDisplayConfig],
+) -> None:
+    """Persist rotary display instances in a TOML config file."""
 
     config_path = Path(path)
-    text = config_path.read_text(encoding="utf-8")
-    text = _replace_toml_section(text, "[rotary_display]", _format_rotary_display_section(config))
-    text = _replace_toml_section(
-        text,
-        "[rotary_display.device]",
-        _format_rotary_display_device_section(config.device),
-    )
+    text = _remove_rotary_display_sections(config_path.read_text(encoding="utf-8"))
+    ordered = list(displays)
+    if ordered:
+        text = text.rstrip() + "\n\n" + _format_rotary_displays_section(ordered)
 
     temp_path = config_path.with_suffix(config_path.suffix + ".tmp")
     temp_path.write_text(text, encoding="utf-8")
     temp_path.replace(config_path)
+
+
+def save_rotary_display_config(path: str | Path, config: RotaryDisplayConfig) -> None:
+    """Persist rotary display host and device config in a TOML config file."""
+
+    save_rotary_displays_config(path, (config,))
 
 
 def save_bandhelper_config(path: str | Path, config: BandHelperConfig) -> None:
@@ -868,7 +893,7 @@ def parse_config(raw: dict[str, Any], *, strict: bool = True) -> AppConfig:
     )
     devices = normalize_device_libraries(devices, adapters)
     master_clock = _parse_master_clock(raw.get("master_clock", {}))
-    rotary_display = _parse_rotary_display(raw.get("rotary_display", {}))
+    rotary_displays = _parse_rotary_displays(raw)
     bandhelper = _parse_bandhelper(raw.get("bandhelper", {}))
     gamepi = _parse_gamepi(raw.get("gamepi", {}))
     connections = _parse_connections(raw.get("connections", []), issues)
@@ -886,7 +911,7 @@ def parse_config(raw: dict[str, Any], *, strict: bool = True) -> AppConfig:
         adapters=adapters,
         devices=devices,
         master_clock=master_clock,
-        rotary_display=rotary_display,
+        rotary_displays=rotary_displays,
         bandhelper=bandhelper,
         gamepi=gamepi,
         connections=connections,
@@ -986,25 +1011,54 @@ def _parse_master_clock(raw: Any) -> MasterClockConfig:
     )
 
 
-def _parse_rotary_display(raw: Any) -> RotaryDisplayConfig:
+def _parse_rotary_displays(raw: dict[str, Any]) -> tuple[RotaryDisplayConfig, ...]:
+    instances_raw = raw.get("rotary_displays")
+    if instances_raw is not None:
+        if not isinstance(instances_raw, list):
+            raise ValueError("rotary_displays must be an array")
+        if not instances_raw:
+            return (RotaryDisplayConfig(),)
+        return tuple(
+            _parse_rotary_display(item, prefix=f"rotary_displays[{index}]")
+            for index, item in enumerate(instances_raw)
+        )
+
+    legacy = raw.get("rotary_display")
+    if legacy is not None:
+        return (_parse_rotary_display(legacy, default_name="default"),)
+
+    return (RotaryDisplayConfig(),)
+
+
+def _parse_rotary_display(
+    raw: Any,
+    *,
+    prefix: str = "rotary_display",
+    default_name: str = "default",
+) -> RotaryDisplayConfig:
     if raw is None:
         raw = {}
     if not isinstance(raw, dict):
-        raise ValueError("rotary_display must be a table")
+        raise ValueError(f"{prefix} must be a table")
 
-    feedback_port = _as_int(raw.get("feedback_port", 9001), "rotary_display.feedback_port")
+    name = str(raw.get("name", default_name)).strip()
+    if not name:
+        raise ValueError(f"{prefix}.name must not be empty")
+
+    feedback_port = _as_int(raw.get("feedback_port", 9001), f"{prefix}.feedback_port")
     if feedback_port <= 0 or feedback_port > 65535:
-        raise ValueError("rotary_display.feedback_port must be between 1 and 65535")
+        raise ValueError(f"{prefix}.feedback_port must be between 1 and 65535")
 
     transport = str(raw.get("transport", "osc")).strip().lower()
     if transport not in {"osc", "serial", "both"}:
-        raise ValueError("rotary_display.transport must be osc, serial, or both")
+        raise ValueError(f"{prefix}.transport must be osc, serial, or both")
 
-    serial_baud = _as_int(raw.get("serial_baud", 115200), "rotary_display.serial_baud")
+    serial_baud = _as_int(raw.get("serial_baud", 115200), f"{prefix}.serial_baud")
     if serial_baud <= 0:
-        raise ValueError("rotary_display.serial_baud must be positive")
+        raise ValueError(f"{prefix}.serial_baud must be positive")
 
     return RotaryDisplayConfig(
+        name=name,
         enabled=bool(raw.get("enabled", False)),
         transport=transport,
         feedback_host=str(raw.get("feedback_host", "")).strip(),
@@ -1016,40 +1070,47 @@ def _parse_rotary_display(raw: Any) -> RotaryDisplayConfig:
         ),
         sync_osc_address=str(raw.get("sync_osc_address", "/midijuggler/rotary/sync")),
         beat_osc_address=str(raw.get("beat_osc_address", "/midijuggler/rotary/beat")),
-        device=_parse_rotary_display_device(raw.get("device", {})),
+        device=_parse_rotary_display_device(
+            raw.get("device", {}),
+            prefix=f"{prefix}.device",
+        ),
     )
 
 
-def _parse_rotary_display_device(raw: Any) -> RotaryDisplayDeviceConfig:
+def _parse_rotary_display_device(
+    raw: Any,
+    *,
+    prefix: str = "rotary_display.device",
+) -> RotaryDisplayDeviceConfig:
     if raw is None:
         raw = {}
     if not isinstance(raw, dict):
-        raise ValueError("rotary_display.device must be a table")
+        raise ValueError(f"{prefix} must be a table")
 
     transport = str(raw.get("transport", "both")).strip().lower()
     if transport not in {"serial", "wifi", "both"}:
-        raise ValueError("rotary_display.device.transport must be serial, wifi, or both")
+        raise ValueError(f"{prefix}.transport must be serial, wifi, or both")
 
-    port = _as_int(raw.get("port", 9000), "rotary_display.device.port")
-    listen_port = _as_int(raw.get("listen_port", 9001), "rotary_display.device.listen_port")
+    port = _as_int(raw.get("port", 9000), f"{prefix}.port")
+    listen_port = _as_int(raw.get("listen_port", 9001), f"{prefix}.listen_port")
     for field_name, value in (("port", port), ("listen_port", listen_port)):
         if value <= 0 or value > 65535:
-            raise ValueError(f"rotary_display.device.{field_name} must be between 1 and 65535")
+            raise ValueError(f"{prefix}.{field_name} must be between 1 and 65535")
 
-    bpm_step = _as_float(raw.get("bpm_step", 1.0), "rotary_display.device.bpm_step")
+    bpm_step = _as_float(raw.get("bpm_step", 1.0), f"{prefix}.bpm_step")
     if bpm_step <= 0:
-        raise ValueError("rotary_display.device.bpm_step must be positive")
+        raise ValueError(f"{prefix}.bpm_step must be positive")
 
     host = str(raw.get("host", "midijuggler.local")).strip()
     if not host:
-        raise ValueError("rotary_display.device.host must not be empty")
+        raise ValueError(f"{prefix}.host must not be empty")
 
     from midijuggler.rotary_mdns import normalize_mdns_hostname
 
     mdns_hostname = normalize_mdns_hostname(str(raw.get("mdns_hostname", "")))
     beat_led_color = _normalize_beat_led_color(
         raw.get("beat_led_color", "#1EFF78"),
-        "rotary_display.device.beat_led_color",
+        f"{prefix}.beat_led_color",
     )
 
     return RotaryDisplayDeviceConfig(
@@ -1169,36 +1230,106 @@ def _format_gamepi_section(config: GamePiConfig) -> str:
     )
 
 
-def _format_rotary_display_section(config: RotaryDisplayConfig) -> str:
-    return (
-        "[rotary_display]\n"
-        f"enabled = {_toml_bool(config.enabled)}\n"
-        f"transport = {_toml_string(config.transport)}\n"
-        f"feedback_host = {_toml_string(config.feedback_host)}\n"
-        f"feedback_port = {config.feedback_port}\n"
-        f"serial_port = {_toml_string(config.serial_port)}\n"
-        f"serial_baud = {config.serial_baud}\n"
-        f"hello_osc_address = {_toml_string(config.hello_osc_address)}\n"
-        f"sync_osc_address = {_toml_string(config.sync_osc_address)}\n"
-        f"beat_osc_address = {_toml_string(config.beat_osc_address)}\n\n"
+def _remove_rotary_display_sections(text: str) -> str:
+    lines = text.splitlines()
+    kept: list[str] = []
+    index = 0
+    while index < len(lines):
+        stripped = lines[index].strip()
+        if stripped in {"[rotary_display]", "[rotary_display.device]"}:
+            index += 1
+            while index < len(lines):
+                inner = lines[index].strip()
+                if _is_toml_section_header(inner):
+                    break
+                index += 1
+            continue
+        if stripped == "[[rotary_displays]]":
+            index += 1
+            while index < len(lines):
+                inner = lines[index].strip()
+                if inner == "[[rotary_displays]]":
+                    break
+                if _is_toml_section_header(inner) and inner not in {
+                    "[[rotary_displays]]",
+                    "[rotary_displays.device]",
+                }:
+                    break
+                index += 1
+            continue
+        if stripped == "[rotary_displays.device]":
+            index += 1
+            while index < len(lines):
+                inner = lines[index].strip()
+                if _is_toml_section_header(inner):
+                    break
+                index += 1
+            continue
+        kept.append(lines[index])
+        index += 1
+    return "\n".join(kept).rstrip() + "\n"
+
+
+def _format_rotary_displays_section(displays: list[RotaryDisplayConfig]) -> str:
+    blocks = [_format_rotary_display_instance(config) for config in displays]
+    return "\n\n".join(blocks) + "\n"
+
+
+def _format_rotary_display_instance(config: RotaryDisplayConfig) -> str:
+    lines = [
+        "[[rotary_displays]]",
+        f"name = {_toml_string(config.name)}",
+        f"enabled = {_toml_bool(config.enabled)}",
+        f"transport = {_toml_string(config.transport)}",
+        f"feedback_host = {_toml_string(config.feedback_host)}",
+        f"feedback_port = {config.feedback_port}",
+        f"serial_port = {_toml_string(config.serial_port)}",
+        f"serial_baud = {config.serial_baud}",
+        f"hello_osc_address = {_toml_string(config.hello_osc_address)}",
+        f"sync_osc_address = {_toml_string(config.sync_osc_address)}",
+        f"beat_osc_address = {_toml_string(config.beat_osc_address)}",
+    ]
+    device = config.device
+    lines.extend(
+        [
+            "",
+            "[rotary_displays.device]",
+            f"transport = {_toml_string(device.transport)}",
+            f"wifi_enabled = {_toml_bool(device.wifi_enabled)}",
+            f"wifi_ssid = {_toml_string(device.wifi_ssid)}",
+            f"wifi_pass = {_toml_string(device.wifi_pass)}",
+            f"host = {_toml_string(device.host)}",
+            f"mdns_hostname = {_toml_string(device.mdns_hostname)}",
+            f"port = {device.port}",
+            f"listen_port = {device.listen_port}",
+            f"pulse_enabled = {_toml_bool(device.pulse_enabled)}",
+            f"bpm_step = {device.bpm_step}",
+            f"beat_led_color = {_toml_string(device.beat_led_color)}",
+        ]
     )
+    return "\n".join(lines)
+
+
+def _format_rotary_display_section(config: RotaryDisplayConfig) -> str:
+    return _format_rotary_display_instance(config)
 
 
 def _format_rotary_display_device_section(device: RotaryDisplayDeviceConfig) -> str:
-    return (
-        "[rotary_display.device]\n"
-        f"transport = {_toml_string(device.transport)}\n"
-        f"wifi_enabled = {_toml_bool(device.wifi_enabled)}\n"
-        f"wifi_ssid = {_toml_string(device.wifi_ssid)}\n"
-        f"wifi_pass = {_toml_string(device.wifi_pass)}\n"
-        f"host = {_toml_string(device.host)}\n"
-        f"mdns_hostname = {_toml_string(device.mdns_hostname)}\n"
-        f"port = {device.port}\n"
-        f"listen_port = {device.listen_port}\n"
-        f"pulse_enabled = {_toml_bool(device.pulse_enabled)}\n"
-        f"bpm_step = {device.bpm_step}\n"
-        f"beat_led_color = {_toml_string(device.beat_led_color)}\n\n"
-    )
+    lines = [
+        "[rotary_displays.device]",
+        f"transport = {_toml_string(device.transport)}",
+        f"wifi_enabled = {_toml_bool(device.wifi_enabled)}",
+        f"wifi_ssid = {_toml_string(device.wifi_ssid)}",
+        f"wifi_pass = {_toml_string(device.wifi_pass)}",
+        f"host = {_toml_string(device.host)}",
+        f"mdns_hostname = {_toml_string(device.mdns_hostname)}",
+        f"port = {device.port}",
+        f"listen_port = {device.listen_port}",
+        f"pulse_enabled = {_toml_bool(device.pulse_enabled)}",
+        f"bpm_step = {device.bpm_step}",
+        f"beat_led_color = {_toml_string(device.beat_led_color)}",
+    ]
+    return "\n".join(lines)
 
 
 def _validate_beat_flash_ms(value: Any, field_name: str) -> float:

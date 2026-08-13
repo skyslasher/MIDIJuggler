@@ -123,7 +123,13 @@ def test_effective_connections_skips_rotary_device_feedback_when_module_enabled(
 def test_effective_connections_adds_module_feedback_when_module_enabled() -> None:
     config = parse_config(_config_with_rotary_device(rotary_module_enabled=True))
     connections = effective_connections(config)
-    expected = {(connection.source, connection.target) for connection in rotary_module_feedback_connections()}
+    expected = {
+        (connection.source, connection.target)
+        for connection in rotary_module_feedback_connections(
+            "rotary_display",
+            connection_prefix="rotary-display",
+        )
+    }
     actual = {(connection.source, connection.target) for connection in connections}
     assert expected.issubset(actual)
 

@@ -58,15 +58,34 @@ message advertises the encoder's unique mDNS name (for example
 The device also repeats `hello` every few seconds so MIDIJuggler can connect
 after boot.
 
-Set a unique name per encoder in `[rotary_display.device]`:
+Set a unique name per encoder in `[rotary_displays.device]`:
 
 ```toml
-[rotary_display.device]
+[[rotary_displays]]
+name = "stage-left"
+enabled = true
+serial_port = "/dev/ttyACM0"
+
+[rotary_displays.device]
 mdns_hostname = "rotary-stage-left"
 ```
 
 Leave `mdns_hostname` empty to auto-generate from the WiFi MAC
 (`rotary-a1b2c3.local`).
+
+## Multiple encoders
+
+Configure several USB-connected encoders in the Web UI (**Configuration → Rotary
+Display**) or in TOML with repeated `[[rotary_displays]]` tables. Each instance
+needs a unique `name` and `serial_port`. The UI lists detected USB serial ports
+for selection.
+
+Legacy single-table configs (`[rotary_display]` / `[rotary_display.device]`) are
+still loaded as one instance named `default`. After saving from the Web UI, configs
+are written as `[[rotary_displays]]`.
+
+Adding or removing instances, or changing a `serial_port`, requires a service
+restart.
 
 ## Device → MIDIJuggler commands
 

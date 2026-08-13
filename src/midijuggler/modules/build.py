@@ -94,15 +94,18 @@ def build_module_registry(
     registry.add(MasterClockGenerator(master_clock, store))
     if config.gamepi.enabled:
         registry.add(GamePiBrightnessModule(store, config=config.gamepi))
-    if config.rotary_display.enabled:
-        registry.add(
-            RotaryDisplayModule(
-                store,
-                config.rotary_display,
-                master_clock,
-                bus,
+    if config.rotary_displays:
+        for display in config.rotary_displays:
+            if not display.enabled:
+                continue
+            registry.add(
+                RotaryDisplayModule(
+                    store,
+                    display,
+                    master_clock,
+                    bus,
+                )
             )
-        )
     if config.bandhelper.enabled:
         registry.add(
             BandHelperModule(

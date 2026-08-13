@@ -21,4 +21,6 @@ def is_disconnected_endpoint(endpoint: str) -> bool:
 
 
 def is_reserved_connection_module(module: str) -> bool:
+    if module.startswith("rotary_display:"):
+        return True
     return module in {"clock", "gamepi", "mapping", DISCONNECTED_MODULE, "rotary_display", "song"}

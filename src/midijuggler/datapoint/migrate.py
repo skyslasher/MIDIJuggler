@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from midijuggler.config import AppConfig
+from midijuggler.config import AppConfig, RotaryDisplayConfig, rotary_display_instance_id
 from midijuggler.datapoint.clock_connections import (
     merge_clock_output_connections,
     usable_clock_output_targets,
@@ -44,9 +44,9 @@ def effective_connections(
     merged = merge_clock_output_connections(resolved, output_targets)
     merged = merge_rotary_module_feedback_connections(
         merged,
-        enabled=config.rotary_display.enabled,
+        displays=config.rotary_displays,
     )
-    if config.rotary_display.enabled:
+    if any(display.enabled for display in config.rotary_displays):
         merged = merge_rotary_display_connections(
             merged,
             config.devices,

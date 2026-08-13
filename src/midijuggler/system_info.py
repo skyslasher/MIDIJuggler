@@ -529,6 +529,40 @@ def list_midi_ports() -> list[dict[str, str]]:
     return parse_aconnect_ports(_aconnect_list("-l"))
 
 
+def list_serial_ports() -> list[dict[str, str]]:
+    """Return available USB serial devices for rotary encoder configuration."""
+
+    ports: list[dict[str, str]] = []
+    try:
+        from serial.tools import list_ports
+    except ImportError:
+        list_ports = None
+
+    if list_ports is not None:
+        for port in list_ports.comports():
+            device = str(port.device or "").strip()
+            if not device:
+                continue
+            description = str(port.description or "").strip()
+            label = f"{device} ({description})" if description else device
+            ports.append({"id": device, "label": label})
+
+    if ports:
+        return ports
+
+    import glob
+
+    for pattern in (
+        "/dev/ttyACM*",
+        "/dev/ttyUSB*",
+        "/dev/cu.usbmodem*",
+        "/dev/cu.usbserial*",
+    ):
+        for path in sorted(glob.glob(pattern)):
+            ports.append({"id": path, "label": path})
+    return ports
+
+
 def list_click_wavs(directory: str | Path = "/etc/midijuggler") -> list[dict[str, str]]:
     wav_dir = Path(directory)
     try:

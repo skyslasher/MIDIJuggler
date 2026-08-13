@@ -13,7 +13,7 @@ from collections.abc import Callable
 from dataclasses import replace
 from typing import Any
 
-from midijuggler.config import RotaryDisplayConfig
+from midijuggler.config import RotaryDisplayConfig, rotary_display_instance_id
 from midijuggler.datapoint.store import DataPointStore
 from midijuggler.datapoint.types import (
     DataPointDirection,
@@ -37,10 +37,7 @@ from midijuggler.modules.interface.rotary_display.device_config import (
     device_config_fingerprint,
     push_device_config_sync,
 )
-from midijuggler.datapoint.rotary_module_feedback import (
-    ROTARY_FEEDBACK_POINTS,
-    ROTARY_MODULE,
-)
+from midijuggler.datapoint.rotary_module_feedback import ROTARY_FEEDBACK_POINTS
 from midijuggler.modules.interface.rotary_display.protocol import (
     RotarySyncState,
     format_beat_line,
@@ -74,7 +71,7 @@ class RotaryDisplayModule(InterfaceModule):
         master_clock: MasterClock,
         bus: EventBus,
     ) -> None:
-        super().__init__(ROTARY_MODULE, store)
+        super().__init__(rotary_display_instance_id(config), store)
         self.config = config
         self.master_clock = master_clock
         self.bus = bus
@@ -109,7 +106,7 @@ class RotaryDisplayModule(InterfaceModule):
         bpm_max = self.master_clock.config.bpm_max
         specs = [
             DataPointSpec(
-                id=DataPointId(ROTARY_MODULE, "bpm"),
+                id=DataPointId(self.name, "bpm"),
                 value_type=ValueType.FLOAT,
                 direction=DataPointDirection.OUTPUT,
                 label="Feedback BPM",
@@ -119,7 +116,7 @@ class RotaryDisplayModule(InterfaceModule):
                 category="feedback",
             ),
             DataPointSpec(
-                id=DataPointId(ROTARY_MODULE, "running"),
+                id=DataPointId(self.name, "running"),
                 value_type=ValueType.BOOL,
                 direction=DataPointDirection.OUTPUT,
                 label="Feedback transport running",
@@ -127,7 +124,7 @@ class RotaryDisplayModule(InterfaceModule):
                 category="feedback",
             ),
             DataPointSpec(
-                id=DataPointId(ROTARY_MODULE, "click_enabled"),
+                id=DataPointId(self.name, "click_enabled"),
                 value_type=ValueType.BOOL,
                 direction=DataPointDirection.OUTPUT,
                 label="Feedback audio click enabled",
@@ -135,7 +132,7 @@ class RotaryDisplayModule(InterfaceModule):
                 category="feedback",
             ),
             DataPointSpec(
-                id=DataPointId(ROTARY_MODULE, "click_interval"),
+                id=DataPointId(self.name, "click_interval"),
                 value_type=ValueType.FLOAT,
                 direction=DataPointDirection.OUTPUT,
                 label="Feedback click interval (0=whole .. 4=sixteenth)",
@@ -145,7 +142,7 @@ class RotaryDisplayModule(InterfaceModule):
                 category="feedback",
             ),
             DataPointSpec(
-                id=DataPointId(ROTARY_MODULE, "beat"),
+                id=DataPointId(self.name, "beat"),
                 value_type=ValueType.FLOAT,
                 direction=DataPointDirection.OUTPUT,
                 label="Feedback beat pulse",
@@ -163,7 +160,7 @@ class RotaryDisplayModule(InterfaceModule):
             if point == "beat":
                 self.store.subscribe(DataPointId("clock", "beat"), self._on_feedback)
                 continue
-            self.store.subscribe(DataPointId(ROTARY_MODULE, point), self._on_feedback)
+            self.store.subscribe(DataPointId(self.name, point), self._on_feedback)
         self.store.subscribe(DataPointId("clock", "bpm"), self._on_clock_bpm)
         self.bus.subscribe(BpmChangedEvent, self._on_bpm_changed)
         self.bus.subscribe(OscMessageEvent, self._on_osc_message)
@@ -477,8 +474,8 @@ class RotaryDisplayModule(InterfaceModule):
 
     def _current_sync_state(self) -> RotarySyncState:
         snapshot = self.store.snapshot()
-        bpm_value = snapshot.get(str(DataPointId(ROTARY_MODULE, "bpm")))
-        interval_value = snapshot.get(str(DataPointId(ROTARY_MODULE, "click_interval")))
+        bpm_value = snapshot.get(str(DataPointId(self.name, "bpm")))
+        interval_value = snapshot.get(str(DataPointId(self.name, "click_interval")))
 
         bpm = self.master_clock.bpm
         if bpm_value is not None and bpm_value.get("float_value") is not None:

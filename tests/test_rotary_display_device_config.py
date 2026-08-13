@@ -119,7 +119,8 @@ def test_save_rotary_display_config_writes_device_section(tmp_path) -> None:
     )
     save_rotary_display_config(config_file, config.rotary_display)
     saved = config_file.read_text(encoding="utf-8")
-    assert "[rotary_display.device]" in saved
+    assert "[[rotary_displays]]" in saved
+    assert "[rotary_displays.device]" in saved
     assert 'wifi_pass = "secret"' in saved
     assert 'beat_led_color = "#AABBCC"' in saved
     assert 'serial_port = "/dev/ttyACM0"' in saved

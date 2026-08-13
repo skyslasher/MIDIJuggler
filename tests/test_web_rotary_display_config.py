@@ -4,7 +4,7 @@ from pathlib import Path
 import pytest
 
 from midijuggler.clock import ClockBpmTracker
-from midijuggler.config import load_config, parse_config
+from midijuggler.config import load_config, parse_config, rotary_display_instance_id
 from midijuggler.datapoint.store import DataPointStore
 from midijuggler.eventbus import EventBus
 from midijuggler.master_clock import MasterClock
@@ -12,7 +12,7 @@ from midijuggler.modules.interface.rotary_display.module import RotaryDisplayMod
 from midijuggler.web.server import WebInterface
 
 
-def test_rotary_display_config_payload_includes_device_section() -> None:
+def test_rotary_display_config_payload_includes_instances() -> None:
     config = parse_config(
         {
             "rotary_display": {
@@ -35,11 +35,14 @@ def test_rotary_display_config_payload_includes_device_section() -> None:
         MasterClock(config.master_clock, EventBus()),
     )
     payload = interface.rotary_display_config_payload()
-    assert payload["enabled"] is True
-    assert payload["serial_port"] == "/dev/ttyACM0"
-    assert payload["device"]["host"] == "midijuggler.local"
-    assert payload["device"]["wifi_pass"] == "secret"
-    assert payload["device"]["beat_led_color"] == "#FF4400"
+    assert len(payload["instances"]) == 1
+    instance = payload["instances"][0]
+    assert instance["enabled"] is True
+    assert instance["serial_port"] == "/dev/ttyACM0"
+    assert instance["device"]["host"] == "midijuggler.local"
+    assert instance["device"]["wifi_pass"] == "secret"
+    assert instance["device"]["beat_led_color"] == "#FF4400"
+    assert "available_serial_ports" in payload
 
 
 def test_apply_rotary_display_config_persists_and_updates_module(
@@ -86,18 +89,26 @@ def test_apply_rotary_display_config_persists_and_updates_module(
     result = asyncio.run(
         interface.apply_rotary_display_config(
             {
-                "device": {
-                    "host": "192.168.1.20",
-                    "wifi_pass": "new-pass",
-                }
+                "instances": [
+                    {
+                        "name": "default",
+                        "enabled": True,
+                        "transport": "serial",
+                        "serial_port": "/dev/ttyACM0",
+                        "device": {
+                            "host": "192.168.1.20",
+                            "wifi_pass": "new-pass",
+                        },
+                    }
+                ]
             }
         )
     )
 
     saved = load_config(config_file)
     assert result["persisted"] is True
-    assert saved.rotary_display.device.host == "192.168.1.20"
-    assert saved.rotary_display.device.wifi_pass == "new-pass"
+    assert saved.rotary_displays[0].device.host == "192.168.1.20"
+    assert saved.rotary_displays[0].device.wifi_pass == "new-pass"
     assert push_calls == [True]
     assert module.config.device.host == "192.168.1.20"
 
@@ -149,7 +160,13 @@ def test_apply_rotary_display_config_host_transport_switch_enables_osc(
     result = asyncio.run(
         interface.apply_rotary_display_config(
             {
-                "transport": "osc",
+                "instances": [
+                    {
+                        "name": "default",
+                        "transport": "osc",
+                        "serial_port": "/dev/ttyACM0",
+                    }
+                ]
             }
         )
     )
@@ -157,3 +174,26 @@ def test_apply_rotary_display_config_host_transport_switch_enables_osc(
     assert result["persisted"] is True
     assert enable_calls == [True]
     assert module.config.transport == "osc"
+
+
+def test_parse_multiple_rotary_displays() -> None:
+    config = parse_config(
+        {
+            "rotary_displays": [
+                {
+                    "name": "main",
+                    "enabled": True,
+                    "serial_port": "/dev/ttyACM0",
+                },
+                {
+                    "name": "side",
+                    "enabled": True,
+                    "serial_port": "/dev/ttyACM1",
+                },
+            ]
+        }
+    )
+    assert len(config.rotary_displays) == 2
+    assert config.rotary_displays[0].name == "main"
+    assert config.rotary_displays[1].serial_port == "/dev/ttyACM1"
+    assert rotary_display_instance_id(config.rotary_displays[1]) == "rotary_display:side"
