@@ -100,6 +100,7 @@ class RotaryDisplayModule(InterfaceModule):
         self._use_serial = config.transport in {"serial", "both"}
         self._feedback_registration_handler: Callable[[str, int], None] | None = None
         self._osc_hello_event = asyncio.Event()
+        self._mdns_discover_task: asyncio.Task[None] | None = None
 
     def datapoints(self) -> list[DataPointSpec]:
         bpm_min = self.master_clock.config.bpm_min
@@ -169,6 +170,11 @@ class RotaryDisplayModule(InterfaceModule):
         self._apply_configured_feedback_target()
         if self._use_osc and not self.config.feedback_host.strip():
             await self._discover_rotary_feedback_via_mdns()
+            if self.running and not self._feedback_host:
+                self._mdns_discover_task = asyncio.create_task(
+                    self._rediscover_rotary_feedback(),
+                    name="rotary-mdns-discover",
+                )
         if self._use_osc and self._feedback_host and self._feedback_port > 0:
             await self._prime_feedback_host_ip(self._feedback_host)
             await self._send_sync(force=True)
@@ -206,6 +212,18 @@ class RotaryDisplayModule(InterfaceModule):
             service.hostname,
             service.port,
         )
+
+    async def _rediscover_rotary_feedback(self) -> None:
+        """Keep browsing until a display associates. WiFi often comes up after boot."""
+
+        while self.running and not self._feedback_host and not self.config.feedback_host.strip():
+            await asyncio.sleep(8)
+            if not self.running or self._feedback_host or self.config.feedback_host.strip():
+                return
+            await self._discover_rotary_feedback_via_mdns()
+            if self._use_osc and self._feedback_host and self._feedback_port > 0:
+                await self._send_sync(force=True)
+                return
 
     def set_feedback_registration_handler(
         self,
@@ -268,6 +286,11 @@ class RotaryDisplayModule(InterfaceModule):
             )
 
     async def stop(self) -> None:
+        if self._mdns_discover_task is not None:
+            self._mdns_discover_task.cancel()
+            with contextlib.suppress(asyncio.CancelledError):
+                await self._mdns_discover_task
+            self._mdns_discover_task = None
         self.master_clock.unregister_beat_pulse_listener(self._on_transport_beat_pulse)
         await self._stop_serial()
         self._reset_beat_udp_socket()
