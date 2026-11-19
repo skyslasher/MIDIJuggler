@@ -358,6 +358,19 @@ class AlsaClickPlayer:
         self._playback_device = ""
         self._playback_period_frames = _PLAYBACK_PERIOD_FRAMES
 
+    def _recover_pcm_xrun(self, pcm: Any) -> None:
+        """Return an underrun PCM to SETUP so the same click can be written again.
+
+        Hardware and dmix devices enter XRUN after a click period drains. The
+        next ``snd_pcm_writei`` then returns -EPIPE (-32) and does not play
+        those samples. Discarding that write drops every other click.
+        """
+
+        drop = getattr(pcm, "drop", None)
+        if callable(drop):
+            with contextlib.suppress(Exception):
+                drop()
+
     def _write_period(self, pcm: Any, wav: WavPlaybackData, period_frames: int) -> None:
         frame_bytes = wav.channels * wav.sample_width
         if frame_bytes <= 0:
@@ -365,11 +378,16 @@ class AlsaClickPlayer:
         data = _build_exact_period_buffer(wav.frames, frame_bytes, period_frames)
         offset = 0
         period_bytes = period_frames * frame_bytes
+        xrun_retried = False
         while offset < len(data):
             chunk = data[offset : offset + period_bytes]
             written = pcm.write(chunk)
             if isinstance(written, int):
                 if written < 0:
+                    if not xrun_retried and _is_pcm_xrun_errno(written):
+                        xrun_retried = True
+                        self._recover_pcm_xrun(pcm)
+                        continue
                     raise self._alsaaudio.ALSAAudioError(f"PCM write failed with {written}")
                 if written > 0:
                     offset += written * frame_bytes
@@ -515,7 +533,30 @@ def _alsaaudio_available() -> bool:
     return True
 
 
+# snd_pcm_writei returns negative errno. pyalsaaudio sometimes passes that
+# through as an integer instead of raising "Broken pipe".
+_PCM_EAGAIN = -11
+_PCM_EPIPE = -32
+_PCM_ESTRPIPE = -86
+
+
+def _pcm_write_error_code(message: str) -> int | None:
+    prefix = "PCM write failed with "
+    if not message.startswith(prefix):
+        return None
+    try:
+        return int(message[len(prefix) :].strip())
+    except ValueError:
+        return None
+
+
+def _is_pcm_xrun_errno(code: int) -> bool:
+    return code in {_PCM_EPIPE, _PCM_ESTRPIPE}
+
+
 def _is_pcm_try_again(message: str) -> bool:
+    if _pcm_write_error_code(message) == _PCM_EAGAIN:
+        return True
     lowered = message.casefold()
     return (
         "resource temporarily unavailable" in lowered
@@ -538,6 +579,9 @@ def _is_missing_audio_device_error(message: str) -> bool:
 
 
 def _is_recoverable_alsa_pcm_error(message: str) -> bool:
+    code = _pcm_write_error_code(message)
+    if code is not None and _is_pcm_xrun_errno(code):
+        return True
     lowered = message.casefold()
     markers = (
         "bad state",
@@ -545,6 +589,7 @@ def _is_recoverable_alsa_pcm_error(message: str) -> bool:
         "invalid argument",
         "already used",
         "broken pipe",
+        "underrun",
     )
     return any(marker in lowered for marker in markers)
 

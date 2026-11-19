@@ -552,6 +552,77 @@ def test_alsa_click_player_recovers_from_invalid_argument_on_open(
     asyncio.run(player.close())
 
 
+def test_alsa_click_player_retries_pcm_write_epipe(tmp_path, monkeypatch, caplog) -> None:
+    wav_path = tmp_path / "click.wav"
+    _write_wav(wav_path)
+    pcm = FakePcm()
+    attempts = {"count": 0}
+
+    def xrun_once(data: bytes) -> int:
+        attempts["count"] += 1
+        if attempts["count"] == 1:
+            return -32
+        pcm.writes.append(data)
+        return len(data) // pcm.frame_bytes
+
+    pcm.write = xrun_once  # type: ignore[method-assign]
+    monkeypatch.setitem(
+        __import__("sys").modules,
+        "alsaaudio",
+        _fake_alsa_module(pcm_factory=lambda kwargs: pcm),
+    )
+
+    player = AlsaClickPlayer(str(wav_path), audio_device="master_clock")
+    with caplog.at_level(logging.WARNING, logger="midijuggler.click_player"):
+        player.trigger()
+        _wait_for_click_writes(pcm, 1)
+
+    assert attempts["count"] == 2
+    assert pcm.drops == 1
+    assert "PCM write failed with -32" not in caplog.text
+    asyncio.run(player.close())
+
+
+def test_alsa_click_player_reopens_pcm_when_xrun_persists(tmp_path, monkeypatch) -> None:
+    wav_path = tmp_path / "click.wav"
+    _write_wav(wav_path)
+    created: list[FakePcm] = []
+
+    class FakeAlsaModule:
+        PCM_PLAYBACK = "playback"
+        PCM_NONBLOCK = "nonblock"
+        PCM_NORMAL = "normal"
+        PCM_FORMAT_U8 = "u8"
+        PCM_FORMAT_S16_LE = "s16le"
+        PCM_FORMAT_S24_3LE = "s24_3le"
+        PCM_FORMAT_S32_LE = "s32le"
+
+        class ALSAAudioError(OSError):
+            pass
+
+        def PCM(self, **kwargs):
+            pcm = FakePcm()
+            created.append(pcm)
+            if len(created) == 1:
+
+                def always_xrun(data: bytes) -> int:
+                    return -32
+
+                pcm.write = always_xrun  # type: ignore[method-assign]
+            return pcm
+
+    monkeypatch.setitem(__import__("sys").modules, "alsaaudio", FakeAlsaModule())
+
+    player = AlsaClickPlayer(str(wav_path), audio_device="master_clock")
+    player.trigger()
+    _wait_for_pcm_instances(created, 2)
+    _wait_for_click_writes(created[1], 1)
+
+    assert created[0].drops == 1
+    assert created[1].writes
+    asyncio.run(player.close())
+
+
 def test_alsa_click_player_write_loop_retries_zero_length_writes(tmp_path, monkeypatch) -> None:
     wav_path = tmp_path / "click.wav"
     _write_wav(wav_path)
